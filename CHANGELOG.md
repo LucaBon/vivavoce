@@ -57,6 +57,45 @@ project itself renamed to Lyrion. What this means for existing installs:
   answers the same discovery request sent host-by-host — and remembers the
   server in the data volume, so restarts skip discovery entirely.
   `docker compose up` is zero-config everywhere, not just with host networking.
+- **Artist-or-song disambiguation** (free): «metti Beatrice» used to silently
+  play the streaming service's first hit (songs by Beatrice Egli) even though
+  the name could equally mean an artist or a song title. When a bare query also
+  matches an artist name, Vivavoce now asks — «1: Beatrice di Sam Rivers,
+  2: Beatrice di Joe Henderson, 3: l'artista Beatrice Egli. Quale metto?» —
+  on TIDAL/Qobuz and in the local library, searching deep enough to surface
+  same-titled songs the service buries under the artist's own catalog.
+  Unambiguous requests («metti Bohemian Rhapsody») still play instantly, with
+  no extra lookup.
+- **Catalog-aware phonetic correction** (free): the recognizer garbles foreign
+  titles into native-sounding words («Comfortably Numb» → «fatta blina»); the
+  server now indexes how *your* library sounds (artists/albums/titles, rebuilt
+  in background every 6 h) and quietly retries a mangled play command with the
+  sound-alike library name. Corrections run only after the original transcript
+  misses, so nothing changes for queries that already work.
+- **Queue commands** (free): «aggiungi X in coda» / "add X to the queue"
+  appends without touching what's playing, «metti X subito dopo» / "play X
+  next" inserts after the current track, plus «shuffle» / «mescola tutto» and
+  «ripeti tutto» / "repeat" toggles — on streaming and on the local library.
+- **Genre & era on the local library** (free): «metti del jazz» / "play some
+  jazz" plays the library *genre* shuffled; «metti musica anni 80» / "play 80s
+  music" queues the decade (only years actually present). Fully offline; a
+  genre only wins on a confident match, so real titles are never stolen.
+- **Edition awareness** (free): "X" and "X (Live)" are editions of one song,
+  not a "did you mean" — «metti comfortably numb live» plays the Live cut,
+  a plain request no longer asks a useless «1: X, 2: X (Live)».
+- **Choice memory** (free): answering a «quale metto?» once is enough — the
+  next identical ambiguous query plays your usual pick straight away. Stored
+  transparently in `choices.json` in the data dir; a follow-up «metti la N»
+  overrides and re-teaches it.
+- **More like this** (free): «metti qualcosa di simile» / "play something like
+  this" starts the streaming service's Artist Mix/radio for the now-playing
+  artist (top tracks when the service has no mix).
+- **Self-adapting TLS certificate** (free): a container behind NAT can't know
+  the address clients will use, so the SANs of a pre-generated certificate
+  were wrong there unless you set `VIVAVOCE_CERT_HOSTS` by hand. The server
+  now learns each new address from the request's Host header, re-issues the
+  certificate with the reused local CA (installed devices keep trusting) and
+  reloads it live. `VIVAVOCE_CERT_HOSTS` remains as an optional pre-seed.
 
 ### Removed
 

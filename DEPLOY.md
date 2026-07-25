@@ -27,18 +27,20 @@ Everything is configured via environment variables in
 | `VIVAVOCE_PLAYER` | player MAC | first player found |
 | `VIVAVOCE_PORT` | listen port | `8730` |
 | `VIVAVOCE_HTTPS` | `0` = plain HTTP (mic on localhost only) | `1` |
-| `VIVAVOCE_CERT_HOSTS` | extra SANs for the certificate (comma-separated) | — |
+| `VIVAVOCE_CERT_HOSTS` | pre-seeded SANs for the certificate (comma-separated) | learned automatically |
 | `VIVAVOCE_MATERIAL_URL` | URL for the "Material Skin" link | `<lms>/material/` |
 
 > [!NOTE]
 > Auto-discovery works in any network mode: broadcast first, and where broadcast
 > can't leave the container (Docker bridge/NAT) the server falls back to a
 > unicast sweep of the LAN, then remembers the LMS in the volume so restarts are
-> instant. The compose file still uses `network_mode: host` (Linux — fine on
-> NAS/Raspberry Pi) because it also puts the right IPs in the certificate. On
-> **Docker Desktop (Windows/Mac)** or bridge networks, follow the comments in
-> [docker-compose.yml](docker-compose.yml): map the port and put the host's LAN
-> IP in `VIVAVOCE_CERT_HOSTS`.
+> instant. The certificate adapts too: a container behind NAT can't know the
+> address clients will use, so on the first request with a new Host header the
+> server re-issues the certificate with that SAN (same local CA — devices that
+> installed it keep trusting) and reloads it on the fly. The compose file still
+> uses `network_mode: host` (Linux — fine on NAS/Raspberry Pi); on **Docker
+> Desktop (Windows/Mac)** or bridge networks just follow the comments in
+> [docker-compose.yml](docker-compose.yml) and map the port.
 
 ### Home Assistant add-on
 

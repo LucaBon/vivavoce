@@ -21,8 +21,9 @@ nessun cloud, nessun account, i comandi restano nella tua rete.
    come **app vera** (PWA) sul telefono.
 
 Poi parla (o scrivi), in italiano: «metti l'album The Wall», «dalla mia musica
-metti Aerosmith», «quali album ho di Yes» → «metti la 2», «pausa», «alza il
-volume», «cosa sta suonando».
+metti Aerosmith», «quali album ho di Yes» → «metti la 2», «aggiungi Time in
+coda», «metti del jazz», «metti musica anni 80», «metti qualcosa di simile»,
+«pausa», «alza il volume», «cosa sta suonando».
 
 ## Opzioni
 
@@ -32,7 +33,7 @@ volume», «cosa sta suonando».
 | `port` | porta di ascolto | `8730` |
 | `lms_url` | URL di LMS, es. `http://192.168.1.50:9000` | auto-discovery |
 | `player` | MAC del player da comandare | il primo trovato |
-| `cert_hosts` | SAN extra nel certificato (IP/nomi, separati da virgola) | — |
+| `cert_hosts` | SAN pre-caricati nel certificato (IP/nomi, separati da virgola) | imparati da soli al primo accesso |
 | `material_url` | URL del link "Material Skin" nella pagina | `<lms>/material/` |
 
 Il certificato TLS viene generato al **primo avvio** nello storage persistente

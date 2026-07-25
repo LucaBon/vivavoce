@@ -71,6 +71,33 @@ _MINUTE_WORDS.update({
 })
 
 
+# Decade names as the recognizers write them ("anni ottanta" / "the 80s").
+_DECADE_WORDS = {
+    "cinquanta": 1950, "sessanta": 1960, "settanta": 1970, "ottanta": 1980,
+    "novanta": 1990, "duemila": 2000,
+    "fifties": 1950, "sixties": 1960, "seventies": 1970, "eighties": 1980,
+    "nineties": 1990, "noughties": 2000,
+}
+
+
+def _parse_decade(token):
+    """A spoken decade ('80', "'80s", 'ottanta', 'eighties', '1980') -> its
+    starting year, or None when the token isn't a decade (routing falls
+    through: 'play beatles music' must not become an era request)."""
+    t = (token or "").strip().lower().lstrip("'’")
+    if t in _DECADE_WORDS:
+        return _DECADE_WORDS[t]
+    m = re.match(r"^(\d{2,4})s?$", t)
+    if not m:
+        return None
+    n = int(m.group(1))
+    if n % 10 != 0:
+        return None
+    if n < 100:
+        return 1900 + n
+    return n if 1900 <= n <= 2020 else None
+
+
 def _parse_minutes(tail):
     """A spoken duration ('30 minuti', "mezz'ora", 'an hour') -> minutes, or
     None when the tail isn't a duration (then the phrase wasn't a sleep
@@ -136,6 +163,34 @@ PATTERNS = {
                      r"|l['’]?\s*artista"
                      r"|(?:tutte\s+le\s+|le\s+|i\s+)?(?:canzoni|brani)\s+"
                      r"(?:di|dei|degli|delle|del|della|dell['’]))\s+(.+)$"),
+        # Queue: "aggiungi/metti in coda X" or "aggiungi/metti X in coda";
+        # "dopo questa metti X" / "metti X (subito) dopo" inserts next.
+        # Anchored, so titles containing "coda" still play normally.
+        "queue_add": _c(r"^(?:aggiungi|metti)\s+in\s+coda\s+(.+)$"
+                        r"|^(?:aggiungi|metti)\s+(.+?)\s+(?:alla|in)\s+coda\s*$"),
+        "queue_next": _c(r"^dopo\s+quest[ao]\s+(?:metti|riproduci|suona)\s+(.+)$"
+                         r"|^(?:metti|riproduci|suona)\s+(.+?)\s+"
+                         r"(?:subito\s+dopo|dopo\s+quest[ao])\s*$"),
+        "shuffle_on": _c(r"^(?:attiva|metti|accendi)\s+(?:l[oa]\s+)?"
+                         r"(?:shuffle|riproduzione\s+casuale|casuale)\s*$"
+                         r"|^shuffle\s*$|^mescola(?:\s+(?:tutto|la\s+musica))?\s*$"),
+        "shuffle_off": _c(r"^(?:disattiva|togli|spegni)\s+(?:l[oa]\s+)?"
+                          r"(?:shuffle|riproduzione\s+casuale|casuale)\s*$"
+                          r"|^shuffle\s+off\s*$"),
+        "repeat_on": _c(r"^(?:attiva|metti|accendi)\s+(?:la\s+)?(?:ripetizione|loop)\s*$"
+                        r"|^ripeti\s+(?:tutto|la\s+coda|la\s+playlist)\s*$"),
+        "repeat_off": _c(r"^(?:disattiva|togli|spegni)\s+(?:la\s+)?"
+                         r"(?:ripetizione|loop)\s*$|^non\s+ripetere\s*$"),
+        # "More like this": anchored full phrases, so a song called "Simile"
+        # is still searchable.
+        "similar": _c(r"^(?:metti|riproduci|suona)?\s*(?:qualcosa\s+(?:di\s+)?simile"
+                      r"|musica\s+simile|(?:altra\s+)?musica\s+come\s+questa"
+                      r"|qualcosa\s+come\s+quest[ao]|ancora\s+musica\s+cos[iì])\s*$"),
+        # Era: "metti musica anni 80 / anni ottanta". The captured token must
+        # parse as a decade (see _parse_decade) or routing falls through.
+        "decade": _c(r"^(?:metti|riproduci|suona|fai\s+partire)?\s*"
+                     r"(?:un\s+po'?\s+di\s+)?(?:la\s+)?(?:musica|canzoni|brani)?\s*"
+                     r"(?:degli\s+|dei\s+|gli\s+|le\s+)?anni\s+['’]?([a-z0-9]+)\s*$"),
         "generic_play": _c(r"(?:riproduci|metti|suona|fai partire|voglio ascoltare)\s+(.+)$"),
         # Kid-safe: anchored on the verb at string start, so a title containing
         # the word ("metti Block Rockin' Beats") still routes as a play.
@@ -188,6 +243,30 @@ PATTERNS = {
         "artist": _c(r"(?:play|put\s+on|start)\s+"
                      r"(?:(?:some\s+|the\s+)?music\s+(?:by|of|from)|something\s+by"
                      r"|the\s+artist|(?:all\s+)?(?:the\s+)?(?:songs?|tracks?)\s+by)\s+(.+)$"),
+        # Queue: "queue (up) X", "add/put X to the queue", "play X next",
+        # "after this play X". Anchored so titles containing the words survive.
+        "queue_add": _c(r"^queue\s+(?:up\s+)?(.+)$"
+                        r"|^(?:add|put)\s+(.+?)\s+(?:to|in|into|on)\s+the\s+queue\s*$"),
+        "queue_next": _c(r"^after\s+this(?:\s+one)?\s+play\s+(.+)$"
+                         r"|^play\s+(.+?)\s+(?:up\s+)?next\s*$"),
+        "shuffle_on": _c(r"^(?:turn\s+on|enable|put\s+on|start)\s+shuffle\s*$"
+                         r"|^shuffle(?:\s+on)?\s*$"
+                         r"|^shuffle\s+(?:the\s+)?(?:music|queue|everything)\s*$"),
+        "shuffle_off": _c(r"^(?:turn\s+off|disable|stop)\s+shuffl(?:e|ing)\s*$"
+                          r"|^shuffle\s+off\s*$|^no\s+shuffle\s*$"),
+        "repeat_on": _c(r"^(?:turn\s+on|enable)\s+repeat\s*$|^repeat(?:\s+on)?\s*$"
+                        r"|^repeat\s+(?:the\s+)?(?:queue|playlist|all)\s*$"
+                        r"|^loop\s+(?:this|it|the\s+queue)\s*$"),
+        "repeat_off": _c(r"^(?:turn\s+off|disable|stop)\s+repeat(?:ing)?\s*$"
+                         r"|^repeat\s+off\s*$|^no\s+repeat\s*$"),
+        "similar": _c(r"^(?:play\s+)?(?:something|more)\s+like\s+this(?:\s+one)?\s*$"
+                      r"|^(?:play\s+)?similar\s+music\s*$|^more\s+of\s+this\s*$"),
+        # Era: "play 80s music", "music from the 80s", "eighties music". The
+        # captured token must parse as a decade or routing falls through
+        # ("play beatles music" is not an era request).
+        "decade": _c(r"^(?:play|put\s+on|start)?\s*(?:some\s+)?"
+                     r"(?:music\s+(?:from|of)\s+)?(?:the\s+)?"
+                     r"([a-z0-9]+?s)(?:\s+music)?\s*$"),
         "generic_play": _c(r"(?:play|put\s+on|start|listen\s+to"
                            r"|i\s+want\s+to\s+(?:hear|listen\s+to))\s+(.+)$"),
         # Suffix form: "put Dark Side of the Moon on"
@@ -239,8 +318,19 @@ def _source_suffix(name) -> str:
 
 class Router:
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
-                 kidsafe=None, client_id="default", multiroom=None):
+                 kidsafe=None, client_id="default", multiroom=None,
+                 entity_index=None, prefs=None):
         self.lms = lms
+        # Phonetic correction (P1): an EntityIndex over the user's own library
+        # names. handle_many appends catalog-corrected variants of mangled
+        # transcripts as extra alternatives. None disables the feature.
+        self.entity_index = entity_index
+        # Choice memory (P5): a PrefsStore remembering which candidate answered
+        # each 'did you mean'. None disables the feature.
+        self.prefs = prefs
+        # The query of the last open 'did you mean', so the follow-up pick can
+        # be remembered under it.
+        self._ask_query = None
         # Multi-room (Pro): an injected feature object (pro/multiroom.py) with
         # a narrow contract — extract_room(text, lang) and pro_ok(). Like
         # kid-safe, None (the default) disables the feature entirely; the
@@ -290,19 +380,61 @@ class Router:
     def _remember(self, result: dict, src=None) -> str:
         self.candidates = result["candidates"] or None
         self._opened = bool(self.candidates)
+        self._ask_query = None  # a plain list is not a 'did you mean'
         if self.candidates:
             self.cand_source = src
         return result["speech"]
 
     def _played(self, result, src=None):
         """Remember any 'did you mean' candidates a play result carried (and
-        their source), so a follow-up 'metti la N' / name-pick can choose."""
+        their source), so a follow-up 'metti la N' / name-pick can choose.
+        A remembered previous answer for the same query (choice memory, P5)
+        short-circuits the ask and plays that candidate directly."""
         cands = getattr(result, "candidates", None)
         if cands:
+            if getattr(result, "kind", None) == "disambiguate":
+                auto = self._recalled_choice(result, cands, src)
+                if auto is not None:
+                    return auto
+                self._ask_query = getattr(result, "query", None)
             self.candidates = cands
             self.cand_source = src
             self._opened = True
         return result
+
+    def _recalled_choice(self, result, cands, src):
+        """The remembered answer to this 'did you mean', played — or ``None``
+        to ask as usual. The candidates stay stored, so 'metti la 2' right
+        after still overrides a stale memory (and re-recording updates it)."""
+        query = getattr(result, "query", None)
+        if not self.prefs or not query:
+            return None
+        remembered = self.prefs.get(query)
+        if not remembered:
+            return None
+        want = actions._normalize(remembered)
+        for i, cand in enumerate(cands):
+            if actions._normalize(cand.get("title")) == want:
+                chosen = actions.choose_from(self.lms, cands, i + 1,
+                                             guard=self._guard)
+                if getattr(chosen, "ok", False):
+                    self.candidates = cands
+                    self.cand_source = src
+                    self._ask_query = query  # a follow-up pick re-records
+                    return self._tag(chosen, _source_suffix(src))
+                break
+        return None
+
+    def _record_choice(self, result, title):
+        """Remember which candidate answered the open 'did you mean' (P5)."""
+        if not (self.prefs and self._ask_query and title
+                and getattr(result, "ok", False)):
+            return
+        try:
+            self.prefs.put(self._ask_query, title)
+        except Exception:
+            pass  # losing one memory must never break the pick itself
+        self._ask_query = None
 
     def _resolve(self, arg: str, stream_fn, source: str):
         guard = self._guard
@@ -322,6 +454,26 @@ class Router:
             self._tag(stream_fn(stream, arg, guard=guard), _source_suffix(name)),
             name)
 
+    def _queue(self, arg: str, next_up: bool, source: str):
+        """Queue a song from the right source, mirroring :meth:`_resolve`:
+        'local' queues from the library, 'auto' prefers a confident local hit,
+        anything else queues from the streaming service."""
+        guard = self._guard
+        if source == "local":
+            return self._played(
+                actions.queue_local(self.lms, arg, next_up=next_up, guard=guard),
+                "local")
+        if source == "auto":
+            res = actions.queue_local(self.lms, arg, next_up=next_up, guard=guard)
+            if getattr(res, "ok", False):
+                return self._played(res, "local")
+        name = self._stream_name(source)
+        return self._played(
+            self._tag(actions.queue_song(self.lms.for_service(name), arg,
+                                         next_up=next_up, guard=guard),
+                      _source_suffix(name)),
+            name)
+
     def handle_many(self, alternatives, source: str = "tidal", lang: str = "it") -> dict:
         """Try each speech-recognition alternative until one is a hit.
 
@@ -335,6 +487,7 @@ class Router:
         if not alts:
             return {"speech": msg("heard_nothing"), "used": "", "ok": False,
                     "terms": [], "choices": []}
+        alts = self._expand_alts(alts, lang)
         primary = None
         for alt in alts:
             speech = self.handle(alt, source, lang)
@@ -352,6 +505,36 @@ class Router:
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
                 "terms": list(getattr(primary[0], "terms", [])),
                 "choices": self._choices()}
+
+    def _expand_alts(self, alts, lang):
+        """Append catalog-corrected variants of the alternatives (P1).
+
+        The recognizer garbles foreign names into native-sounding words
+        ("Comfortably Numb" -> "fatta blina"); the entity index knows how the
+        user's own library sounds, so a mangled play-command tail gets extra
+        alternatives with the tail replaced by the sound-alike library name.
+        Corrections go AFTER the originals: a query that already hits keeps
+        its exact behaviour, and trying a miss is side-effect-free."""
+        index = self.entity_index
+        if index is None or not index.size():
+            return alts
+        P = PATTERNS.get(lang) or PATTERNS["it"]
+        out = list(alts)
+        seen = {(a or "").strip().lower() for a in alts}
+        for alt in alts:
+            t = re.sub(r"[.!?…]+$", "", (alt or "").strip()).strip()
+            m = P["generic_play"].search(t)
+            if not m and "generic_play_suffix" in P:
+                m = P["generic_play_suffix"].match(t)
+            if not m:
+                continue
+            for _score, name in index.suggest(m.group(1).strip()):
+                corrected = t[: m.start(1)] + name + t[m.end(1):]
+                key = corrected.strip().lower()
+                if key not in seen:
+                    seen.add(key)
+                    out.append(corrected)
+        return out
 
     def _choices(self) -> list:
         """Tappable numbered choices for the web app, but only for a reply that
@@ -484,11 +667,14 @@ class Router:
             if self.cand_player and not self._room_turn:
                 pick_lms = self.lms.for_player(self.cand_player[0])
                 room_suffix = msg("in_room", room=self.cand_player[1])
-            return self._tag(
+            res = self._tag(
                 self._tag(actions.choose_from(pick_lms, self.candidates, number,
                                               guard=self._guard),
                           _source_suffix(self.cand_source)),
                 room_suffix)
+            if self.candidates and 1 <= number <= len(self.candidates):
+                self._record_choice(res, self.candidates[number - 1].get("title"))
+            return res
 
         # 3) explicit source override phrases (win over the selector). Service
         # phrases route only the generic play_song; album/artist follow the
@@ -507,6 +693,35 @@ class Router:
                 res = actions.play_song(self.lms.for_service(service),
                                         m.group(1).strip(), guard=self._guard)
                 return self._played(self._tag(res, _source_suffix(service)), service)
+
+        # 3b) queue / shuffle / repeat / similar / era. All anchored full-phrase
+        # patterns, so song titles containing these words still route as plays.
+        if P["shuffle_off"].match(t):
+            return actions.set_shuffle(self.lms, False)
+        if P["shuffle_on"].match(t):
+            return actions.set_shuffle(self.lms, True)
+        if P["repeat_off"].match(t):
+            return actions.set_repeat(self.lms, False)
+        if P["repeat_on"].match(t):
+            return actions.set_repeat(self.lms, True)
+        if P["similar"].match(t):
+            name = self._stream_name(source)
+            return self._tag(
+                actions.play_similar(self.lms.for_service(name), guard=self._guard),
+                _source_suffix(name))
+        m = P["queue_next"].match(t)
+        if m:
+            return self._queue((m.group(1) or m.group(2)).strip(), True, source)
+        m = P["queue_add"].match(t)
+        if m:
+            return self._queue((m.group(1) or m.group(2)).strip(), False, source)
+        m = P["decade"].match(t)
+        if m:
+            decade = _parse_decade(m.group(1))
+            if decade:  # not a decade -> fall through, it's a title/artist
+                return self._played(
+                    actions.play_decade(self.lms, decade, guard=self._guard),
+                    "local")
 
         # 4) lists that open a numbered choice
         m = P["albums_list"].search(t)
@@ -538,6 +753,8 @@ class Router:
                     guard=self._guard
                 )
                 if chosen is not None:
+                    terms = list(getattr(chosen, "terms", []))
+                    self._record_choice(chosen, terms[0] if terms else None)
                     return self._tag(
                         self._tag(chosen, _source_suffix(self.cand_source)),
                         room_suffix)
@@ -561,11 +778,20 @@ class Router:
         if m:
             return self._resolve(m.group(1).strip(), actions.play_artist, source)
 
-        # 8) generic play — streaming or local per selector
+        # 8) generic play — streaming or local per selector. When the library
+        # is in play (local/auto), a genre name wins first: "metti del jazz"
+        # plays the jazz GENRE shuffled, not a song called "del jazz".
+        # play_genre only hits on a confident genre match, so real titles
+        # fall through untouched.
         m = P["generic_play"].search(t)
         if not m and "generic_play_suffix" in P:  # EN: "put Dark Side on"
             m = P["generic_play_suffix"].match(t)
         if m:
-            return self._resolve(m.group(1).strip(), actions.play_song, source)
+            arg = m.group(1).strip()
+            if source in ("local", "auto"):
+                res = actions.play_genre(self.lms, arg, guard=self._guard)
+                if getattr(res, "ok", False):
+                    return self._played(res, "local")
+            return self._resolve(arg, actions.play_song, source)
 
         return msg("router_fallback")

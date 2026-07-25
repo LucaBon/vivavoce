@@ -125,35 +125,46 @@ def _load_or_create_ca(out_dir: str):
     return ca_cert, ca_key, True
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="Genera la CA locale (riusata) e il certificato del server "
-                    "vocale firmato da quella.")
-    ap.add_argument("--out", default=ROOT, metavar="DIR",
-                    help="directory dove scrivere ca.pem/cert.pem/key.pem "
-                         "(default: la radice del repo)")
-    ap.add_argument("--hosts", default="", metavar="H1,H2,...",
-                    help="SAN aggiuntivi, separati da virgola: IP o nomi DNS "
-                         "(es. l'IP LAN dell'host quando si genera in un container)")
-    args = ap.parse_args()
+def cert_sans(cert_path: str) -> list:
+    """The SAN entries of an existing certificate, as plain strings
+    (IPs and DNS names alike). Empty list if the file has none."""
+    with open(cert_path, "rb") as f:
+        cert = x509.load_pem_x509_certificate(f.read())
+    try:
+        ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    except x509.ExtensionNotFound:
+        return []
+    return [str(g.value) for g in ext.value]
 
-    os.makedirs(args.out, exist_ok=True)
-    cert_path = os.path.join(args.out, "cert.pem")
-    key_path = os.path.join(args.out, "key.pem")
 
-    ca_cert, ca_key, ca_created = _load_or_create_ca(args.out)
+def issue_cert(out_dir: str, extra_hosts=()) -> tuple:
+    """Create/reuse the local CA and (re)issue ``cert.pem``/``key.pem`` in
+    ``out_dir``, with localhost + this machine's IPv4s + ``extra_hosts`` as
+    SANs. Returns ``(san_strings, ca_created)``.
+
+    Callable at runtime too: the server re-issues the certificate when it
+    learns a new address from a client's Host header (a container behind NAT
+    can't know the host's LAN IP in advance). The CA is reused, so devices
+    that installed ``ca.pem`` keep trusting the new certificate.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    cert_path = os.path.join(out_dir, "cert.pem")
+    key_path = os.path.join(out_dir, "key.pem")
+
+    ca_cert, ca_key, ca_created = _load_or_create_ca(out_dir)
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    ips = local_ipv4s()
-    hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
-    sans = [x509.DNSName("localhost")]
-    for ip in ips:
-        try:
-            sans.append(x509.IPAddress(ipaddress.ip_address(ip)))
-        except ValueError:
-            pass
-    for host in hosts:
+    names = ["localhost"] + local_ipv4s() + [
+        h.strip() for h in extra_hosts if h and h.strip()]
+    sans, seen = [], set()
+    for host in names:
+        if host in seen:
+            continue
+        seen.add(host)
+        if host == "localhost":
+            sans.append(x509.DNSName(host))
+            continue
         try:
             sans.append(x509.IPAddress(ipaddress.ip_address(host)))
         except ValueError:
@@ -204,10 +215,28 @@ def main() -> int:
     with open(cert_path, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
+    return [str(g.value) for g in sans], ca_created
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Genera la CA locale (riusata) e il certificato del server "
+                    "vocale firmato da quella.")
+    ap.add_argument("--out", default=ROOT, metavar="DIR",
+                    help="directory dove scrivere ca.pem/cert.pem/key.pem "
+                         "(default: la radice del repo)")
+    ap.add_argument("--hosts", default="", metavar="H1,H2,...",
+                    help="SAN aggiuntivi, separati da virgola: IP o nomi DNS "
+                         "(es. l'IP LAN dell'host quando si genera in un container)")
+    args = ap.parse_args()
+
+    sans, ca_created = issue_cert(args.out, args.hosts.split(","))
+
     print(f"CA locale: {os.path.join(args.out, 'ca.pem')}"
           + ("  (creata ora)" if ca_created else "  (riusata)"))
-    print(f"Creati:\n  {cert_path}\n  {key_path}")
-    print("SAN (host validi):", ", ".join(ips + hosts + ["localhost"]))
+    print(f"Creati:\n  {os.path.join(args.out, 'cert.pem')}\n  "
+          f"{os.path.join(args.out, 'key.pem')}")
+    print("SAN (host validi):", ", ".join(sans))
     print("Suggerimento: installa ca.pem sul telefono/PC (una volta sola) per il "
           "lucchetto verde e l'app installabile; il server la offre su /ca.pem.")
     return 0

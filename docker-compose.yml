@@ -27,16 +27,17 @@ services:
       # VIVAVOCE_PLAYER: "aa:bb:cc:dd:ee:ff"       # se omesso: il primo player trovato
       # VIVAVOCE_MATERIAL_URL: "http://192.168.1.50:9000/material/"
       # VIVAVOCE_HTTPS: "0"                        # solo HTTP: mic solo su localhost
-      # VIVAVOCE_CERT_HOSTS: "192.168.1.20"        # SAN extra nel certificato (vedi sotto)
+      # VIVAVOCE_CERT_HOSTS: "192.168.1.20"        # SAN pre-caricati nel certificato
+      #   (di norma inutile: il certificato impara da solo ogni indirizzo con
+      #    cui viene aperto, al primo accesso, e lo ricorda nel volume)
 
     # --- Docker Desktop (Windows/Mac) o reti bridge ---------------------------
     # `network_mode: host` lì non espone davvero la LAN: commentalo e decommenta
-    # `ports`. L'auto-discovery funziona lo stesso: al broadcast (che il bridge
-    # blocca) segue uno sweep unicast della rete, e l'LMS trovato viene
-    # ricordato nel volume per i riavvii. Utile solo VIVAVOCE_CERT_HOSTS con
-    # l'IP LAN dell'host: il container vede il proprio IP interno, non quello
-    # che userà il telefono, e senza il SAN giusto l'avviso del certificato
-    # ricompare.
+    # `ports`. Non serve configurare altro: l'auto-discovery funziona lo stesso
+    # (al broadcast che il bridge blocca segue uno sweep unicast, e l'LMS
+    # trovato viene ricordato nel volume), e il certificato impara da solo
+    # l'indirizzo con cui apri la pagina (header Host) riemettendosi con la
+    # stessa CA al primo accesso.
     # ports:
     #   - "8730:8730"
 

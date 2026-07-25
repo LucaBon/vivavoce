@@ -106,6 +106,8 @@ on the page (the whole UI follows):
 > «metti Comfortably Numb dei Pink Floyd» · «metti l'album The Wall» ·
 > «dalla mia musica metti Aerosmith» · «da qobuz metti Time» ·
 > «quali album ho di Yes» → «metti la 2» ·
+> «aggiungi Time in coda» · «metti Money subito dopo» · «shuffle» ·
+> «metti del jazz» · «metti musica anni 80» · «metti qualcosa di simile» ·
 > «pausa» · «alza il volume» · «cosa sta suonando» ·
 > «spegni tra 30 minuti» · «metti Time in cucina»
 
@@ -135,7 +137,7 @@ There's a link to Material Skin right in the page for when you want to browse vi
 ## Tests
 
 ```bash
-uv run pytest        # 489 tests, no network — uses a simulated LMS transport
+uv run pytest        # 497 tests, no network — uses a simulated LMS transport
 ```
 
 Validate against a real LMS (read-only, or `--play` to actually play):

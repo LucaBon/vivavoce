@@ -36,9 +36,22 @@ LIST_LIMIT = 5
 # confirmation ("Riproduco X di Y") is the safety net instead.
 # CONFIDENT_SCORE is used by tools/probe_lms.py to flag, in a dry run, whether any
 # title strongly matches the query.
+# The one exception to "trust TIDAL silently": a bare query that also matches an
+# ARTIST name ("metti Beatrice" — the artist Beatrice Egli vs a song called
+# Beatrice) is a real ambiguity the title scores can't see, so there we ask.
 CONFIDENT_SCORE = 0.72
 EXACT_SCORE = 0.98   # normalized-equal title -> override TIDAL and play this one
 DIDYOUMEAN_LIMIT = 3  # read back at most the top 3 when asking "which one?"
+# A name must match an artist at least this well before we treat the request as
+# possibly meaning that artist. Whole-word containment ("beatrice" in "Beatrice
+# Egli") scores 0.95, while multi-word song titles against unrelated artist
+# names stay far below, so 0.9 catches bare names without firing on real titles.
+ARTIST_ASK = 0.9
+# How many search results to scan. TIDAL buries songs that share their TITLE
+# with a popular artist's NAME deep under that artist's catalog (live check:
+# 'Beatrice' by Sam Rivers sits at #27, Joe Henderson at #46, behind ~25
+# Beatrice Egli/Dillon tracks), so 20 would miss every exact-title candidate.
+SEARCH_DEPTH = 50
 
 
 class ActionResult(str):
@@ -50,7 +63,8 @@ class ActionResult(str):
     from. ``handle_many`` uses ``.ok`` instead of sniffing the ``"Non "`` prefix.
     """
 
-    def __new__(cls, speech, *, ok=True, candidates=None, kind=None, terms=None):
+    def __new__(cls, speech, *, ok=True, candidates=None, kind=None, terms=None,
+                query=None):
         obj = super().__new__(cls, speech)
         obj.ok = ok
         obj.candidates = list(candidates or [])
@@ -59,6 +73,9 @@ class ActionResult(str):
         # speech, so the web client can read those parts in their own language
         # while the Italian frame is read by an Italian voice.
         obj.terms = [t for t in (terms or []) if t]
+        # The query a 'did you mean' asks about, so the router can remember
+        # which answer the user picks (choice memory) keyed by this text.
+        obj.query = query
         return obj
 
 
@@ -66,15 +83,17 @@ def _score(query: Optional[str], text: Optional[str]) -> float:
     """Similarity of a candidate ``text`` to the requested ``query`` in 0..1,
     accent/case-insensitive. Rewards the query's words all appearing in the
     candidate (so 'time' matches 'Time (Remastered)') and blends in a character
-    ratio for near-misses/typos."""
+    ratio for near-misses/typos. Words are compared punctuation-free — spoken
+    queries never carry it, titles do ('Beatrice (feat. Annalisa)' must contain
+    'annalisa', not 'annalisa)')."""
     q = _normalize(query)
     t = _normalize(text)
     if not q or not t:
         return 0.0
     if q == t:
         return 1.0
-    q_tokens = set(q.split())
-    t_tokens = set(t.split())
+    q_tokens = set(re.findall(r"\w+", q))
+    t_tokens = set(re.findall(r"\w+", t))
     containment = len(q_tokens & t_tokens) / len(q_tokens) if q_tokens else 0.0
     ratio = difflib.SequenceMatcher(None, q, t).ratio()
     score = 0.6 * containment + 0.4 * ratio
@@ -111,19 +130,23 @@ LOCAL_CONFIDENT = CONFIDENT_SCORE  # a local match must clearly fit the query to
 
 
 def _label(cand: Dict) -> str:
-    """'Title di Artist' for a candidate, else just the title."""
+    """'Title di Artist' for a candidate, else just the title; an artist
+    candidate reads as "l'artista Name"."""
     title = cand.get("title") or msg("generic_track")
+    if cand.get("_kind") == "artist":
+        return msg("label_artist", name=title)
     artist = cand.get("artist")
     return msg("label_title_artist", title=title, artist=artist) if artist else title
 
 
 def _dedup_by_title_artist(cands: List[Dict]) -> List[Dict]:
-    """Collapse candidates with the same (title, artist) — several editions of the
-    same recording shouldn't look like an ambiguous choice."""
+    """Collapse candidates with the same (kind, title, artist) — several editions
+    of the same recording shouldn't look like an ambiguous choice, but the song
+    "Beatrice" and the artist "Beatrice" must stay two options."""
     seen = set()
     out = []
     for c in cands:
-        key = (_normalize(c.get("title")), _normalize(c.get("artist")))
+        key = (c.get("_kind"), _normalize(c.get("title")), _normalize(c.get("artist")))
         if key in seen:
             continue
         seen.add(key)
@@ -133,6 +156,49 @@ def _dedup_by_title_artist(cands: List[Dict]) -> List[Dict]:
 
 def _ndistinct_titles(cands: List[Dict]) -> int:
     return len({_normalize(c.get("title")) for c in cands})
+
+
+# -- edition/version awareness ---------------------------------------------
+# Marker words that distinguish EDITIONS of one recording rather than different
+# songs ("Comfortably Numb" vs "Comfortably Numb (Live)"). Used two ways: to
+# collapse such candidates into one song instead of a useless "did you mean",
+# and to honor an explicitly requested edition ("metti comfortably numb live").
+_VERSION_RE = re.compile(
+    r"\b(?:live|remaster(?:ed|izzat[ao])?|remix(?:ed)?|acoustic|acustic[ao]|"
+    r"unplugged|demo|instrumental|strumentale|karaoke|mono|stereo|deluxe|"
+    r"extended|edit|single|version|versione|radio)\b",
+    re.IGNORECASE,
+)
+
+
+def _version_terms(text: Optional[str]) -> frozenset:
+    return frozenset(m.lower() for m in _VERSION_RE.findall(_normalize(text)))
+
+
+def _version_base(text: Optional[str]) -> str:
+    """The title with edition markers and their leftover punctuation removed:
+    'comfortably numb (live) - remastered' -> 'comfortably numb'."""
+    base = _VERSION_RE.sub(" ", _normalize(text))
+    base = re.sub(r"[^\w\s]+", " ", base)
+    return re.sub(r"\s+", " ", base).strip()
+
+
+def _version_pick(query: Optional[str], cands: List[Dict]) -> Optional[Dict]:
+    """When ``cands`` are all editions of ONE song, the edition the query asks
+    for (or the plain studio one when it names none); ``None`` when the
+    candidates are genuinely different songs and asking is right."""
+    if len({_version_base(c.get("title")) for c in cands}) != 1:
+        return None
+    want = _version_terms(query)
+
+    def affinity(indexed):
+        i, cand = indexed
+        have = _version_terms(cand.get("title"))
+        # Missing requested markers weigh most, unrequested extras next, the
+        # service's own relevance order breaks ties.
+        return (len(want - have), len(have - want), i)
+
+    return min(enumerate(cands), key=affinity)[1]
 
 
 def _did_you_mean(query: Optional[str], cands: List[Dict]) -> ActionResult:
@@ -150,7 +216,55 @@ def _did_you_mean(query: Optional[str], cands: List[Dict]) -> ActionResult:
         if c.get("artist"):
             terms.append(c["artist"])
     speech = msg("didyoumean", query=query, listing=listing)
-    return ActionResult(speech, ok=True, candidates=picks, kind="disambiguate", terms=terms)
+    return ActionResult(speech, ok=True, candidates=picks, kind="disambiguate",
+                        terms=terms, query=query)
+
+
+def _artist_option(lms, query, tracks, exacts, *, guard=None) -> Optional[Dict]:
+    """A choose_from-ready "l'artista Name" candidate when a bare query plausibly
+    means an artist, else None. Gated on evidence already in hand — some returned
+    track is BY an artist matching the query — before paying for the Artists
+    lookup; a self-titled exact hit (the track "Madonna" by Madonna) already IS
+    that artist, so it's not ambiguous. The artist's top tracks are resolved here,
+    as plain URLs, so the later pick plays through any client the router passes."""
+
+    def _hints(t):
+        return _score(query, t.get("artist")) >= ARTIST_ASK
+
+    if not any(_hints(t) for t in tracks) or any(_hints(t) for t in exacts):
+        return None
+    try:
+        # First artist above threshold in the service's own relevance order —
+        # NOT our best score: an obscure act named exactly "Beatrice" must not
+        # shadow Beatrice Egli, and a bare "l'artista Beatrice" read-out
+        # wouldn't even say which one it is.
+        best = next(
+            (c for c in lms.search_artists(query)
+             if not (guard and guard.blocks(c.get("title")))
+             and _score(query, c.get("title")) >= ARTIST_ASK),
+            None,
+        )
+        if best is None:
+            return None
+        urls = [t["url"] for t in lms.artist_tracks(best["id"]) if t.get("url")]
+    except LMSError:
+        return None
+    if not urls:
+        return None
+    return {"title": best["title"], "action": "play_urls", "arg": urls,
+            "_kind": "artist"}
+
+
+def _ask_song_or_artist(query, tracks, artist_opt, guard) -> ActionResult:
+    """Ask "the song X (or Y) or the artist Z?" — up to two distinct songs plus
+    the artist ('Beatrice' exists by Sam Rivers AND Joe Henderson besides the
+    artist Beatrice Egli). Blocked songs drop out for restricted speakers (the
+    artist option is already guard-filtered)."""
+    picks = list(tracks)
+    if guard and guard.restricted:
+        picks = [t for t in picks if not is_blocked(t.get("title"), guard.blocklist)]
+    picks = _dedup_by_title_artist(picks)[: DIDYOUMEAN_LIMIT - 1] + [artist_opt]
+    return _did_you_mean(query, picks)
 
 
 def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
@@ -275,7 +389,7 @@ def play_song(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> Ac
         # Search on the full text (title + artist) — TIDAL's full-text search wants
         # both — then rank/disambiguate using the parsed parts.
         search_text = " ".join(p for p in (title, artist) if p) or title
-        tracks = lms.search_tracks(search_text)
+        tracks = lms.search_tracks(search_text, count=SEARCH_DEPTH)
         if not tracks:
             return ActionResult(msg("no_track_found", title=title), ok=False)
         return _resolve_song(lms, tracks, title, artist, guard=guard)
@@ -295,22 +409,45 @@ def _resolve_song(lms, tracks, title, artist, *, guard=None) -> ActionResult:
         best = max(strong[:DIDYOUMEAN_LIMIT], key=lambda t: _score(artist, t.get("artist")))
         if _score(artist, best.get("artist")) >= CONFIDENT_SCORE:
             return _play_tidal_track(lms, best, title, guard=guard)
+    # Bare query: the name may mean an ARTIST rather than a title ("metti
+    # Beatrice") — nothing else in the request disambiguates, so check.
+    artist_opt = None if artist else _artist_option(lms, title, tracks, exacts, guard=guard)
     # 2) Exact title match -> play TIDAL's top exact (e.g. "Money" over "Money for
-    #    Nothing"). 3) No title match at all -> trust TIDAL's own ranking.
+    #    Nothing") — unless the same name is also an artist -> ask which.
+    # 3) No title match at all -> trust TIDAL's own ranking — unless the query
+    #    matches an artist name -> ask between TIDAL's top song and the artist.
     if exacts:
+        if artist_opt:
+            return _ask_song_or_artist(title, exacts, artist_opt, guard)
         return _play_tidal_track(lms, exacts[0], title, guard=guard)
     if not strong:
+        if artist_opt:
+            return _ask_song_or_artist(title, tracks[:1], artist_opt, guard)
         return _play_tidal_track(lms, tracks[0], title, guard=guard)
     # 4) Several strong partial matches. One song (same title) -> play the top; if
-    #    genuinely different titles -> ask the top 3.
+    #    genuinely different titles -> ask the top 3. A matching artist joins the
+    #    list either way.
     head = strong[:DIDYOUMEAN_LIMIT]
     if guard and guard.restricted:
         head = [t for t in head if not is_blocked(t.get("title"), guard.blocklist)]
     if not head:
+        if artist_opt:
+            return _did_you_mean(title, [artist_opt])
         return ActionResult(msg("no_track_found", title=title), ok=False)
-    if _ndistinct_titles(head) < 2:
+    if _ndistinct_titles(head) < 2 and not artist_opt:
         return _play_tidal_track(lms, head[0], title, guard=guard)
-    return _did_you_mean(title, _dedup_by_title_artist(head))
+    # Titles that differ only by edition markers ("X" vs "X (Live)") are ONE
+    # song: pick the edition the request asks for instead of asking back.
+    if not artist_opt:
+        edition = _version_pick(title, head)
+        if edition is not None:
+            return _play_tidal_track(lms, edition, title, guard=guard)
+    picks = _dedup_by_title_artist(head)
+    if artist_opt:
+        picks = picks[: DIDYOUMEAN_LIMIT - 1] + [artist_opt]
+    if len(picks) < 2:
+        return _play_tidal_track(lms, picks[0], title, guard=guard)
+    return _did_you_mean(title, picks)
 
 
 def _confirm_song(lms, track: Dict, fallback_title: Optional[str]):
@@ -423,6 +560,103 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("playing_playlist", name=name), ok=True, terms=[name])
+
+
+# -- queue semantics (add / play next / shuffle / repeat) -------------------
+def _best_track(tracks: List[Dict], title, artist) -> Dict:
+    """The single best track for a parsed query — same priorities as
+    :func:`_resolve_song` (named artist > exact title > requested edition >
+    service order) but never asks: queueing is low-stakes, a wrong guess is
+    one 'salta' away and the confirmation says what was queued."""
+    exacts = [t for t in tracks if _score(title, t.get("title")) >= EXACT_SCORE]
+    strong = [t for t in tracks if _score(title, t.get("title")) >= CONFIDENT_SCORE]
+    if artist and strong:
+        best = max(strong[:DIDYOUMEAN_LIMIT],
+                   key=lambda t: _score(artist, t.get("artist")))
+        if _score(artist, best.get("artist")) >= CONFIDENT_SCORE:
+            return best
+    if exacts:
+        return exacts[0]
+    if strong:
+        return _version_pick(title, strong[:DIDYOUMEAN_LIMIT]) or strong[0]
+    return tracks[0]
+
+
+def queue_song(lms, query: Optional[str], *, next_up: bool = False,
+               guard: Optional[Guard] = None) -> ActionResult:
+    """Add a song to the queue without touching what's playing — 'aggiungi X
+    in coda' / 'play X next' (``next_up`` inserts right after the current
+    track instead of appending)."""
+    parsed = parse_song_query(query)
+    title, artist = parsed["title"], parsed["artist"]
+    if not title:
+        return ActionResult(msg("ask_title"), ok=False)
+    if guard and guard.blocks(title, artist):
+        return ActionResult(msg("blocked"), ok=False)
+    try:
+        search_text = " ".join(p for p in (title, artist) if p)
+        tracks = lms.search_tracks(search_text, count=SEARCH_DEPTH)
+        if not tracks:
+            return ActionResult(msg("no_track_found", title=title), ok=False)
+        track = _best_track(tracks, title, artist)
+        if guard and guard.blocks(track.get("title")):
+            return ActionResult(msg("blocked"), ok=False)
+        if next_up:
+            lms.insert_url(track["url"])
+        else:
+            lms.add_url(track["url"])
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    name = track.get("title") or title
+    key = "queued_next" if next_up else "queued"
+    return ActionResult(msg(key, name=name), ok=True, terms=[name])
+
+
+def queue_local(lms, query: Optional[str], *, next_up: bool = False,
+                guard: Optional[Guard] = None) -> ActionResult:
+    """Queue a LIBRARY track ('aggiungi X in coda' with the local source).
+    Only a confident title match queues — a loose hit must fall through to
+    the streaming search, like :func:`play_local` does for plays."""
+    parsed = parse_song_query(query)
+    title, artist = parsed["title"], parsed["artist"]
+    if not title:
+        return ActionResult(msg("ask_title"), ok=False)
+    if guard and guard.blocks(title, artist):
+        return ActionResult(msg("blocked"), ok=False)
+    try:
+        cands = lms.local_track_candidates(title)
+        ranked = [(s, c) for s, c in _rank(title, cands) if s >= LOCAL_CONFIDENT]
+        if artist:
+            by_artist = [(s, c) for s, c in ranked
+                         if _score(artist, c.get("artist")) >= CONFIDENT_SCORE]
+            ranked = by_artist or ranked
+        if not ranked:
+            return ActionResult(msg("local_not_found", query=title), ok=False)
+        track = ranked[0][1]
+        if guard and guard.blocks(track.get("title")):
+            return ActionResult(msg("blocked"), ok=False)
+        lms.add_local_track(track["id"], next_up=next_up)
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    name = track.get("title") or title
+    key = "queued_next" if next_up else "queued"
+    return ActionResult(msg(key, name=name), ok=True, terms=[name])
+
+
+def set_shuffle(lms, on: bool) -> ActionResult:
+    try:
+        lms.set_shuffle(1 if on else 0)
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    return ActionResult(msg("shuffle_on" if on else "shuffle_off"), ok=True)
+
+
+def set_repeat(lms, on: bool) -> ActionResult:
+    try:
+        lms.set_repeat(2 if on else 0)  # 2 = repeat the whole queue
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    return ActionResult(msg("repeat_on" if on else "repeat_off"), ok=True)
 
 
 def pause(lms) -> ActionResult:
@@ -544,6 +778,8 @@ def _dispatch_play(lms, candidate: Dict) -> None:
         lms.play_local_artist(arg)
     elif action == "play_track_id":
         lms.play_local_track(arg)
+    elif action == "play_urls":  # streaming artist pick: pre-resolved top tracks
+        lms.play_tracks(arg)
     else:
         lms.play_url(arg or candidate.get("url"))
 
@@ -640,7 +876,8 @@ def play_local(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> A
     the artist category) so a generic word like 'love' never plays an unrelated row;
     an artist query plays the artist, not one of their albums; and when several
     tracks genuinely match, it asks (local rows carry the artist, so the list reads
-    'Love di X, Love di Y')."""
+    'Love di X, Love di Y'). A near-perfect hit in a second category also asks —
+    the track "Beatrice" vs the artist Beatrice Egli."""
     query = _strip_lead_filler(query)
     if not query:
         return ActionResult(msg("ask_query"), ok=False)
@@ -657,8 +894,14 @@ def play_local(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> A
         if not groups:
             return ActionResult(msg("local_not_found", query=query), ok=False)
         groups.sort(key=lambda g: -g[0][0])  # best-scoring category wins
-        winner = [cand for _s, cand in groups[0]]
-        distinct = _dedup_by_title_artist(winner)
+        picks = [cand for _s, cand in groups[0]]
+        # A near-perfect hit in another category is a real ambiguity too — the
+        # track "Beatrice" vs the ARTIST Beatrice Egli — so offer its best row.
+        for other in groups[1:]:
+            score, cand = other[0]
+            if score >= ARTIST_ASK:
+                picks.append(cand)
+        distinct = _dedup_by_title_artist(picks)
         if len(distinct) >= 2:
             return _did_you_mean(query, distinct)
         item = distinct[0]
@@ -703,6 +946,102 @@ def local_albums_list(
         {"title": a["title"], "action": "play_album_id", "arg": a["id"]} for a in albums
     ]
     return {"speech": speech, "candidates": candidates}
+
+
+# -- genre / era (local library) -------------------------------------------
+# "metti del jazz" / "play some jazz": the partitive is filler, the genre name
+# is what's left. Stripped before matching against the library's genre list.
+_GENRE_FILLER = re.compile(
+    r"^(?:un\s+po'?\s+(?:di|del|dello|della)|del|dello|della|dei|degli|delle|"
+    r"some)\s+",
+    re.IGNORECASE,
+)
+
+
+def play_genre(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
+    """Play a library GENRE shuffled ("metti del jazz") — something a cloud
+    assistant can't do on a personal collection. Returns a miss (``ok=False``)
+    when no genre matches confidently, so the router falls through to the
+    normal song search: this never steals real title queries."""
+    query = _GENRE_FILLER.sub("", _strip_lead_filler(query)).strip()
+    if not query:
+        return ActionResult(msg("ask_query"), ok=False)
+    if guard and guard.blocks(query):
+        return ActionResult(msg("blocked"), ok=False)
+    # Stricter than _score on purpose: every requested word must be in the
+    # genre NAME ("rock" -> Rock, "rock and roll" -> Rock & Roll), never the
+    # reverse — the genre "Rock" must not swallow the title query "Rock DJ".
+    q_norm = _normalize(query)
+    q_tokens = set(re.findall(r"\w+", q_norm))
+    try:
+        matches = []
+        for cand in lms.local_genre_candidates(query):
+            t_norm = _normalize(cand.get("title"))
+            t_tokens = set(re.findall(r"\w+", t_norm))
+            if not t_tokens or not q_tokens:
+                continue
+            if q_norm == t_norm:
+                matches.append((0, len(t_tokens), cand))
+            elif q_tokens <= t_tokens:
+                matches.append((1, len(t_tokens), cand))
+        if not matches:
+            return ActionResult(msg("local_not_found", query=query), ok=False)
+        matches.sort(key=lambda m: (m[0], m[1]))
+        genre = matches[0][2]
+        lms.play_local_genre(genre["id"])
+        lms.set_shuffle(1)
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    name = genre["title"] or query
+    return ActionResult(msg("playing_genre", genre=name), ok=True, terms=[name])
+
+
+def play_decade(lms, decade: int, *, guard: Optional[Guard] = None) -> ActionResult:
+    """Play the library's music from one decade shuffled ("musica anni 80").
+    ``decade`` is the starting year (1980). Only years actually present in the
+    library are queued; none -> honest miss."""
+    label = f"{decade % 100:02d}" if decade < 2000 else str(decade)
+    try:
+        years = sorted(y for y in lms.local_years() if decade <= y < decade + 10)
+        if not years:
+            return ActionResult(msg("no_decade_music", decade=label), ok=False)
+        lms.play_local_years(years)
+        lms.set_shuffle(1)
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    return ActionResult(msg("playing_decade", decade=label), ok=True)
+
+
+# -- "more like this" (streaming artist mix / radio) ------------------------
+def play_similar(lms, *, guard: Optional[Guard] = None) -> ActionResult:
+    """Play music similar to the current track: the streaming service's
+    'Artist Mix'/radio node for the now-playing artist, falling back to that
+    artist's top tracks when the service has no mix node."""
+    try:
+        info = lms.now_playing_info()
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    artist = (info or {}).get("artist")
+    if not artist:
+        return ActionResult(msg("similar_no_current"), ok=False)
+    if guard and guard.blocks(artist):
+        return ActionResult(msg("blocked"), ok=False)
+    try:
+        node = lms.find_artist(artist)
+        if node:
+            mix = lms.artist_mix_node(node["id"])
+            if mix:
+                lms.play_browse_item(mix)
+                return ActionResult(msg("playing_similar", artist=artist),
+                                    ok=True, terms=[artist])
+            urls = [t["url"] for t in lms.artist_tracks(node["id"]) if t.get("url")]
+            if urls:
+                lms.play_tracks(urls)
+                return ActionResult(msg("playing_similar", artist=artist),
+                                    ok=True, terms=[artist])
+        return ActionResult(msg("artist_unplayable", artist=artist), ok=False)
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
 
 
 # -- voice-editable blocklist (owner only) --------------------------------

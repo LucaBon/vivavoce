@@ -14,6 +14,7 @@ build/
 # Local config / secrets
 *.env
 config.py
+docker-compose.override.yml
 
 # Local session data
 .claude/

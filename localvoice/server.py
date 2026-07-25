@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import ssl
 import sys
@@ -36,6 +37,8 @@ import discovery  # noqa: E402
 import licensing  # noqa: E402
 from lms import SERVICES, LMSClient, LMSError  # noqa: E402
 from messages import msg  # noqa: E402
+from phonetic import EntityIndex  # noqa: E402
+from prefs_store import PrefsStore  # noqa: E402
 from router import Router  # noqa: E402
 
 def _index_html() -> str:
@@ -121,7 +124,8 @@ def _http_fetch(url: str, timeout: float = 5.0):
 
 def make_handler(lms, material_url: str, services, default_service: str,
                  ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
-                 kidsafe=None, transcriber=None, multiroom=None):
+                 kidsafe=None, transcriber=None, multiroom=None,
+                 cert_learner=None, entity_index=None, prefs=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -148,7 +152,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 r = Router(client_for(key[1]), default_service=default_service,
                            services=tuple(services),
                            kidsafe=kidsafe, client_id=client_id,
-                           multiroom=multiroom)
+                           multiroom=multiroom,
+                           entity_index=entity_index, prefs=prefs)
                 routers[key] = r
             return r
 
@@ -162,6 +167,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
             self.wfile.write(data)
 
         def do_GET(self):
+            if cert_learner:
+                cert_learner.observe(self.headers.get("Host"))
             if self.path in ("/", "/index.html"):
                 page = _index_html().replace("__MATERIAL_URL__", material_url)
                 page = page.replace("__SERVICES__", json.dumps(services))
@@ -426,6 +433,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
             self.wfile.write(data)
 
         def do_POST(self):
+            if cert_learner:
+                cert_learner.observe(self.headers.get("Host"))
             if self.path == "/license":
                 self._activate_license()
                 return
@@ -512,6 +521,66 @@ def _lms_reachable(url: str, timeout: float = 2.0) -> bool:
         return True
     except OSError:
         return False
+
+
+# -- Certificato che impara gli indirizzi --------------------------------------
+# Dentro un container in bridge/NAT il server non può conoscere in anticipo
+# l'indirizzo con cui i client lo raggiungono (vede solo il proprio IP
+# interno), quindi i SAN del certificato sarebbero sempre sbagliati lì. Ma il
+# browser l'indirizzo lo dichiara a ogni richiesta, nell'header Host: alla
+# prima richiesta con un host nuovo riemettiamo il certificato con quel SAN
+# (stessa CA locale: i device che l'hanno installata continuano a fidarsi) e
+# lo ricarichiamo al volo sul contesto TLS — le connessioni successive vedono
+# già il certificato giusto. VIVAVOCE_CERT_HOSTS resta solo come
+# pre-caricamento manuale.
+
+class CertLearner:
+    """Re-issues the TLS certificate when a request's Host header names an
+    address missing from its SANs. Thread-safe; ``observe`` never raises."""
+
+    MAX_HOSTS = 30  # l'header Host è input del client: mai crescita illimitata
+    _HOST_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{0,252}$")
+
+    def __init__(self, cert_path: str, key_path: str, ssl_ctx, port: int):
+        self._cert, self._key = cert_path, key_path
+        self._ctx, self._port = ssl_ctx, port
+        self._lock = threading.Lock()
+        self._make_cert = None
+        self._known = set()
+        try:
+            sys.path.insert(0, os.path.join(ROOT, "tools"))
+            import make_cert
+            self._known = {s.lower() for s in make_cert.cert_sans(cert_path)}
+            self._make_cert = make_cert
+        except Exception as exc:  # cryptography assente o certificato esterno
+            print("Aggiornamento automatico del certificato non attivo "
+                  f"({exc}). SAN extra a mano: tools/make_cert.py --hosts")
+
+    def observe(self, host_header) -> None:
+        if self._make_cert is None or not host_header:
+            return
+        host = host_header.strip().lower()
+        if host.startswith("[") or host.count(":") > 1:
+            return  # IPv6: fuori scopo per i SAN del certificato locale
+        host = host.split(":")[0]
+        if host in self._known or not self._HOST_RE.match(host):
+            return
+        with self._lock:
+            if host in self._known or len(self._known) >= self.MAX_HOSTS:
+                return
+            # Segnato subito come noto: se la riemissione fallisce non va
+            # ritentata a ogni singola richiesta della stessa pagina.
+            self._known.add(host)
+            try:
+                extra = sorted(self._known - {"localhost"})
+                self._make_cert.issue_cert(os.path.dirname(self._cert), extra)
+                self._ctx.load_cert_chain(self._cert, self._key)
+            except Exception as exc:
+                print(f"Impossibile aggiornare il certificato per {host}: {exc}")
+                return
+        print(f"Nuovo indirizzo imparato dal browser: il certificato ora copre "
+              f"anche https://{host}:{self._port} . Se hai installato la CA, "
+              "ricarica la pagina per il lucchetto verde.")
 
 
 # Solo le fasi che meritano una riga: il passaggio allo sweep (il broadcast non
@@ -659,6 +728,25 @@ def main() -> int:
         default_service = services[0]
         print(f"--default-service non tra i servizi attivi: uso {default_service}")
 
+    # Correzione fonetica (P1): l'indice dei nomi della libreria si costruisce
+    # in background (su librerie grandi il pull può richiedere secondi) e si
+    # rinfresca ogni 6 ore; finché è vuoto la correzione è semplicemente
+    # spenta. Le scelte ricordate (P5) vivono nella cartella dati.
+    prefs = PrefsStore(os.path.join(data_dir, "choices.json"))
+    entity_index = EntityIndex()
+
+    def _index_loop():
+        while True:
+            try:
+                entity_index.build(client.local_entity_names())
+                print(f"Indice fonetico della libreria: "
+                      f"{entity_index.size()} nomi.")
+                time.sleep(6 * 3600)
+            except Exception:
+                time.sleep(600)  # LMS momentaneamente giù: riprova tra poco
+
+    threading.Thread(target=_index_loop, daemon=True).start()
+
     material_url = args.material_url or (lms_url.rstrip("/") + "/material/")
     # La CA locale (se make_cert l'ha creata) vive accanto al certificato.
     ca_path = None
@@ -666,20 +754,24 @@ def main() -> int:
         candidate = os.path.join(os.path.dirname(os.path.abspath(args.cert)), "ca.pem")
         if os.path.exists(candidate):
             ca_path = candidate
+    scheme, ctx, cert_learner = "http", None, None
+    if args.cert and args.key:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(args.cert, args.key)
+        scheme = "https"
+        cert_learner = CertLearner(os.path.abspath(args.cert),
+                                   os.path.abspath(args.key), ctx, args.port)
+
     httpd = ThreadingHTTPServer(
         (args.host, args.port),
         make_handler(client, material_url, services, default_service,
                      ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
-                     multiroom=multiroom),
+                     multiroom=multiroom, cert_learner=cert_learner,
+                     entity_index=entity_index, prefs=prefs),
     )
-
-    scheme = "http"
-    if args.cert and args.key:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(args.cert, args.key)
+    if ctx:
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
-        scheme = "https"
 
     # Print the real address to open, not a placeholder. If --host pins a
     # specific interface, show that; otherwise (0.0.0.0) show this PC's LAN IP.
@@ -703,6 +795,9 @@ def main() -> int:
     else:
         print("Microfono disponibile anche dal telefono (HTTPS). Al primo accesso "
               "accetta una volta l'avviso del certificato self-signed.")
+        print("In un container (bridge/NAT) l'indirizzo qui sopra può essere "
+              "quello interno: dal telefono usa l'IP del PC che ospita Docker. "
+              "Il certificato impara i nuovi indirizzi da solo al primo accesso.")
         if ca_path:
             print("Per togliere l'avviso e installare la pagina come app: scarica "
                   f"https://{hosts[0]}:{args.port}/ca.pem sul telefono e installala "

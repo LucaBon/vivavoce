@@ -23,6 +23,7 @@ IT = {
     # -- labels / list read-outs -------------------------------------------
     "generic_track": "brano",
     "label_title_artist": "{title} di {artist}",
+    "label_artist": "l'artista {name}",
     "enum_item": "{n}: {name}",
     "didyoumean": "Ne ho diversi per {query}. {listing}. Quale metto?",
 
@@ -44,6 +45,23 @@ IT = {
     "ask_playlist": "Non ho capito quale playlist. Puoi ripetere?",
     "playlist_not_found": "Non ho trovato la playlist {name}.",
     "playing_playlist": "Riproduco la playlist {name}.",
+
+    # -- queue / shuffle / repeat --------------------------------------------
+    "queued": "Ho aggiunto {name} alla coda.",
+    "queued_next": "Va bene, dopo questa metto {name}.",
+    "shuffle_on": "Riproduzione casuale attivata.",
+    "shuffle_off": "Riproduzione casuale disattivata.",
+    "repeat_on": "Ripetizione attivata.",
+    "repeat_off": "Ripetizione disattivata.",
+
+    # -- genre / era / similar -----------------------------------------------
+    "playing_genre": "Riproduco {genre} dalla tua musica, in ordine casuale.",
+    "playing_decade":
+        "Riproduco la musica degli anni {decade} dalla tua musica, "
+        "in ordine casuale.",
+    "no_decade_music": "Non ho musica degli anni {decade} nella tua libreria.",
+    "playing_similar": "Metto musica simile a {artist}.",
+    "similar_no_current": "Non sta suonando niente: metti prima una canzone.",
 
     # -- transport / info ----------------------------------------------------
     "paused": "In pausa.",
@@ -118,6 +136,7 @@ EN = {
     # -- labels / list read-outs -------------------------------------------
     "generic_track": "track",
     "label_title_artist": "{title} by {artist}",
+    "label_artist": "the artist {name}",
     "enum_item": "{n}: {name}",
     "didyoumean": "I found several for {query}. {listing}. Which one should I play?",
 
@@ -139,6 +158,21 @@ EN = {
     "ask_playlist": "I didn't catch which playlist. Can you repeat?",
     "playlist_not_found": "I couldn't find the playlist {name}.",
     "playing_playlist": "Playing the playlist {name}.",
+
+    # -- queue / shuffle / repeat --------------------------------------------
+    "queued": "Added {name} to the queue.",
+    "queued_next": "Okay, playing {name} after this one.",
+    "shuffle_on": "Shuffle on.",
+    "shuffle_off": "Shuffle off.",
+    "repeat_on": "Repeat on.",
+    "repeat_off": "Repeat off.",
+
+    # -- genre / era / similar -----------------------------------------------
+    "playing_genre": "Playing {genre} from your music, on shuffle.",
+    "playing_decade": "Playing {decade}s music from your library, on shuffle.",
+    "no_decade_music": "I don't have {decade}s music in your library.",
+    "playing_similar": "Playing music similar to {artist}.",
+    "similar_no_current": "Nothing is playing yet — start a song first.",
 
     # -- transport / info ----------------------------------------------------
     "paused": "Paused.",

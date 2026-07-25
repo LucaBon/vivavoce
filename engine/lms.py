@@ -411,24 +411,26 @@ class LMSClient:
                 tracks.append({"url": url, "title": item.get("name")})
         return {"album": album, "tracks": tracks}
 
+    def search_artists(self, query: str, count: int = 5) -> List[Dict[str, Any]]:
+        """All artist matches for a query, in the service's relevance order. The
+        caller scores these against the request (artist-vs-song disambiguation)."""
+        return [
+            {"id": it["id"], "title": it.get("name")}
+            for it in self.category_items(query, "Artists", count)
+            if it.get("id")
+        ]
+
     def find_artist(self, query: str, count: int = 20) -> Optional[Dict[str, Any]]:
-        for item in self.category_items(query, "Artists", count):
-            if item.get("id"):
-                return {"id": item["id"], "title": item.get("name")}
-        return None
+        cands = self.search_artists(query, count)
+        return cands[0] if cands else None
 
     # Artist "outline" nodes are NOT directly playable (verified live on TIDAL:
     # playing them is a no-op). Their music lives in child nodes; we drill the
     # first available of the service's ``artist_children`` to playable URLs.
-    def artist_top_tracks(
-        self, query: str, count: int = 20
-    ) -> Dict[str, Any]:
-        """Return ``{'artist': {...} | None, 'tracks': [{'url','title'}, ...]}``."""
-        artist = self.find_artist(query, count)
-        if not artist:
-            return {"artist": None, "tracks": []}
+    def artist_tracks(self, artist_id: Any, count: int = 20) -> List[Dict[str, Any]]:
+        """Playable tracks under an artist node's first available child."""
         children = self._app_items(
-            "0", str(count), f"item_id:{artist['id']}", "want_url:1"
+            "0", str(count), f"item_id:{artist_id}", "want_url:1"
         )
         by_name = {c["name"]: c["id"] for c in children if c.get("name") and c.get("id")}
         tracks: List[Dict[str, Any]] = []
@@ -444,7 +446,29 @@ class LMSClient:
                     tracks.append({"url": url, "title": item.get("name")})
             if tracks:
                 break
-        return {"artist": artist, "tracks": tracks}
+        return tracks
+
+    def artist_top_tracks(
+        self, query: str, count: int = 20
+    ) -> Dict[str, Any]:
+        """Return ``{'artist': {...} | None, 'tracks': [{'url','title'}, ...]}``."""
+        artist = self.find_artist(query, count)
+        if not artist:
+            return {"artist": None, "tracks": []}
+        return {"artist": artist, "tracks": self.artist_tracks(artist["id"], count)}
+
+    def artist_mix_node(self, artist_id: Any, count: int = 20) -> Optional[str]:
+        """The id of an artist's radio-like child node ('Artist Mix', 'Radio',
+        ...), or ``None``. Playing it gives 'more like this artist' — the
+        service's own similar-music stream, not just the artist's catalog."""
+        children = self._app_items(
+            "0", str(count), f"item_id:{artist_id}", "want_url:1"
+        )
+        for child in children:
+            name = (child.get("name") or "").strip().lower()
+            if child.get("id") and ("mix" in name or "radio" in name):
+                return child["id"]
+        return None
 
     # -- local library (Music Folder / USB drive) -------------------------
     # Uses LMS core commands with stable numeric ids (verified live), so local
@@ -503,6 +527,39 @@ class LMSClient:
         albums = [{"id": a["id"], "title": a.get("album")} for a in loop if a.get("id")]
         return {"artist": artist, "albums": albums}
 
+    def local_genre_candidates(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
+        """Library genres matching ``query`` (``genres`` core command)."""
+        loop = self.server_command(
+            "genres", "0", str(count), f"search:{query}"
+        ).get("genres_loop") or []
+        return [{"id": g["id"], "title": g.get("genre")} for g in loop if g.get("id") is not None]
+
+    def local_years(self, count: int = 500) -> List[int]:
+        """The release years present in the library (``years`` core command)."""
+        loop = self.server_command("years", "0", str(count)).get("years_loop") or []
+        out: List[int] = []
+        for y in loop:
+            try:
+                year = int(y.get("year"))
+            except (TypeError, ValueError):
+                continue
+            if year > 0:
+                out.append(year)
+        return out
+
+    def local_entity_names(self, max_titles: int = 15000) -> Dict[str, List[str]]:
+        """Every artist/album/title name in the library, for the phonetic
+        correction index. One bulk pull per category; titles are capped —
+        beyond that, artist/album names still anchor most corrections."""
+        artists = self.server_command("artists", "0", "10000").get("artists_loop") or []
+        albums = self.server_command("albums", "0", "10000", "tags:l").get("albums_loop") or []
+        titles = self.server_command("titles", "0", str(max_titles), "tags:").get("titles_loop") or []
+        return {
+            "artists": [a["artist"] for a in artists if a.get("artist")],
+            "albums": [a["album"] for a in albums if a.get("album")],
+            "titles": [t["title"] for t in titles if t.get("title")],
+        }
+
     def play_local_artist(self, artist_id: Any) -> Dict[str, Any]:
         return self.command("playlistcontrol", "cmd:load", f"artist_id:{artist_id}")
 
@@ -511,6 +568,23 @@ class LMSClient:
 
     def play_local_track(self, track_id: Any) -> Dict[str, Any]:
         return self.command("playlistcontrol", "cmd:load", f"track_id:{track_id}")
+
+    def play_local_genre(self, genre_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:load", f"genre_id:{genre_id}")
+
+    def add_local_track(self, track_id: Any, next_up: bool = False) -> Dict[str, Any]:
+        """Queue a library track without touching what's playing (``insert``
+        puts it right after the current track)."""
+        cmd = "cmd:insert" if next_up else "cmd:add"
+        return self.command("playlistcontrol", cmd, f"track_id:{track_id}")
+
+    def play_local_years(self, years: List[int]) -> None:
+        """Queue every library track from the given years (first year replaces
+        the queue, the rest append) — ``playlistcontrol`` takes one ``year:``
+        per call, so a decade is ten calls."""
+        for i, year in enumerate(years):
+            cmd = "cmd:load" if i == 0 else "cmd:add"
+            self.command("playlistcontrol", cmd, f"year:{int(year)}")
 
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
         res = self.command("status", "-", "1", "tags:aAlN")
@@ -579,6 +653,18 @@ class LMSClient:
 
     def add_url(self, url: str) -> Dict[str, Any]:
         return self.command("playlist", "add", url)
+
+    def insert_url(self, url: str) -> Dict[str, Any]:
+        """Insert a URL right after the current track ('play this next')."""
+        return self.command("playlist", "insert", url)
+
+    def set_shuffle(self, mode: int) -> Dict[str, Any]:
+        """Playlist shuffle: 0 off, 1 by song, 2 by album (LMS native)."""
+        return self.command("playlist", "shuffle", str(int(mode)))
+
+    def set_repeat(self, mode: int) -> Dict[str, Any]:
+        """Playlist repeat: 0 off, 1 song, 2 whole playlist (LMS native)."""
+        return self.command("playlist", "repeat", str(int(mode)))
 
     def play_tracks(self, urls: List[str]) -> None:
         """Play the first URL (replacing the queue) then enqueue the rest."""

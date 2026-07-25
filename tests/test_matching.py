@@ -26,6 +26,11 @@ def test_score_unrelated_is_low():
     assert _score("qualcosa", "Alpha") < actions.CONFIDENT_SCORE
 
 
+def test_score_ignores_title_punctuation():
+    # Spoken queries carry no punctuation; '(feat. …)' must not break containment.
+    assert _score("beatrice annalisa", "Beatrice (feat. Annalisa)") >= 0.9
+
+
 # -- best-pick instead of blind first -------------------------------------
 def test_play_song_picks_best_scoring_not_first(lms, transport, make_tidal):
     # TIDAL returns 'Money for Nothing' first, but the exact 'Money' must win.
@@ -373,6 +378,191 @@ def test_play_song_strips_leading_filler(lms, transport, make_tidal):
 def test_control_reply_has_no_terms(lms, transport):
     # Fully-Italian replies carry nothing to re-voice.
     assert list(getattr(actions.pause(lms), "terms", [])) == []
+
+
+# -- artist-vs-song ambiguity ("metti Beatrice") ---------------------------
+def _beatrice_feed(make_tidal, extra_songs=()):
+    """TIDAL feed where the query 'beatrice' hits songs BY Beatrice Egli plus an
+    Artists category carrying her node with playable top tracks."""
+    return make_tidal(
+        categories={"Songs": "S", "Artists": "A"},
+        items={
+            "S": list(extra_songs) + [
+                {"isaudio": 1, "url": "tidal://1.flc", "name": "Mein Herz",
+                 "artist": "Beatrice Egli"},
+                {"isaudio": 1, "url": "tidal://2.flc", "name": "Bunt",
+                 "artist": "Beatrice Egli"},
+            ],
+            "A": [{"id": "ART1", "name": "Beatrice Egli"}],
+            "ART1": [{"id": "ART1.T", "name": "Top Tracks"}],
+            "ART1.T": [
+                {"isaudio": 1, "url": "tidal://t1.flc", "name": "Mein Herz"},
+                {"isaudio": 1, "url": "tidal://t2.flc", "name": "Bunt"},
+            ],
+        },
+    )
+
+
+def test_bare_artist_name_asks_song_or_artist(lms, transport, make_tidal):
+    # No song TITLE matches 'beatrice', but the results are BY a matching artist:
+    # instead of silently playing TIDAL's #1, offer song vs artist.
+    transport.responses["tidal"] = _beatrice_feed(make_tidal)
+    res = actions.play_song(lms, "beatrice")
+    assert res.kind == "disambiguate"
+    assert "1: Mein Herz di Beatrice Egli" in res
+    assert "2: l'artista Beatrice Egli" in res
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+
+
+def test_choose_artist_plays_top_tracks(lms, transport, make_tidal):
+    transport.responses["tidal"] = _beatrice_feed(make_tidal)
+    res = actions.play_song(lms, "beatrice")
+    assert actions.choose_from(lms, res.candidates, 2) == "Riproduco Beatrice Egli."
+    assert ["playlist", "play", "tidal://t1.flc"] in transport.commands()
+    assert ["playlist", "add", "tidal://t2.flc"] in transport.commands()
+
+
+def test_exact_title_with_homonymous_artist_asks(lms, transport, make_tidal):
+    # The song 'Beatrice' (Sam Rivers) exists AND Beatrice Egli matches: ask.
+    transport.responses["tidal"] = _beatrice_feed(
+        make_tidal,
+        extra_songs=[{"isaudio": 1, "url": "tidal://3.flc", "name": "Beatrice",
+                      "artist": "Sam Rivers"}],
+    )
+    res = actions.play_song(lms, "beatrice")
+    assert res.kind == "disambiguate"
+    assert "1: Beatrice di Sam Rivers" in res
+    assert "2: l'artista Beatrice Egli" in res
+
+
+def test_multiple_exact_homonyms_all_offered(lms, transport, make_tidal):
+    # 'Beatrice' exists by Sam Rivers AND Joe Henderson: offer both plus the artist.
+    transport.responses["tidal"] = _beatrice_feed(
+        make_tidal,
+        extra_songs=[
+            {"isaudio": 1, "url": "tidal://3.flc", "name": "Beatrice",
+             "artist": "Sam Rivers"},
+            {"isaudio": 1, "url": "tidal://4.flc", "name": "Beatrice",
+             "artist": "Joe Henderson"},
+        ],
+    )
+    res = actions.play_song(lms, "beatrice")
+    assert res.kind == "disambiguate"
+    assert "1: Beatrice di Sam Rivers" in res
+    assert "2: Beatrice di Joe Henderson" in res
+    assert "3: l'artista Beatrice Egli" in res
+
+
+def test_feat_title_offered_alongside_artist(lms, transport, make_tidal):
+    # 'beatrice annalisa': the service's #1 is 'Beatrice (feat. Annalisa)' —
+    # it must be option 1, not lost to the '(feat. …)' punctuation.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S", "Artists": "A"},
+        items={
+            "S": [
+                {"isaudio": 1, "url": "tidal://1.flc",
+                 "name": "Beatrice (feat. Annalisa)", "artist": "Tedua"},
+                {"isaudio": 1, "url": "tidal://2.flc", "name": "Beatrice",
+                 "artist": "Brad Mehldau"},
+                {"isaudio": 1, "url": "tidal://3.flc", "name": "Bellissima",
+                 "artist": "Annalisa"},
+            ],
+            "A": [{"id": "ART1", "name": "Annalisa"}],
+            "ART1": [{"id": "ART1.T", "name": "Top Tracks"}],
+            "ART1.T": [{"isaudio": 1, "url": "tidal://t1.flc", "name": "Bellissima"}],
+        },
+    )
+    res = actions.play_song(lms, "beatrice annalisa")
+    assert res.kind == "disambiguate"
+    assert "1: Beatrice (feat. Annalisa) di Tedua" in res
+    assert "2: Beatrice di Brad Mehldau" in res
+    assert "3: l'artista Annalisa" in res
+
+
+def test_artist_option_follows_service_relevance(lms, transport, make_tidal):
+    # An obscure act named exactly 'Beatrice' ranks below Beatrice Egli in the
+    # service's order: the offered artist is Egli, not the exact-name match.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S", "Artists": "A"},
+        items={
+            "S": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Mein Herz",
+                   "artist": "Beatrice Egli"}],
+            "A": [{"id": "ART1", "name": "Beatrice Egli"},
+                  {"id": "ART2", "name": "Beatrice"}],
+            "ART1": [{"id": "ART1.T", "name": "Top Tracks"}],
+            "ART1.T": [{"isaudio": 1, "url": "tidal://t1.flc", "name": "Mein Herz"}],
+        },
+    )
+    res = actions.play_song(lms, "beatrice")
+    assert res.kind == "disambiguate"
+    assert "l'artista Beatrice Egli" in res
+
+
+def test_self_titled_exact_hit_is_not_ambiguous(lms, transport, make_tidal):
+    # 'metti Madonna' with the track 'Madonna' BY Madonna: the exact hit already
+    # is that artist, so play it without asking.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S", "Artists": "A"},
+        items={
+            "S": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Madonna",
+                   "artist": "Madonna"}],
+            "A": [{"id": "ART1", "name": "Madonna"}],
+        },
+    )
+    res = actions.play_song(lms, "madonna")
+    assert res == "Riproduco Madonna di Madonna."
+    assert ["playlist", "play", "tidal://1.flc"] in transport.commands()
+
+
+def test_no_artist_hint_keeps_old_behaviour(lms, transport, make_tidal):
+    # Results not BY a matching artist -> no Artists lookup, play TIDAL's #1.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S", "Artists": "A"},
+        items={
+            "S": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Like a Stone",
+                   "artist": "Audioslave"}],
+            "A": [{"id": "ART1", "name": "Beatrice Egli"}],
+        },
+    )
+    assert actions.play_song(lms, "beatrice") == "Riproduco Like a Stone di Audioslave."
+
+
+def test_blocked_artist_not_offered(lms, transport, make_tidal):
+    # Restricted speaker with the artist blocked: no artist option, and the
+    # ordinary path plays the (allowed) top song.
+    transport.responses["tidal"] = _beatrice_feed(make_tidal)
+    guard = actions.Guard(restricted=True, blocklist=["Beatrice Egli"])
+    res = actions.play_song(lms, "beatrice", guard=guard)
+    assert res.kind != "disambiguate"
+    assert res == "Riproduco Mein Herz di Beatrice Egli."
+
+
+def test_local_track_vs_artist_asks(lms, transport):
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {
+        "artists_loop": [{"id": 7, "artist": "Beatrice Egli"}]
+    }
+    transport.responses["titles"] = {
+        "titles_loop": [{"id": 3, "title": "Beatrice", "artist": "Sam Rivers"}]
+    }
+    res = actions.play_local(lms, "beatrice")
+    assert res.kind == "disambiguate"
+    assert "1: Beatrice di Sam Rivers" in res
+    assert "2: l'artista Beatrice Egli" in res
+    assert actions.choose_from(lms, res.candidates, 2) == "Riproduco Beatrice Egli."
+    assert ["playlistcontrol", "cmd:load", "artist_id:7"] in transport.commands()
+
+
+def test_local_single_category_still_plays(lms, transport):
+    # Only the track matches confidently -> no cross-category ask, play it.
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"artists_loop": [{"id": 7, "artist": "Eagles"}]}
+    transport.responses["titles"] = {
+        "titles_loop": [{"id": 3, "title": "Beatrice", "artist": "Sam Rivers"}]
+    }
+    res = actions.play_local(lms, "beatrice")
+    assert res == "Riproduco Beatrice dalla tua musica."
+    assert ["playlistcontrol", "cmd:load", "track_id:3"] in transport.commands()
 
 
 def test_search_tracks_includes_artist_when_present(lms, transport, make_tidal):
