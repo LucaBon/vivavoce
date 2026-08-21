@@ -111,7 +111,14 @@ class ServerWakeWordDetector:
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.model_name = model
         self._model = None
-        self._lock = threading.Lock()
+        # Reentrant: process()/reset() hold this for their whole call (not
+        # just around _load()) to serialize every touch of the underlying
+        # Model — openwakeword.Model isn't documented as thread-safe, and
+        # without this a client whose inference is slower than its chunk
+        # cadence (see serverwake.js) could have two chunks for the same
+        # session in flight on two request threads at once. RLock so _load()
+        # calling back in from inside an already-held lock doesn't deadlock.
+        self._lock = threading.RLock()
 
     def available(self) -> bool:
         return available() and _model_path(self.model_name) is not None
@@ -135,18 +142,20 @@ class ServerWakeWordDetector:
         model's internal buffer spans calls (see the class docstring)."""
         import numpy as np
 
-        model = self._load()
-        frame = np.frombuffer(pcm16_bytes, dtype=np.int16)
-        if frame.size == 0:
-            return False
-        scores = model.predict(frame)
-        return any(score >= DETECT_THRESHOLD for score in scores.values())
+        with self._lock:
+            model = self._load()
+            frame = np.frombuffer(pcm16_bytes, dtype=np.int16)
+            if frame.size == 0:
+                return False
+            scores = model.predict(frame)
+            return any(score >= DETECT_THRESHOLD for score in scores.values())
 
     def reset(self) -> None:
         """Clear the model's rolling buffers (e.g. after a detection fires,
         so the same phrase said again a moment later can re-trigger)."""
-        if self._model is not None:
-            self._model.reset()
+        with self._lock:
+            if self._model is not None:
+                self._model.reset()
 
 
 class ServerWakeWordSessions:

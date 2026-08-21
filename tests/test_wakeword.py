@@ -77,3 +77,32 @@ def test_sessions_are_independent_model_instances():
     assert sessions.get_or_create("phone") is a  # same client -> same session
     sessions.stop("phone")
     assert sessions.get_or_create("phone") is not a  # released -> fresh one
+
+
+def test_process_is_thread_safe_under_concurrent_chunks():
+    # ThreadingHTTPServer runs one thread per request; if a client's chunk
+    # cadence (see serverwake.js) ever outruns inference time, two chunks
+    # for the SAME client_id can be in flight on two threads at once.
+    # openwakeword.Model isn't documented as thread-safe, so process() must
+    # serialize every touch of it — this hammers one detector from many
+    # threads and only asserts nothing blows up (a race here would show up
+    # as an exception or a hang, not a wrong return value).
+    import threading
+
+    det = ServerWakeWordDetector(DEFAULT_MODEL)
+    errors = []
+
+    def hammer():
+        try:
+            for _ in range(5):
+                det.process(_silence())
+        except Exception as exc:  # pragma: no cover - failure path
+            errors.append(exc)
+
+    threads = [threading.Thread(target=hammer) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert not any(t.is_alive() for t in threads), "a thread hung"
+    assert errors == [], errors

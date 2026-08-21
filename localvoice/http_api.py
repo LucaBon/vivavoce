@@ -143,7 +143,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
 
         def _wakeword_status(self):
             # Come /asr: l'interruttore «parola chiave lato server» compare
-            # solo se il motore c'è davvero (stesso gruppo opzionale "asr").
+            # solo se il motore c'è davvero (gruppo opzionale SEPARATO
+            # "wakeword" — vedi pro/wakeword.py per il perché non è "asr").
             # Il gate Pro è sull'azione (POST /wakeword/chunk), non qui —
             # stessa scelta di /asr rispetto a /transcribe.
             ok = wakeword_sessions is not None and wakeword_sessions.available()

@@ -84,8 +84,15 @@ export async function refreshServerWake() {
 // mode/active (below, inside initMic) track the Web Speech `rec` object;
 // server-side streaming has no such object, so its state lives here and its
 // start/stop are wired into the same mic button and wakemode checkbox.
+// serverWakeStarting covers the async gap while getUserMedia/startWakeStream
+// is still pending: without it, a second click in that window (e.g. while
+// the permission prompt is up) sees serverWakeStream still null and starts a
+// SECOND concurrent stream, leaking the first one's mic/AudioContext forever.
+let serverWakeStarting = false;
+
 async function startServerWake(onCommand) {
   const statusEl = $("status");
+  serverWakeStarting = true;
   try {
     serverWakeStream = await startWakeStream({
       clientId: clientId(),
@@ -94,12 +101,16 @@ async function startServerWake(onCommand) {
         onCommand();
       },
       onError: (e) => {
-        statusEl.textContent = ui("mic_error") + ((e && e.message) || e);
+        // stop first: it unconditionally resets the status text, and the
+        // error message must be the last write, not the one stopped clobbers.
         stopServerWake();
+        statusEl.textContent = ui("mic_error") + ((e && e.message) || e);
       },
     });
   } catch (e) {
     return;  // onError above already reported it; getUserMedia denied, etc.
+  } finally {
+    serverWakeStarting = false;
   }
   micUI(true);
   statusEl.textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
@@ -172,6 +183,15 @@ export function initMic() {
   $("localasr").onchange = () =>
     localStorage.setItem("localasr", $("localasr").checked ? "1" : "0");
 
+  // Restore the wake-mode toggle for every branch below (needs a tap to
+  // actually start: browsers require a user gesture to open the mic). Kept
+  // unconditional — not just inside the Web-Speech branch — so a browser
+  // without Web Speech (e.g. Firefox) doesn't silently drop a saved
+  // preference on every reload even though server-side wake word (which
+  // never needed Web Speech) could otherwise still honor it there.
+  $("wakemode").checked = localStorage.getItem("wakemode") === "1";
+  $("wakehint").style.display = $("wakemode").checked ? "" : "none";
+
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const mic = $("mic");
   const statusEl = $("status");
@@ -182,17 +202,27 @@ export function initMic() {
     // Server-side wake word also works here (it never needed Web Speech for
     // detection) — but without Web Speech, the post-trigger command capture
     // can only be local ASR, never the one-shot fallback the other branch has.
+    const captureCommandNoSR = () => {
+      if (localAsrOn()) startLocalRec();
+      else $("status").textContent = ui("say_command");
+    };
     mic.onclick = () => {
       if (!isPro()) { showProUpsell(); return; }
       if ($("wakemode").checked && serverWakeOn()) {
         if (serverWakeStream) stopServerWake();
-        else startServerWake(() => {
-          if (localAsrOn()) startLocalRec();
-          else $("status").textContent = ui("say_command");
-        });
+        else if (!serverWakeStarting) startServerWake(captureCommandNoSR);
         return;
       }
       if (localAsrOn()) startLocalRec(); else refreshStatus();
+    };
+    $("wakemode").onchange = () => {
+      const on = $("wakemode").checked;
+      localStorage.setItem("wakemode", on ? "1" : "0");
+      $("wakehint").style.display = on ? "" : "none";
+      // No Web Speech here, so continuous listening only exists via the
+      // server-side engine; without it selected, there is nothing to start.
+      if (on && serverWakeOn()) startServerWake(captureCommandNoSR);
+      else stopServerWake();
     };
   } else if (!window.isSecureContext && location.hostname !== "localhost"
              && location.hostname !== "127.0.0.1") {
@@ -238,7 +268,7 @@ export function initMic() {
       if ($("wakemode").checked) {
         if (serverWakeOn()) {
           if (serverWakeStream) stopServerWake();
-          else startServerWake(captureCommand);
+          else if (!serverWakeStarting) startServerWake(captureCommand);
         } else if (active) stopAll();
         else startWake();
       }
@@ -278,16 +308,13 @@ export function initMic() {
       if (finalTxt) handleManualFinal(finalTxt, finalAlts);
     };
 
-    // Restore the wake-mode toggle (needs a tap to actually start: browsers require
-    // a user gesture to open the mic).
-    $("wakemode").checked = localStorage.getItem("wakemode") === "1";
-    $("wakehint").style.display = $("wakemode").checked ? "" : "none";
     $("wakemode").onchange = () => {
       const on = $("wakemode").checked;
       localStorage.setItem("wakemode", on ? "1" : "0");
       $("wakehint").style.display = on ? "" : "none";
       if (on) {
-        if (serverWakeOn()) startServerWake(captureCommand); else startWake();
+        if (serverWakeOn()) { if (!serverWakeStarting) startServerWake(captureCommand); }
+        else startWake();
       } else {
         stopAll();
         stopServerWake();

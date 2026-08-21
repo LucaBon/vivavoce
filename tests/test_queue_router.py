@@ -244,3 +244,53 @@ def test_favorites_targets_the_named_room(room_router, transport):
     )
     room_router.handle("riproduci i preferiti in cucina")
     assert ("bb:bb", ["favorites", "playlist", "play", "item_id:1"]) in transport.calls
+
+
+# -- regression: transport words in a queued title must not hijack the intent -
+
+def test_queue_add_with_a_transport_word_title_is_not_hijacked(router, transport, make_tidal):
+    # "aggiungi" isn't a play verb, so is_play stays False for this phrase;
+    # the transport checks (pause/resume/next/prev) used to run BEFORE the
+    # queue patterns and "Stop" collided with the pause pattern, turning a
+    # queue-add into a pause with the LMS never touched for the title at all.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Stop"}]},
+    )
+    reply = router.handle("aggiungi Stop alla coda", source="tidal")
+    assert str(reply) == "Ho aggiunto Stop alla coda da TIDAL."
+    assert ["playlist", "add", "tidal://1.flc"] in transport.commands()
+    assert ["pause", "1"] not in transport.commands()
+
+
+def test_queue_insert_with_a_transport_word_title_is_not_hijacked(router, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Next"}]},
+    )
+    reply = router.handle("metti Next dopo questa", source="tidal")
+    assert str(reply) == "Metto Next subito dopo questa da TIDAL."
+    assert ["playlist", "insert", "tidal://1.flc"] in transport.commands()
+    assert ["playlist", "index", "+1"] not in transport.commands()
+
+
+# -- regression: "cosa c'è in coda" must respect the kid-safe blocklist -------
+
+def test_queue_list_hides_blocked_titles(lms, transport, tmp_path):
+    from pro.kidsafe import KidSafe
+
+    kidsafe = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    kidsafe.enable("1234", "owner")  # unlocked only for "owner", not "kid"
+    kidsafe.store.put(["Bad Song"])
+
+    r = Router(lms, kidsafe=kidsafe, client_id="kid")
+    transport.responses["status"] = {
+        "playlist_loop": [
+            {"title": "Now Playing"},
+            {"title": "Bad Song", "artist": "X"},
+            {"title": "Good Song", "artist": "Y"},
+        ]
+    }
+    reply = r.handle("cosa c'è in coda")
+    assert "Bad Song" not in str(reply)
+    assert "Good Song" in str(reply)

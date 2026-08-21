@@ -345,6 +345,38 @@ class Router:
                         is_owner=is_owner)
                 return actions.list_blocks(self.kidsafe.store, is_owner=is_owner)
 
+        # 0b) queue management (song-level: "aggiungi X alla coda" / "add X to
+        # the queue", "metti X dopo questa" / "play X next", clear/list) and
+        # favorites/radio. Checked here, ahead of `is_play` and the transport
+        # block below, on purpose: "aggiungi"/"add ... to the queue" aren't
+        # play verbs, so `is_play` would stay False for them and let a title
+        # containing a bare transport word ("aggiungi Stop alla coda") get
+        # mistaken for actions.pause() before ever reaching these patterns —
+        # each one here is anchored on its own distinctive marker phrase
+        # ("alla coda"/"to the queue", "dopo questa"/"next", ...), so moving
+        # them first can't itself swallow a genuine transport command. The UI
+        # source selector decides where a queued song comes from, exactly
+        # like a plain play request (step 8) — explicit "da tidal .../from my
+        # music ..." overrides aren't supported for queue commands (out of
+        # scope; those phrases still work for a plain play request).
+        if P["queue_clear"].search(t):
+            return actions.clear_queue(self.lms)
+        if P["queue_list"].search(t):
+            return actions.queue_list(self.lms, guard=self._guard)
+        m = P["queue_add"].search(t)
+        if m:
+            return self._resolve_queue(m.group(1).strip(), "add", source)
+        m = P["queue_insert"].search(t)
+        if m:
+            return self._resolve_queue(m.group(1).strip(), "insert", source)
+        # Favorites & radio — LMS core feature, source-independent (not a
+        # streaming service, so the source selector doesn't apply).
+        if P["favorites"].search(t):
+            return actions.play_favorites(self.lms, guard=self._guard)
+        m = P["radio"].search(t)
+        if m:
+            return actions.play_radio(self.lms, m.group(1).strip(), guard=self._guard)
+
         # A play command carries a title after the verb; its transport-sounding
         # words ("Don't Stop Me Now" -> "stop") must NOT be mistaken for
         # transport controls, or the song is never played. "in pausa"/"on pause"
@@ -378,31 +410,6 @@ class Router:
         # Gated by is_play so a title like "What Is This Feeling" still plays.
         if not is_play and P["nowplaying"].search(t):
             return actions.now_playing(self.lms)
-
-        # 1b) queue management (song-level: "aggiungi X alla coda" / "add X to
-        # the queue", "metti X dopo questa" / "play X next", clear/list). The
-        # UI source selector decides where a queued song comes from, exactly
-        # like a plain play request (step 8) — explicit "da tidal .../from my
-        # music ..." overrides aren't supported for queue commands (out of
-        # scope; those phrases still work for a plain play request).
-        if P["queue_clear"].search(t):
-            return actions.clear_queue(self.lms)
-        if P["queue_list"].search(t):
-            return actions.queue_list(self.lms)
-        m = P["queue_add"].search(t)
-        if m:
-            return self._resolve_queue(m.group(1).strip(), "add", source)
-        m = P["queue_insert"].search(t)
-        if m:
-            return self._resolve_queue(m.group(1).strip(), "insert", source)
-
-        # 1c) favorites & radio — LMS core feature, source-independent (not a
-        # streaming service, so the source selector doesn't apply).
-        if P["favorites"].search(t):
-            return actions.play_favorites(self.lms, guard=self._guard)
-        m = P["radio"].search(t)
-        if m:
-            return actions.play_radio(self.lms, m.group(1).strip(), guard=self._guard)
 
         # 2) choose from the last read-out list by position. Accepts a digit or a
         # spoken number word ("la 2" / "the two", "numero tre" / "number three");

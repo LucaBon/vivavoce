@@ -40,6 +40,13 @@ CONFIDENT_SCORE = 0.72
 EXACT_SCORE = 0.98   # normalized-equal title -> override TIDAL and play this one
 DIDYOUMEAN_LIMIT = 3  # read back at most the top 3 when asking "which one?"
 
+# mode ("play"/"add"/"insert" — see play_song) -> the message-key suffix/name
+# it maps to. Shared by every place that acts on a resolved song/album so the
+# mapping is defined once instead of duplicated per call site.
+_MODE_SUFFIX = {"play": "", "add": "_queued", "insert": "_queued_next"}
+_MODE_KEY = {"play": "playing", "add": "queued", "insert": "queued_next"}
+_MODE_KEY_BY = {"add": "queued_by", "insert": "queued_next_by"}
+
 
 class ActionResult(str):
     """A speech string that also carries structured outcome data.
@@ -164,11 +171,10 @@ def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
     getattr(lms, f"{mode}_url")(track["url"])
     name = track.get("title") or fallback_title
     artist = track.get("artist")
-    key = "queued_by" if mode == "add" else "queued_next_by"
     if not artist:
-        key = "queued" if mode == "add" else "queued_next"
-        return ActionResult(msg(key, name=name), ok=True, terms=[name])
-    return ActionResult(msg(key, name=name, artist=artist), ok=True, terms=[name, artist])
+        return ActionResult(msg(_MODE_KEY[mode], name=name), ok=True, terms=[name])
+    return ActionResult(msg(_MODE_KEY_BY[mode], name=name, artist=artist),
+                        ok=True, terms=[name, artist])
 
 
 
@@ -358,27 +364,25 @@ def _play_from_album(
     album_name = result["album"]["title"] or album
     if guard and guard.blocks(album_name):
         return ActionResult(msg("blocked"), ok=False)
-    suffix = "" if mode == "play" else ("_queued" if mode == "add" else "_queued_next")
+    suffix = _MODE_SUFFIX[mode]
     if title:
         ranked = _rank(title, result["tracks"])
         if ranked and ranked[0][0] >= CONFIDENT_SCORE:
             track = ranked[0][1]
             if guard and guard.blocks(track.get("title")):
                 return ActionResult(msg("blocked"), ok=False)
-            getattr(lms, "play_url" if mode == "play" else f"{mode}_url")(track["url"])
+            getattr(lms, f"{mode}_url")(track["url"])
             return ActionResult(
                 msg("playing_track_from_album" + suffix, title=track["title"], album=album_name),
                 ok=True, terms=[track["title"], album_name],
             )
         # title not found in that album -> act on the whole album instead
-        getattr(lms, "play_browse_item" if mode == "play" else f"{mode}_browse_item")(
-            result["album"]["id"])
+        getattr(lms, f"{mode}_browse_item")(result["album"]["id"])
         return ActionResult(
             msg("track_not_in_album" + suffix, title=title, album=album_name),
             ok=True, terms=[title, album_name],
         )
-    getattr(lms, "play_browse_item" if mode == "play" else f"{mode}_browse_item")(
-        result["album"]["id"])
+    getattr(lms, f"{mode}_browse_item")(result["album"]["id"])
     return ActionResult(
         msg("playing_album" + suffix, album=album_name), ok=True, terms=[album_name]
     )
@@ -533,12 +537,14 @@ def clear_queue(lms) -> ActionResult:
     return ActionResult(msg("queue_cleared"), ok=True)
 
 
-def queue_list(lms, limit: int = LIST_LIMIT) -> ActionResult:
+def queue_list(lms, limit: int = LIST_LIMIT, *, guard: Optional[Guard] = None) -> ActionResult:
     """Read back the next few tracks queued after the current one."""
     try:
         upcoming = lms.queue_upcoming(limit)
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
+    if guard and guard.restricted:  # never read a blocked title back aloud
+        upcoming = [t for t in upcoming if not is_blocked(t.get("title"), guard.blocklist)]
     if not upcoming:
         return ActionResult(msg("queue_empty"), ok=True)
     listing = ", ".join(
@@ -668,7 +674,7 @@ def choose_from(
         _dispatch_play(lms, chosen, mode=mode)
     except LMSError:
         return msg("err_unreachable")
-    key = {"play": "playing", "add": "queued", "insert": "queued_next"}[mode]
+    key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
     )
@@ -715,7 +721,7 @@ def choose_by_name(
         _dispatch_play(lms, chosen, mode=mode)
     except LMSError:
         return msg("err_unreachable")
-    key = {"play": "playing", "add": "queued", "insert": "queued_next"}[mode]
+    key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
     )
@@ -770,7 +776,7 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
             return _did_you_mean(query, distinct)
         item = distinct[0]
         _dispatch_play(lms, item, mode=mode)
-        suffix = "" if mode == "play" else ("_queued" if mode == "add" else "_queued_next")
+        suffix = _MODE_SUFFIX[mode]
         speech = (
             msg("playing_local_album" + suffix, title=item["title"])
             if item["_kind"] == "album"
