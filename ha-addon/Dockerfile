@@ -14,15 +14,26 @@ RUN apk add --no-cache python3 py3-cryptography \
 
 # L'add-on vive nello stesso repo dell'app, ma il Supervisor builda con questa
 # sola cartella come contesto: il sorgente va scaricato dal repo pubblico.
-# BUILD_VERSION cambia a ogni release dell'add-on e invalida la cache, così
-# un update dell'add-on riscarica il codice aggiornato.
+#
+# BUILD_VERSION è la versione dell'add-on (config.yaml), passata dal
+# Supervisor, e si scarica ESATTAMENTE quel tag: "0.2.0" installa v0.2.0,
+# oggi e fra sei mesi. Puntare a main invece legherebbe l'etichetta di
+# versione al ramo, non al codice - due installazioni della stessa "0.2.0"
+# in giorni diversi otterrebbero sorgenti diversi appena main avanza.
+# GitHub toglie la "v" iniziale nella cartella del tarball: v0.2.0 -> 0.2.0.
+#
+# Se il tag non esiste il build fallisce con un 404 (curl -f): rumoroso al
+# momento del rilascio, che è meglio di spedire in silenzio codice non
+# rilasciato. Il tag va quindi pushato insieme al bump di versione.
 ARG BUILD_VERSION
-RUN curl -sSL https://github.com/LucaBon/vivavoce/archive/refs/heads/main.tar.gz \
+RUN curl -fsSL "https://github.com/LucaBon/vivavoce/archive/refs/tags/v${BUILD_VERSION}.tar.gz" \
     | tar xz -C /tmp \
  && mkdir -p /app \
- && cp -r /tmp/vivavoce-main/engine /tmp/vivavoce-main/localvoice \
-          /tmp/vivavoce-main/tools /tmp/vivavoce-main/deploy /app/ \
- && rm -rf /tmp/vivavoce-main
+ && cp -r "/tmp/vivavoce-${BUILD_VERSION}/engine" \
+          "/tmp/vivavoce-${BUILD_VERSION}/localvoice" \
+          "/tmp/vivavoce-${BUILD_VERSION}/tools" \
+          "/tmp/vivavoce-${BUILD_VERSION}/deploy" /app/ \
+ && rm -rf "/tmp/vivavoce-${BUILD_VERSION}"
 
 COPY run.sh /run.sh
 RUN chmod +x /run.sh /app/deploy/docker/entrypoint.sh

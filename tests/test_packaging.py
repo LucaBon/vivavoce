@@ -52,6 +52,17 @@ def test_dockerfile_copies_something():
     assert len(_copy_sources(_read("Dockerfile"))) >= 2
 
 
+def test_addon_downloads_a_pinned_tag_not_a_branch():
+    # The Supervisor passes BUILD_VERSION (the add-on version) and labels the
+    # install with it, so the download has to resolve to exactly that release.
+    # Fetching a branch instead would let two installs of the same "0.2.0" get
+    # different sources as soon as the branch moves. CI builds the root
+    # Dockerfile, not this one, so nothing else would notice the regression.
+    dockerfile = _read("ha-addon", "Dockerfile")
+    assert "refs/tags/v${BUILD_VERSION}" in dockerfile
+    assert "refs/heads/" not in dockerfile
+
+
 def test_addon_dockerfile_copies_paths_that_exist():
     # The Supervisor builds the add-on with ha-addon/ as the whole context, so
     # its COPY sources resolve against that directory, not the repo root.
