@@ -3,10 +3,18 @@
 Adds the ``engine/`` directory to ``sys.path`` so tests can import ``lms`` and
 ``actions`` directly, and provides a scriptable fake transport that mimics the
 LMS JSON-RPC server without any network access.
+
+Also hosts the shared HTTP scaffolding (:func:`live_server`) used by every test
+that exercises the real web handler, and the doubles those tests share.
 """
 
+import json
 import os
 import sys
+import threading
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 
 import pytest
 
@@ -16,7 +24,9 @@ LOCALVOICE_DIR = os.path.join(ROOT, "localvoice")
 sys.path.insert(0, ENGINE_DIR)
 sys.path.insert(0, LOCALVOICE_DIR)
 
+import server  # noqa: E402
 from lms import LMSClient, LMSError  # noqa: E402
+from messages import set_lang  # noqa: E402
 
 
 class FakeTransport:
@@ -125,3 +135,156 @@ def qobuz(transport):
         transport=transport,
         service="qobuz",
     )
+
+
+# -- language isolation --------------------------------------------------------
+# ``messages.set_lang()`` mutates process-global state, so a test that speaks
+# English would otherwise leak English replies into every test that runs after
+# it — an order-dependent failure that only shows up when the suite is
+# reordered. Reset once, centrally, instead of per-module.
+
+@pytest.fixture(autouse=True)
+def reset_lang():
+    yield
+    set_lang("it")
+
+
+# -- live HTTP server ----------------------------------------------------------
+# The handler in ``localvoice/server.py`` is only reachable over HTTP: its
+# routing table, JSON contracts and "never a 5xx" guarantees live in
+# ``do_GET``/``do_POST``, not in any importable function. These helpers run the
+# real handler on an ephemeral port so tests can exercise that stack for real.
+
+DEFAULT_MATERIAL_URL = "http://lms.local:9000/material/"
+
+
+class Response:
+    """One HTTP reply: status, headers, raw body — plus ``.json()``."""
+
+    def __init__(self, status, headers, body):
+        self.status = status
+        self.headers = headers
+        self.body = body
+
+    def json(self):
+        return json.loads(self.body)
+
+    @property
+    def text(self):
+        return self.body.decode("utf-8")
+
+
+class LiveServer:
+    """A tiny HTTP client bound to one running handler.
+
+    ``get``/``post`` raise ``HTTPError`` on a 4xx (the stdlib default, which
+    existing tests assert on with ``pytest.raises``); ``try_get``/``try_post``
+    return the error response instead, for tests that want to assert on a 404
+    status directly.
+    """
+
+    def __init__(self, url):
+        self.url = url
+
+    # -- raw ------------------------------------------------------------------
+    def get(self, path="/", timeout=5):
+        return self._open(urllib.request.Request(self.url + path), timeout)
+
+    def post(self, path, data=b"", content_type="application/json", timeout=5):
+        req = urllib.request.Request(
+            self.url + path, data=data, method="POST",
+            headers={"Content-Type": content_type})
+        return self._open(req, timeout)
+
+    def post_json(self, path, payload, timeout=5):
+        return self.post(path, json.dumps(payload).encode("utf-8"),
+                         timeout=timeout)
+
+    # -- parsed-body shorthands, for the common "just assert on the JSON" case
+    def json_get(self, path="/", timeout=5):
+        return self.get(path, timeout).json()
+
+    def json_post(self, path, payload, timeout=5):
+        return self.post_json(path, payload, timeout).json()
+
+    # -- non-raising variants -------------------------------------------------
+    def try_get(self, path="/", timeout=5):
+        try:
+            return self.get(path, timeout)
+        except urllib.error.HTTPError as exc:
+            return Response(exc.code, dict(exc.headers), exc.read())
+
+    def try_post(self, path, data=b"", content_type="application/json",
+                 timeout=5):
+        try:
+            return self.post(path, data, content_type, timeout)
+        except urllib.error.HTTPError as exc:
+            return Response(exc.code, dict(exc.headers), exc.read())
+
+    def try_post_json(self, path, payload, timeout=5):
+        return self.try_post(path, json.dumps(payload).encode("utf-8"))
+
+    @staticmethod
+    def _open(req, timeout):
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return Response(resp.status, dict(resp.headers), resp.read())
+
+
+@pytest.fixture
+def live_server(lms):
+    """Factory: the real ``make_handler`` stack on an ephemeral port.
+
+    Every ``make_handler`` collaborator is overridable, so one fixture serves
+    the artwork proxy, the ASR endpoints, kid-safe and multi-room alike::
+
+        srv = live_server(kidsafe=KidSafe(...), license_mgr=FakeLicense())
+        assert srv.get("/kidsafe?client=parent").json()["pro"] is True
+
+    Servers started through the factory are shut down at teardown.
+    """
+    servers = []
+
+    def start(client=None, material_url=DEFAULT_MATERIAL_URL,
+              services=("tidal",), default_service="tidal", **kwargs):
+        handler = server.make_handler(client or lms, material_url,
+                                      list(services), default_service,
+                                      **kwargs)
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        servers.append(httpd)
+        return LiveServer(f"http://127.0.0.1:{httpd.server_address[1]}")
+
+    yield start
+    for httpd in servers:
+        httpd.shutdown()
+
+
+# -- shared doubles ------------------------------------------------------------
+# Previously copy-pasted into each HTTP test module.
+
+class FakeLicense:
+    """Just enough of ``LicenseManager`` for the Pro gates."""
+
+    def __init__(self, pro=True):
+        self.pro = pro
+
+    def is_pro(self):
+        return self.pro
+
+    def status(self):
+        return {"pro": self.pro}
+
+
+class Clock:
+    """A hand-wound clock for the time-dependent Pro features."""
+
+    def __init__(self, t=1000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def clock():
+    return Clock()
