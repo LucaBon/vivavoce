@@ -67,3 +67,31 @@ def test_wait_for_players_immediate_hit_stays_quiet(monkeypatch, capsys):
         "http://lms:9000", sleep=lambda s: (_ for _ in ()).throw(AssertionError))
     assert players == sala
     assert capsys.readouterr().out == ""  # no retry chatter when all is well
+
+
+def test_wakeword_help_points_at_the_right_group():
+    # The wake-word feature is gated on its OWN "wakeword" group (not "asr" —
+    # see pro/wakeword.py for why), so every message that tells the user how
+    # to install it must say so; a copy-paste from the ASR messages would
+    # send them to `uv sync --group asr`, which never installs it.
+    result_help = subprocess.run(
+        [sys.executable, "-m", "localvoice", "--help"],
+        cwd=ROOT, capture_output=True, text=True, timeout=30)
+    assert "--wakeword-model" in result_help.stdout
+    help_text = result_help.stdout[result_help.stdout.index("--wakeword-model"):]
+    assert "uv sync --group wakeword" in help_text
+    assert "uv sync --group asr" not in help_text.split("\n\n")[0]
+
+
+def test_wakeword_unavailable_message_points_at_the_right_group():
+    # Source scan rather than driving main() end-to-end: the wake-word print
+    # sits before LMS discovery, but exercising that path for real would mean
+    # either a live LMS or mocking discovery/wait_for_players in ways that
+    # risk hanging on real network calls for no extra safety over this.
+    with open(os.path.join(ROOT, "localvoice", "server.py"), encoding="utf-8") as f:
+        source = f.read()
+    marker = "Parola chiave lato server non installata"
+    assert marker in source
+    message = source[source.index(marker):source.index(marker) + 200]
+    assert "uv sync --group wakeword" in message
+    assert "uv sync --group asr" not in message

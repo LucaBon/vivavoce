@@ -189,7 +189,7 @@ def main() -> int:
                          "solo poche frasi in inglese sono disponibili "
                          "pronte all'uso — non è personalizzabile come la "
                          "parola chiave del browser). Serve il gruppo: "
-                         "uv sync --group asr")
+                         "uv sync --group wakeword")
     args = ap.parse_args()
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
@@ -222,7 +222,9 @@ def main() -> int:
     # Parola chiave lato server (Pro): elimina il beep Android della
     # continua-ascolto del browser, ma solo con poche frasi inglesi pronte
     # all'uso (non personalizzabile come quella del browser — vedi
-    # pro/wakeword.py). Stesso gruppo opzionale "asr" di faster-whisper.
+    # pro/wakeword.py). Gruppo opzionale SEPARATO da "asr" apposta (vedi
+    # pro/wakeword.py: openwakeword>=0.5 rompe su Python 3.12+ per una
+    # dipendenza rigida da tflite-runtime).
     from pro.wakeword import DEFAULT_MODEL as WAKEWORD_DEFAULT_MODEL
     from pro.wakeword import ServerWakeWordSessions
     wakeword_model = args.wakeword_model or WAKEWORD_DEFAULT_MODEL
@@ -230,7 +232,7 @@ def main() -> int:
     if not wakeword_sessions.available():
         print("Parola chiave lato server non installata: l'ascolto continuo "
               "usa il riconoscimento del browser (col beep su Android). "
-              "Per attivarla: uv sync --group asr")
+              "Per attivarla: uv sync --group wakeword")
     else:
         print(f"Parola chiave lato server attiva (openWakeWord, modello "
               f"{wakeword_model}): nessun beep durante l'ascolto continuo.")
