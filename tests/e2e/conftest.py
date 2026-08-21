@@ -23,15 +23,45 @@ playwright_api = pytest.importorskip(
 
 
 @pytest.fixture(scope="session")
-def browser():
-    from playwright.sync_api import Error, sync_playwright
+def _playwright():
+    # One Playwright instance for the whole session: the sync API manages
+    # its own event loop internally, and a second concurrent
+    # `sync_playwright()` context (e.g. one per browser fixture) raises
+    # "already in an asyncio loop" the moment both are live at once. Every
+    # browser launches from this single shared instance instead.
+    from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
-        try:
-            browser = pw.chromium.launch()
-        except Error as exc:
-            pytest.skip(f"chromium not available: {exc}")
-        yield browser
-        browser.close()
+        yield pw
+
+
+@pytest.fixture(scope="session")
+def browser(_playwright):
+    from playwright.sync_api import Error
+    try:
+        browser = _playwright.chromium.launch()
+    except Error as exc:
+        pytest.skip(f"chromium not available: {exc}")
+    yield browser
+    browser.close()
+
+
+@pytest.fixture(scope="session")
+def browser_with_fake_mic(_playwright):
+    """A separate Chromium instance with a synthetic microphone (silence/a
+    simple tone, never a real spoken phrase) — only for the one test that
+    needs getUserMedia to actually resolve without a real device or an OS
+    permission prompt. Kept apart from ``browser`` so the fake-media flags
+    never leak into ordinary page tests."""
+    from playwright.sync_api import Error
+    try:
+        browser = _playwright.chromium.launch(args=[
+            "--use-fake-ui-for-media-stream",
+            "--use-fake-device-for-media-stream",
+        ])
+    except Error as exc:
+        pytest.skip(f"chromium not available: {exc}")
+    yield browser
+    browser.close()
 
 
 @pytest.fixture
@@ -39,6 +69,19 @@ def page(browser):
     """A fresh browser context per test (own localStorage), with uncaught
     page errors collected and asserted empty at teardown."""
     ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda exc: errors.append(str(exc)))
+    yield page
+    ctx.close()
+    assert errors == [], f"uncaught JS errors on the page: {errors}"
+
+
+@pytest.fixture
+def page_with_fake_mic(browser_with_fake_mic):
+    """Like ``page``, but on the fake-microphone browser (see
+    ``browser_with_fake_mic``)."""
+    ctx = browser_with_fake_mic.new_context(viewport={"width": 390, "height": 844})
     page = ctx.new_page()
     errors = []
     page.on("pageerror", lambda exc: errors.append(str(exc)))

@@ -29,7 +29,7 @@ def _http_fetch(url: str, timeout: float = 5.0):
 def make_handler(lms, material_url: str, services, default_service: str,
                  ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
                  kidsafe=None, transcriber=None, multiroom=None,
-                 app_version: str = ""):
+                 app_version: str = "", wakeword_sessions=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -127,6 +127,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._asr_status()
             elif self.path.startswith("/kidsafe"):
                 self._kidsafe_status()
+            elif self.path.startswith("/wakeword"):
+                self._wakeword_status()
             else:
                 self._send(404, "not found", "text/plain")
 
@@ -137,6 +139,17 @@ def make_handler(lms, material_url: str, services, default_service: str,
             payload = {"available": ok}
             if ok:
                 payload["model"] = getattr(transcriber, "model_name", None)
+            self._send(200, json.dumps(payload))
+
+        def _wakeword_status(self):
+            # Come /asr: l'interruttore «parola chiave lato server» compare
+            # solo se il motore c'è davvero (stesso gruppo opzionale "asr").
+            # Il gate Pro è sull'azione (POST /wakeword/chunk), non qui —
+            # stessa scelta di /asr rispetto a /transcribe.
+            ok = wakeword_sessions is not None and wakeword_sessions.available()
+            payload = {"available": ok}
+            if ok:
+                payload["model"] = wakeword_sessions.model
             self._send(200, json.dumps(payload))
 
         # Un comando parlato dura pochi secondi: 15 MB coprono con margine
@@ -183,6 +196,59 @@ def make_handler(lms, material_url: str, services, default_service: str,
             self._send(200, json.dumps(
                 {"ok": True, "text": text, "alternatives": alternatives},
                 ensure_ascii=False))
+
+        # A wake-word chunk is ~300 ms of 16-bit mono PCM at 16 kHz (~10 KB);
+        # 256 KB is a generous multiple of that, and refuses a runaway client
+        # rather than buffering an unbounded body.
+        MAX_WAKEWORD_CHUNK_BYTES = 256 * 1024
+
+        def _wakeword_chunk(self):
+            # Il corpo è un chunk PCM16 mono a 16 kHz (vedi
+            # static/js/serverwake.js), il client id viaggia in query string —
+            # come /transcribe, mai un 5xx: i casi degradati rispondono 200
+            # con ok:false.
+            length = int(self.headers.get("Content-Length", 0) or 0)
+
+            def refuse(error):
+                if length:
+                    self.rfile.read(length)
+                self._send(200, json.dumps({"ok": False, "error": error}))
+
+            if wakeword_sessions is None or not wakeword_sessions.available():
+                refuse("unavailable")
+                return
+            # Funzione Pro, applicata lato server come /transcribe: il
+            # toggle nascosto nella UI non basta a proteggere la CPU.
+            if license_mgr and not license_mgr.is_pro():
+                refuse("pro_required")
+                return
+            if not length:
+                refuse("empty")
+                return
+            if length > self.MAX_WAKEWORD_CHUNK_BYTES:
+                refuse("too_large")
+                return
+            client_id = (self._query_params().get("client") or ["default"])[0]
+            audio = self.rfile.read(length)
+            detector = wakeword_sessions.get_or_create(client_id)
+            try:
+                triggered = detector.process(audio)
+                if triggered:
+                    detector.reset()  # ready to fire again right away
+            except Exception as exc:
+                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
+                return
+            self._send(200, json.dumps({"ok": True, "triggered": triggered}))
+
+        def _wakeword_stop(self):
+            # Rilascia il modello del client: senza, la sessione (memoria ONNX)
+            # resterebbe viva per sempre a ogni dispositivo che ha mai usato
+            # la funzione. Idempotente e mai un errore: fermare due volte, o
+            # fermare una sessione mai aperta, non cambia nulla.
+            if wakeword_sessions is not None:
+                client_id = (self._query_params().get("client") or ["default"])[0]
+                wakeword_sessions.stop(client_id)
+            self._send(200, json.dumps({"ok": True}))
 
         def _kidsafe_state(self, client_id: str) -> dict:
             state = {
@@ -356,6 +422,12 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 return
             if self.path.startswith("/transcribe"):
                 self._transcribe()
+                return
+            if self.path.startswith("/wakeword/chunk"):
+                self._wakeword_chunk()
+                return
+            if self.path.startswith("/wakeword/stop"):
+                self._wakeword_stop()
                 return
             if self.path != "/command":
                 self._send(404, '{"speech":"non trovato"}')

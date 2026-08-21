@@ -11,7 +11,7 @@ import { initPro, applyPro, renderKidsafe, refreshLicense, refreshKidsafe,
          showProUpsell } from "./pro.js";
 import { initSettings, buildSourceOptions, renderPlayers, setPlayersData } from "./settings.js";
 import { initNowPlaying, renderNowPlaying } from "./nowplaying.js";
-import { initMic, refreshAsr } from "./mic.js";
+import { initMic, refreshAsr, refreshServerWake } from "./mic.js";
 
 initI18n();  // snapshot the Italian markup before anything rewrites it
 setUIHooks({ buildSourceOptions, buildVoicePickers, applyPro, renderKidsafe });
@@ -29,6 +29,7 @@ applyUI();
 refreshLicense();
 refreshKidsafe();
 refreshAsr();
+refreshServerWake();
 
 // First-ever visit: open the settings panel so language and source get noticed.
 if (!localStorage.getItem("reclang") && !localStorage.getItem("source")) {
@@ -48,4 +49,4 @@ if ("serviceWorker" in navigator) {
 // Not a public API.
 window.vivavoce = { bubble, send, renderNowPlaying, renderPlayers,
                     setPlayersData, setLmsDown, applyUI, showProUpsell,
-                    refreshLicense, refreshKidsafe, refreshAsr };
+                    refreshLicense, refreshKidsafe, refreshAsr, refreshServerWake };

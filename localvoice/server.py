@@ -182,6 +182,14 @@ def main() -> int:
                          "(tiny/base/small/medium...). Default: small, ma su "
                          "macchine sotto ~4 GB di RAM resta spento se non "
                          "indicato qui. Serve il gruppo: uv sync --group asr")
+    ap.add_argument("--wakeword-model",
+                    default=appdata.env("WAKEWORD_MODEL"),
+                    help="modello openWakeWord per la parola chiave lato "
+                         "server, senza il beep Android (default: hey_jarvis; "
+                         "solo poche frasi in inglese sono disponibili "
+                         "pronte all'uso — non è personalizzabile come la "
+                         "parola chiave del browser). Serve il gruppo: "
+                         "uv sync --group asr")
     args = ap.parse_args()
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
@@ -210,6 +218,22 @@ def main() -> int:
               "~1 GB al picco e quelli più piccoli storpiano i titoli "
               "inglesi. Per forzarlo comunque: --asr-model tiny "
               "(o VIVAVOCE_ASR_MODEL).")
+
+    # Parola chiave lato server (Pro): elimina il beep Android della
+    # continua-ascolto del browser, ma solo con poche frasi inglesi pronte
+    # all'uso (non personalizzabile come quella del browser — vedi
+    # pro/wakeword.py). Stesso gruppo opzionale "asr" di faster-whisper.
+    from pro.wakeword import DEFAULT_MODEL as WAKEWORD_DEFAULT_MODEL
+    from pro.wakeword import ServerWakeWordSessions
+    wakeword_model = args.wakeword_model or WAKEWORD_DEFAULT_MODEL
+    wakeword_sessions = ServerWakeWordSessions(wakeword_model)
+    if not wakeword_sessions.available():
+        print("Parola chiave lato server non installata: l'ascolto continuo "
+              "usa il riconoscimento del browser (col beep su Android). "
+              "Per attivarla: uv sync --group asr")
+    else:
+        print(f"Parola chiave lato server attiva (openWakeWord, modello "
+              f"{wakeword_model}): nessun beep durante l'ascolto continuo.")
 
     lms_url = args.lms
     if not lms_url:
@@ -284,7 +308,8 @@ def main() -> int:
         make_handler(client, material_url, services, default_service,
                      ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
-                     multiroom=multiroom, app_version=appdata.app_version()),
+                     multiroom=multiroom, app_version=appdata.app_version(),
+                     wakeword_sessions=wakeword_sessions),
     )
 
     scheme = "http"

@@ -134,6 +134,54 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
   `base` roughly halves latency and memory at some accuracy cost — a good
   fit for a Pi 4. Language follows the page's mic-language selector (it/en).
 
+### Server-side wake word (Pro, optional)
+
+The default "activate with a keyword" mode listens continuously through the
+browser's speech engine — which on Android plays an audible tone every few
+seconds when the recognizer restarts, the single most-cited complaint in
+launch feedback, and a browser limitation the default mode can't route
+around. Installing the optional **wakeword** group offers an alternative:
+the browser streams raw microphone audio to the server, which runs
+[openWakeWord](https://github.com/dscripka/openWakeWord) (CPU, a tiny ONNX
+model, no GPU) continuously — no restart cycle, no beep, and the audio never
+leaves the LAN either (an improvement over the default mode, which — like
+the browser mic elsewhere in the app — sends audio to Google/Apple). A new
+settings switch («🔈 parola chiave lato server») appears once the server
+reports the engine installed.
+
+```bash
+uv sync --group wakeword                 # deliberately its own group, not "asr" — see below
+uv run python localvoice/server.py       # "Parola chiave lato server attiva"
+```
+
+- **Fixed phrase, English only.** openWakeWord ships pretrained models for a
+  handful of English phrases; it has no support for an arbitrary typed
+  phrase like the default mode's free-text field, and training a custom
+  model (e.g. an Italian "vivavoce") needs a separate offline pipeline this
+  project doesn't provide today. The default and only currently supported
+  phrase is **"hey jarvis"** (`--wakeword-model` / `VIVAVOCE_WAKEWORD_MODEL`
+  if a future release ships another bundled model). This is offered as an
+  *additional* choice next to the free-text browser wake word, not a
+  replacement — pick whichever trade-off fits: your own phrase with the
+  Android beep, or a fixed English phrase without it.
+- **Why its own dependency group.** `openwakeword` is pinned to an exact,
+  deliberately old version (`0.4.0`): every release from 0.5.0 on requires
+  `tflite-runtime` on Linux, which has no published wheel past Python 3.11 —
+  bundling it into the `asr` group would have broken `uv sync --group asr`
+  (and the already-working local-ASR feature with it) for anyone on a
+  current Python. Kept separate, a failure here can't touch that.
+- **Docker**: build the variant with
+  `docker build --build-arg WAKEWORD=1 -t vivavoce:wakeword .`. The standard
+  image ships without it and reports `/wakeword` as unavailable; combine
+  with `--build-arg ASR=1` if you want both.
+- **Not available on the Home Assistant add-on**, for the same reason local
+  ASR isn't (see above).
+- **What this hasn't been tested against**: the browser-to-server audio
+  pipeline is covered by the test suite (including a real headless-browser
+  capture test), but real acoustic detection accuracy, the sub-second
+  wake-to-listening latency, and "truly no beep" can only be confirmed on
+  real Android hardware — try it and see how it holds up on yours.
+
 ### Autostart
 
 - **Docker:** nothing to do — `restart: unless-stopped` in the compose file already

@@ -16,6 +16,20 @@
   searches your favorites for a matching station name. Built on the LMS core
   Favorites API (not a specific radio plugin), so it works with however you
   already saved your stations — TuneIn, a plugin, or a raw stream URL.
+- **Server-side wake word** (Pro, optional install — `uv sync --group
+  wakeword`, its own group, see DEPLOY.md): an alternative to the browser's
+  continuous-listening mode that eliminates the Android beep — the single
+  most-cited launch complaint — by streaming mic audio to the server, which
+  runs openWakeWord (CPU, no GPU) instead of restarting Web Speech every few
+  seconds. Trade-off, upfront: only a fixed English phrase ("hey jarvis")
+  today, not the free-text wake word — offered as an *additional* choice
+  next to it, not a replacement. A new settings switch appears once the
+  server reports the engine installed.
+- **"Report a misunderstood phrase"** (free, privacy-first): when a command
+  isn't understood, the reply offers a button that saves the report on your
+  device and opens a pre-filled GitHub issue (phrase, language, source,
+  version) for you to review and submit. Nothing is ever sent by the app
+  itself — see PRIVACY.md.
 
 ### Fixed
 
@@ -27,14 +41,6 @@
   the one endpoint that handles a paid key. Pre-existing (found during a
   post-phase review of the Fase 1 diff, not introduced by it); now covered
   by tests on all four routes.
-
-### New
-
-- **"Report a misunderstood phrase"** (free, privacy-first): when a command
-  isn't understood, the reply offers a button that saves the report on your
-  device and opens a pre-filled GitHub issue (phrase, language, source,
-  version) for you to review and submit. Nothing is ever sent by the app
-  itself — see PRIVACY.md.
 
 ### Internal
 

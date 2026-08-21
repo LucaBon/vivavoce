@@ -72,6 +72,27 @@ jobs:
       - name: Run the browser flows
         run: uv run pytest tests/e2e -v
 
+  wakeword:
+    name: server wake word (py3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Pinned to 3.11: openwakeword>=0.5 needs tflite-runtime, which has no
+      # wheel past cp311 (see pro/wakeword.py) — this is the one supported
+      # version where `--group wakeword` actually installs, so it's the only
+      # leg that can run tests/test_wakeword.py for real instead of skipping.
+      - name: Sync dependencies (incl. the wakeword group)
+        run: uv sync --python 3.11 --group wakeword
+
+      - name: Run the wake-word test suite
+        run: uv run --python 3.11 pytest tests/test_wakeword.py tests/test_wakeword_web.py -v
+
   sanity:
     name: sanity checks
     runs-on: ubuntu-latest

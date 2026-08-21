@@ -39,6 +39,8 @@ const UI_EN = {
     'use tap-to-talk (one sound per command). The keyword works best on PC/tablet with ' +
     'Chrome.</span>',
   localasr_lbl: "🎙 local speech recognition (Whisper on the server: audio never leaves home)",
+  serverwake_lbl: "🔈 server-side wake word, no Android beep (only “hey jarvis” in " +
+    "English, not customizable)",
   readback_lbl: "🔊 read the reply aloud",
   voices_summary: "Voices &amp; languages",
   lbl_foreign: "Default language for foreign titles",

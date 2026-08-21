@@ -6,12 +6,13 @@
 //   server's Whisper transcribe (/transcribe) — the audio never leaves the
 //   LAN, unlike Web Speech which ships it to Google/Apple.
 
-import { $ } from "./util.js";
+import { $, clientId } from "./util.js";
 import { LANGS, ui, recLang, getStatusBase, setStatusBase, refreshStatus } from "./i18n.js";
 import { isPro, showProUpsell } from "./pro.js";
 import { handleManualFinal } from "./chat.js";
 import { wakeWord } from "./settings.js";
-import { createWakeHandler } from "./wakeword.js";
+import { createWakeHandler, beep } from "./wakeword.js";
+import { startWakeStream } from "./serverwake.js";
 
 function micUI(listening) {
   $("mic").classList.toggle("listening", listening);
@@ -47,6 +48,71 @@ export async function refreshAsr() {
     ASR = await r.json();
   } catch (e) { ASR = { available: false }; }
   renderAsrRow();
+}
+
+// --- Server-side wake word (Pro): the beep-free alternative to Web Speech's
+// continuous listening (see localvoice/pro/wakeword.py). Fixed to whichever
+// English phrase the server's model detects ("hey jarvis" by default) — NOT
+// the free-text wakeWord() field, which only makes sense for the Web Speech
+// fuzzy-text engine. Offered as an extra choice alongside it, not instead.
+let SERVERWAKE = { available: false, model: null };
+let serverWakeStream = null;  // the active startWakeStream() handle, or null
+
+const serverWakeCanUse = () => !!(navigator.mediaDevices && window.AudioContext);
+const serverWakeOn = () =>
+  SERVERWAKE.available && serverWakeCanUse() && $("serverwake").checked;
+
+// "hey_jarvis" -> "Hey Jarvis", for the status line.
+function modelDisplayName(name) {
+  return (name || "").split("_").map(w => w[0] ? w[0].toUpperCase() + w.slice(1) : w)
+    .join(" ");
+}
+
+function renderServerWakeRow() {
+  $("serverwakerow").style.display =
+    (SERVERWAKE.available && serverWakeCanUse()) ? "" : "none";
+}
+
+export async function refreshServerWake() {
+  try {
+    const r = await fetch("/wakeword");
+    SERVERWAKE = await r.json();
+  } catch (e) { SERVERWAKE = { available: false }; }
+  renderServerWakeRow();
+}
+
+// mode/active (below, inside initMic) track the Web Speech `rec` object;
+// server-side streaming has no such object, so its state lives here and its
+// start/stop are wired into the same mic button and wakemode checkbox.
+async function startServerWake(onCommand) {
+  const statusEl = $("status");
+  try {
+    serverWakeStream = await startWakeStream({
+      clientId: clientId(),
+      onTriggered: () => {
+        beep();
+        onCommand();
+      },
+      onError: (e) => {
+        statusEl.textContent = ui("mic_error") + ((e && e.message) || e);
+        stopServerWake();
+      },
+    });
+  } catch (e) {
+    return;  // onError above already reported it; getUserMedia denied, etc.
+  }
+  micUI(true);
+  statusEl.textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+}
+
+function stopServerWake() {
+  if (serverWakeStream) {
+    const s = serverWakeStream;
+    serverWakeStream = null;
+    s.stop();
+  }
+  micUI(false);
+  $("status").textContent = ui("tap_mic");
 }
 
 function stopLocalRec() {
@@ -113,8 +179,19 @@ export function initMic() {
     setStatusBase("nomic");
     // No Web Speech (e.g. Firefox): the mic can still work through the server's
     // local recognition once /asr says it's installed and the toggle is on.
+    // Server-side wake word also works here (it never needed Web Speech for
+    // detection) — but without Web Speech, the post-trigger command capture
+    // can only be local ASR, never the one-shot fallback the other branch has.
     mic.onclick = () => {
       if (!isPro()) { showProUpsell(); return; }
+      if ($("wakemode").checked && serverWakeOn()) {
+        if (serverWakeStream) stopServerWake();
+        else startServerWake(() => {
+          if (localAsrOn()) startLocalRec();
+          else $("status").textContent = ui("say_command");
+        });
+        return;
+      }
       if (localAsrOn()) startLocalRec(); else refreshStatus();
     };
   } else if (!window.isSecureContext && location.hostname !== "localhost"
@@ -148,12 +225,26 @@ export function initMic() {
       try { rec.stop(); } catch (e) {}
     }
 
+    // The post-trigger command capture for server-side wake word: openWakeWord
+    // only detects the trigger, not the words that follow, so this reuses
+    // whichever single-shot engine tap-to-talk already prefers.
+    function captureCommand() {
+      if (localAsrOn()) startLocalRec(); else startManual();
+    }
+
     mic.onclick = () => {
       // Il microfono è una funzione Pro: da bloccato porta al pannello licenza.
       if (!isPro()) { showProUpsell(); return; }
-      if ($("wakemode").checked) { if (active) stopAll(); else startWake(); }
+      if ($("wakemode").checked) {
+        if (serverWakeOn()) {
+          if (serverWakeStream) stopServerWake();
+          else startServerWake(captureCommand);
+        } else if (active) stopAll();
+        else startWake();
+      }
       // The local-recognition toggle only replaces tap-to-talk: the wake word
-      // needs continuous listening, which stays on Web Speech.
+      // needs continuous listening, which stays on Web Speech (unless the
+      // server-side engine above is chosen instead).
       else if (localAsrOn()) startLocalRec();
       else startManual();
     };
@@ -195,7 +286,23 @@ export function initMic() {
       const on = $("wakemode").checked;
       localStorage.setItem("wakemode", on ? "1" : "0");
       $("wakehint").style.display = on ? "" : "none";
-      if (on) startWake(); else stopAll();
+      if (on) {
+        if (serverWakeOn()) startServerWake(captureCommand); else startWake();
+      } else {
+        stopAll();
+        stopServerWake();
+      }
     };
   }
+
+  // The "server-side wake word" checkbox is its own engine choice, available
+  // whenever GET /wakeword said so (see refreshServerWake) — independent of
+  // whether Web Speech exists at all, EXCEPT that the post-trigger command
+  // capture above falls back to Web Speech's one-shot recognition when local
+  // ASR isn't installed, so it still needs the `else` branch above to have
+  // set up `rec`. Kept simple: the checkbox just persists a preference,
+  // read at the moment wake mode actually starts.
+  $("serverwake").checked = localStorage.getItem("serverwake") === "1";
+  $("serverwake").onchange = () =>
+    localStorage.setItem("serverwake", $("serverwake").checked ? "1" : "0");
 }

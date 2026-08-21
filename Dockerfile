@@ -22,6 +22,14 @@ RUN pip install --no-cache-dir "cryptography>=42.0"
 ARG ASR=0
 RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper>=1.0"; fi
 
+# Variante parola chiave lato server (opzionale, separata da ASR apposta):
+# --build-arg WAKEWORD=1 preinstalla openwakeword per l'ascolto continuo
+# senza il beep Android (endpoint /wakeword, funzione Pro). Pin ESATTO a
+# 0.4.0: le release successive dipendono da tflite-runtime, che non
+# pubblica wheel per Python 3.12+ — vedi localvoice/pro/wakeword.py.
+ARG WAKEWORD=0
+RUN if [ "$WAKEWORD" = "1" ]; then pip install --no-cache-dir "openwakeword==0.4.0"; fi
+
 WORKDIR /app
 COPY engine/ engine/
 COPY localvoice/ localvoice/

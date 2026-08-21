@@ -21,6 +21,7 @@ export function applyPro() {
   $("wakemode").disabled = !PRO;
   $("readback").disabled = !PRO;
   $("localasr").disabled = !PRO;
+  $("serverwake").disabled = !PRO;
   if (!PRO) {
     if ($("wakemode").checked) {
       $("wakemode").checked = false;
@@ -28,6 +29,7 @@ export function applyPro() {
     }
     if ($("readback").checked) { $("readback").checked = false; syncVoicePanel(); }
     $("localasr").checked = false;
+    $("serverwake").checked = false;
   }
   const st = $("prostatus");
   st.classList.remove("warn");

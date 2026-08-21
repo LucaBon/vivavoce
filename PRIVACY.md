@@ -17,8 +17,15 @@ If you don't want any audio leaving your home:
 - turn on **local speech recognition** (Pro, optional install — see
   [DEPLOY.md](DEPLOY.md)): a Whisper model on *your* server transcribes the
   mic audio on-box, so voice goes browser → your machine and no further. The
-  only network touch is the one-time model download (listed below). The
-  wake word still relies on the browser engine for its continuous listening.
+  only network touch is the one-time model download (listed below);
+- turn on **server-side wake word** (Pro, optional install, see
+  DEPLOY.md — a fixed English phrase, not the free-text one): the
+  continuous-listening audio goes to *your* server instead of the browser's
+  speech engine. Every model it uses ships inside the package, so there is
+  no download at all, not even a one-time one.
+
+Without either optional install, the wake word's continuous listening still
+relies on the browser engine (Google/Apple, as above).
 
 ## What stays on your LAN
 
