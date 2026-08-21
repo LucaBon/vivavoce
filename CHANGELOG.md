@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — July 2026
+## 0.2.0 — August 2026
 
 ### SqueezeSay is now Vivavoce
 
@@ -63,3 +63,17 @@ project itself renamed to Lyrion. What this means for existing installs:
 - **The Alexa skill.** It required an always-on HTTPS tunnel and a developer
   account per household — unmaintainable, and the web app does the job
   without any cloud. The engine lives on under `engine/` (was `lambda/`).
+
+### Internal
+
+- **CI** (GitHub Actions): every push and pull request runs the test suite on
+  Python 3.9–3.14 plus a Windows job (the `%APPDATA%` data-directory branch a
+  Linux-only matrix never executes), byte-compiles every module — `tools/` is
+  imported by no test, so a syntax error there used to reach the user — and
+  builds the Docker image, which is the only thing that catches a `COPY`
+  pointing at a moved file.
+- **Integration tests** (489 → 531): the PWA shell (`sw.js` pre-caches its
+  asset list atomically, so a single 404 silently stopped the app being
+  installable), the `/command` path end-to-end from HTTP down to the commands
+  the LMS actually receives, and the release descriptors — the add-on version
+  must match `pyproject.toml`, and every Dockerfile `COPY` source must exist.
