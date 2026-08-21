@@ -22,6 +22,51 @@ export function bubble(text, who) {
   return d;
 }
 
+// --- "Report a misunderstood phrase" (privacy-first) ---
+// Offered only when the router matched nothing (data.unmatched). Tapping it
+// saves the report locally and opens a pre-filled GitHub issue the user can
+// review and submit — nothing ever leaves the device on its own.
+const REPORT_ISSUES_URL = "https://github.com/LucaBon/vivavoce/issues/new";
+const REPORT_STORE_KEY = "vivavoce_reports";
+const REPORT_STORE_MAX = 50;
+
+function saveReport(entry) {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(REPORT_STORE_KEY)) || []; }
+  catch (e) { /* corrupt store: start over */ }
+  list.push(entry);
+  localStorage.setItem(REPORT_STORE_KEY,
+                       JSON.stringify(list.slice(-REPORT_STORE_MAX)));
+}
+
+function reportUnmatched(text, statusBubble) {
+  const entry = { text, lang: recLang(), source: currentSource(),
+                  version: (window.VIVAVOCE_CFG || {}).version || "unknown",
+                  when: new Date().toISOString() };
+  saveReport(entry);
+  const url = REPORT_ISSUES_URL
+    + "?title=" + encodeURIComponent(ui("report_title")(text))
+    + "&body=" + encodeURIComponent(ui("report_body")(entry));
+  window.open(url, "_blank", "noopener");
+  if (statusBubble) statusBubble.textContent = ui("report_saved");
+}
+
+function renderReportButton(afterEl, text) {
+  const row = document.createElement("div");
+  row.className = "choices";
+  const btn = document.createElement("button");
+  btn.className = "choice";
+  btn.textContent = ui("report_btn");
+  btn.onclick = () => {
+    const note = document.createElement("div");
+    note.className = "bubble sys";
+    row.replaceWith(note);
+    reportUnmatched(text, note);
+  };
+  row.appendChild(btn);
+  afterEl.after(row);
+}
+
 // Render the server's numbered "did you mean" list as tappable buttons just
 // under its reply bubble, so on the web app you tap instead of re-speaking
 // "metti la 2". The pick reuses the server-side candidate list.
@@ -73,6 +118,8 @@ export async function send(text, alternatives) {
     if (data.ok === false) p.classList.add("warn");
     p.textContent = data.speech;
     if (Array.isArray(data.choices) && data.choices.length) renderChoices(p, data.choices);
+    // Parser gap (nothing matched): offer the local, user-initiated report.
+    if (data.unmatched) renderReportButton(p, (data.used || text));
     if (readbackOn()) speak(data.speech, data.terms);
     // A play/skip command changes the track: don't wait for the next poll.
     setTimeout(refreshNowPlaying, 800);

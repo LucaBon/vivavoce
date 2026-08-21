@@ -25,6 +25,9 @@ RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper>=1.0"; 
 WORKDIR /app
 COPY engine/ engine/
 COPY localvoice/ localvoice/
+# Solo per la riga di versione (appdata.app_version): la UI la include nel
+# testo precompilato di "segnala frase incompresa".
+COPY pyproject.toml pyproject.toml
 COPY tools/make_cert.py tools/make_cert.py
 COPY deploy/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

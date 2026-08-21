@@ -85,6 +85,28 @@ def test_nowplaying_panel_renders_the_track(page, web, transport):
     assert page.get_attribute("#npart", "src").startswith("/artwork?")
 
 
+def test_unmatched_phrase_offers_the_local_report(page, web):
+    # A phrase the parser can't place gets a "report" button: tapping it saves
+    # the report on-device and opens a pre-filled GitHub issue. The github.com
+    # navigation is stubbed in-browser — no test touches the network.
+    page.context.route("https://github.com/**",
+                       lambda route: route.fulfill(status=200, body="stub"))
+    page.goto(web().url)
+    page.fill("#text", "xyzzy frobnicate")
+    page.click("#send")
+    btn = page.wait_for_selector("#log .choice:has-text('Segnala')")
+    with page.expect_popup() as popup_info:
+        btn.click()
+    url = popup_info.value.url
+    assert url.startswith("https://github.com/LucaBon/vivavoce/issues/new?")
+    assert "xyzzy%20frobnicate" in url
+    # Saved locally too, with the context the issue template carries.
+    stored = page.evaluate(
+        "JSON.parse(localStorage.getItem('vivavoce_reports'))")
+    assert stored and stored[-1]["text"] == "xyzzy frobnicate"
+    assert stored[-1]["lang"] == "it"
+
+
 def test_settings_persist_across_reload(page, web):
     url = web().url
     page.goto(url)

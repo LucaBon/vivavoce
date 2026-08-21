@@ -62,6 +62,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             page = (ROOT / "index.html").read_text(encoding="utf-8")
             page = page.replace("__SERVICES__", '["tidal", "qobuz"]')
             page = page.replace("__MATERIAL_URL__", "#")
+            page = page.replace("__VERSION__", '"dev"')
             data = page.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

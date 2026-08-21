@@ -283,7 +283,7 @@ def main() -> int:
         make_handler(client, material_url, services, default_service,
                      ca_path=tls.find_ca(args.cert), license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
-                     multiroom=multiroom),
+                     multiroom=multiroom, app_version=appdata.app_version()),
     )
 
     scheme = "http"

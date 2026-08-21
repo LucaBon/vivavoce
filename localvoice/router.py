@@ -143,6 +143,11 @@ class Router:
         # 'did you mean'), so the web client can render tappable choice buttons
         # only for the reply that offers them, not on every later reply.
         self._opened = False
+        # True when the last handle() fell through every pattern ("non ho
+        # capito"): the web client offers the privacy-first "report this
+        # phrase" button only then — an understood-but-failed command (LMS
+        # down, no search results) is not a parser gap.
+        self._unmatched = False
 
     def _stream_name(self, source):
         """The streaming service a request goes to: ``source`` when it names a
@@ -210,7 +215,7 @@ class Router:
         alts = [a for a in (alternatives or []) if (a or "").strip()]
         if not alts:
             return {"speech": msg("heard_nothing"), "used": "", "ok": False,
-                    "terms": [], "choices": []}
+                    "terms": [], "choices": [], "unmatched": False}
         primary = None
         for alt in alts:
             speech = self.handle(alt, source, lang)
@@ -220,14 +225,14 @@ class Router:
             # in English: EN misses are ActionResults and carry .ok).
             ok = getattr(speech, "ok", not speech.strip().lower().startswith("non "))
             if primary is None:
-                primary = (speech, alt, ok)
+                primary = (speech, alt, ok, self._unmatched)
             if ok:
                 return {"speech": speech, "used": alt, "ok": True,
                         "terms": list(getattr(speech, "terms", [])),
-                        "choices": self._choices()}
+                        "choices": self._choices(), "unmatched": False}
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
                 "terms": list(getattr(primary[0], "terms", [])),
-                "choices": self._choices()}
+                "choices": self._choices(), "unmatched": primary[3]}
 
     def _choices(self) -> list:
         """Tappable numbered choices for the web app, but only for a reply that
@@ -243,6 +248,7 @@ class Router:
         # A bare 'metti la N' pick doesn't re-open one, so its reply carries no
         # buttons (the list was already shown on the previous reply).
         self._opened = False
+        self._unmatched = False  # _route sets it on the "non ho capito" path
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
         t = (text or "").strip()
@@ -444,4 +450,5 @@ class Router:
         if m:
             return self._resolve(m.group(1).strip(), actions.play_song, source)
 
+        self._unmatched = True
         return msg("router_fallback")

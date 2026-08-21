@@ -134,6 +134,13 @@ const UI_EN = {
   ks_pin_short: "PIN too short: at least 4 characters.",
   ks_revoked_note: "License not active: the blocklist keeps being enforced, but " +
     "changes are locked.",
+  report_btn: "🚩 Report this phrase",
+  report_title: (t) => 'Misunderstood phrase: "' + t + '"',
+  report_body: (r) => "**Phrase:** “" + r.text + "”\n" +
+    "**Language:** " + r.lang + "\n**Source:** " + r.source + "\n" +
+    "**Version:** " + r.version + "\n\n**What should have happened:** (write it here)\n",
+  report_saved: "Saved on this device. A pre-filled GitHub issue just opened: " +
+    "review it and press Submit if you want to send it — nothing is sent by itself.",
 };
 // Italian counterparts of the dynamic strings (the labels come from the markup).
 const UI_IT = {
@@ -198,6 +205,13 @@ const UI_IT = {
   ks_wrong_pin: "PIN errato (dopo 5 tentativi, aspetta un minuto).",
   ks_pin_short: "PIN troppo corto: almeno 4 caratteri.",
   ks_revoked_note: "Licenza non attiva: la lista resta applicata, ma le modifiche sono bloccate.",
+  report_btn: "🚩 Segnala frase incompresa",
+  report_title: (t) => "Frase incompresa: «" + t + "»",
+  report_body: (r) => "**Frase:** «" + r.text + "»\n" +
+    "**Lingua:** " + r.lang + "\n**Sorgente:** " + r.source + "\n" +
+    "**Versione:** " + r.version + "\n\n**Cosa doveva succedere:** (scrivilo qui)\n",
+  report_saved: "Salvata su questo dispositivo. Si è aperta una issue GitHub " +
+    "precompilata: rileggila e premi Submit se vuoi inviarla — niente parte da solo.",
 };
 
 const IT_MARKUP = {};  // Italian innerHTML of every [data-i18n], snapshotted at load

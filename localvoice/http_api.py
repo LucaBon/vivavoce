@@ -28,7 +28,8 @@ def _http_fetch(url: str, timeout: float = 5.0):
 
 def make_handler(lms, material_url: str, services, default_service: str,
                  ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
-                 kidsafe=None, transcriber=None, multiroom=None):
+                 kidsafe=None, transcriber=None, multiroom=None,
+                 app_version: str = ""):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -73,6 +74,9 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 page = staticfiles.index_html().replace("__MATERIAL_URL__",
                                                         material_url)
                 page = page.replace("__SERVICES__", json.dumps(services))
+                # json.dumps: the version lands in the inline config script
+                # as a quoted JS string.
+                page = page.replace("__VERSION__", json.dumps(app_version))
                 self._send(200, page, "text/html")
             elif self.path in staticfiles.STATIC:
                 data, ctype = staticfiles.STATIC[self.path]
@@ -381,7 +385,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                     alternatives, source, lang)
             except Exception as exc:  # never 500 the client
                 result = {"speech": msg("internal_error", error=exc), "used": text,
-                          "ok": False, "error": str(exc), "terms": []}
+                          "ok": False, "error": str(exc), "terms": [],
+                          "unmatched": False}
             self._send(200, json.dumps(result, ensure_ascii=False))
 
         def log_message(self, *args):  # keep the console quiet

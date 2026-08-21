@@ -32,7 +32,8 @@ RUN curl -fsSL "https://github.com/LucaBon/vivavoce/archive/refs/tags/v${BUILD_V
  && cp -r "/tmp/vivavoce-${BUILD_VERSION}/engine" \
           "/tmp/vivavoce-${BUILD_VERSION}/localvoice" \
           "/tmp/vivavoce-${BUILD_VERSION}/tools" \
-          "/tmp/vivavoce-${BUILD_VERSION}/deploy" /app/ \
+          "/tmp/vivavoce-${BUILD_VERSION}/deploy" \
+          "/tmp/vivavoce-${BUILD_VERSION}/pyproject.toml" /app/ \
  && rm -rf "/tmp/vivavoce-${BUILD_VERSION}"
 
 COPY run.sh /run.sh
