@@ -5,9 +5,26 @@ an unreachable LMS at that moment is transient, so startup must wait and
 retry instead of dying with a traceback.
 """
 
+import os
+import subprocess
+import sys
+
 from lms import LMSError
 
 import server
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_python_dash_m_entry_point_works():
+    # Both documented launch forms must keep working after the server split:
+    # `python localvoice/server.py` and `python -m localvoice`. --help exits 0
+    # without touching the network.
+    result = subprocess.run([sys.executable, "-m", "localvoice", "--help"],
+                            cwd=ROOT, capture_output=True, text=True,
+                            timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert "--lms" in result.stdout
 
 
 def test_wait_for_players_retries_until_lms_answers(monkeypatch, capsys):
