@@ -21,7 +21,9 @@ import json
 import os
 import re
 
-from conftest import DEFAULT_MATERIAL_URL
+import pytest
+
+from conftest import DEFAULT_MATERIAL_URL, FakeLicense
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(os.path.dirname(HERE), "localvoice")
@@ -211,6 +213,59 @@ def test_unknown_post_is_a_json_404(live_server):
     resp = live_server().try_post_json("/nope", {"text": "ciao"})
     assert resp.status == 404
     assert "speech" in resp.json()
+
+
+# -- non-object JSON bodies -----------------------------------------------------
+# json.loads happily parses `null`/a number/a list/a bare string: none of
+# those raise ValueError, so a bare `.get()` on the result would raise
+# AttributeError uncaught by an `except (ValueError, UnicodeDecodeError)` —
+# dropping the connection with no response, breaking every endpoint's own
+# "never a 5xx" guarantee.
+
+NON_OBJECT_BODIES = ["null", "5", '"just a string"', "[1, 2, 3]"]
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_command_survives_a_non_object_json_body(live_server, body):
+    resp = live_server().post("/command", data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_kidsafe_survives_a_non_object_json_body(live_server, body, tmp_path):
+    from pro.kidsafe import KidSafe
+
+    kidsafe = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    resp = live_server(kidsafe=kidsafe).post("/kidsafe",
+                                             data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_player_survives_a_non_object_json_body(live_server, body):
+    resp = live_server().post("/player", data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_license_survives_a_non_object_json_body(live_server, body, tmp_path):
+    # FakeLicense has no .activate() (only GET /license needs one); POST
+    # exercises the real manager, with no http_post call expected — the
+    # non-object body degrades to an empty key, which activate() rejects
+    # locally before touching the network.
+    import licensing
+
+    def unexpected_post(url, fields):
+        raise AssertionError("should not reach the network on an empty key")
+
+    mgr = licensing.LicenseManager(str(tmp_path), http_post=unexpected_post)
+    resp = live_server(license_mgr=mgr).post("/license",
+                                             data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
 
 
 # -- /ca.pem -------------------------------------------------------------------

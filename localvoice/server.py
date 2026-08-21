@@ -278,10 +278,11 @@ def main() -> int:
         print(f"--default-service non tra i servizi attivi: uso {default_service}")
 
     material_url = args.material_url or (lms_url.rstrip("/") + "/material/")
+    ca_path = tls.find_ca(args.cert)
     httpd = ThreadingHTTPServer(
         (args.host, args.port),
         make_handler(client, material_url, services, default_service,
-                     ca_path=tls.find_ca(args.cert), license_mgr=license_mgr,
+                     ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version()),
     )
@@ -313,7 +314,7 @@ def main() -> int:
     else:
         print("Microfono disponibile anche dal telefono (HTTPS). Al primo accesso "
               "accetta una volta l'avviso del certificato self-signed.")
-        if tls.find_ca(args.cert):
+        if ca_path:
             print("Per togliere l'avviso e installare la pagina come app: scarica "
                   f"https://{hosts[0]}:{args.port}/ca.pem sul telefono e installala "
                   "come certificato CA (una volta sola).")

@@ -69,6 +69,28 @@ def make_handler(lms, material_url: str, services, default_service: str,
             self.end_headers()
             self.wfile.write(data)
 
+        def _query_params(self) -> dict:
+            """The request's query string, parsed once (``?a=1&b=2`` ->
+            ``{"a": ["1"], "b": ["2"]}``)."""
+            from urllib.parse import parse_qs, urlparse
+            return parse_qs(urlparse(self.path).query)
+
+        def _read_json_object(self) -> dict:
+            """The POST body as a JSON object, or ``{}`` on anything else —
+            absent body, malformed JSON, *or* valid JSON that isn't an
+            object (``null``, a number, a list, a bare string). That last
+            case is not a ``ValueError``: ``json.loads`` happily returns it,
+            and a bare ``.get()`` on it would raise ``AttributeError`` —
+            uncaught, that drops the connection with no response, breaking
+            this module's own "never a 5xx" guarantee."""
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                return {}
+            return payload if isinstance(payload, dict) else {}
+
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 page = staticfiles.index_html().replace("__MATERIAL_URL__",
@@ -147,9 +169,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 refuse("too_large")
                 return
             audio = self.rfile.read(length)
-            from urllib.parse import parse_qs, urlparse
-            query = parse_qs(urlparse(self.path).query)
-            lang = (query.get("lang") or ["it"])[0]
+            lang = (self._query_params().get("lang") or ["it"])[0]
             try:
                 result = transcriber.transcribe(audio, lang)
             except Exception as exc:
@@ -181,9 +201,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
             if not kidsafe:
                 self._send(200, json.dumps({"pro": False, "enabled": False}))
                 return
-            from urllib.parse import parse_qs, urlparse
-            query = parse_qs(urlparse(self.path).query)
-            client_id = (query.get("client") or ["default"])[0]
+            client_id = (self._query_params().get("client") or ["default"])[0]
             self._send(200, json.dumps(self._kidsafe_state(client_id)))
 
         def _kidsafe_action(self):
@@ -191,12 +209,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._send(200, json.dumps(
                     {"ok": False, "error": "unavailable"}))
                 return
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                payload = {}
+            payload = self._read_json_object()
             client_id = payload.get("client") or "default"
             action = payload.get("action") or ""
             pin = payload.get("pin") or ""
@@ -225,12 +238,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._send(200, json.dumps(
                     {"ok": False, "error": "unavailable"}))
                 return
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                key = json.loads(raw.decode("utf-8")).get("key", "")
-            except (ValueError, UnicodeDecodeError):
-                key = ""
+            key = self._read_json_object().get("key", "")
             result = license_mgr.activate(key)
             if result.get("ok"):
                 result.update(license_mgr.status())
@@ -238,9 +246,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
 
         def _query_player(self) -> str:
             """The optional ``player`` query param (the UI player selector)."""
-            from urllib.parse import parse_qs, urlparse
-            query = parse_qs(urlparse(self.path).query)
-            return (query.get("player") or [""])[0]
+            return (self._query_params().get("player") or [""])[0]
 
         def _send_players(self):
             # La lista player per il selettore stanza della UI. Mai un 5xx:
@@ -288,12 +294,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
             # rispetto ai contenuti, quindi niente gate kid-safe. Risponde
             # sempre 200 con lo stato aggiornato, così la UI si allinea
             # subito senza aspettare il prossimo poll.
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                payload = {}
+            payload = self._read_json_object()
             action = payload.get("action") or ""
             client = client_for(payload.get("player") or "")
             actions = {
@@ -359,27 +360,21 @@ def make_handler(lms, material_url: str, services, default_service: str,
             if self.path != "/command":
                 self._send(404, '{"speech":"non trovato"}')
                 return
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length) if length else b"{}"
-            client_id, text, player_id = "default", "", ""
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-                text = payload.get("text", "")
-                client_id = payload.get("client") or "default"
-                # The UI player selector: commands go to that player's router.
-                player_id = payload.get("player") or ""
-                # Auto source (default): the router tries the local library first,
-                # then TIDAL. Explicit phrases ("dalla mia musica", "da tidal") and
-                # an explicit source still override.
-                source = payload.get("source") or "auto"
-                # The language the user is speaking (the page's mic-language
-                # selector): commands are parsed and answered in that language.
-                lang = payload.get("lang") or "it"
-                # Prefer the ASR alternatives when present (mic hands-free mode);
-                # the plain text box just sends one string.
-                alternatives = payload.get("alternatives") or ([text] if text else [])
-            except (ValueError, UnicodeDecodeError):
-                source, alternatives, lang = "auto", [], "it"
+            payload = self._read_json_object()
+            text = payload.get("text", "")
+            client_id = payload.get("client") or "default"
+            # The UI player selector: commands go to that player's router.
+            player_id = payload.get("player") or ""
+            # Auto source (default): the router tries the local library first,
+            # then TIDAL. Explicit phrases ("dalla mia musica", "da tidal") and
+            # an explicit source still override.
+            source = payload.get("source") or "auto"
+            # The language the user is speaking (the page's mic-language
+            # selector): commands are parsed and answered in that language.
+            lang = payload.get("lang") or "it"
+            # Prefer the ASR alternatives when present (mic hands-free mode);
+            # the plain text box just sends one string.
+            alternatives = payload.get("alternatives") or ([text] if text else [])
             try:
                 result = router_for(client_id, player_id).handle_many(
                     alternatives, source, lang)

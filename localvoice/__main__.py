@@ -1,5 +1,7 @@
 """``python -m localvoice`` — same entry point as ``python localvoice/server.py``."""
 
+from __future__ import annotations
+
 import os
 import sys
 
