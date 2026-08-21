@@ -8,36 +8,9 @@ import pytest
 
 import actions
 from blocklist_store import BlocklistStoreError, JsonBlocklistStore
-from messages import set_lang
+from conftest import FakeLicense
 from pro.kidsafe import KidSafe, LOCKOUT_SECONDS, MAX_ATTEMPTS, UNLOCK_SECONDS
 from router import Router
-
-
-@pytest.fixture(autouse=True)
-def _reset_lang():
-    yield
-    set_lang("it")  # never leak the language into other test modules
-
-
-class FakeLicense:
-    def __init__(self, pro=True):
-        self.pro = pro
-
-    def is_pro(self):
-        return self.pro
-
-
-class Clock:
-    def __init__(self, t=1000.0):
-        self.t = t
-
-    def __call__(self):
-        return self.t
-
-
-@pytest.fixture
-def clock():
-    return Clock()
 
 
 @pytest.fixture
@@ -243,56 +216,30 @@ def test_block_titles_still_play(guarded_router, transport, make_tidal):
 
 # -- HTTP endpoints -----------------------------------------------------------------
 
-def test_kidsafe_http_flow(lms, tmp_path, clock):
-    import threading
-    import urllib.request
-    from http.server import ThreadingHTTPServer
-
-    import server as srv
-
+def test_kidsafe_http_flow(live_server, tmp_path, clock):
     ks = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
-    handler = srv.make_handler(lms, "http://lms.local:9000/material/",
-                               ["tidal"], "tidal", kidsafe=ks)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{httpd.server_address[1]}"
-
-    def get(path):
-        with urllib.request.urlopen(base + path, timeout=5) as r:
-            return json.loads(r.read())
+    srv = live_server(kidsafe=ks)
 
     def post(payload):
-        req = urllib.request.Request(
-            base + "/kidsafe", data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            return json.loads(r.read())
+        return srv.json_post("/kidsafe", payload)
 
-    try:
-        state = get("/kidsafe?client=parent")
-        assert state == {"pro": True, "enabled": False, "haspin": False,
-                         "locked": True}
-        assert post({"client": "parent", "action": "enable",
-                     "pin": "1234"})["enabled"] is True
-        added = post({"client": "parent", "action": "add", "term": "Bad Song"})
-        assert added["ok"] and added["terms"] == ["Bad Song"]
-        # A locked client never sees the terms.
-        assert "terms" not in get("/kidsafe?client=kid")
-        # Wrong pin -> still locked.
-        wrong = post({"client": "kid", "action": "unlock", "pin": "0000"})
-        assert wrong["ok"] is False and wrong["locked"] is True
-        ok = post({"client": "kid", "action": "unlock", "pin": "1234"})
-        assert ok["ok"] is True and ok["terms"] == ["Bad Song"]
-        # And the genuine server-side enforcement: a hand-crafted /command
-        # with a blocked term is refused for a locked client.
-        req = urllib.request.Request(
-            base + "/command",
-            data=json.dumps({"text": "metti Bad Song",
-                             "client": "other-kid"}).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            reply = json.loads(r.read())
-        assert reply["ok"] is False
-        assert reply["speech"] == actions.msg("blocked")
-    finally:
-        httpd.shutdown()
+    state = srv.json_get("/kidsafe?client=parent")
+    assert state == {"pro": True, "enabled": False, "haspin": False,
+                     "locked": True}
+    assert post({"client": "parent", "action": "enable",
+                 "pin": "1234"})["enabled"] is True
+    added = post({"client": "parent", "action": "add", "term": "Bad Song"})
+    assert added["ok"] and added["terms"] == ["Bad Song"]
+    # A locked client never sees the terms.
+    assert "terms" not in srv.json_get("/kidsafe?client=kid")
+    # Wrong pin -> still locked.
+    wrong = post({"client": "kid", "action": "unlock", "pin": "0000"})
+    assert wrong["ok"] is False and wrong["locked"] is True
+    ok = post({"client": "kid", "action": "unlock", "pin": "1234"})
+    assert ok["ok"] is True and ok["terms"] == ["Bad Song"]
+    # And the genuine server-side enforcement: a hand-crafted /command with a
+    # blocked term is refused for a locked client.
+    reply = srv.json_post("/command", {"text": "metti Bad Song",
+                                       "client": "other-kid"})
+    assert reply["ok"] is False
+    assert reply["speech"] == actions.msg("blocked")

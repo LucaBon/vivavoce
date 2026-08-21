@@ -10,29 +10,11 @@ Server: ``/players``, per-player ``/command`` · ``/player`` · ``/nowplaying``,
 the mini-player ``volume`` action, and the Pro gate on all of it.
 """
 
-import json
-import threading
-import urllib.request
-from http.server import ThreadingHTTPServer
-
 import pytest
 
-import server as srv
+from conftest import FakeLicense
 from pro.multiroom import MultiRoom
 from router import Router
-
-
-class FakeLicense:
-    """Just enough of LicenseManager for the multi-room Pro gate."""
-
-    def __init__(self, pro=True):
-        self.pro = pro
-
-    def is_pro(self):
-        return self.pro
-
-    def status(self):
-        return {"pro": self.pro}
 
 
 PLAYERS = [
@@ -278,55 +260,27 @@ class FakeArtworkFetch:
         return "image/png", b"PNGDATA"
 
 
-def _serve(lms, license_mgr):
-    multiroom = MultiRoom(license_mgr, lms.get_players)
-    handler = srv.make_handler(lms, "http://lms.local:9000/material/",
-                               ["tidal"], "tidal",
-                               artwork_fetch=FakeArtworkFetch(),
-                               license_mgr=license_mgr, multiroom=multiroom)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    return httpd, f"http://127.0.0.1:{httpd.server_address[1]}"
-
-
 @pytest.fixture
-def http_server(lms):
+def http_server(live_server, lms):
     """The handler with an active Pro license (multi-room unlocked)."""
-    httpd, base = _serve(lms, FakeLicense(pro=True))
-    try:
-        yield base
-    finally:
-        httpd.shutdown()
+    return live_server(artwork_fetch=FakeArtworkFetch(),
+                       license_mgr=FakeLicense(pro=True),
+                       multiroom=MultiRoom(FakeLicense(pro=True),
+                                           lms.get_players))
 
 
 @pytest.fixture
-def http_server_free(lms):
+def http_server_free(live_server, lms):
     """The handler with no license: multi-room must be inert."""
-    httpd, base = _serve(lms, None)
-    try:
-        yield base
-    finally:
-        httpd.shutdown()
-
-
-def _get(url):
-    with urllib.request.urlopen(url, timeout=5) as resp:
-        return resp.status, json.loads(resp.read())
-
-
-def _post(url, payload):
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        return resp.status, json.loads(resp.read())
+    return live_server(artwork_fetch=FakeArtworkFetch(), license_mgr=None,
+                       multiroom=MultiRoom(None, lms.get_players))
 
 
 def test_players_endpoint(http_server, transport):
     transport.responses["players"] = {"players_loop": PLAYERS}
-    status, data = _get(http_server + "/players")
-    assert status == 200
-    assert data == {
+    resp = http_server.get("/players")
+    assert resp.status == 200
+    assert resp.json() == {
         "ok": True, "pro": True, "current": "aa:bb:cc:dd:ee:ff",
         "players": [{"id": "aa:aa", "name": "Salotto"},
                     {"id": "bb:bb", "name": "Cucina"}],
@@ -335,9 +289,9 @@ def test_players_endpoint(http_server, transport):
 
 def test_players_endpoint_lms_down_is_not_500(http_server, transport):
     transport.raise_on.add("players")
-    status, data = _get(http_server + "/players")
-    assert status == 200
-    assert data == {"ok": False, "players": []}
+    resp = http_server.get("/players")
+    assert resp.status == 200
+    assert resp.json() == {"ok": False, "players": []}
 
 
 PLAYING = {
@@ -349,8 +303,9 @@ PLAYING = {
 
 def test_nowplaying_honours_player_param(http_server, transport):
     transport.responses["status"] = PLAYING
-    status, data = _get(http_server + "/nowplaying?player=bb%3Abb")
-    assert status == 200
+    resp = http_server.get("/nowplaying?player=bb%3Abb")
+    assert resp.status == 200
+    data = resp.json()
     assert data["volume"] == 40
     # The status query ran against the requested player, and the artwork URL
     # keeps pointing the proxy at it.
@@ -360,18 +315,18 @@ def test_nowplaying_honours_player_param(http_server, transport):
 
 def test_player_volume_action(http_server, transport):
     transport.responses["status"] = PLAYING
-    status, data = _post(http_server + "/player",
-                         {"action": "volume", "value": 55, "player": "bb:bb"})
-    assert status == 200
-    assert data["ok"] is True
+    resp = http_server.post_json(
+        "/player", {"action": "volume", "value": 55, "player": "bb:bb"})
+    assert resp.status == 200
+    assert resp.json()["ok"] is True
     assert ("bb:bb", ["mixer", "volume", "55"]) in transport.calls
 
 
 def test_command_routes_to_the_selected_player(http_server, transport):
-    status, data = _post(http_server + "/command",
-                         {"text": "pausa", "client": "c1", "player": "bb:bb"})
-    assert status == 200
-    assert data["speech"] == "In pausa."
+    resp = http_server.post_json(
+        "/command", {"text": "pausa", "client": "c1", "player": "bb:bb"})
+    assert resp.status == 200
+    assert resp.json()["speech"] == "In pausa."
     assert ("bb:bb", ["pause", "1"]) in transport.calls
 
 
@@ -379,29 +334,30 @@ def test_command_routes_to_the_selected_player(http_server, transport):
 
 def test_free_tier_player_param_is_ignored(http_server_free, transport):
     transport.responses["status"] = PLAYING
-    _post(http_server_free + "/player", {"action": "pause", "player": "bb:bb"})
+    http_server_free.post_json("/player",
+                               {"action": "pause", "player": "bb:bb"})
     assert ("aa:bb:cc:dd:ee:ff", ["pause", "1"]) in transport.calls
     assert all(player != "bb:bb" for player, _cmd in transport.calls)
 
 
 def test_free_tier_command_player_is_ignored(http_server_free, transport):
-    _post(http_server_free + "/command",
-          {"text": "pausa", "client": "c1", "player": "bb:bb"})
+    http_server_free.post_json(
+        "/command", {"text": "pausa", "client": "c1", "player": "bb:bb"})
     assert ("aa:bb:cc:dd:ee:ff", ["pause", "1"]) in transport.calls
     assert all(player != "bb:bb" for player, _cmd in transport.calls)
 
 
 def test_free_tier_voice_room_gets_the_pro_pitch(http_server_free, transport):
     transport.responses["players"] = {"players_loop": PLAYERS}
-    status, data = _post(http_server_free + "/command",
-                         {"text": "metti Time in cucina", "client": "c1"})
-    assert status == 200
-    assert "Pro" in data["speech"]
+    resp = http_server_free.post_json(
+        "/command", {"text": "metti Time in cucina", "client": "c1"})
+    assert resp.status == 200
+    assert "Pro" in resp.json()["speech"]
     assert all(cmd[0] != "playlist" for _p, cmd in transport.calls)
 
 
 def test_free_tier_players_endpoint_reports_pro_false(http_server_free, transport):
     transport.responses["players"] = {"players_loop": PLAYERS}
-    _status, data = _get(http_server_free + "/players")
+    data = http_server_free.json_get("/players")
     assert data["ok"] is True
     assert data["pro"] is False

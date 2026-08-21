@@ -18,12 +18,6 @@ def router(lms):
     return Router(lms)
 
 
-@pytest.fixture(autouse=True)
-def _reset_lang():
-    yield
-    set_lang("it")  # never leak the language into other test modules
-
-
 # -- catalog ----------------------------------------------------------------
 def test_catalogs_have_identical_keys():
     assert set(messages.IT) == set(messages.EN)
