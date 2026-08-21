@@ -13,6 +13,7 @@ dev = [
     "pytest>=7.0",
     "cryptography>=42.0",  # solo per generare il certificato TLS locale (tools/make_cert.py)
     "playwright>=1.40",  # screenshot della UI web (tools/ui_shots.py)
+    "pyyaml>=6.0",  # valida i descrittori di deploy (tests/test_packaging.py)
 ]
 # Riconoscimento vocale locale (/transcribe, Pro): opzionale, il core resta
 # stdlib-only. Installa con: uv sync --group asr

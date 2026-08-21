@@ -1,5 +1,7 @@
 # 🎵 Vivavoce
 
+[![CI](https://github.com/LucaBon/vivavoce/actions/workflows/ci.yml/badge.svg)](https://github.com/LucaBon/vivavoce/actions/workflows/ci.yml)
+
 > Say **«metti Comfortably Numb dei Pink Floyd»** — and the *exact* song plays on your hi-fi.
 
 **Hands-free voice control — in Italian or English — for a [Daphile](https://www.daphile.com/) /
@@ -131,12 +133,17 @@ There's a link to Material Skin right in the page for when you want to browse vi
 | `localvoice/` | Local web app: `server.py`, `router.py`, `index.html` |
 | `tools/probe_lms.py` | Validate search/playback against a real LMS |
 | `tests/` | pytest suite (simulated LMS transport, no network) |
+| `tests/conftest.py` | Shared fakes + `live_server` (the real handler on a port) |
 
 ## Tests
 
 ```bash
-uv run pytest        # 489 tests, no network — uses a simulated LMS transport
+uv run pytest        # 531 tests, no network — uses a simulated LMS transport
 ```
+
+Every push and pull request runs the suite on Python 3.9–3.14 (plus one Windows
+job, for the `%APPDATA%` branch), byte-compiles every module, and builds the
+Docker image — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 Validate against a real LMS (read-only, or `--play` to actually play):
 
