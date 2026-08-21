@@ -1,22 +1,24 @@
-# SqueezeSay — add-on Home Assistant
+# Vivavoce — add-on Home Assistant
 
 Controllo vocale **in italiano** per un impianto LMS / Squeezebox / Daphile
-(TIDAL incluso): di' «metti Comfortably Numb dei Pink Floyd» e parte *quel*
+(TIDAL e Qobuz inclusi): di' «metti Comfortably Numb dei Pink Floyd» e parte *quel*
 brano — o ricevi una domanda onesta, mai un brano sbagliato in silenzio.
-L'add-on esegue la web app locale di [SqueezeSay](https://github.com/LucaBon/squeezesay):
+L'add-on esegue la web app locale di [Vivavoce](https://github.com/LucaBon/vivavoce):
 nessun cloud, nessun account, i comandi restano nella tua rete.
 
 ## Installazione
 
 1. **Impostazioni → Componenti aggiuntivi → Store → ⋮ → Repository** e aggiungi
-   `https://github.com/LucaBon/squeezesay`.
-2. Installa **SqueezeSay** e avvialo. Di norma non serve configurare nulla:
+   `https://github.com/LucaBon/vivavoce`.
+2. Installa **Vivavoce** e avvialo. Di norma non serve configurare nulla:
    LMS viene rilevato automaticamente sulla LAN (UDP) e viene usato il primo
    player trovato.
 3. Apri `https://<ip-di-home-assistant>:8730` da telefono/tablet/PC sulla
-   stessa rete e accetta **una volta** l'avviso del certificato self-signed
-   (necessario: il microfono del browser richiede HTTPS). Consiglio: aggiungi
-   la pagina alla home del telefono.
+   stessa rete e accetta **una volta** l'avviso del certificato (necessario:
+   il microfono del browser richiede HTTPS). Meglio ancora: dal pannello
+   **"📱 Installa come app"** della pagina scarica `/ca.pem` e installala come
+   certificato CA — lucchetto verde, niente avvisi, e la pagina si installa
+   come **app vera** (PWA) sul telefono.
 
 Poi parla (o scrivi), in italiano: «metti l'album The Wall», «dalla mia musica
 metti Aerosmith», «quali album ho di Yes» → «metti la 2», «pausa», «alza il
@@ -42,12 +44,13 @@ dell'add-on, quindi l'avviso del browser va accettato una sola volta. Se cambi
 
 - Un LMS/Daphile sulla stessa rete con almeno un player attivo (per TIDAL:
   plugin TIDAL installato e loggato).
-- L'add-on usa la **rete host** (serve per l'auto-discovery UDP e per avere
-  gli IP giusti nel certificato).
+- L'add-on usa la **rete host** (rende immediata l'auto-discovery UDP e mette
+  gli IP giusti nel certificato; senza, la discovery ripiega comunque su una
+  scansione unicast della rete).
 - Il microfono richiede Chrome/Edge; la casella di testo funziona ovunque.
 
 ## Note
 
 - L'add-on scarica il codice dal branch `main` del repo al momento della
   build; un update dell'add-on ricompila con il codice aggiornato.
-- Problemi o idee: https://github.com/LucaBon/squeezesay/issues
+- Problemi o idee: https://github.com/LucaBon/vivavoce/issues

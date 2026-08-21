@@ -218,6 +218,16 @@ class LMSClient:
         clone.service = spec
         return clone
 
+    def for_player(self, player_id: Optional[str]) -> "LMSClient":
+        """This client re-targeted at another player (multi-room). Returns a
+        shallow copy sharing transport/base_url/service, so one configured
+        client can command every player the LMS knows."""
+        if not player_id or player_id == self.player_id:
+            return self
+        clone = copy.copy(self)
+        clone.player_id = player_id
+        return clone
+
     # -- low level ---------------------------------------------------------
     def _rpc(self, player: str, cmd: List[Any]) -> Dict[str, Any]:
         result = self._transport([player, [str(c) for c in cmd]])
@@ -510,6 +520,54 @@ class LMSClient:
         item = loop[0]
         return {"title": item.get("title"), "artist": item.get("artist")}
 
+    def status_info(self) -> Dict[str, Any]:
+        """Player status for the web now-playing panel.
+
+        Returns mode (play/pause/stop), current track metadata, elapsed and
+        total seconds, and where the artwork lives: ``artwork`` is either an
+        LMS-relative path (local tracks: ``/music/<coverid>/cover.jpg``) or
+        the absolute URL the streaming plugin reported (``artwork_url``).
+        """
+        res = self.command("status", "-", "1", "tags:aAlKcdJ")
+        loop = res.get("playlist_loop") or []
+        item = loop[0] if loop else {}
+
+        # LMS reports a muted player as a negative "mixer volume".
+        raw_volume = res.get("mixer volume")
+        try:
+            volume = max(0, min(100, int(float(raw_volume))))
+        except (TypeError, ValueError):
+            volume = None
+
+        artwork = item.get("artwork_url")
+        if artwork and not artwork.startswith(("http://", "https://", "/")):
+            artwork = "/" + artwork  # LMS a volte omette lo slash iniziale
+        if not artwork:
+            cover_id = item.get("coverid") or item.get("artwork_track_id")
+            if cover_id:
+                artwork = f"/music/{cover_id}/cover.jpg"
+            elif item:
+                # Fallback: la copertina del brano corrente del player, che
+                # l'LMS sa risolvere sia per tracce locali sia in streaming.
+                artwork = f"/music/current/cover.jpg?player={self.player_id}"
+
+        def _num(value: Any) -> Optional[float]:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        return {
+            "mode": res.get("mode") or "stop",
+            "title": item.get("title"),
+            "artist": item.get("artist"),
+            "album": item.get("album"),
+            "duration": _num(item.get("duration") or res.get("duration")),
+            "elapsed": _num(res.get("time")),
+            "artwork": artwork,
+            "volume": volume,
+        }
+
     # -- playback / controls ----------------------------------------------
     def play_url(self, url: str) -> Dict[str, Any]:
         """Play a direct URL (e.g. a track ``tidal://<id>.flc``) on the player."""
@@ -545,3 +603,15 @@ class LMSClient:
     def volume(self, delta: int) -> Dict[str, Any]:
         sign = "+" if delta >= 0 else "-"
         return self.command("mixer", "volume", f"{sign}{abs(int(delta))}")
+
+    def volume_set(self, value: int) -> Dict[str, Any]:
+        """Set the player volume to an absolute 0-100 level."""
+        return self.command("mixer", "volume", str(max(0, min(100, int(value)))))
+
+    def sleep(self, seconds: int) -> Dict[str, Any]:
+        """Stop playback after ``seconds`` (LMS native sleep timer); 0 cancels."""
+        return self.command("sleep", str(max(0, int(seconds))))
+
+    def seek(self, seconds: float) -> Dict[str, Any]:
+        """Jump to an absolute position (seconds) in the current track."""
+        return self.command("time", str(max(0, int(seconds))))

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Local voice web server — no cloud, no Alexa, no AWS.
+"""Local voice web server — no cloud, no accounts.
 
 Serves a page with a microphone button (browser speech recognition, it-IT) that
-posts the transcript to ``/command``; the same ``actions.py``/``lms.py`` engine
-used by the Alexa skill drives LMS/Daphile over the LAN. Runs entirely at home.
+posts the transcript to ``/command``; the ``actions.py``/``lms.py`` engine
+drives LMS/Daphile over the LAN. Runs entirely at home.
 
     python localvoice/server.py            # auto-discovers LMS on the LAN
     python localvoice/server.py --lms http://192.168.1.50:9000   # or point it
@@ -22,19 +22,41 @@ import socket
 import ssl
 import sys
 import threading
+import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(ROOT, "lambda"))  # actions, lms
+sys.path.insert(0, os.path.join(ROOT, "engine"))  # actions, lms
 sys.path.insert(0, HERE)  # router
 
+import appdata  # noqa: E402
 import discovery  # noqa: E402
-from lms import SERVICES, LMSClient  # noqa: E402
+import licensing  # noqa: E402
+from lms import SERVICES, LMSClient, LMSError  # noqa: E402
 from messages import msg  # noqa: E402
 from router import Router  # noqa: E402
 
-INDEX_HTML = open(os.path.join(HERE, "index.html"), encoding="utf-8").read()
+def _index_html() -> str:
+    # Riletta a ogni richiesta: un edit a index.html arriva con un semplice
+    # refresh, senza riavviare il server. Costo trascurabile in LAN locale.
+    with open(os.path.join(HERE, "index.html"), encoding="utf-8") as f:
+        return f.read()
+
+# PWA assets, read once at startup like the page itself. ca.pem is resolved at
+# runtime (next to --cert) so the phone can download and trust the local CA.
+def _read_bytes(name: str) -> bytes:
+    with open(os.path.join(HERE, name), "rb") as f:
+        return f.read()
+
+STATIC = {
+    "/manifest.webmanifest": (_read_bytes("manifest.webmanifest"),
+                              "application/manifest+json"),
+    "/sw.js": (_read_bytes("sw.js"), "text/javascript"),
+    "/icon-192.png": (_read_bytes("icon-192.png"), "image/png"),
+    "/icon-512.png": (_read_bytes("icon-512.png"), "image/png"),
+}
 
 
 def lan_ips() -> list:
@@ -64,21 +86,70 @@ def lan_ips() -> list:
     return []
 
 
-def make_handler(lms, material_url: str, services, default_service: str):
-    # One Router (and thus its "metti la N" list state) per browser/client id, so
-    # two phones don't clobber each other's numbered list. Clients send a stable
+def wait_for_players(lms_url: str, delay: float = 5.0, sleep=time.sleep) -> list:
+    """The LMS player list, retrying until the LMS answers.
+
+    Il PC che ospita questo server spesso si risveglia (o fa boot) PRIMA che
+    la rete sia tornata su: un LMS irraggiungibile in quel momento non è un
+    errore fatale ma uno stato transitorio. Invece di morire con un traceback
+    (costringendo a rilanciare a mano finché non va), aspetta e riprova.
+    Ctrl+C esce.
+    """
+    waited = False
+    while True:
+        try:
+            players = LMSClient(lms_url, "0").get_players()
+            if waited:
+                print("LMS raggiunto.")
+            return players
+        except LMSError as exc:
+            if not waited:
+                print(f"LMS non raggiungibile: {exc}")
+                print(f"Aspetto che {lms_url} risponda, riprovo ogni "
+                      f"{delay:g} secondi (Ctrl+C per uscire)...")
+                waited = True
+            sleep(delay)
+
+
+def _http_fetch(url: str, timeout: float = 5.0):
+    """GET ``url`` returning ``(content_type, bytes)`` — the artwork proxy's
+    default transport (injectable in tests)."""
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        return resp.headers.get("Content-Type") or "image/jpeg", resp.read()
+
+
+def make_handler(lms, material_url: str, services, default_service: str,
+                 ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
+                 kidsafe=None, transcriber=None, multiroom=None):
+    # One Router (and thus its "metti la N" list state) per browser/client id
+    # AND per selected player, so two phones — or one phone switched between
+    # rooms — don't clobber each other's numbered list. Clients send a stable
     # id; without one they share a single default router.
     routers = {}
     lock = threading.Lock()
     services = list(services)
 
-    def router_for(client_id: str) -> Router:
+    def multiroom_ok() -> bool:
+        """Multi-room (player selector + «in cucina» targeting) is Pro; the
+        feature object lives in pro/multiroom.py, like kid-safe."""
+        return multiroom is not None and multiroom.pro_ok()
+
+    def client_for(player_id: str):
+        """The LMS client for an optional per-request player override (the
+        UI player selector, Pro); the startup default player otherwise."""
+        return lms.for_player(player_id) if player_id and multiroom_ok() else lms
+
+    def router_for(client_id: str, player_id: str = "") -> Router:
+        key = (client_id, player_id if (player_id and multiroom_ok()) else "")
         with lock:
-            r = routers.get(client_id)
+            r = routers.get(key)
             if r is None:
-                r = Router(lms, default_service=default_service,
-                           services=tuple(services))
-                routers[client_id] = r
+                r = Router(client_for(key[1]), default_service=default_service,
+                           services=tuple(services),
+                           kidsafe=kidsafe, client_id=client_id,
+                           multiroom=multiroom)
+                routers[key] = r
             return r
 
     class Handler(BaseHTTPRequestHandler):
@@ -92,34 +163,308 @@ def make_handler(lms, material_url: str, services, default_service: str):
 
         def do_GET(self):
             if self.path in ("/", "/index.html"):
-                page = INDEX_HTML.replace("__MATERIAL_URL__", material_url)
+                page = _index_html().replace("__MATERIAL_URL__", material_url)
                 page = page.replace("__SERVICES__", json.dumps(services))
                 self._send(200, page, "text/html")
+            elif self.path in STATIC:
+                data, ctype = STATIC[self.path]
+                self._send(200, data, ctype)
+            elif self.path == "/ca.pem" and ca_path and os.path.exists(ca_path):
+                # La CA locale da installare (una volta) sul telefono/PC: dopo,
+                # lucchetto verde e PWA installabile senza avvisi.
+                with open(ca_path, "rb") as f:
+                    self._send(200, f.read(), "application/x-pem-file")
+            elif self.path.startswith("/nowplaying"):
+                self._send_nowplaying()
+            elif self.path.startswith("/artwork"):
+                self._send_artwork()
+            elif self.path.startswith("/players"):
+                self._send_players()
+            elif self.path == "/license":
+                status = license_mgr.status() if license_mgr else {"pro": False}
+                self._send(200, json.dumps(status))
+            elif self.path.startswith("/asr"):
+                self._asr_status()
+            elif self.path.startswith("/kidsafe"):
+                self._kidsafe_status()
             else:
                 self._send(404, "not found", "text/plain")
 
+        def _asr_status(self):
+            # La pagina mostra l'interruttore «riconoscimento locale» solo se
+            # il motore c'è davvero (gruppo opzionale "asr" installato).
+            ok = transcriber is not None and transcriber.available()
+            payload = {"available": ok}
+            if ok:
+                payload["model"] = getattr(transcriber, "model_name", None)
+            self._send(200, json.dumps(payload))
+
+        # Un comando parlato dura pochi secondi: 15 MB coprono con margine
+        # anche un wav non compresso, e tolgono senso a un upload-bomba.
+        MAX_AUDIO_BYTES = 15 * 1024 * 1024
+
+        def _transcribe(self):
+            # Il corpo è il blob audio di MediaRecorder (webm/opus o wav),
+            # la lingua viaggia nella query string. Come gli altri endpoint:
+            # mai un 5xx — i casi degradati rispondono 200 con ok:false.
+            length = int(self.headers.get("Content-Length", 0) or 0)
+
+            def refuse(error):
+                if length:  # drena il corpo: keep-alive pulito anche su rifiuto
+                    self.rfile.read(length)
+                self._send(200, json.dumps({"ok": False, "error": error}))
+
+            if transcriber is None or not transcriber.available():
+                refuse("unavailable")
+                return
+            # Funzione Pro, applicata lato server come il kid-safe: il toggle
+            # nascosto nella UI non basta a proteggere la CPU del server.
+            if license_mgr and not license_mgr.is_pro():
+                refuse("pro_required")
+                return
+            if not length:
+                refuse("empty")
+                return
+            if length > self.MAX_AUDIO_BYTES:
+                refuse("too_large")
+                return
+            audio = self.rfile.read(length)
+            from urllib.parse import parse_qs, urlparse
+            query = parse_qs(urlparse(self.path).query)
+            lang = (query.get("lang") or ["it"])[0]
+            try:
+                result = transcriber.transcribe(audio, lang)
+            except Exception as exc:
+                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
+                return
+            text = (result.get("text") or "").strip()
+            alternatives = [a for a in (result.get("alternatives") or [])
+                            if a and a.strip()]
+            if not alternatives and text:
+                alternatives = [text]
+            self._send(200, json.dumps(
+                {"ok": True, "text": text, "alternatives": alternatives},
+                ensure_ascii=False))
+
+        def _kidsafe_state(self, client_id: str) -> dict:
+            state = {
+                "pro": kidsafe.pro_ok(),
+                "enabled": kidsafe.enabled(),
+                "haspin": kidsafe.has_pin(),
+                "locked": not kidsafe.is_unlocked(client_id),
+            }
+            if not state["locked"]:
+                # I termini si vedono solo da sbloccati: un bambino non deve
+                # poter leggere la lista per aggirarla.
+                state["terms"] = kidsafe.terms()
+            return state
+
+        def _kidsafe_status(self):
+            if not kidsafe:
+                self._send(200, json.dumps({"pro": False, "enabled": False}))
+                return
+            from urllib.parse import parse_qs, urlparse
+            query = parse_qs(urlparse(self.path).query)
+            client_id = (query.get("client") or ["default"])[0]
+            self._send(200, json.dumps(self._kidsafe_state(client_id)))
+
+        def _kidsafe_action(self):
+            if not kidsafe:
+                self._send(200, json.dumps(
+                    {"ok": False, "error": "unavailable"}))
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                payload = {}
+            client_id = payload.get("client") or "default"
+            action = payload.get("action") or ""
+            pin = payload.get("pin") or ""
+            term = payload.get("term") or ""
+            if action == "unlock":
+                result = ({"ok": True} if kidsafe.unlock(client_id, pin)
+                          else {"ok": False, "error": "wrong_pin"})
+            elif action == "lock":
+                kidsafe.lock(client_id)
+                result = {"ok": True}
+            elif action == "enable":
+                result = kidsafe.enable(pin, client_id)
+            elif action == "disable":
+                result = kidsafe.disable(client_id)
+            elif action in ("add", "remove"):
+                result = kidsafe.edit_terms(action, term, client_id)
+            else:
+                result = {"ok": False, "error": "unknown_action"}
+            result.update(self._kidsafe_state(client_id))
+            self._send(200, json.dumps(result, ensure_ascii=False))
+
+        def _activate_license(self):
+            # Attivazione una tantum dalla UI impostazioni. Server solo LAN:
+            # nessuna auth extra, come per /command.
+            if not license_mgr:
+                self._send(200, json.dumps(
+                    {"ok": False, "error": "unavailable"}))
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                key = json.loads(raw.decode("utf-8")).get("key", "")
+            except (ValueError, UnicodeDecodeError):
+                key = ""
+            result = license_mgr.activate(key)
+            if result.get("ok"):
+                result.update(license_mgr.status())
+            self._send(200, json.dumps(result))
+
+        def _query_player(self) -> str:
+            """The optional ``player`` query param (the UI player selector)."""
+            from urllib.parse import parse_qs, urlparse
+            query = parse_qs(urlparse(self.path).query)
+            return (query.get("player") or [""])[0]
+
+        def _send_players(self):
+            # La lista player per il selettore stanza della UI. Mai un 5xx:
+            # con l'LMS giù (o senza il modulo multiroom) risponde ok:false e
+            # il selettore resta com'è.
+            if multiroom is None:
+                self._send(200, json.dumps({"ok": False, "players": []}))
+                return
+            try:
+                players = multiroom.players()
+            except Exception:
+                self._send(200, json.dumps({"ok": False, "players": []}))
+                return
+            out = [{"id": p["playerid"], "name": p.get("name") or p["playerid"]}
+                   for p in players if p.get("playerid")]
+            self._send(200, json.dumps(
+                {"ok": True, "pro": multiroom.pro_ok(), "current": lms.player_id,
+                 "players": out},
+                ensure_ascii=False))
+
+        def _nowplaying_payload(self, client=None):
+            # Mai un 5xx: il pannello si nasconde su mode "unknown", niente
+            # spam di errori in console quando l'LMS è giù.
+            client = client or lms
+            try:
+                info = client.status_info()
+            except Exception:
+                return {"mode": "unknown"}
+            if info.get("artwork"):
+                # Cache-buster: cambia col brano, così il browser non mostra
+                # la copertina precedente. L'URL vero lo risolve /artwork.
+                from urllib.parse import quote
+                token = abs(hash((info["artwork"], info.get("title")))) % 10**8
+                player_q = ("" if client.player_id == lms.player_id
+                            else "&player=" + quote(client.player_id))
+                info["artwork"] = f"/artwork?v={token}{player_q}"
+            return info
+
+        def _send_nowplaying(self):
+            payload = self._nowplaying_payload(client_for(self._query_player()))
+            self._send(200, json.dumps(payload, ensure_ascii=False))
+
+        def _player_action(self):
+            # Trasporto dal mini-player (pausa/riprendi/salta/seek): neutro
+            # rispetto ai contenuti, quindi niente gate kid-safe. Risponde
+            # sempre 200 con lo stato aggiornato, così la UI si allinea
+            # subito senza aspettare il prossimo poll.
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                payload = {}
+            action = payload.get("action") or ""
+            client = client_for(payload.get("player") or "")
+            actions = {
+                "pause": client.pause,
+                "resume": client.resume,
+                "next": client.next_track,
+                "prev": client.previous_track,
+            }
+            try:
+                if action == "seek":
+                    client.seek(float(payload.get("seconds") or 0))
+                elif action == "volume":
+                    client.volume_set(int(float(payload.get("value") or 0)))
+                elif action in actions:
+                    actions[action]()
+                else:
+                    self._send(200, json.dumps(
+                        {"ok": False, "error": "unknown_action"}))
+                    return
+            except Exception:
+                self._send(200, json.dumps({"ok": False, "mode": "unknown"}))
+                return
+            info = self._nowplaying_payload(client)
+            info["ok"] = True
+            self._send(200, json.dumps(info, ensure_ascii=False))
+
+        def _send_artwork(self):
+            # Proxy lato server della copertina: la pagina è HTTPS e l'LMS è
+            # HTTP — un <img> diretto sarebbe mixed content (bloccato). Nessun
+            # parametro dal client: l'URL viene sempre ricavato qui dallo
+            # status del player, quindi niente open relay.
+            try:
+                art = client_for(self._query_player()).status_info().get("artwork")
+                if not art:
+                    self._send(404, "no artwork", "text/plain")
+                    return
+                if not art.startswith(("http://", "https://")):
+                    art = lms.base_url + art
+                ctype, data = artwork_fetch(art)
+            except Exception:
+                self._send(404, "artwork unavailable", "text/plain")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_POST(self):
+            if self.path == "/license":
+                self._activate_license()
+                return
+            if self.path == "/kidsafe":
+                self._kidsafe_action()
+                return
+            if self.path == "/player":
+                self._player_action()
+                return
+            if self.path.startswith("/transcribe"):
+                self._transcribe()
+                return
             if self.path != "/command":
                 self._send(404, '{"speech":"non trovato"}')
                 return
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length) if length else b"{}"
-            client_id, text = "default", ""
+            client_id, text, player_id = "default", "", ""
             try:
                 payload = json.loads(raw.decode("utf-8"))
                 text = payload.get("text", "")
                 client_id = payload.get("client") or "default"
+                # The UI player selector: commands go to that player's router.
+                player_id = payload.get("player") or ""
                 # Auto source (default): the router tries the local library first,
                 # then TIDAL. Explicit phrases ("dalla mia musica", "da tidal") and
                 # an explicit source still override.
                 source = payload.get("source") or "auto"
+                # The language the user is speaking (the page's mic-language
+                # selector): commands are parsed and answered in that language.
+                lang = payload.get("lang") or "it"
                 # Prefer the ASR alternatives when present (mic hands-free mode);
                 # the plain text box just sends one string.
                 alternatives = payload.get("alternatives") or ([text] if text else [])
             except (ValueError, UnicodeDecodeError):
-                source, alternatives = "auto", []
+                source, alternatives, lang = "auto", [], "it"
             try:
-                result = router_for(client_id).handle_many(alternatives, source)
+                result = router_for(client_id, player_id).handle_many(
+                    alternatives, source, lang)
             except Exception as exc:  # never 500 the client
                 result = {"speech": msg("internal_error", error=exc), "used": text,
                           "ok": False, "error": str(exc), "terms": []}
@@ -131,41 +476,150 @@ def make_handler(lms, material_url: str, services, default_service: str):
     return Handler
 
 
+# -- Cache della discovery ----------------------------------------------------
+# L'ultimo LMS trovato viene ricordato nella cartella dati (in Docker: il
+# volume persistente): al riavvio niente broadcast né sweep unicast, il server
+# riparte subito. Se l'LMS non risponde più, la cache viene ignorata e la
+# discovery ricomincia da capo.
+
+def _lms_cache_path(data_dir: str) -> str:
+    return os.path.join(data_dir, "discovery_cache.json")
+
+
+def _cached_lms(data_dir: str) -> str:
+    try:
+        with open(_lms_cache_path(data_dir), encoding="utf-8") as f:
+            return json.load(f).get("lms") or ""
+    except (OSError, ValueError):
+        return ""
+
+
+def _save_cached_lms(data_dir: str, url: str) -> None:
+    try:
+        with open(_lms_cache_path(data_dir), "w", encoding="utf-8") as f:
+            json.dump({"lms": url}, f)
+    except OSError:
+        pass  # cartella read-only: pazienza, si riscopre al prossimo avvio
+
+
+def _lms_reachable(url: str, timeout: float = 2.0) -> bool:
+    parts = urllib.parse.urlsplit(url)
+    if not parts.hostname:
+        return False
+    try:
+        socket.create_connection((parts.hostname, parts.port or 9000),
+                                 timeout=timeout).close()
+        return True
+    except OSError:
+        return False
+
+
+# Solo le fasi che meritano una riga: il passaggio allo sweep (il broadcast non
+# esce dai bridge Docker, è il caso normale in container) e l'ultima risorsa.
+_DISCOVERY_PHASES = {
+    "sweep": "Nessuna risposta al broadcast (normale dentro Docker): "
+             "discovery unicast, subnet per subnet...",
+    "full": "Non ancora trovato: scansione completa di 192.168.*...",
+}
+
+
+def _discovery_progress(phase: str) -> None:
+    line = _DISCOVERY_PHASES.get(phase)
+    if line:
+        print(line)
+
+
 def main() -> int:
+    # Ogni opzione ha un gemello d'ambiente (PREFIX_LMS, PREFIX_PORT, ...):
+    # Docker/HA configurano via env, la riga di comando vince quando presente.
     ap = argparse.ArgumentParser(description="Server vocale locale per LMS/Daphile.")
-    ap.add_argument("--lms", help="es. http://192.168.1.50:9000 "
-                                  "(auto-rilevato sulla rete se omesso)")
-    ap.add_argument("--player", help="MAC del player; default: il primo trovato")
+    ap.add_argument("--lms", default=appdata.env("LMS"),
+                    help="es. http://192.168.1.50:9000 "
+                         "(auto-rilevato sulla rete se omesso)")
+    ap.add_argument("--player", default=appdata.env("PLAYER"),
+                    help="MAC del player; default: il primo trovato")
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=8730)
+    ap.add_argument("--port", type=int, default=int(appdata.env("PORT", "8730")))
     ap.add_argument("--cert", help="certificato TLS (per il mic da altri device)")
     ap.add_argument("--key", help="chiave TLS")
-    ap.add_argument("--material-url",
+    ap.add_argument("--data-dir", default=None,
+                    help="cartella per lo stato persistente del server "
+                         "(licenza, kid-safe). Default: PREFIX_DATA_DIR, poi "
+                         "%%APPDATA%% su Windows o ~/.local/share altrove.")
+    ap.add_argument("--material-url", default=appdata.env("MATERIAL_URL"),
                     help="URL della UI da aprire col link 'Material Skin'. "
                          "Default: <lms>/material/ . Se Material Skin non è "
                          "installato, punta alla UI classica (es. <lms>/).")
-    ap.add_argument("--services", default="auto",
+    ap.add_argument("--services", default=appdata.env("SERVICES", "auto"),
                     help="servizi streaming offerti nel selettore, es. "
                          "tidal,qobuz. Default 'auto': rileva i plugin "
                          "installati sull'LMS (fallback: tidal).")
-    ap.add_argument("--default-service", default="tidal",
+    ap.add_argument("--default-service",
+                    default=appdata.env("DEFAULT_SERVICE", "tidal"),
                     help="servizio streaming usato in modalità automatica e "
                          "quando la frase non ne nomina uno (default: tidal)")
+    ap.add_argument("--asr-model",
+                    default=appdata.env("ASR_MODEL"),
+                    help="modello Whisper per il riconoscimento vocale locale "
+                         "(tiny/base/small/medium...). Default: small, ma su "
+                         "macchine sotto ~4 GB di RAM resta spento se non "
+                         "indicato qui. Serve il gruppo: uv sync --group asr")
     args = ap.parse_args()
+    data_dir = appdata.data_dir(args.data_dir)
+    license_mgr = licensing.LicenseManager(data_dir)
+    license_mgr.revalidate_async()  # settimanale, best-effort, mai bloccante
+    from pro.kidsafe import KidSafe
+    kidsafe = KidSafe(data_dir, license_mgr)
+    # Riconoscimento vocale locale (Pro): il modello si carica solo al primo
+    # /transcribe; i modelli finiscono nella cartella dati (in Docker: il
+    # volume persistente), non nell'immagine. Il default è RAM-aware: sotto
+    # ~4 GB resta spento (tiny/base storpiano i titoli inglesi, small non ci
+    # sta) a meno che --asr-model non lo forzi esplicitamente.
+    from pro.asr import (WhisperTranscriber, default_model, total_ram_gib)
+    asr_model = args.asr_model or default_model()
+    transcriber = None
+    if not WhisperTranscriber().available():
+        print("Riconoscimento vocale locale non installato: il microfono usa "
+              "il riconoscimento del browser. Per attivarlo: uv sync --group asr")
+    elif asr_model:
+        transcriber = WhisperTranscriber(
+            asr_model, cache_dir=os.path.join(data_dir, "asr-models"))
+        print(f"Riconoscimento vocale locale attivo (faster-whisper, modello "
+              f"{asr_model}): l'audio del microfono resta in casa.")
+    else:
+        print(f"Riconoscimento vocale locale spento: questa macchina ha "
+              f"~{total_ram_gib():.1f} GiB di RAM — il modello 'small' vuole "
+              "~1 GB al picco e quelli più piccoli storpiano i titoli "
+              "inglesi. Per forzarlo comunque: --asr-model tiny "
+              "(o VIVAVOCE_ASR_MODEL).")
 
     lms_url = args.lms
     if not lms_url:
+        cached = _cached_lms(data_dir)
+        if cached and _lms_reachable(cached):
+            lms_url = cached
+            print(f"LMS: {lms_url} (ricordato dall'ultimo avvio)")
+    if not lms_url:
         print("Cerco un server LMS sulla rete (UDP 3483)...")
-        lms_url = discovery.discover_base_url()
+        lms_url = discovery.discover_base_url(on_progress=_discovery_progress)
         if not lms_url:
             print("Nessun LMS trovato. Riprova indicando l'indirizzo: "
                   "--lms http://IP-DEL-SERVER:9000")
             return 1
         print(f"LMS trovato: {lms_url}")
+        _save_cached_lms(data_dir, lms_url)
+
+    # Aspetta che l'LMS risponda anche quando --player è già noto: subito dopo
+    # c'è la rilevazione dei servizi streaming, che con la rete giù ripiegherebbe
+    # in silenzio sul solo TIDAL.
+    try:
+        players = wait_for_players(lms_url)
+    except KeyboardInterrupt:
+        print("\nStop.")
+        return 1
 
     player = args.player
     if not player:
-        players = LMSClient(lms_url, "0").get_players()
         if not players:
             print(f"Nessun player trovato su {lms_url}")
             return 1
@@ -173,6 +627,10 @@ def main() -> int:
         print(f"Player: {players[0].get('name')} ({player})")
 
     client = LMSClient(lms_url, player)
+    # Multi-stanza (Pro): come il kid-safe, il modulo vive in pro/ e il core
+    # riceve solo l'oggetto col suo piccolo contratto.
+    from pro.multiroom import MultiRoom
+    multiroom = MultiRoom(license_mgr, client.get_players)
 
     # Which streaming services the source selector offers. "auto" asks the LMS
     # which plugins are installed; an explicit list skips the detection (the
@@ -202,9 +660,18 @@ def main() -> int:
         print(f"--default-service non tra i servizi attivi: uso {default_service}")
 
     material_url = args.material_url or (lms_url.rstrip("/") + "/material/")
+    # La CA locale (se make_cert l'ha creata) vive accanto al certificato.
+    ca_path = None
+    if args.cert:
+        candidate = os.path.join(os.path.dirname(os.path.abspath(args.cert)), "ca.pem")
+        if os.path.exists(candidate):
+            ca_path = candidate
     httpd = ThreadingHTTPServer(
         (args.host, args.port),
-        make_handler(client, material_url, services, default_service),
+        make_handler(client, material_url, services, default_service,
+                     ca_path=ca_path, license_mgr=license_mgr,
+                     kidsafe=kidsafe, transcriber=transcriber,
+                     multiroom=multiroom),
     )
 
     scheme = "http"
@@ -236,6 +703,10 @@ def main() -> int:
     else:
         print("Microfono disponibile anche dal telefono (HTTPS). Al primo accesso "
               "accetta una volta l'avviso del certificato self-signed.")
+        if ca_path:
+            print("Per togliere l'avviso e installare la pagina come app: scarica "
+                  f"https://{hosts[0]}:{args.port}/ca.pem sul telefono e installala "
+                  "come certificato CA (una volta sola).")
     print("Ctrl+C per fermare.")
     try:
         httpd.serve_forever()

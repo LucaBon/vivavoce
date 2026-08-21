@@ -1,12 +1,11 @@
-# SqueezeSay — web app vocale locale, in un container.
+# Vivavoce — web app vocale locale, in un container.
 #
 #   docker compose up -d          # vedi docker-compose.yml (consigliato)
-#   docker build -t squeezesay .
-#   docker run --network host -v squeezesay-data:/data squeezesay
+#   docker build -t vivavoce .
+#   docker run --network host -v squeezesay-data:/data vivavoce
 #
-# L'immagine contiene solo la web app locale (localvoice/ + motore lambda/):
-# la skill Alexa si deploya a parte (vedi DEPLOY.md). Il certificato TLS viene
-# generato al primo avvio nel volume /data.
+# L'immagine contiene la web app locale (localvoice/ + motore engine/).
+# Il certificato TLS viene generato al primo avvio nel volume /data.
 FROM python:3.12-slim
 
 # Senza TTY lo stdout di Python resta nel buffer: senza questo, `docker logs`
@@ -16,8 +15,15 @@ ENV PYTHONUNBUFFERED=1
 # cryptography serve solo a generare il certificato self-signed al primo avvio.
 RUN pip install --no-cache-dir "cryptography>=42.0"
 
+# Variante ASR (opzionale): --build-arg ASR=1 preinstalla faster-whisper per
+# il riconoscimento vocale locale (endpoint /transcribe, funzione Pro).
+# Aggiunge ~600 MB all'immagine; il modello Whisper viene scaricato al primo
+# uso dentro /data (il volume), quindi sopravvive agli aggiornamenti.
+ARG ASR=0
+RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper>=1.0"; fi
+
 WORKDIR /app
-COPY lambda/ lambda/
+COPY engine/ engine/
 COPY localvoice/ localvoice/
 COPY tools/make_cert.py tools/make_cert.py
 COPY deploy/docker/entrypoint.sh /entrypoint.sh

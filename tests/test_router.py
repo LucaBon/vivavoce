@@ -55,7 +55,7 @@ def test_play_song(router, transport, make_tidal):
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://42.flc", "name": "Time"}]},
     )
-    assert router.handle("riproduci Time") == "Riproduco Time."
+    assert router.handle("riproduci Time") == "Riproduco Time da TIDAL."
     assert ["playlist", "play", "tidal://42.flc"] in transport.commands()
 
 
@@ -77,7 +77,7 @@ def test_play_album(router, transport, make_tidal):
         categories={"Albums": "AL"},
         items={"AL": [{"type": "playlist", "id": "ALB", "name": "The Wall"}]},
     )
-    assert router.handle("metti l'album The Wall") == "Riproduco l'album The Wall."
+    assert router.handle("metti l'album The Wall") == "Riproduco l'album The Wall da TIDAL."
     assert ["tidal", "playlist", "play", "item_id:ALB"] in transport.commands()
 
 
@@ -90,7 +90,9 @@ def test_play_artist(router, transport, make_tidal):
             "TT": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Time"}],
         },
     )
-    assert router.handle("metti la musica di Pink Floyd") == "Riproduco la musica di Pink Floyd."
+    assert router.handle("metti la musica di Pink Floyd") == (
+        "Riproduco la musica di Pink Floyd da TIDAL."
+    )
     assert ["playlist", "play", "tidal://1.flc"] in transport.commands()
 
 
@@ -121,8 +123,9 @@ def test_list_local_albums_then_choose(router, transport):
     listing = router.handle("quali album ho di Yes")
     assert "1: 90125" in listing
     assert router.candidates is not None
-    # follow-up choice uses the remembered list
-    assert router.handle("metti la 2") == "Riproduco Fragile."
+    # follow-up choice uses the remembered list; the pick says the source too.
+    # Dictated with a final period: it must still count as a pick.
+    assert router.handle("Metti la 2.") == "Riproduco Fragile dalla tua musica."
     assert ["playlistcontrol", "cmd:load", "album_id:9"] in transport.commands()
 
 
@@ -146,21 +149,21 @@ def _santana_list(router, transport):
 
 def test_list_local_albums_then_choose_by_name(router, transport):
     _santana_list(router, transport)
-    assert router.handle("metti Supernatural") == "Riproduco Supernatural."
+    assert router.handle("metti Supernatural") == "Riproduco Supernatural dalla tua musica."
     assert ["playlistcontrol", "cmd:load", "album_id:12"] in transport.commands()
     assert ["playlistcontrol", "cmd:load", "album_id:999"] not in transport.commands()
 
 
 def test_name_choice_bare_title(router, transport):
     _santana_list(router, transport)
-    assert router.handle("Supernatural") == "Riproduco Supernatural."
+    assert router.handle("Supernatural") == "Riproduco Supernatural dalla tua musica."
     assert ["playlistcontrol", "cmd:load", "album_id:12"] in transport.commands()
 
 
 @pytest.mark.parametrize("phrase", ["tre", "three", "metti la tre", "3", "numero tre"])
 def test_choose_by_number_word(router, transport, phrase):
     _santana_list(router, transport)
-    assert router.handle(phrase) == "Riproduco Supernatural."
+    assert router.handle(phrase) == "Riproduco Supernatural dalla tua musica."
     assert ["playlistcontrol", "cmd:load", "album_id:12"] in transport.commands()
 
 
@@ -177,7 +180,7 @@ def test_name_choice_falls_through_for_unlisted(router, transport, make_tidal):
     )
     # An unlisted album name is not a candidate -> choose_by_name returns None ->
     # routing continues to the normal album branch (TIDAL by default).
-    assert router.handle("metti l'album The Wall") == "Riproduco l'album The Wall."
+    assert router.handle("metti l'album The Wall") == "Riproduco l'album The Wall da TIDAL."
     assert ["tidal", "playlist", "play", "item_id:ALB"] in transport.commands()
 
 
@@ -227,7 +230,9 @@ def test_explicit_tidal_overrides_local_source(router, transport, make_tidal):
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
     )
-    assert router.handle("da tidal riproduci Time", source="local") == "Riproduco Time."
+    assert router.handle("da tidal riproduci Time", source="local") == (
+        "Riproduco Time da TIDAL."
+    )
     assert ["playlist", "play", "tidal://9.flc"] in transport.commands()
 
 
@@ -250,7 +255,7 @@ def test_auto_source_falls_back_to_tidal(router, transport, make_tidal):
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
     )
-    assert router.handle("riproduci Time", source="auto") == "Riproduco Time."
+    assert router.handle("riproduci Time", source="auto") == "Riproduco Time da TIDAL."
     assert ["playlist", "play", "tidal://9.flc"] in transport.commands()
 
 
@@ -266,7 +271,7 @@ def test_auto_source_skips_weak_local_and_uses_tidal(router, transport, make_tid
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Love"}]},
     )
-    assert router.handle("riproduci love", source="auto") == "Riproduco Love."
+    assert router.handle("riproduci love", source="auto") == "Riproduco Love da TIDAL."
     assert ["playlist", "play", "tidal://7.flc"] in transport.commands()
     assert not any(c[:2] == ["playlistcontrol", "cmd:load"] for c in transport.commands())
 
@@ -288,6 +293,10 @@ def test_explicit_local_overrides_tidal_source(router, transport):
         "riproduci musica degli Audioslave",
         "metti la musica dei Pink Floyd",
         "metti le canzoni di Pink Floyd",
+        "metti canzoni dei Negrita",
+        "metti tutte le canzoni dei Negrita",
+        "riproduci i brani di Battisti",
+        "Metti le canzoni dei Negrita.",  # dictation adds final punctuation
     ],
 )
 def test_artist_grammar_variants(router, transport, make_tidal, phrase):
@@ -301,6 +310,20 @@ def test_artist_grammar_variants(router, transport, make_tidal, phrase):
     )
     assert router.handle(phrase).startswith("Riproduco la musica di ")
     assert ["playlist", "play", "tidal://1.flc"] in transport.commands()
+
+
+def test_singular_canzone_is_a_song_not_an_artist(router, transport, make_tidal):
+    # "la canzone del sole" is a song title (Battisti): the singular must NOT
+    # be read as an artist request for "sole".
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://7.flc",
+                      "name": "La canzone del sole"}]},
+    )
+    assert router.handle("metti la canzone del sole") == (
+        "Riproduco La canzone del sole da TIDAL."
+    )
+    assert ["playlist", "play", "tidal://7.flc"] in transport.commands()
 
 
 # -- multi-alternative ASR (handle_many) ----------------------------------
@@ -353,7 +376,7 @@ def test_handle_many_exposes_tappable_choices(router, transport):
     ]
     # a bare pick afterwards doesn't re-open a list -> that reply has no buttons.
     res2 = router.handle_many(["metti la 2"], source="local")
-    assert res2["speech"] == "Riproduco Fragile."
+    assert res2["speech"] == "Riproduco Fragile dalla tua musica."
     assert res2["choices"] == []
 
 
@@ -389,7 +412,7 @@ def test_local_did_you_mean_remembers_for_follow_up(router, transport):
     }
     msg = router.handle("dalla mia musica metti love")
     assert "1: Love di Kendrick Lamar" in msg and router.candidates is not None
-    assert router.handle("metti la 2") == "Riproduco Love."
+    assert router.handle("metti la 2") == "Riproduco Love dalla tua musica."
     assert ["playlistcontrol", "cmd:load", "track_id:2"] in transport.commands()
 
 
@@ -411,7 +434,7 @@ def test_source_qobuz_generic_play(router, transport, make_feed):
         categories={"Tracks": "T"},
         items={"T": [{"isaudio": 1, "url": "qobuz://9.flac", "name": "Time"}]},
     )
-    assert router.handle("riproduci Time", source="qobuz") == "Riproduco Time."
+    assert router.handle("riproduci Time", source="qobuz") == "Riproduco Time da Qobuz."
     assert ["playlist", "play", "qobuz://9.flac"] in transport.commands()
     assert not any(cmd[0] == "tidal" for cmd in transport.commands())
 
@@ -421,8 +444,49 @@ def test_explicit_qobuz_overrides_local_source(router, transport, make_feed):
         categories={"Tracks": "T"},
         items={"T": [{"isaudio": 1, "url": "qobuz://9.flac", "name": "Time"}]},
     )
-    assert router.handle("da qobuz riproduci Time", source="local") == "Riproduco Time."
+    assert router.handle("da qobuz riproduci Time", source="local") == (
+        "Riproduco Time da Qobuz."
+    )
     assert ["playlist", "play", "qobuz://9.flac"] in transport.commands()
+
+
+@pytest.mark.parametrize("heard", [
+    "kobuz", "cobus", "Kobuz", "ko buz",       # it-IT
+    "kaboots", "cabooze",                       # en-US
+    "cobús", "cobos", "que bus",                # es-ES
+    "Kobutz", "Kobuts",                         # de-DE
+    "cobusse", "kobuze",                        # fr-FR
+])
+def test_qobuz_misheard_by_asr_still_routes(router, transport, make_feed, heard):
+    # "qobuz" isn't a real word in any language, so each recognizer writes what
+    # it hears: the explicit-source phrase must match the sound-alike, not just
+    # the exact spelling.
+    transport.responses["qobuz"] = make_feed(
+        categories={"Tracks": "T"},
+        items={"T": [{"isaudio": 1, "url": "qobuz://9.flac", "name": "Time"}]},
+    )
+    assert router.handle(f"da {heard} metti Time", source="local") == (
+        "Riproduco Time da Qobuz."
+    )
+    assert ["playlist", "play", "qobuz://9.flac"] in transport.commands()
+
+
+@pytest.mark.parametrize("heard", [
+    "taidal", "tidol",                          # it-IT
+    "title",                                    # en-US
+    "Vidal", "tídal",                           # es-ES
+    "Titel", "Taidel", "Tiedal",                # de-DE
+    "tidale", "tidalle",                        # fr-FR
+])
+def test_tidal_misheard_by_asr_still_routes(router, transport, make_feed, heard):
+    transport.responses["tidal"] = make_feed(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
+    )
+    assert router.handle(f"da {heard} metti Time", source="local") == (
+        "Riproduco Time da TIDAL."
+    )
+    assert ["playlist", "play", "tidal://9.flc"] in transport.commands()
 
 
 def test_explicit_tidal_wins_over_qobuz_source(router, transport, make_feed):
@@ -430,7 +494,9 @@ def test_explicit_tidal_wins_over_qobuz_source(router, transport, make_feed):
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
     )
-    assert router.handle("da tidal riproduci Time", source="qobuz") == "Riproduco Time."
+    assert router.handle("da tidal riproduci Time", source="qobuz") == (
+        "Riproduco Time da TIDAL."
+    )
     assert ["playlist", "play", "tidal://9.flc"] in transport.commands()
     assert not any(cmd[0] == "qobuz" for cmd in transport.commands())
 
@@ -445,7 +511,7 @@ def test_auto_source_falls_back_to_default_service_qobuz(lms, transport, make_fe
         categories={"Tracks": "T"},
         items={"T": [{"isaudio": 1, "url": "qobuz://9.flac", "name": "Time"}]},
     )
-    assert qrouter.handle("riproduci Time", source="auto") == "Riproduco Time."
+    assert qrouter.handle("riproduci Time", source="auto") == "Riproduco Time da Qobuz."
     assert ["playlist", "play", "qobuz://9.flac"] in transport.commands()
     assert not any(cmd[0] == "tidal" for cmd in transport.commands())
 
@@ -465,5 +531,41 @@ def test_unknown_source_uses_default_service(router, transport, make_feed):
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
     )
-    assert router.handle("riproduci Time", source="deezer") == "Riproduco Time."
+    assert router.handle("riproduci Time", source="deezer") == "Riproduco Time da TIDAL."
     assert ["playlist", "play", "tidal://9.flc"] in transport.commands()
+
+
+# -- scelte con ordinali (solo a lista aperta) ------------------------------
+def _open_local_list(router, transport):
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {
+        "titles_loop": [
+            {"id": 1, "title": "Love", "artist": "Kendrick Lamar"},
+            {"id": 2, "title": "Love", "artist": "Nat King Cole"},
+        ]
+    }
+    router.handle("dalla mia musica metti love")
+
+
+@pytest.mark.parametrize("phrase", ["metti la seconda", "la seconda",
+                                    "metti la seconda canzone", "seconda"])
+def test_choose_ordinal_it(router, transport, phrase):
+    _open_local_list(router, transport)
+    assert router.handle(phrase) == "Riproduco Love dalla tua musica."
+    assert ["playlistcontrol", "cmd:load", "track_id:2"] in transport.commands()
+
+
+def test_ordinal_without_list_is_not_a_pick_it(router, transport, make_feed):
+    # Nessuna lista aperta: «metti la quinta» è musica (Beethoven), non una
+    # scelta — deve arrivare alla ricerca, non al suggerimento sull'elenco.
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    transport.responses["tidal"] = make_feed(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://55.flc", "name": "La Quinta"}]},
+    )
+    speech = router.handle("metti la quinta", source="auto")
+    assert "Prima chiedimi un elenco" not in speech
+    assert ["playlist", "play", "tidal://55.flc"] in transport.commands()
