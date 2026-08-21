@@ -1,0 +1,45 @@
+"""The language-pack contract (and its one shared helper).
+
+A *pack* is a module in this package that declares how one spoken language
+maps onto the router's intents. The router owns all the logic (dispatch,
+state, kid-safe, multi-room); a pack owns nothing but data:
+
+``CODE``
+    The BCP-47-ish language code the web client sends (``"it"``, ``"en"``).
+
+``PATTERNS``
+    Dict of compiled regexes, one entry per routing step (see ``it.py`` for
+    the canonical key list — ``tests/test_english.py`` asserts key parity
+    between languages). The ``service`` entry is a **template string**, not a
+    compiled regex: the router expands ``{s}`` per streaming service with its
+    ASR sound-alike pattern.
+
+``NUM_WORDS`` / ``ORDINAL_WORDS``
+    Spoken positions -> int ("tre"/"three", "seconda"/"second"). The router
+    merges the tables of every registered pack, so a pick keeps working when
+    the recogniser answers in the "wrong" language.
+
+``MINUTE_WORDS``
+    Spoken durations for the sleep timer, beyond the list positions
+    ("trenta"/"thirty"). Merged like the number tables.
+
+``DURATIONS``
+    Tuple of ``(compiled_regex, spec)`` tried in order against the tail of a
+    sleep command ("spegni tra <tail>"). ``spec`` is an int (fixed minutes),
+    ``"hours"`` (group 1 is a number of hours) or ``"minutes"`` (group 1 is a
+    number or a MINUTE_WORDS token).
+
+Adding a language is adding one module with these six names (plus its
+message catalog in ``engine/messages.py`` and a test suite modeled on
+``tests/test_english.py``); the registry in ``__init__.py`` finds it by
+itself.
+"""
+
+from __future__ import annotations
+
+import re
+
+
+def c(pattern: str):
+    """Compiled, case-insensitive — every pack builds its patterns with this."""
+    return re.compile(pattern, re.I)

@@ -21,7 +21,9 @@ import json
 import os
 import re
 
-from conftest import DEFAULT_MATERIAL_URL
+import pytest
+
+from conftest import DEFAULT_MATERIAL_URL, FakeLicense
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(os.path.dirname(HERE), "localvoice")
@@ -30,6 +32,13 @@ WEB_DIR = os.path.join(os.path.dirname(HERE), "localvoice")
 def _asset(name):
     with open(os.path.join(WEB_DIR, name), encoding="utf-8") as f:
         return f.read()
+
+
+def _js_modules():
+    """Every ES module of the UI, as ``(relative_path, source)`` pairs."""
+    js_dir = os.path.join(WEB_DIR, "static", "js")
+    return [(os.path.join("static", "js", name), _asset(os.path.join("static", "js", name)))
+            for name in sorted(os.listdir(js_dir)) if name.endswith(".js")]
 
 
 # -- the PWA shell -------------------------------------------------------------
@@ -121,17 +130,60 @@ def test_index_default_material_url_reaches_the_page(live_server):
     assert DEFAULT_MATERIAL_URL in live_server().get("/").text
 
 
+# -- the static assets (CSS + ES modules) --------------------------------------
+
+def _page_asset_refs():
+    """Every /static/... URL the page markup references (stylesheet, module)."""
+    return sorted(set(re.findall(r'(?:href|src)="(/static/[^"]+)"',
+                                 _asset("index.html"))))
+
+
+def test_page_static_references_are_served(live_server):
+    # A renamed CSS/JS file would ship a page that loads without style or
+    # without behavior, with nothing failing at build time.
+    srv = live_server()
+    refs = _page_asset_refs()
+    assert refs, "the page references no static assets"
+    missing = [ref for ref in refs if srv.try_get(ref).status != 200]
+    assert missing == []
+
+
+def test_es_module_imports_all_resolve(live_server):
+    # Modules load as a unit: one bad `import "./x.js"` and the whole page
+    # is dead. Tie every import specifier to a served file.
+    srv = live_server()
+    for name, source in _js_modules():
+        for target in re.findall(r'from\s+"\./([^"]+)"', source):
+            assert srv.try_get("/static/js/" + target).status == 200, (
+                f"{name} imports ./{target}, which is not served")
+
+
+def test_es_modules_are_served_as_javascript(live_server):
+    # Wrong MIME type and the browser refuses to run the module at all.
+    resp = live_server().get("/static/js/app.js")
+    assert resp.status == 200
+    assert resp.headers["Content-Type"].startswith("text/javascript")
+
+
+def test_static_serving_refuses_path_traversal(live_server):
+    srv = live_server()
+    assert srv.try_get("/static/../server.py").status == 404
+    assert srv.try_get("/static/js/../../index.html").status == 404
+
+
 # -- the page/server contract --------------------------------------------------
 
 def _fetch_paths():
-    """Every same-origin path index.html fetches, as written in the page."""
-    page = _asset("index.html")
+    """Every same-origin path the UI fetches, as written in the page and in
+    its ES modules (static/js/)."""
+    sources = [_asset("index.html")] + [src for _name, src in _js_modules()]
     paths = set()
-    for raw in re.findall(r'fetch\(\s*"(/[^"]*)"', page):
-        paths.add(raw.split("?")[0])
-    # Concatenated query strings: fetch("/kidsafe?client=" + ...)
-    for raw in re.findall(r'fetch\(\s*"(/[^"?]*)\?', page):
-        paths.add(raw)
+    for source in sources:
+        for raw in re.findall(r'fetch\(\s*"(/[^"]*)"', source):
+            paths.add(raw.split("?")[0])
+        # Concatenated query strings: fetch("/kidsafe?client=" + ...)
+        for raw in re.findall(r'fetch\(\s*"(/[^"?]*)\?', source):
+            paths.add(raw)
     return sorted(paths)
 
 
@@ -140,7 +192,7 @@ def test_page_fetches_only_routes_the_server_answers(live_server):
     # would 404 at runtime with nothing failing at build time.
     srv = live_server()
     paths = _fetch_paths()
-    assert paths, "found no fetch() calls in index.html"
+    assert paths, "found no fetch() calls in the UI sources"
     unrouted = []
     for path in paths:
         # A route is "answered" if it is not the catch-all 404 — GET or POST,
@@ -161,6 +213,59 @@ def test_unknown_post_is_a_json_404(live_server):
     resp = live_server().try_post_json("/nope", {"text": "ciao"})
     assert resp.status == 404
     assert "speech" in resp.json()
+
+
+# -- non-object JSON bodies -----------------------------------------------------
+# json.loads happily parses `null`/a number/a list/a bare string: none of
+# those raise ValueError, so a bare `.get()` on the result would raise
+# AttributeError uncaught by an `except (ValueError, UnicodeDecodeError)` —
+# dropping the connection with no response, breaking every endpoint's own
+# "never a 5xx" guarantee.
+
+NON_OBJECT_BODIES = ["null", "5", '"just a string"', "[1, 2, 3]"]
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_command_survives_a_non_object_json_body(live_server, body):
+    resp = live_server().post("/command", data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_kidsafe_survives_a_non_object_json_body(live_server, body, tmp_path):
+    from pro.kidsafe import KidSafe
+
+    kidsafe = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    resp = live_server(kidsafe=kidsafe).post("/kidsafe",
+                                             data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_player_survives_a_non_object_json_body(live_server, body):
+    resp = live_server().post("/player", data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
+
+
+@pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+def test_license_survives_a_non_object_json_body(live_server, body, tmp_path):
+    # FakeLicense has no .activate() (only GET /license needs one); POST
+    # exercises the real manager, with no http_post call expected — the
+    # non-object body degrades to an empty key, which activate() rejects
+    # locally before touching the network.
+    import licensing
+
+    def unexpected_post(url, fields):
+        raise AssertionError("should not reach the network on an empty key")
+
+    mgr = licensing.LicenseManager(str(tmp_path), http_post=unexpected_post)
+    resp = live_server(license_mgr=mgr).post("/license",
+                                             data=body.encode("utf-8"))
+    assert resp.status == 200
+    assert resp.json()["ok"] is False
 
 
 # -- /ca.pem -------------------------------------------------------------------

@@ -358,7 +358,7 @@ def test_handle_many_keeps_primary_when_all_miss(router, transport):
 def test_handle_many_empty(router):
     assert router.handle_many([]) == {
         "speech": "Non ho sentito niente.", "used": "", "ok": False,
-        "terms": [], "choices": []
+        "terms": [], "choices": [], "unmatched": False
     }
 
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Optional
 
 # Il namespace delle variabili d'ambiente. LEGACY_PREFIX (il nome pre-rebrand)
@@ -69,6 +70,27 @@ def data_dir(cli_value: Optional[str] = None, environ=os.environ) -> str:
             path = os.path.join(base, APP_DIR_NAME.lower())
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def app_version(environ=os.environ) -> str:
+    """The app version, for display and for the "report a phrase" template.
+
+    The truth lives in ``pyproject.toml`` (shipped next to ``engine/`` and
+    ``localvoice/`` by every deploy target, so there is no third hand-bumped
+    copy); ``<PREFIX>_VERSION`` overrides it, and a missing file degrades to
+    ``"unknown"`` rather than an exception — the version is nice-to-have,
+    never load-bearing.
+    """
+    override = env("VERSION", environ=environ)
+    if override:
+        return override
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(root, "pyproject.toml"), encoding="utf-8") as f:
+            match = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.M)
+    except OSError:
+        return "unknown"
+    return match.group(1) if match else "unknown"
 
 
 def read_json(path: str, default: Any = None) -> Any:

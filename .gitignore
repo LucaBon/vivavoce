@@ -17,6 +17,7 @@ config.py
 
 # Local session data
 .claude/
+.omc/
 
 # Generated screenshots (tools/ui_shots.py)
 tools/shots/

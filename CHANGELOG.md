@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`/command`, `/kidsafe`, `/player` and `/license` no longer drop the
+  connection on a non-object JSON body** (`null`, a bare number, a string, a
+  list): `json.loads` accepted it without raising, and the unguarded
+  `.get(...)` that followed crashed with an uncaught `AttributeError`,
+  contradicting each endpoint's own "never a 5xx" design — on `/license`,
+  the one endpoint that handles a paid key. Pre-existing (found during a
+  post-phase review of the Fase 1 diff, not introduced by it); now covered
+  by tests on all four routes.
+
+### New
+
+- **"Report a misunderstood phrase"** (free, privacy-first): when a command
+  isn't understood, the reply offers a button that saves the report on your
+  device and opens a pre-filled GitHub issue (phrase, language, source,
+  version) for you to review and submit. Nothing is ever sent by the app
+  itself — see PRIVACY.md.
+
+### Internal
+
+- **Frontend split**: the 1.700-line `index.html` is now a markup shell plus
+  native ES modules (`localvoice/static/js/`) and a real stylesheet — no
+  bundler, no new dependencies. The installed PWA refetches the shell once.
+- **Browser end-to-end tests**: seven Playwright flows (page load, command
+  round trip, "did you mean" tap, license activation, now-playing, the report
+  button, settings persistence) run headless in CI against the same fake-LMS
+  stack as the rest of the suite.
+- **Plug-in languages**: the router's IT/EN patterns moved into per-language
+  packs (`localvoice/lang/`); adding a language is now one file plus its
+  messages and tests — groundwork for German.
+- **Server split**: `server.py` (startup/CLI) now stands apart from
+  `http_api.py` (routes), `staticfiles.py` (assets) and `tls.py`;
+  `python -m localvoice` works as a second entry point.
+
 ## 0.2.0 — August 2026
 
 ### SqueezeSay is now Vivavoce

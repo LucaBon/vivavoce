@@ -28,6 +28,9 @@ If you don't want any audio leaving your home:
   the server's data directory.
 - No telemetry, no analytics, no accounts, no cookies beyond `localStorage`
   preferences on your own devices.
+- The **"report a misunderstood phrase"** button stores the report on your
+  device only and — only when you tap it — opens a pre-filled GitHub issue in
+  your browser for you to review and submit. The app itself sends nothing.
 
 ## The only outbound connections
 

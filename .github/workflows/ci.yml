@@ -50,6 +50,28 @@ jobs:
       - name: Run the test suite
         run: uv run --python ${{ matrix.python }} pytest
 
+  e2e:
+    name: e2e (chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync
+
+      # Nel job matrix i browser non ci sono e tests/e2e/ salta da solo:
+      # questo è l'unico job che li installa e quindi li esegue davvero.
+      - name: Install the Playwright browser
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run the browser flows
+        run: uv run pytest tests/e2e -v
+
   sanity:
     name: sanity checks
     runs-on: ubuntu-latest

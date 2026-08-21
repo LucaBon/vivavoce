@@ -1,13 +1,15 @@
-"""Local intent router (Italian + English).
+"""Local intent router (language-agnostic dispatch).
 
 Maps free text (from the browser's speech recognition, or a text box) to the
 action functions of the shared engine (``actions.py`` + ``lms.py``).
 No cloud — just rules over the transcribed text.
 
-Language: every pattern lives in ``PATTERNS[lang]`` (it/en); the client sends
-the language it is speaking (the page's mic-language selector) and the reply
+Language: the patterns live in per-language packs under ``localvoice/lang/``
+(``it.py``, ``en.py`` — contract in ``lang/base.py``); the client sends the
+language it is speaking (the page's mic-language selector) and the reply
 comes back in that language via the ``messages`` catalog. Unsupported
-languages fall back to Italian.
+languages fall back to Italian. This module owns only the dispatch flow and
+the state; it declares no language knowledge of its own.
 
 Music sources:
 - **local library** (USB disk) and the **streaming services** (TIDAL, Qobuz).
@@ -25,28 +27,24 @@ from __future__ import annotations
 import re
 
 import actions
+from lang import PACKS
 from messages import msg, set_lang
 
-# Web Speech transcribes a spoken position as a word ("tre"/"three"), not "3".
-_NUM_WORDS = {
-    "uno": 1, "un": 1, "una": 1, "due": 2, "tre": 3, "quattro": 4, "cinque": 5,
-    "sei": 6, "sette": 7, "otto": 8, "nove": 9, "dieci": 10,
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-}
+# One patterns dict per language pack; ``PATTERNS.get(lang) or PATTERNS["it"]``
+# is the it-fallback the whole app relies on. (Kept under this name: the
+# tests assert on cross-language key parity through it.)
+PATTERNS = {code: pack.PATTERNS for code, pack in PACKS.items()}
 
-# People answer a read-out list with "la seconda" / "the second one" at least
-# as often as with the bare number — but ONLY while a list is open: without
-# one, "metti la quinta" is music (Beethoven), not a pick, so ordinals are
-# gated on an open list while cardinals keep answering with a helpful hint.
-_ORDINAL_WORDS = {
-    "primo": 1, "prima": 1, "secondo": 2, "seconda": 2, "terzo": 3, "terza": 3,
-    "quarto": 4, "quarta": 4, "quinto": 5, "quinta": 5, "sesto": 6, "sesta": 6,
-    "settimo": 7, "settima": 7, "ottavo": 8, "ottava": 8, "nono": 9, "nona": 9,
-    "decimo": 10, "decima": 10,
-    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
-    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
-}
+# The word tables are merged across every registered language on purpose:
+# the recogniser's language and the phrasing don't always agree ("metti la
+# three"), and a merged lookup answers both for free.
+_NUM_WORDS = {}
+_ORDINAL_WORDS = {}
+_MINUTE_WORDS = {}
+for _pack in PACKS.values():
+    _NUM_WORDS.update(_pack.NUM_WORDS)
+    _ORDINAL_WORDS.update(_pack.ORDINAL_WORDS)
+    _MINUTE_WORDS.update(_pack.MINUTE_WORDS)
 
 
 def _as_number(token, ordinals=False):
@@ -60,146 +58,24 @@ def _as_number(token, ordinals=False):
     return number
 
 
-# Durations go beyond list positions: the sleep timer needs the spoken tens too
-# («spegni tra trenta minuti» / "stop in thirty minutes").
-_MINUTE_WORDS = dict(_NUM_WORDS)
-_MINUTE_WORDS.update({
-    "quindici": 15, "venti": 20, "trenta": 30, "quaranta": 40,
-    "cinquanta": 50, "sessanta": 60, "novanta": 90,
-    "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
-    "fifty": 50, "sixty": 60, "ninety": 90,
-})
-
-
 def _parse_minutes(tail):
     """A spoken duration ('30 minuti', "mezz'ora", 'an hour') -> minutes, or
     None when the tail isn't a duration (then the phrase wasn't a sleep
-    command and routing falls through)."""
+    command and routing falls through). Tries every language's DURATIONS:
+    the patterns are language-disjoint, so the order across packs is moot."""
     t = (tail or "").strip().lower()
-    if re.match(r"^(?:mezz\W?ora|half\s+an?\s+hour)\b", t):
-        return 30
-    if re.match(r"^(?:un|an|one|1)\W?\s*(?:ora|hour)\b", t):
-        return 60
-    m = re.match(r"^(\d+)\s*(?:ore|hours?)\b", t)
-    if m:
-        return int(m.group(1)) * 60
-    m = re.match(r"^(\d+|[a-zà-ù]+)\s*(?:minut\w*|min\b)", t)
-    if m:
-        token = m.group(1)
-        return int(token) if token.isdigit() else _MINUTE_WORDS.get(token)
+    for pack in PACKS.values():
+        for pattern, spec in pack.DURATIONS:
+            m = pattern.match(t)
+            if not m:
+                continue
+            if spec == "hours":
+                return int(m.group(1)) * 60
+            if spec == "minutes":
+                token = m.group(1)
+                return int(token) if token.isdigit() else _MINUTE_WORDS.get(token)
+            return spec
     return None
-
-
-def _c(pattern):  # compiled, case-insensitive
-    return re.compile(pattern, re.I)
-
-
-_IT_LOCAL = r"(?:dalla mia musica|dal disco|in locale|dalla libreria)"
-_EN_LOCAL = r"(?:from my (?:music|library)|from the library|locally)"
-
-# One entry per routing step; the handle() flow is identical across languages.
-# ``service`` is a template expanded per streaming service name.
-PATTERNS = {
-    "it": {
-        "is_play": _c(r"\b(?:metti|rimetti|riproduci|suona|fai\s+partire|voglio\s+ascoltare)\b"),
-        "pause_explicit": _c(r"\bin\s+pausa\b"),
-        "pause": _c(r"\b(pausa|ferma|stop)\b"),
-        # Bare "play" always resumes, even though it is also a play verb.
-        "resume_explicit": _c(r"^play\s*$"),
-        "resume": _c(r"\b(riprendi|riparti|continua|play)\b"),
-        "next": _c(r"\b(success|prossim|avanti|salta)"),
-        "prev": _c(r"\b(precedent|indietro|torna)"),
-        "vol_up": _c(r"(alza|aumenta).{0,12}volume|pi[uù] forte"),
-        "vol_down": _c(r"(abbassa|diminuisci).{0,12}volume|pi[uù] piano"),
-        # Sleep timer: the captured tail must parse as a duration (see
-        # _parse_minutes), otherwise the phrase falls through to pause/play.
-        "sleep": _c(r"(?:spegni(?:ti)?|ferma(?:ti)?|stop)\b.{0,20}?\b(?:tra|fra)\s+(.+)$"),
-        "sleep_cancel": _c(r"^(?:annulla|cancella|togli)\b.{0,15}"
-                           r"(?:spegnimento|timer|sleep)"),
-        "nowplaying": _c(r"(cosa|che).{0,8}(suona|canzone|ascolt)"),
-        "choose_number": _c(r"(?:metti|scegli|voglio)?\s*(?:(?:la|il)\s+)?numero\s+([a-z0-9]+)\s*$"),
-        # "la 2" and ordinals: "la seconda", "metti la seconda canzone"
-        "choose_article": _c(r"(?:metti|scegli|voglio)?\s*(?:la|il)\s+([a-z0-9]+)"
-                             r"(?:\s+(?:canzone|brano|opzione))?\s*$"),
-        "local_prefix": _c(rf"{_IT_LOCAL}\s+(?:metti\s+|riproduci\s+)?(.+)$"),
-        "local_suffix": _c(rf"(?:metti|riproduci|suona)\s+(.+?)\s+{_IT_LOCAL}\s*$"),
-        "service": r"(?:da {s}|su {s}|con {s})\s+(?:metti\s+|riproduci\s+)?(.+)$",
-        "albums_list": _c(r"(?:quali|che).{0,12}album.{0,4}di\s+(.+)$"),
-        "toptracks": _c(r"(?:quali.{0,10}brani|top tracks|brani.{0,15}ascoltati).*?di\s+(.+)$"),
-        "name_pick": _c(r"(?:(?:voglio\s+ascoltare|fai\s+partire|metti|scegli|riproduci|suona|voglio)\s+)?(.+)$"),
-        "album": _c(r"(?:metti|riproduci|fai partire)\s+l['’]?\s*album\s+(.+)$"),
-        "playlist": _c(r"(?:metti|riproduci|fai partire)\s+la\s+playlist\s+(.+)$"),
-        # Plural only ("canzoni/brani"): "metti la canzone del sole" is a song
-        # title (Battisti), not an artist request.
-        "artist": _c(r"(?:metti|riproduci|fai partire)\s+"
-                     r"(?:(?:la\s+)?musica\s+(?:di|dei|degli|delle|del|della|dell['’])"
-                     r"|l['’]?\s*artista"
-                     r"|(?:tutte\s+le\s+|le\s+|i\s+)?(?:canzoni|brani)\s+"
-                     r"(?:di|dei|degli|delle|del|della|dell['’]))\s+(.+)$"),
-        "generic_play": _c(r"(?:riproduci|metti|suona|fai partire|voglio ascoltare)\s+(.+)$"),
-        # Kid-safe: anchored on the verb at string start, so a title containing
-        # the word ("metti Block Rockin' Beats") still routes as a play.
-        "block_add": _c(r"^blocca\s+(.+)$"),
-        "block_remove": _c(r"^sblocca\s+(.+)$"),
-        "block_list": _c(r"^(?:(?:quali|che)\s+(?:brani|canzoni)\s+sono\s+bloccat|"
-                         r"cosa\s+(?:è|e)\s+bloccat|lista\s+(?:dei\s+)?bloccat)"),
-    },
-    "en": {
-        # ``put`` alone (not just "put on") so the suffix form "put X on" is
-        # guarded from transport words too ("put Don't Stop Me Now on").
-        "is_play": _c(r"\b(?:play|put|start|listen\s+to|i\s+want\s+to\s+(?:hear|listen\s+to))\b"),
-        "pause_explicit": _c(r"\bon\s+pause\b"),
-        "pause": _c(r"\b(pause|stop|halt)\b"),
-        # Bare "play" resumes (like a remote's ▶), even though it's a play verb.
-        "resume_explicit": _c(r"^(?:play|resume)\s*$"),
-        "resume": _c(r"\b(resume|continue|unpause|keep\s+going)\b"),
-        "next": _c(r"\b(next|skip|forward)\b"),
-        "prev": _c(r"\b(previous|go\s+back|back)\b"),
-        "vol_up": _c(r"(?:turn|put|pump|crank)?\s*up.{0,12}volume|volume\s+up"
-                     r"|(?:raise|increase)\s.{0,8}volume|turn\s+it\s+up|louder"),
-        "vol_down": _c(r"(?:turn|put)?\s*down.{0,12}volume|volume\s+down"
-                       r"|(?:lower|decrease|reduce)\s.{0,8}volume|turn\s+it\s+down"
-                       r"|quieter|softer"),
-        # Sleep timer: the captured tail must parse as a duration (see
-        # _parse_minutes), otherwise the phrase falls through to pause/play.
-        "sleep": _c(r"(?:sleep|stop|turn\s+off|switch\s+off|shut\s+(?:down|off))"
-                    r"\b.{0,20}?\bin\s+(.+)$"),
-        "sleep_cancel": _c(r"^(?:cancel|clear|remove)\b.{0,15}(?:sleep|timer)"),
-        # Loose on purpose (mirrors the Italian style) and gated by is_play in
-        # handle(), so "play What Is This Feeling" stays a play command. Also
-        # covers the apostrophe-less ASR form "whats playing".
-        "nowplaying": _c(r"\bwhat'?s?\b.{0,10}(?:playing|song|this\b)"
-                         r"|now\s+playing|who\s+(?:is\s+this|sings)"),
-        "choose_number": _c(r"(?:play|choose|pick|put\s+on)?\s*(?:the\s+)?number\s+([a-z0-9]+)\s*$"),
-        # "the 2" and ordinals: "the second", "play the second one/song"
-        "choose_article": _c(r"(?:play|choose|pick|put\s+on)?\s*the\s+([a-z0-9]+)"
-                             r"(?:\s+(?:one|song|track|option))?\s*$"),
-        "local_prefix": _c(rf"{_EN_LOCAL}\s+(?:play\s+|put\s+on\s+)?(.+)$"),
-        "local_suffix": _c(rf"(?:play|put\s+on|start)\s+(.+?)\s+{_EN_LOCAL}\s*$"),
-        "service": r"(?:from {s}|on {s}|with {s})\s+(?:play\s+|put\s+on\s+)?(.+)$",
-        "albums_list": _c(r"(?:which|what).{0,12}albums?.{0,16}(?:by|of|from)\s+(.+)$"),
-        "toptracks": _c(r"(?:top\s+tracks|best\s+(?:songs|tracks)|most\s+(?:played|listened)"
-                        r"|which\s+songs).*?(?:by|of|from)\s+(.+)$"),
-        "name_pick": _c(r"(?:(?:i\s+want\s+to\s+(?:hear|listen\s+to)|play|choose|pick|put\s+on|start)\s+)?(.+)$"),
-        "album": _c(r"(?:play|put\s+on|start)\s+(?:the\s+)?album\s+(.+)$"),
-        "playlist": _c(r"(?:play|put\s+on|start)\s+(?:the\s+)?playlist\s+(.+)$"),
-        # Only "by" for songs/tracks: "songs of/from" collide with real titles
-        # ("Songs from the Wood", "Songs of Innocence").
-        "artist": _c(r"(?:play|put\s+on|start)\s+"
-                     r"(?:(?:some\s+|the\s+)?music\s+(?:by|of|from)|something\s+by"
-                     r"|the\s+artist|(?:all\s+)?(?:the\s+)?(?:songs?|tracks?)\s+by)\s+(.+)$"),
-        "generic_play": _c(r"(?:play|put\s+on|start|listen\s+to"
-                           r"|i\s+want\s+to\s+(?:hear|listen\s+to))\s+(.+)$"),
-        # Suffix form: "put Dark Side of the Moon on"
-        "generic_play_suffix": _c(r"^put\s+(.+?)\s+on\s*$"),
-        # Kid-safe: anchored on the verb at string start, so a title containing
-        # the word ("play Block Rockin' Beats") still routes as a play.
-        "block_add": _c(r"^block\s+(.+)$"),
-        "block_remove": _c(r"^unblock\s+(.+)$"),
-        "block_list": _c(r"^(?:(?:what|which)\s+(?:songs?|tracks?)\s+(?:are|is)\s+blocked|"
-                         r"what'?s\s+blocked|list\s+(?:the\s+)?blocked)"),
-    },
-}
 
 
 # Web Speech rarely transcribes the service names right — they aren't real
@@ -267,6 +143,11 @@ class Router:
         # 'did you mean'), so the web client can render tappable choice buttons
         # only for the reply that offers them, not on every later reply.
         self._opened = False
+        # True when the last handle() fell through every pattern ("non ho
+        # capito"): the web client offers the privacy-first "report this
+        # phrase" button only then — an understood-but-failed command (LMS
+        # down, no search results) is not a parser gap.
+        self._unmatched = False
 
     def _stream_name(self, source):
         """The streaming service a request goes to: ``source`` when it names a
@@ -334,7 +215,7 @@ class Router:
         alts = [a for a in (alternatives or []) if (a or "").strip()]
         if not alts:
             return {"speech": msg("heard_nothing"), "used": "", "ok": False,
-                    "terms": [], "choices": []}
+                    "terms": [], "choices": [], "unmatched": False}
         primary = None
         for alt in alts:
             speech = self.handle(alt, source, lang)
@@ -344,14 +225,14 @@ class Router:
             # in English: EN misses are ActionResults and carry .ok).
             ok = getattr(speech, "ok", not speech.strip().lower().startswith("non "))
             if primary is None:
-                primary = (speech, alt, ok)
+                primary = (speech, alt, ok, self._unmatched)
             if ok:
                 return {"speech": speech, "used": alt, "ok": True,
                         "terms": list(getattr(speech, "terms", [])),
-                        "choices": self._choices()}
+                        "choices": self._choices(), "unmatched": False}
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
                 "terms": list(getattr(primary[0], "terms", [])),
-                "choices": self._choices()}
+                "choices": self._choices(), "unmatched": primary[3]}
 
     def _choices(self) -> list:
         """Tappable numbered choices for the web app, but only for a reply that
@@ -367,6 +248,7 @@ class Router:
         # A bare 'metti la N' pick doesn't re-open one, so its reply carries no
         # buttons (the list was already shown on the previous reply).
         self._opened = False
+        self._unmatched = False  # _route sets it on the "non ho capito" path
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
         t = (text or "").strip()
@@ -568,4 +450,5 @@ class Router:
         if m:
             return self._resolve(m.group(1).strip(), actions.play_song, source)
 
+        self._unmatched = True
         return msg("router_fallback")
