@@ -445,3 +445,102 @@ def test_http_transport_missing_result_becomes_lmserror(monkeypatch):
     client = LMSClient("http://lms.local:9000", "aa:bb")
     with pytest.raises(LMSError):
         client.command("status")
+
+
+# -- queue (playlist) management -----------------------------------------
+
+def test_insert_url(lms, transport):
+    lms.insert_url("tidal://42.flc")
+    assert transport.last_call() == ("aa:bb:cc:dd:ee:ff",
+                                     ["playlist", "insert", "tidal://42.flc"])
+
+
+def test_add_browse_item(lms, transport):
+    lms.add_browse_item("7.3")
+    assert transport.last_call() == ("aa:bb:cc:dd:ee:ff",
+                                     ["tidal", "playlist", "add", "item_id:7.3"])
+
+
+def test_insert_browse_item(lms, transport):
+    lms.insert_browse_item("7.3")
+    assert transport.last_call() == ("aa:bb:cc:dd:ee:ff",
+                                     ["tidal", "playlist", "insert", "item_id:7.3"])
+
+
+@pytest.mark.parametrize(
+    "method, kind, verb",
+    [
+        ("add_local_album", "album", "add"),
+        ("insert_local_album", "album", "insert"),
+        ("add_local_artist", "artist", "add"),
+        ("insert_local_artist", "artist", "insert"),
+        ("add_local_track", "track", "add"),
+        ("insert_local_track", "track", "insert"),
+    ],
+)
+def test_local_queue_methods(lms, transport, method, kind, verb):
+    getattr(lms, method)(9)
+    assert transport.last_call() == (
+        "aa:bb:cc:dd:ee:ff",
+        ["playlistcontrol", f"cmd:{verb}", f"{kind}_id:9"],
+    )
+
+
+def test_clear_queue(lms, transport):
+    lms.clear_queue()
+    assert transport.last_call() == ("aa:bb:cc:dd:ee:ff", ["playlist", "clear"])
+
+
+def test_queue_upcoming_skips_the_current_track(lms, transport):
+    # "status - N tags:a" starts at the current song (documented LMS
+    # behavior): index 0 is what's playing now, the rest is what's next.
+    transport.responses["status"] = {
+        "playlist_loop": [
+            {"title": "Now Playing", "artist": "X"},
+            {"title": "Next One", "artist": "Y"},
+            {"title": "Then This", "artist": "Z"},
+        ]
+    }
+    upcoming = lms.queue_upcoming(limit=2)
+    assert upcoming == [
+        {"title": "Next One", "artist": "Y"},
+        {"title": "Then This", "artist": "Z"},
+    ]
+    assert transport.last_call() == ("aa:bb:cc:dd:ee:ff",
+                                     ["status", "-", "3", "tags:a"])
+
+
+def test_queue_upcoming_empty_when_nothing_queued(lms, transport):
+    transport.responses["status"] = {
+        "playlist_loop": [{"title": "Now Playing", "artist": "X"}]
+    }
+    assert lms.queue_upcoming(limit=5) == []
+
+
+def test_queue_upcoming_no_playlist(lms, transport):
+    transport.responses["status"] = {}
+    assert lms.queue_upcoming() == []
+
+
+# -- favorites -------------------------------------------------------------
+
+def test_favorites_items_is_server_scoped(lms, transport):
+    transport.responses["favorites"] = {
+        "loop_loop": [{"id": "1", "name": "Radio Paradise"}]
+    }
+    items = lms.favorites_items()
+    assert items == [{"id": "1", "name": "Radio Paradise"}]
+    assert transport.last_call() == ("-", ["favorites", "items", "0", "50", "want_url:1"])
+
+
+def test_favorites_items_with_query(lms, transport):
+    transport.responses["favorites"] = {"loop_loop": []}
+    lms.favorites_items(query="jazz")
+    assert transport.last_call() == (
+        "-", ["favorites", "items", "0", "50", "want_url:1", "search:jazz"])
+
+
+def test_favorites_playlist_play_is_player_scoped(lms, transport):
+    lms.favorites_playlist_play("1.2")
+    assert transport.last_call() == ("aa:bb:cc:dd:ee:ff",
+                                     ["favorites", "playlist", "play", "item_id:1.2"])

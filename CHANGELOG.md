@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### New
+
+- **Queue management** (free): «aggiungi X alla coda» / "add X to the queue"
+  queues a song at the end; «metti X dopo questa» / "play X next" queues it
+  right after the current track; «svuota la coda» / "clear the queue"; «cosa
+  c'è in coda» / "what's in the queue" reads back what's coming up. Reuses
+  the existing title/artist parsing and "did you mean" disambiguation — a
+  queue command that opens a numbered list queues (not plays) whichever one
+  you pick — and works with multi-room («aggiungi X alla coda in cucina»).
+- **Favorites & radio** (free): «riproduci i preferiti» / "play my favorites"
+  plays a saved LMS favorite; «metti la radio X» / "play the radio X"
+  searches your favorites for a matching station name. Built on the LMS core
+  Favorites API (not a specific radio plugin), so it works with however you
+  already saved your stations — TuneIn, a plugin, or a raw stream URL.
+
 ### Fixed
 
 - **`/command`, `/kidsafe`, `/player` and `/license` no longer drop the

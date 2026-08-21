@@ -153,12 +153,22 @@ def _did_you_mean(query: Optional[str], cands: List[Dict]) -> ActionResult:
     return ActionResult(speech, ok=True, candidates=picks, kind="disambiguate", terms=terms)
 
 
-def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
+def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
+                      mode: str = "play", guard: Optional[Guard] = None) -> ActionResult:
     if guard and guard.blocks(track.get("title")):
         return ActionResult(msg("blocked"), ok=False)
-    lms.play_url(track["url"])
-    speech, terms = _confirm_song(lms, track, fallback_title)
-    return ActionResult(speech, ok=True, terms=terms)
+    if mode == "play":
+        lms.play_url(track["url"])
+        speech, terms = _confirm_song(lms, track, fallback_title)
+        return ActionResult(speech, ok=True, terms=terms)
+    getattr(lms, f"{mode}_url")(track["url"])
+    name = track.get("title") or fallback_title
+    artist = track.get("artist")
+    key = "queued_by" if mode == "add" else "queued_next_by"
+    if not artist:
+        key = "queued" if mode == "add" else "queued_next"
+        return ActionResult(msg(key, name=name), ok=True, terms=[name])
+    return ActionResult(msg(key, name=name, artist=artist), ok=True, terms=[name, artist])
 
 
 
@@ -262,7 +272,12 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
     return {"title": title or None, "artist": artist, "album": album}
 
 
-def play_song(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
+def play_song(lms, query: Optional[str], *, mode: str = "play",
+              guard: Optional[Guard] = None) -> ActionResult:
+    """Resolve and act on a song request. ``mode``: ``"play"`` (replace the
+    queue and start it — the default, used by every existing caller),
+    ``"add"`` (queue at the end: "aggiungi X alla coda") or ``"insert"``
+    (queue right after the current track: "metti X dopo questa")."""
     parsed = parse_song_query(query)
     title, artist, album = parsed["title"], parsed["artist"], parsed["album"]
     if not title and not album:
@@ -271,19 +286,19 @@ def play_song(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> Ac
         return ActionResult(msg("blocked"), ok=False)
     try:
         if album:
-            return _play_from_album(lms, title, album, guard=guard)
+            return _play_from_album(lms, title, album, mode=mode, guard=guard)
         # Search on the full text (title + artist) — TIDAL's full-text search wants
         # both — then rank/disambiguate using the parsed parts.
         search_text = " ".join(p for p in (title, artist) if p) or title
         tracks = lms.search_tracks(search_text)
         if not tracks:
             return ActionResult(msg("no_track_found", title=title), ok=False)
-        return _resolve_song(lms, tracks, title, artist, guard=guard)
+        return _resolve_song(lms, tracks, title, artist, mode=mode, guard=guard)
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
 
 
-def _resolve_song(lms, tracks, title, artist, *, guard=None) -> ActionResult:
+def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None) -> ActionResult:
     """Pick a track, disambiguate, or ask — from the TIDAL results and the parsed
     title/artist. Candidates stay in TIDAL's own relevance order, so padded-junk
     titles ranked low never reach the shortlist."""
@@ -294,13 +309,13 @@ def _resolve_song(lms, tracks, title, artist, *, guard=None) -> ActionResult:
     if artist and strong:
         best = max(strong[:DIDYOUMEAN_LIMIT], key=lambda t: _score(artist, t.get("artist")))
         if _score(artist, best.get("artist")) >= CONFIDENT_SCORE:
-            return _play_tidal_track(lms, best, title, guard=guard)
+            return _play_tidal_track(lms, best, title, mode=mode, guard=guard)
     # 2) Exact title match -> play TIDAL's top exact (e.g. "Money" over "Money for
     #    Nothing"). 3) No title match at all -> trust TIDAL's own ranking.
     if exacts:
-        return _play_tidal_track(lms, exacts[0], title, guard=guard)
+        return _play_tidal_track(lms, exacts[0], title, mode=mode, guard=guard)
     if not strong:
-        return _play_tidal_track(lms, tracks[0], title, guard=guard)
+        return _play_tidal_track(lms, tracks[0], title, mode=mode, guard=guard)
     # 4) Several strong partial matches. One song (same title) -> play the top; if
     #    genuinely different titles -> ask the top 3.
     head = strong[:DIDYOUMEAN_LIMIT]
@@ -309,7 +324,7 @@ def _resolve_song(lms, tracks, title, artist, *, guard=None) -> ActionResult:
     if not head:
         return ActionResult(msg("no_track_found", title=title), ok=False)
     if _ndistinct_titles(head) < 2:
-        return _play_tidal_track(lms, head[0], title, guard=guard)
+        return _play_tidal_track(lms, head[0], title, mode=mode, guard=guard)
     return _did_you_mean(title, _dedup_by_title_artist(head))
 
 
@@ -334,7 +349,8 @@ def _confirm_song(lms, track: Dict, fallback_title: Optional[str]):
 
 
 def _play_from_album(
-    lms, title: Optional[str], album: str, *, guard: Optional[Guard] = None
+    lms, title: Optional[str], album: str, *, mode: str = "play",
+    guard: Optional[Guard] = None
 ) -> ActionResult:
     result = lms.album_tracks(album)
     if not result["album"]:
@@ -342,26 +358,29 @@ def _play_from_album(
     album_name = result["album"]["title"] or album
     if guard and guard.blocks(album_name):
         return ActionResult(msg("blocked"), ok=False)
+    suffix = "" if mode == "play" else ("_queued" if mode == "add" else "_queued_next")
     if title:
         ranked = _rank(title, result["tracks"])
         if ranked and ranked[0][0] >= CONFIDENT_SCORE:
             track = ranked[0][1]
             if guard and guard.blocks(track.get("title")):
                 return ActionResult(msg("blocked"), ok=False)
-            lms.play_url(track["url"])
+            getattr(lms, "play_url" if mode == "play" else f"{mode}_url")(track["url"])
             return ActionResult(
-                msg("playing_track_from_album", title=track["title"], album=album_name),
+                msg("playing_track_from_album" + suffix, title=track["title"], album=album_name),
                 ok=True, terms=[track["title"], album_name],
             )
-        # title not found in that album -> play the whole album instead
-        lms.play_browse_item(result["album"]["id"])
+        # title not found in that album -> act on the whole album instead
+        getattr(lms, "play_browse_item" if mode == "play" else f"{mode}_browse_item")(
+            result["album"]["id"])
         return ActionResult(
-            msg("track_not_in_album", title=title, album=album_name),
+            msg("track_not_in_album" + suffix, title=title, album=album_name),
             ok=True, terms=[title, album_name],
         )
-    lms.play_browse_item(result["album"]["id"])
+    getattr(lms, "play_browse_item" if mode == "play" else f"{mode}_browse_item")(
+        result["album"]["id"])
     return ActionResult(
-        msg("playing_album", album=album_name), ok=True, terms=[album_name]
+        msg("playing_album" + suffix, album=album_name), ok=True, terms=[album_name]
     )
 
 
@@ -505,6 +524,81 @@ def now_playing(lms) -> str:
     return ActionResult(msg("now_playing", title=title), ok=True, terms=[title])
 
 
+# -- queue (playlist) management -------------------------------------------
+def clear_queue(lms) -> ActionResult:
+    try:
+        lms.clear_queue()
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    return ActionResult(msg("queue_cleared"), ok=True)
+
+
+def queue_list(lms, limit: int = LIST_LIMIT) -> ActionResult:
+    """Read back the next few tracks queued after the current one."""
+    try:
+        upcoming = lms.queue_upcoming(limit)
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    if not upcoming:
+        return ActionResult(msg("queue_empty"), ok=True)
+    listing = ", ".join(
+        msg("enum_item", n=i + 1, name=_label(t)) for i, t in enumerate(upcoming)
+    )
+    terms = [t["title"] for t in upcoming] + [t["artist"] for t in upcoming if t.get("artist")]
+    return ActionResult(msg("queue_list", listing=listing), ok=True, terms=terms)
+
+
+# -- favorites & radio (core LMS feature, not a plugin) --------------------
+def play_favorites(lms, *, guard: Optional[Guard] = None) -> ActionResult:
+    """"riproduci i preferiti": play the first playable saved favorite."""
+    try:
+        items = lms.favorites_items()
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    cands = [it for it in items if it.get("id") and it.get("name")]
+    if guard and guard.restricted:
+        cands = [c for c in cands if not is_blocked(c["name"], guard.blocklist)]
+    if not cands:
+        return ActionResult(msg("favorites_empty"), ok=False)
+    chosen = cands[0]
+    try:
+        lms.favorites_playlist_play(chosen["id"])
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    return ActionResult(msg("playing_favorites"), ok=True, terms=[chosen["name"]])
+
+
+def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
+    """"metti radio X": search the saved favorites for a station matching X —
+    the universal, plugin-agnostic way LMS/Lyrion users save internet-radio
+    streams, so this works regardless of which (if any) radio app/plugin the
+    server has installed."""
+    name = (name or "").strip()
+    if not name:
+        return ActionResult(msg("ask_radio"), ok=False)
+    if guard and guard.blocks(name):
+        return ActionResult(msg("blocked"), ok=False)
+    try:
+        items = lms.favorites_items(query=name)
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    cands = [{"title": it.get("name"), "id": it.get("id")}
+             for it in items if it.get("id") and it.get("name")]
+    if guard and guard.restricted:
+        cands = [c for c in cands if not is_blocked(c["title"], guard.blocklist)]
+    if not cands:
+        return ActionResult(msg("radio_not_found", name=name), ok=False)
+    score, best = _rank(name, cands)[0]
+    if score < CONFIDENT_SCORE:
+        return ActionResult(msg("radio_not_found", name=name), ok=False)
+    try:
+        lms.favorites_playlist_play(best["id"])
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+    return ActionResult(msg("playing_radio", name=best["title"]), ok=True,
+                        terms=[best["title"]])
+
+
 # -- conversational flow: list -> choose by number ------------------------
 def top_tracks_list(
     lms, artist: Optional[str], limit: int = LIST_LIMIT, *, guard: Optional[Guard] = None
@@ -533,19 +627,24 @@ def top_tracks_list(
     return {"speech": speech, "candidates": candidates}
 
 
-def _dispatch_play(lms, candidate: Dict) -> None:
-    """Play a candidate. Its 'action'/'arg' say how; falls back to a plain URL
-    so both TIDAL ({'title','url'}) and local ({'title','action','arg'}) lists work."""
-    action = candidate.get("action")
-    arg = candidate.get("arg")
-    if action == "play_album_id":
-        lms.play_local_album(arg)
-    elif action == "play_artist_id":
-        lms.play_local_artist(arg)
-    elif action == "play_track_id":
-        lms.play_local_track(arg)
+# Candidate 'action' -> the local-library kind it names (album/artist/track),
+# used to pick the right lms.<mode>_local_<kind>() method. The action strings
+# themselves are historical ("play_...") and don't change with mode.
+_LOCAL_KIND = {"play_album_id": "album", "play_artist_id": "artist",
+              "play_track_id": "track"}
+
+
+def _dispatch_play(lms, candidate: Dict, *, mode: str = "play") -> None:
+    """Act on a candidate from a previously read-out list. Its 'action'/'arg'
+    say how; falls back to a plain URL so both TIDAL ({'title','url'}) and
+    local ({'title','action','arg'}) lists work. ``mode``: 'play' (replace the
+    queue and start it), 'add' (queue at the end) or 'insert' (queue right
+    after the current track) — see :func:`play_song`."""
+    kind = _LOCAL_KIND.get(candidate.get("action"))
+    if kind:
+        getattr(lms, f"{mode}_local_{kind}")(candidate.get("arg"))
     else:
-        lms.play_url(arg or candidate.get("url"))
+        getattr(lms, f"{mode}_url")(candidate.get("arg") or candidate.get("url"))
 
 
 def choose_from(
@@ -553,9 +652,11 @@ def choose_from(
     candidates: Optional[List[Dict]],
     number: Optional[int],
     *,
+    mode: str = "play",
     guard: Optional[Guard] = None,
 ) -> str:
-    """Play the N-th candidate from a previously read-out list."""
+    """Act on the N-th candidate from a previously read-out list (mode: see
+    :func:`play_song`)."""
     if not candidates:
         return msg("no_open_list")
     if number is None or number < 1 or number > len(candidates):
@@ -564,11 +665,12 @@ def choose_from(
     if guard and guard.blocks(chosen.get("title")):
         return msg("blocked")
     try:
-        _dispatch_play(lms, chosen)
+        _dispatch_play(lms, chosen, mode=mode)
     except LMSError:
         return msg("err_unreachable")
+    key = {"play": "playing", "add": "queued", "insert": "queued_next"}[mode]
     return ActionResult(
-        msg("playing", name=chosen["title"]), ok=True, terms=[chosen["title"]]
+        msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
     )
 
 
@@ -577,12 +679,14 @@ def choose_by_name(
     candidates: Optional[List[Dict]],
     name: Optional[str],
     *,
+    mode: str = "play",
     guard: Optional[Guard] = None,
 ) -> Optional[str]:
-    """Play the candidate whose title matches ``name`` from a previously read-out
-    list. Returns ``None`` when there's no list, no name, or no title matches, so
-    the caller falls back to a fresh search. ``None`` is deliberately *not* a
-    'Non ...' miss string: it means 'this wasn't a selection, keep routing'."""
+    """Act on the candidate whose title matches ``name`` from a previously
+    read-out list (mode: see :func:`play_song`). Returns ``None`` when
+    there's no list, no name, or no title matches, so the caller falls back
+    to a fresh search. ``None`` is deliberately *not* a 'Non ...' miss
+    string: it means 'this wasn't a selection, keep routing'."""
     if not candidates:
         return None
     query = _normalize(name)
@@ -608,11 +712,12 @@ def choose_by_name(
     if guard and guard.blocks(chosen.get("title")):
         return msg("blocked")
     try:
-        _dispatch_play(lms, chosen)
+        _dispatch_play(lms, chosen, mode=mode)
     except LMSError:
         return msg("err_unreachable")
+    key = {"play": "playing", "add": "queued", "insert": "queued_next"}[mode]
     return ActionResult(
-        msg("playing", name=chosen["title"]), ok=True, terms=[chosen["title"]]
+        msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
     )
 
 
@@ -635,11 +740,13 @@ def _local_group(cands, query, kind, action, guard):
     return out
 
 
-def play_local(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
-    """Play from the local library. Candidates are scored (title, or artist name for
-    the artist category) so a generic word like 'love' never plays an unrelated row;
-    an artist query plays the artist, not one of their albums; and when several
-    tracks genuinely match, it asks (local rows carry the artist, so the list reads
+def play_local(lms, query: Optional[str], *, mode: str = "play",
+               guard: Optional[Guard] = None) -> ActionResult:
+    """Act on the local library (mode: see :func:`play_song`). Candidates are
+    scored (title, or artist name for the artist category) so a generic word
+    like 'love' never plays an unrelated row; an artist query plays the
+    artist, not one of their albums; and when several tracks genuinely
+    match, it asks (local rows carry the artist, so the list reads
     'Love di X, Love di Y')."""
     query = _strip_lead_filler(query)
     if not query:
@@ -662,11 +769,12 @@ def play_local(lms, query: Optional[str], *, guard: Optional[Guard] = None) -> A
         if len(distinct) >= 2:
             return _did_you_mean(query, distinct)
         item = distinct[0]
-        _dispatch_play(lms, item)
+        _dispatch_play(lms, item, mode=mode)
+        suffix = "" if mode == "play" else ("_queued" if mode == "add" else "_queued_next")
         speech = (
-            msg("playing_local_album", title=item["title"])
+            msg("playing_local_album" + suffix, title=item["title"])
             if item["_kind"] == "album"
-            else msg("playing_local", title=item["title"])
+            else msg("playing_local" + suffix, title=item["title"])
         )
         return ActionResult(speech, ok=True, terms=[item["title"]])
     except LMSError:

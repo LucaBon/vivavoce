@@ -135,6 +135,12 @@ class Router:
         # Where those candidates play from ('local' or a service name), so a
         # follow-up pick's confirmation can say the source too.
         self.cand_source = None
+        # How a pick from the last opened list is acted on: 'play' (replace
+        # the queue and start it — every list before the queue feature),
+        # 'add' or 'insert' (see actions.play_song). Set only when a NEW list
+        # opens (_remember/_played), so it persists across turns exactly like
+        # cand_source.
+        self.cand_mode = "play"
         # (playerid, name) when the list was opened by a room-targeted command,
         # so «metti la 2» keeps playing in that room; None = default player.
         self.cand_player = None
@@ -173,15 +179,18 @@ class Router:
         self._opened = bool(self.candidates)
         if self.candidates:
             self.cand_source = src
+            self.cand_mode = "play"  # these lists are always meant to be played
         return result["speech"]
 
-    def _played(self, result, src=None):
+    def _played(self, result, src=None, mode="play"):
         """Remember any 'did you mean' candidates a play result carried (and
-        their source), so a follow-up 'metti la N' / name-pick can choose."""
+        their source/mode), so a follow-up 'metti la N' / name-pick can act
+        on them the same way (play/add/insert)."""
         cands = getattr(result, "candidates", None)
         if cands:
             self.candidates = cands
             self.cand_source = src
+            self.cand_mode = mode
             self._opened = True
         return result
 
@@ -202,6 +211,28 @@ class Router:
         return self._played(
             self._tag(stream_fn(stream, arg, guard=guard), _source_suffix(name)),
             name)
+
+    def _resolve_queue(self, arg: str, mode: str, source: str):
+        """Like :meth:`_resolve`, but for a song queued (mode: 'add' or
+        'insert') instead of played — only play_song/play_local accept a
+        queue mode. No explicit source-override phrases ("da tidal ...",
+        "dalla mia musica ...") for queue commands: out of scope, the UI
+        source selector still decides where a queued song comes from."""
+        guard = self._guard
+        if source == "local":
+            return self._played(
+                actions.play_local(self.lms, arg, mode=mode, guard=guard),
+                "local", mode=mode)
+        name = self._stream_name(source)
+        stream = self.lms.for_service(name)
+        if source == "auto":
+            res = actions.play_local(self.lms, arg, mode=mode, guard=guard)
+            if getattr(res, "ok", False):
+                return self._played(res, "local", mode=mode)
+        return self._played(
+            self._tag(actions.play_song(stream, arg, mode=mode, guard=guard),
+                      _source_suffix(name)),
+            name, mode=mode)
 
     def handle_many(self, alternatives, source: str = "tidal", lang: str = "it") -> dict:
         """Try each speech-recognition alternative until one is a hit.
@@ -348,6 +379,31 @@ class Router:
         if not is_play and P["nowplaying"].search(t):
             return actions.now_playing(self.lms)
 
+        # 1b) queue management (song-level: "aggiungi X alla coda" / "add X to
+        # the queue", "metti X dopo questa" / "play X next", clear/list). The
+        # UI source selector decides where a queued song comes from, exactly
+        # like a plain play request (step 8) — explicit "da tidal .../from my
+        # music ..." overrides aren't supported for queue commands (out of
+        # scope; those phrases still work for a plain play request).
+        if P["queue_clear"].search(t):
+            return actions.clear_queue(self.lms)
+        if P["queue_list"].search(t):
+            return actions.queue_list(self.lms)
+        m = P["queue_add"].search(t)
+        if m:
+            return self._resolve_queue(m.group(1).strip(), "add", source)
+        m = P["queue_insert"].search(t)
+        if m:
+            return self._resolve_queue(m.group(1).strip(), "insert", source)
+
+        # 1c) favorites & radio — LMS core feature, source-independent (not a
+        # streaming service, so the source selector doesn't apply).
+        if P["favorites"].search(t):
+            return actions.play_favorites(self.lms, guard=self._guard)
+        m = P["radio"].search(t)
+        if m:
+            return actions.play_radio(self.lms, m.group(1).strip(), guard=self._guard)
+
         # 2) choose from the last read-out list by position. Accepts a digit or a
         # spoken number word ("la 2" / "the two", "numero tre" / "number three");
         # ASR gives words, not digits. The explicit forms answer even with no
@@ -368,7 +424,7 @@ class Router:
                 room_suffix = msg("in_room", room=self.cand_player[1])
             return self._tag(
                 self._tag(actions.choose_from(pick_lms, self.candidates, number,
-                                              guard=self._guard),
+                                              mode=self.cand_mode, guard=self._guard),
                           _source_suffix(self.cand_source)),
                 room_suffix)
 
@@ -417,7 +473,7 @@ class Router:
                     room_suffix = msg("in_room", room=self.cand_player[1])
                 chosen = actions.choose_by_name(
                     pick_lms, self.candidates, m.group(1).strip(),
-                    guard=self._guard
+                    mode=self.cand_mode, guard=self._guard
                 )
                 if chosen is not None:
                     return self._tag(

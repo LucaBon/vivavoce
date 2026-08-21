@@ -51,7 +51,9 @@ const UI_EN = {
     "<li>“which albums do I have by Yes” → “play number 2” (or “play Fragile”)</li>" +
     "<li>“from my music play …” · “on tidal play …” · “on qobuz play …”</li>" +
     "<li>“pause” · “resume” · “next” · “volume up” · “what's playing”</li>" +
-    "<li>“stop in 30 minutes” · “cancel the timer” · “play … in the kitchen”</li>",
+    "<li>“stop in 30 minutes” · “cancel the timer” · “play … in the kitchen”</li>" +
+    "<li>“add … to the queue” · “play … next” · “what's in the queue” · “clear the queue”</li>" +
+    "<li>“play my favorites” · “play the radio …”</li>",
   tip_names: "Tip: if a name is <b>misheard</b>, fix it in the box and press Send.",
   install_summary: "Install as an app (no certificate warnings)",
   install_steps: '<li>Download the local CA: <a id="calink" href="/ca.pem">ca.pem</a> (once per device).</li>' +

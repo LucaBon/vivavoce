@@ -59,6 +59,18 @@ PATTERNS = {
     "sleep_cancel": c(r"^(?:annulla|cancella|togli)\b.{0,15}"
                       r"(?:spegnimento|timer|sleep)"),
     "nowplaying": c(r"(cosa|che).{0,8}(suona|canzone|ascolt)"),
+    # Queue management. Checked early in the router, ahead of the generic
+    # play verbs, so "alla coda"/"dopo questa" never gets swallowed as part
+    # of a title.
+    "queue_add": c(r"\b(?:aggiungi|metti)\s+(.+?)\s+(?:alla|in)\s+coda\s*$"),
+    "queue_insert": c(r"\bmetti\s+(.+?)\s+dopo\s+(?:questa|questo)"
+                     r"(?:\s+canzone|\s+brano)?\s*$"),
+    "queue_clear": c(r"^(?:svuota|pulisci|cancella)\s+la\s+coda\s*$"),
+    "queue_list": c(r"(?:cosa|che).{0,4}(?:c['’]è|ce)\s+in\s+coda"
+                    r"|coda\s+di\s+riproduzione"),
+    # Favorites & radio (LMS core feature — see engine/actions.py).
+    "favorites": c(r"\b(?:riproduci|metti|fai\s+partire)\s+(?:i\s+)?preferiti\b"),
+    "radio": c(r"\bmetti\s+(?:la\s+)?radio\s+(.+)$"),
     "choose_number": c(r"(?:metti|scegli|voglio)?\s*(?:(?:la|il)\s+)?numero\s+([a-z0-9]+)\s*$"),
     # "la 2" and ordinals: "la seconda", "metti la seconda canzone"
     "choose_article": c(r"(?:metti|scegli|voglio)?\s*(?:la|il)\s+([a-z0-9]+)"

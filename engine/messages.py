@@ -45,6 +45,39 @@ IT = {
     "playlist_not_found": "Non ho trovato la playlist {name}.",
     "playing_playlist": "Riproduco la playlist {name}.",
 
+    # -- queue (add to end / play next) --------------------------------------
+    "queued": "Ho aggiunto {name} alla coda.",
+    "queued_by": "Ho aggiunto {name} di {artist} alla coda.",
+    "queued_next": "Metto {name} subito dopo questa.",
+    "queued_next_by": "Metto {name} di {artist} subito dopo questa.",
+    "playing_track_from_album_queued":
+        "Ho aggiunto {title} dall'album {album} alla coda.",
+    "playing_track_from_album_queued_next":
+        "Metto {title} dall'album {album} subito dopo questa.",
+    "track_not_in_album_queued":
+        "Non ho trovato {title} nell'album {album}; ho aggiunto l'album alla coda.",
+    "track_not_in_album_queued_next":
+        "Non ho trovato {title} nell'album {album}; metto l'album subito dopo questa.",
+    "playing_album_queued": "Ho aggiunto l'album {album} alla coda.",
+    "playing_album_queued_next": "Metto l'album {album} subito dopo questa.",
+    "playing_local_album_queued":
+        "Ho aggiunto l'album {title} alla coda dalla tua musica.",
+    "playing_local_album_queued_next":
+        "Metto l'album {title} dalla tua musica subito dopo questa.",
+    "playing_local_queued": "Ho aggiunto {title} alla coda dalla tua musica.",
+    "playing_local_queued_next": "Metto {title} dalla tua musica subito dopo questa.",
+    "queue_cleared": "Coda svuotata.",
+    "queue_empty": "La coda è vuota.",
+    "queue_list": "In coda: {listing}.",
+
+    # -- favorites & radio ----------------------------------------------------
+    "favorites_empty": "Non hai preferiti salvati.",
+    "playing_favorites": "Riproduco i preferiti.",
+    "ask_radio": "Quale radio?",
+    "radio_not_found":
+        "Non ho trovato una radio chiamata {name} tra i tuoi preferiti.",
+    "playing_radio": "Metto la radio {name}.",
+
     # -- transport / info ----------------------------------------------------
     "paused": "In pausa.",
     "resumed": "Riprendo la riproduzione.",
@@ -139,6 +172,40 @@ EN = {
     "ask_playlist": "I didn't catch which playlist. Can you repeat?",
     "playlist_not_found": "I couldn't find the playlist {name}.",
     "playing_playlist": "Playing the playlist {name}.",
+
+    # -- queue (add to end / play next) --------------------------------------
+    "queued": "Added {name} to the queue.",
+    "queued_by": "Added {name} by {artist} to the queue.",
+    "queued_next": "I'll play {name} right after this one.",
+    "queued_next_by": "I'll play {name} by {artist} right after this one.",
+    "playing_track_from_album_queued":
+        "Added {title} from the album {album} to the queue.",
+    "playing_track_from_album_queued_next":
+        "I'll play {title} from the album {album} right after this one.",
+    "track_not_in_album_queued":
+        "I couldn't find {title} in the album {album}; added the album to the queue.",
+    "track_not_in_album_queued_next":
+        "I couldn't find {title} in the album {album}; I'll play the album right after this one.",
+    "playing_album_queued": "Added the album {album} to the queue.",
+    "playing_album_queued_next": "I'll play the album {album} right after this one.",
+    "playing_local_album_queued":
+        "Added the album {title} from your music to the queue.",
+    "playing_local_album_queued_next":
+        "I'll play the album {title} from your music right after this one.",
+    "playing_local_queued": "Added {title} from your music to the queue.",
+    "playing_local_queued_next":
+        "I'll play {title} from your music right after this one.",
+    "queue_cleared": "Queue cleared.",
+    "queue_empty": "The queue is empty.",
+    "queue_list": "Coming up: {listing}.",
+
+    # -- favorites & radio ----------------------------------------------------
+    "favorites_empty": "You don't have any saved favorites.",
+    "playing_favorites": "Playing your favorites.",
+    "ask_radio": "Which radio station?",
+    "radio_not_found":
+        "I couldn't find a radio station called {name} among your favorites.",
+    "playing_radio": "Playing the radio station {name}.",
 
     # -- transport / info ----------------------------------------------------
     "paused": "Paused.",

@@ -59,6 +59,16 @@ PATTERNS = {
     # covers the apostrophe-less ASR form "whats playing".
     "nowplaying": c(r"\bwhat'?s?\b.{0,10}(?:playing|song|this\b)"
                     r"|now\s+playing|who\s+(?:is\s+this|sings)"),
+    # Queue management. Checked early in the router, ahead of the generic
+    # play verbs, so "to the queue"/"next" never gets swallowed as part of
+    # a title.
+    "queue_add": c(r"\b(?:add|queue)\s+(.+?)\s+to\s+(?:the\s+)?queue\s*$"),
+    "queue_insert": c(r"\bplay\s+(.+?)\s+next\s*$"),
+    "queue_clear": c(r"^(?:clear|empty)\s+the\s+queue\s*$"),
+    "queue_list": c(r"what'?s\s+(?:in|on)\s+the\s+queue|queue\s+list"),
+    # Favorites & radio (LMS core feature — see engine/actions.py).
+    "favorites": c(r"\b(?:play|put\s+on|start)\s+(?:my\s+)?favou?rites\b"),
+    "radio": c(r"\bplay\s+(?:the\s+)?radio\s+(.+)$"),
     "choose_number": c(r"(?:play|choose|pick|put\s+on)?\s*(?:the\s+)?number\s+([a-z0-9]+)\s*$"),
     # "the 2" and ordinals: "the second", "play the second one/song"
     "choose_article": c(r"(?:play|choose|pick|put\s+on)?\s*the\s+([a-z0-9]+)"
