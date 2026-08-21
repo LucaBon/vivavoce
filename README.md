@@ -133,6 +133,7 @@ There's a link to Material Skin right in the page for when you want to browse vi
 | `localvoice/` | Local web app: `server.py`, `router.py`, `index.html` |
 | `tools/probe_lms.py` | Validate search/playback against a real LMS |
 | `tests/` | pytest suite (simulated LMS transport, no network) |
+| `RELEASING.md` | How to cut a release (the version lives in two files + a tag) |
 | `tests/conftest.py` | Shared fakes + `live_server` (the real handler on a port) |
 
 ## Tests
