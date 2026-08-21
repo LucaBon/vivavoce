@@ -1,0 +1,138 @@
+// Multilingual read-back: natural browser voices, one per language, and the
+// voice-settings panel. The reply frame is spoken in the UI language; the
+// foreign terms (title/artist) each by their own language's voice.
+
+import { $ } from "./util.js";
+import { LANGS, ui, recLang, foreignDefault, detectLang, applyUI } from "./i18n.js";
+
+const NATURAL = /natural|neural|online|google|siri|premium|enhanced/i;
+let VOICES = [];
+
+function voicesFor(lang) {
+  return VOICES.filter(v => (v.lang || "").toLowerCase().startsWith(lang));
+}
+function pickDefaultVoice(lang) {
+  const cand = voicesFor(lang);
+  return cand.find(v => NATURAL.test(v.name)) || cand[0] || null;
+}
+function chosenVoice(lang) {
+  const saved = localStorage.getItem("voice_" + lang);
+  if (saved) {
+    const v = VOICES.find(x => x.name === saved && (x.lang || "").toLowerCase().startsWith(lang));
+    if (v) return v;
+  }
+  return pickDefaultVoice(lang);
+}
+
+// Split the reply into the Italian frame vs the foreign terms (in order), so each
+// part is spoken by the right-language voice.
+function splitByTerms(speech, terms) {
+  const marks = [];
+  let from = 0;
+  (terms || []).forEach(term => {
+    if (!term) return;
+    const pos = speech.toLowerCase().indexOf(String(term).toLowerCase(), from);
+    if (pos >= 0) { marks.push([pos, pos + term.length, detectLang(term)]); from = pos + term.length; }
+  });
+  if (!marks.length) return [{ text: speech, lang: "it" }];
+  const segs = [];
+  let cur = 0;
+  marks.forEach(([start, end, lang]) => {
+    if (start > cur) segs.push({ text: speech.slice(cur, start), lang: "it" });
+    segs.push({ text: speech.slice(start, end), lang });
+    cur = end;
+  });
+  if (cur < speech.length) segs.push({ text: speech.slice(cur), lang: "it" });
+  return segs;
+}
+
+function utter(text, lang) {
+  const u = new SpeechSynthesisUtterance(text);
+  const v = chosenVoice(lang);
+  if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = (LANGS[lang] || LANGS.it).tag; }
+  speechSynthesis.speak(u);
+}
+
+export function speak(text, terms) {
+  try {
+    speechSynthesis.cancel();
+    for (const seg of splitByTerms(text, terms)) {
+      if (seg.text.trim()) utter(seg.text, seg.lang);
+    }
+  } catch (e) { /* TTS optional */ }
+}
+
+// --- voice settings UI ---
+export function buildVoicePickers() {
+  const box = $("voiceSettings");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const lang of Object.keys(LANGS)) {
+    const row = document.createElement("label");
+    row.className = "vrow";
+    row.append(LANGS[lang].name + " ");
+    const sel = document.createElement("select");
+    const vs = voicesFor(lang);
+    if (!vs.length) {
+      sel.innerHTML = "<option>" + ui("no_voice") + "</option>";
+      sel.disabled = true;
+    } else {
+      const cur = (chosenVoice(lang) || {}).name;
+      for (const v of vs) {
+        const o = document.createElement("option");
+        o.value = v.name;
+        o.textContent = v.name + (NATURAL.test(v.name) ? " ⭐" : "");
+        if (v.name === cur) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = () => localStorage.setItem("voice_" + lang, sel.value);
+    }
+    row.appendChild(sel);
+    box.appendChild(row);
+  }
+  const opts = Object.keys(LANGS).map(l => `<option value="${l}">${LANGS[l].name}</option>`).join("");
+  const rl = $("reclang"), fd = $("foreign");
+  if (rl && !rl.dataset.done) {
+    rl.innerHTML = opts; rl.value = recLang(); rl.dataset.done = "1";
+    rl.onchange = () => { localStorage.setItem("reclang", rl.value); applyUI(); };
+  }
+  if (fd && !fd.dataset.done) {
+    // foreign default excludes Italian (the frame is always Italian)
+    fd.innerHTML = Object.keys(LANGS).filter(l => l !== "it")
+      .map(l => `<option value="${l}">${LANGS[l].name}</option>`).join("");
+    fd.value = foreignDefault(); fd.dataset.done = "1";
+    fd.onchange = () => localStorage.setItem("foreign_default", fd.value);
+  }
+}
+
+function loadVoices() { VOICES = speechSynthesis.getVoices() || []; buildVoicePickers(); }
+
+// --- read-back toggle (silent by default): the reply is spoken only when on,
+// and the voice/language panel is shown only then (it configures nothing else). ---
+export const readbackOn = () => $("readback").checked;
+export function syncVoicePanel() {
+  $("voicepanel").style.display = readbackOn() ? "" : "none";
+}
+
+export function initTts() {
+  if ("speechSynthesis" in window) {
+    loadVoices();
+    speechSynthesis.onvoiceschanged = loadVoices;
+  }
+  document.addEventListener("DOMContentLoaded", buildVoicePickers);
+  const tv = $("testvoice");
+  if (tv) tv.onclick = () => {
+    speechSynthesis.cancel();
+    const samples = { it: "Ciao, voce italiana.", en: "Hello, English voice.",
+      es: "Hola, voz española.", fr: "Bonjour, voix française.", de: "Hallo, deutsche Stimme." };
+    for (const lang of Object.keys(samples)) utter(samples[lang], lang);
+  };
+
+  $("readback").checked = localStorage.getItem("readback") === "1";
+  $("readback").onchange = () => {
+    localStorage.setItem("readback", readbackOn() ? "1" : "0");
+    if (!readbackOn()) { try { speechSynthesis.cancel(); } catch (e) {} }
+    syncVoicePanel();
+  };
+  syncVoicePanel();
+}

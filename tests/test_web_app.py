@@ -32,6 +32,13 @@ def _asset(name):
         return f.read()
 
 
+def _js_modules():
+    """Every ES module of the UI, as ``(relative_path, source)`` pairs."""
+    js_dir = os.path.join(WEB_DIR, "static", "js")
+    return [(os.path.join("static", "js", name), _asset(os.path.join("static", "js", name)))
+            for name in sorted(os.listdir(js_dir)) if name.endswith(".js")]
+
+
 # -- the PWA shell -------------------------------------------------------------
 
 def _shell_paths():
@@ -121,17 +128,60 @@ def test_index_default_material_url_reaches_the_page(live_server):
     assert DEFAULT_MATERIAL_URL in live_server().get("/").text
 
 
+# -- the static assets (CSS + ES modules) --------------------------------------
+
+def _page_asset_refs():
+    """Every /static/... URL the page markup references (stylesheet, module)."""
+    return sorted(set(re.findall(r'(?:href|src)="(/static/[^"]+)"',
+                                 _asset("index.html"))))
+
+
+def test_page_static_references_are_served(live_server):
+    # A renamed CSS/JS file would ship a page that loads without style or
+    # without behavior, with nothing failing at build time.
+    srv = live_server()
+    refs = _page_asset_refs()
+    assert refs, "the page references no static assets"
+    missing = [ref for ref in refs if srv.try_get(ref).status != 200]
+    assert missing == []
+
+
+def test_es_module_imports_all_resolve(live_server):
+    # Modules load as a unit: one bad `import "./x.js"` and the whole page
+    # is dead. Tie every import specifier to a served file.
+    srv = live_server()
+    for name, source in _js_modules():
+        for target in re.findall(r'from\s+"\./([^"]+)"', source):
+            assert srv.try_get("/static/js/" + target).status == 200, (
+                f"{name} imports ./{target}, which is not served")
+
+
+def test_es_modules_are_served_as_javascript(live_server):
+    # Wrong MIME type and the browser refuses to run the module at all.
+    resp = live_server().get("/static/js/app.js")
+    assert resp.status == 200
+    assert resp.headers["Content-Type"].startswith("text/javascript")
+
+
+def test_static_serving_refuses_path_traversal(live_server):
+    srv = live_server()
+    assert srv.try_get("/static/../server.py").status == 404
+    assert srv.try_get("/static/js/../../index.html").status == 404
+
+
 # -- the page/server contract --------------------------------------------------
 
 def _fetch_paths():
-    """Every same-origin path index.html fetches, as written in the page."""
-    page = _asset("index.html")
+    """Every same-origin path the UI fetches, as written in the page and in
+    its ES modules (static/js/)."""
+    sources = [_asset("index.html")] + [src for _name, src in _js_modules()]
     paths = set()
-    for raw in re.findall(r'fetch\(\s*"(/[^"]*)"', page):
-        paths.add(raw.split("?")[0])
-    # Concatenated query strings: fetch("/kidsafe?client=" + ...)
-    for raw in re.findall(r'fetch\(\s*"(/[^"?]*)\?', page):
-        paths.add(raw)
+    for source in sources:
+        for raw in re.findall(r'fetch\(\s*"(/[^"]*)"', source):
+            paths.add(raw.split("?")[0])
+        # Concatenated query strings: fetch("/kidsafe?client=" + ...)
+        for raw in re.findall(r'fetch\(\s*"(/[^"?]*)\?', source):
+            paths.add(raw)
     return sorted(paths)
 
 
@@ -140,7 +190,7 @@ def test_page_fetches_only_routes_the_server_answers(live_server):
     # would 404 at runtime with nothing failing at build time.
     srv = live_server()
     paths = _fetch_paths()
-    assert paths, "found no fetch() calls in index.html"
+    assert paths, "found no fetch() calls in the UI sources"
     unrouted = []
     for path in paths:
         # A route is "answered" if it is not the catch-all 404 — GET or POST,

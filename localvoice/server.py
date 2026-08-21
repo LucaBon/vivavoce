@@ -58,6 +58,30 @@ STATIC = {
     "/icon-512.png": (_read_bytes("icon-512.png"), "image/png"),
 }
 
+# La UI vive in localvoice/static/ (moduli ES + CSS): servita da disco a ogni
+# richiesta, come index.html, così un edit arriva con un refresh. Solo
+# estensioni note: il resto è un 404.
+STATIC_DIR = os.path.join(HERE, "static")
+STATIC_TYPES = {".js": "text/javascript", ".css": "text/css",
+                ".png": "image/png", ".svg": "image/svg+xml"}
+
+
+def _static_file(url_path: str):
+    """``(bytes, content_type)`` for a ``/static/...`` URL, or ``None`` when
+    the path escapes the static dir, has an unknown extension or is missing."""
+    relative = os.path.normpath(url_path.lstrip("/"))
+    full = os.path.normpath(os.path.join(HERE, relative))
+    if not full.startswith(STATIC_DIR + os.sep):
+        return None
+    ctype = STATIC_TYPES.get(os.path.splitext(full)[1].lower())
+    if not ctype:
+        return None
+    try:
+        with open(full, "rb") as f:
+            return f.read(), ctype
+    except OSError:
+        return None
+
 
 def lan_ips() -> list:
     """This machine's primary LAN IPv4, for printing a ready-to-open URL.
@@ -169,6 +193,12 @@ def make_handler(lms, material_url: str, services, default_service: str,
             elif self.path in STATIC:
                 data, ctype = STATIC[self.path]
                 self._send(200, data, ctype)
+            elif self.path.startswith("/static/"):
+                found = _static_file(self.path.split("?", 1)[0])
+                if found:
+                    self._send(200, found[0], found[1])
+                else:
+                    self._send(404, "not found", "text/plain")
             elif self.path == "/ca.pem" and ca_path and os.path.exists(ca_path):
                 # La CA locale da installare (una volta) sul telefono/PC: dopo,
                 # lucchetto verde e PWA installabile senza avvisi.
