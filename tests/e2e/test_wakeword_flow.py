@@ -69,16 +69,13 @@ def test_server_wake_word_streams_audio_and_stops_cleanly(page_with_fake_mic, we
     page = page_with_fake_mic
     sessions = FakeSessions()
     srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
-    page.goto(srv.url)
-    page.wait_for_function("!!window.vivavoce")
-
-    # The row is hidden until GET /wakeword resolves and reports availability.
-    _wait_visible(page, "#serverwakerow")
-
-    page.eval_on_selector("#settings", "el => { el.open = true; }")
-    page.check("#wakemode")
-    page.check("#serverwake")
-    page.click("#mic")
+    # No tap on the mic button to get started: since the engine choice began
+    # applying immediately, ticking the boxes IS what starts the stream, and a
+    # tap here would toggle it straight back off — but only when getUserMedia
+    # had already resolved by then, so this passed on the machines that lost
+    # that race and failed on the ones that won it. It is a stop control here,
+    # nothing more, and the test says so by using it only at the end.
+    _start_server_wake(page, srv)
 
     # A real audio graph is now feeding real fetch() calls to the real server;
     # give it a moment to post at least a couple of chunks.
@@ -117,8 +114,7 @@ def test_server_wake_error_message_is_not_clobbered(page, web):
 
     page.eval_on_selector("#settings", "el => { el.open = true; }")
     page.check("#wakemode")
-    page.check("#serverwake")
-    page.click("#mic")
+    page.check("#serverwake")  # this is what tries to open the microphone
 
     status = page.locator("#status")
     for _ in range(20):
@@ -388,3 +384,48 @@ def test_wake_panel_shows_the_phrase_and_grammar_of_the_chosen_engine(
     assert page.eval_on_selector("#wakewordrow", display) != "none"
     assert page.eval_on_selector("#wakeword", "el => el.disabled") is False
     assert page.eval_on_selector("#wakeword", "el => el.value") == "vivavoce"
+
+
+def test_a_never_started_sessions_end_does_not_erase_the_new_engines_error(
+        page, web):
+    # The deterministic form of the test above, which was a race for a while.
+    #
+    # Switching engine calls stopAll() on the browser recogniser and then opens
+    # the server one. If the browser session had been *asked* to start but had
+    # not yet reported onstart — the normal state a few milliseconds in, and
+    # the permanent one wherever Web Speech has no backend — then `active` was
+    # still false, so a teardown flag conditioned on it never got set, and the
+    # dying session's onend went on to write the idle "tap the mic" over the
+    # getUserMedia error the new engine had just reported.
+    #
+    # A recogniser that never reaches onstart and ends late reproduces that
+    # every time, instead of whenever the machine is slow enough.
+    page.add_init_script("""
+        navigator.mediaDevices.getUserMedia = () =>
+            Promise.reject(new DOMException('denied by test', 'NotAllowedError'));
+        window.__ends = [];
+        class SilentSR {
+          constructor() { this.continuous = false; this.lang = ""; }
+          start() { /* asked to run; onstart never comes */ }
+          stop() {
+            // Late, and after the new engine has had its say.
+            setTimeout(() => { if (this.onend) this.onend(); }, 200);
+          }
+        }
+        window.SpeechRecognition = SilentSR;
+        window.webkitSpeechRecognition = SilentSR;
+    """)
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=FakeSessions())
+    _start_server_wake(page, srv)
+
+    status = page.locator("#status")
+    for _ in range(20):
+        if "denied by test" in status.inner_text():
+            break
+        page.wait_for_timeout(50)
+    assert "denied by test" in status.inner_text()
+
+    page.wait_for_timeout(500)  # well past the dying session's onend
+    assert "denied by test" in status.inner_text(), (
+        f"the torn-down session's onend erased it; status shows "
+        f"{status.inner_text()!r}")

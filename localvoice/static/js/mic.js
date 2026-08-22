@@ -324,6 +324,15 @@ export function initMic() {
     // mode: "off" (idle) | "manual" (one tap-to-talk shot) | "wake" (continuous,
     // listening for the wake word). `active` mirrors whether the recogniser runs.
     let mode = "off", active = false;
+    // Set when a live session is torn down deliberately (see stopAll), cleared
+    // when the next one actually starts. There is only ONE recogniser object,
+    // reused for every mode, so a late onend/onerror carries nothing that says
+    // which session it belongs to — and the one we just killed must not write
+    // over the status line whoever replaced it has since claimed. Concretely:
+    // switching to the server engine tears this down and then reports a
+    // getUserMedia rejection, and the dying session's own error ("network",
+    // "aborted") was erasing that message, intermittently.
+    let tornDown = false;
     const wake = createWakeHandler(rec);
 
     function configure(continuous) {
@@ -332,15 +341,21 @@ export function initMic() {
     }
     function startManual() {
       if (active) { rec.stop(); return; }  // second tap stops
-      mode = "manual"; configure(false);
+      mode = "manual"; configure(false); tornDown = false;
       try { rec.start(); } catch (e) {}
     }
     function startWake() {
-      mode = "wake"; configure(true);
+      mode = "wake"; configure(true); tornDown = false;
       try { rec.start(); } catch (e) {}
     }
     function stopAll() {
       mode = "off"; wake.clearCap();
+      // Unconditionally, not just when `active`: a session that never reached
+      // onstart can still fail afterwards, and that is precisely the case
+      // that bit — a start() whose error arrives later reports it against a
+      // status line the next engine has already claimed. Cleared by whoever
+      // starts the recogniser again, so its own errors are reported normally.
+      tornDown = true;
       try { rec.stop(); } catch (e) {}
     }
 
@@ -368,7 +383,7 @@ export function initMic() {
       else startManual();
     };
     rec.onstart = () => {
-      active = true; micUI(true);
+      active = true; tornDown = false; micUI(true);
       if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
       // A restart in the middle of "yes? tell me the command" — or of "check
       // the text and press Send" — must not answer its own question with
@@ -385,6 +400,8 @@ export function initMic() {
         // dark reads as "it stopped listening" exactly when it hasn't.
         if (!wake.isArmed()) micUI(false);
         setTimeout(() => { if (mode === "wake" && !active) { try { rec.start(); } catch (e) {} } }, 350);
+      } else if (tornDown) {
+        mode = "off";  // torn down on purpose: whoever did it owns the status
       } else {
         // A plain tap-to-talk shot goes idle; a shot captured after a
         // server-wake trigger (mode "manual" via captureCommand) instead
@@ -394,6 +411,7 @@ export function initMic() {
       }
     };
     rec.onerror = (e) => {
+      if (tornDown) return;  // an error about the session we just killed
       statusEl.textContent = ui("mic_error") + e.error;
       // A denied/blocked mic would otherwise restart-loop in wake mode: turn it off.
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {

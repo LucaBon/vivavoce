@@ -38,6 +38,14 @@ FAKE_CONTINUOUS_SPEECH = """
         this._on = false; clearTimeout(this._auto);
         setTimeout(() => { if (this.onend) this.onend(); }, 0);
       }
+      // Test hook: fail the way a recogniser can after it has been stopped —
+      // Chrome reports "aborted"/"network" on a session already on its way
+      // out, and that arrives after whoever stopped it has moved on.
+      failLater(error, delayMs) {
+        setTimeout(() => {
+          if (this.onerror) this.onerror({ error });
+        }, delayMs);
+      }
       // Test hook: one more heard phrase, delivered the cumulative way.
       say(text) {
         if (!this._on) return "SESSION_CLOSED";
@@ -250,3 +258,23 @@ def test_autosend_off_leaves_the_wake_command_in_the_box(page, web):
     status = page.eval_on_selector("#status", "el => el.textContent")
     assert "Controlla il testo" in status, f"prompt was clobbered: {status!r}"
     assert page.eval_on_selector("#text", "el => el.value") == "pausa"
+
+
+def test_a_dead_sessions_error_does_not_overwrite_the_current_message(page, web):
+    # One recogniser object is reused for every mode, so a late onerror carries
+    # nothing saying which session it belongs to. Switching mode off tears the
+    # live one down and settles the status line; the dying session then
+    # reporting "aborted" would replace a correct message with an alarming one
+    # about something the user has already left behind.
+    srv = web(license_mgr=_ProLicense())
+    _start_browser_wake(page, srv)
+    dying = "window.__sr.live"
+
+    page.uncheck("#wakemode")  # torn down on purpose; the status settles to idle
+    settled = page.eval_on_selector("#status", "el => el.textContent")
+    assert "Tocca il microfono" in settled, settled
+
+    page.evaluate(f"{dying}.failLater('aborted', 10)")
+    page.wait_for_timeout(300)
+    assert page.eval_on_selector("#status", "el => el.textContent") == settled, (
+        "an error from the session we killed replaced the current message")
