@@ -4,7 +4,7 @@
 
 import { $ } from "./util.js";
 import { ui } from "./i18n.js";
-import { runCommand } from "./chat.js";
+import { handleManualFinal, autosendOn } from "./chat.js";
 import { wakeWord } from "./settings.js";
 
 const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -83,6 +83,7 @@ const ARMED_MS = 10000;
 export function createWakeHandler(rec) {
   let capTimer = null;
   let armed = false, armedTimer = null;
+  let awaitingReview = false;  // a transcript is in the box, waiting for Send
 
   function disarm() { armed = false; clearTimeout(armedTimer); }
   function arm() {
@@ -105,12 +106,17 @@ export function createWakeHandler(rec) {
       // two-step flow it doesn't, and the alternative passes through as-is.
       const strip = (s) => { const a = commandAfterWake(s); return a === null ? s : a; };
       const cleanAlts = (alts || []).map(strip).filter((x) => x && x.trim());
-      runCommand(cmd, cleanAlts.length ? cleanAlts : [cmd]);
+      // Through handleManualFinal, not straight to runCommand: this path used
+      // to send unconditionally, so "send right after the mic" was a checkbox
+      // that did nothing here while governing every other way of speaking.
+      awaitingReview = !autosendOn();
+      handleManualFinal(cmd, cleanAlts.length ? cleanAlts : [cmd]);
       try { rec.stop(); } catch (e) {}          // reset the session; onend restarts fresh
     }, 1000);
   }
 
   function wakeResult(e) {
+    awaitingReview = false;  // something new was said; the old transcript is moot
     // In this browser Chrome's continuous `results` are CUMULATIVE snapshots that
     // grow entry by entry — each one repeats the words before it ("vivavoce",
     // "vivavoce metti", "vivavoce metti Don't", ...), and even final entries do
@@ -174,6 +180,10 @@ export function createWakeHandler(rec) {
     // "tell me the command" prompt, nor blink the button as if listening had
     // stopped while it is in fact still waiting for an answer.
     isArmed: () => armed,
-    clearCap: () => { clearTimeout(capTimer); disarm(); },
+    // Same idea as isArmed for the status line only: with auto-send off the
+    // transcript is sitting in the box under "check the text and press Send",
+    // and a session restart must not answer that with "listening…" either.
+    isAwaitingReview: () => awaitingReview,
+    clearCap: () => { clearTimeout(capTimer); disarm(); awaitingReview = false; },
   };
 }

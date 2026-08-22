@@ -184,3 +184,69 @@ def test_the_question_is_answered_by_the_next_thing_said_only_once(page, web):
     _say(page, "che bella giornata")
     page.wait_for_timeout(1800)
     assert "che bella giornata" not in _bubbles(page)
+
+
+# --- "send right after the mic" and its coupling to wake mode --------------
+#
+# Hands-free listening whose transcript then waits in a box for a tap is not
+# hands-free — you are across the room. So the toggle follows wake mode until
+# the user says otherwise, and (unlike before) it remembers being said.
+
+def _autosend(page):
+    return page.eval_on_selector("#autosend", "el => el.checked")
+
+
+def test_turning_on_wake_mode_turns_on_autosend(page, web):
+    srv = web(license_mgr=_ProLicense())
+    page.add_init_script(FAKE_CONTINUOUS_SPEECH)
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+
+    assert _autosend(page) is False
+    page.check("#wakemode")
+    assert _autosend(page) is True
+    page.uncheck("#wakemode")
+    assert _autosend(page) is False
+
+
+def test_an_explicit_autosend_choice_outranks_wake_mode(page, web):
+    # Untick it once and it stays unticked, however wake mode is toggled.
+    srv = web(license_mgr=_ProLicense())
+    page.add_init_script(FAKE_CONTINUOUS_SPEECH)
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+
+    page.check("#wakemode")
+    page.uncheck("#autosend")  # the user has an opinion now
+    page.uncheck("#wakemode")
+    page.check("#wakemode")
+    assert _autosend(page) is False
+
+    # ...and it survives a reload, which it never used to: with nothing stored,
+    # hands-free had to be re-armed by hand every time the app was opened.
+    page.reload()
+    page.wait_for_function("!!window.vivavoce")
+    assert _autosend(page) is False
+    assert page.eval_on_selector("#wakemode", "el => el.checked") is True
+
+
+def test_autosend_off_leaves_the_wake_command_in_the_box(page, web):
+    # The browser engine used to send unconditionally, so this checkbox did
+    # nothing here while governing every other way of speaking.
+    srv = web(license_mgr=_ProLicense())
+    _start_browser_wake(page, srv)
+    page.uncheck("#autosend")
+
+    _say(page, "vivavoce pausa")
+    page.wait_for_function(
+        "() => document.getElementById('text').value === 'pausa'", timeout=5000)
+    assert _bubbles(page) == [], "the command was sent despite auto-send being off"
+
+    # The prompt has to outlive Chrome recycling the session, or the user is
+    # told "listening…" while a transcript sits there waiting for them.
+    _wait_new_session(page)
+    status = page.eval_on_selector("#status", "el => el.textContent")
+    assert "Controlla il testo" in status, f"prompt was clobbered: {status!r}"
+    assert page.eval_on_selector("#text", "el => el.value") == "pausa"

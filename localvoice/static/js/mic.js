@@ -9,7 +9,7 @@
 import { $, clientId } from "./util.js";
 import { LANGS, ui, recLang, getStatusBase, setStatusBase, refreshStatus } from "./i18n.js";
 import { isPro, showProUpsell } from "./pro.js";
-import { handleManualFinal } from "./chat.js";
+import { handleManualFinal, autosendFollowWakeMode } from "./chat.js";
 import { wakeWord, setWakeWordOverride } from "./settings.js";
 import { createWakeHandler, beep } from "./wakeword.js";
 import { startWakeStream } from "./serverwake.js";
@@ -310,6 +310,7 @@ export function initMic() {
       const on = $("wakemode").checked;
       localStorage.setItem("wakemode", on ? "1" : "0");
       $("wakeopts").style.display = on ? "" : "none";
+      autosendFollowWakeMode(on);
       restartWakeListening();
     };
   } else if (!window.isSecureContext && location.hostname !== "localhost"
@@ -369,9 +370,12 @@ export function initMic() {
     rec.onstart = () => {
       active = true; micUI(true);
       if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
-      // A restart in the middle of "yes? tell me the command" must not answer
-      // its own question with "listening…": the wake handler is still waiting.
-      if (!wake.isArmed()) statusEl.textContent = ui("listening_wake")(wakeWord());
+      // A restart in the middle of "yes? tell me the command" — or of "check
+      // the text and press Send" — must not answer its own question with
+      // "listening…": the wake handler is still waiting on the user.
+      if (!wake.isArmed() && !wake.isAwaitingReview()) {
+        statusEl.textContent = ui("listening_wake")(wakeWord());
+      }
     };
     rec.onend = () => {
       active = false;
@@ -426,6 +430,7 @@ export function initMic() {
       const on = $("wakemode").checked;
       localStorage.setItem("wakemode", on ? "1" : "0");
       $("wakeopts").style.display = on ? "" : "none";
+      autosendFollowWakeMode(on);
       restartWakeListening();
     };
   }

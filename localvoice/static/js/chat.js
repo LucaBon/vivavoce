@@ -141,6 +141,20 @@ export function runCommand(txt, alts) {
   send(txt, alts);
   $("text").value = "";
 }
+// --- "send right after the mic" ---
+// Persisted like every other toggle in the panel (it wasn't: it reset to off
+// on every reload, so hands-free had to be re-armed by hand each time the app
+// was opened), and until the user has an opinion it FOLLOWS wake mode —
+// continuous listening whose transcript then sits in a box waiting for a tap
+// isn't hands-free at all, and you're across the room. Touching the checkbox
+// once records a choice that is then honoured for good, in both directions.
+const AUTOSEND_KEY = "autosend";
+const autosendChosen = () => localStorage.getItem(AUTOSEND_KEY) !== null;
+export const autosendOn = () => $("autosend").checked;
+export function autosendFollowWakeMode(wakeOn) {
+  if (!autosendChosen()) $("autosend").checked = wakeOn;
+}
+
 export function handleManualFinal(txt, alts) {
   $("text").value = txt;
   if ($("autosend").checked) { runCommand(txt, alts); }
@@ -154,6 +168,14 @@ export function initChat() {
     const btn = e.target.closest("[data-cmd]");
     if (btn) send(btn.dataset.cmd);
   });
+
+  // Read from the wake-mode key directly rather than the checkbox: initChat()
+  // runs before initMic() restores it, and both read the same stored value.
+  $("autosend").checked = autosendChosen()
+    ? localStorage.getItem(AUTOSEND_KEY) === "1"
+    : localStorage.getItem("wakemode") === "1";
+  $("autosend").onchange = () =>
+    localStorage.setItem(AUTOSEND_KEY, $("autosend").checked ? "1" : "0");
 
   $("send").onclick = () => { send($("text").value); $("text").value = ""; };
   $("text").addEventListener("keydown", (e) => {
