@@ -368,12 +368,18 @@ export function initMic() {
     };
     rec.onstart = () => {
       active = true; micUI(true);
-      statusEl.textContent = mode === "wake" ? ui("listening_wake")(wakeWord()) : ui("listening");
+      if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
+      // A restart in the middle of "yes? tell me the command" must not answer
+      // its own question with "listening…": the wake handler is still waiting.
+      if (!wake.isArmed()) statusEl.textContent = ui("listening_wake")(wakeWord());
     };
     rec.onend = () => {
       active = false;
       if (mode === "wake") {  // keep listening (mobile/Chrome auto-stop after a pause)
-        micUI(false);  // brief flicker while Chrome cycles the continuous session
+        // Brief flicker while Chrome cycles the continuous session — except
+        // while a command has been asked for and not yet given, where going
+        // dark reads as "it stopped listening" exactly when it hasn't.
+        if (!wake.isArmed()) micUI(false);
         setTimeout(() => { if (mode === "wake" && !active) { try { rec.start(); } catch (e) {} } }, 350);
       } else {
         // A plain tap-to-talk shot goes idle; a shot captured after a

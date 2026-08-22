@@ -60,27 +60,83 @@ export function commandAfterWake(text) {
   return null;
 }
 
+// How long "yes? tell me the command" stays true after hearing the wake word
+// on its own. Long enough to draw breath and speak, short enough that a room
+// left alone goes back to ignoring everything it hears.
+const ARMED_MS = 10000;
+
 // Wake mode is CONTINUOUS: the recogniser finalises a long phrase in pieces,
 // so acting on each piece would fire half-typed commands ("metti Don't",
 // "metti Don't stop", ...). Instead we accumulate the whole utterance and send
 // the command once, ~1s after you stop talking (debounce), then reset the
 // session so the next command starts clean.
+//
+// Two ways to speak, both supported. One breath — "vivavoce metti i Pink
+// Floyd" — or two steps: say the wake word, get asked for the command, say it.
+// The second used to be advertised and then not work: saying the wake word
+// alone printed "yes? tell me the command", and Chrome ends a continuous
+// session every few seconds, so the command arrived in a NEW session whose
+// transcript no longer contained the wake word — commandAfterWake() returned
+// null and it was discarded in silence, the prompt quietly replaced by
+// "listening…" again. Hence `armed`: once the wake word has been heard on its
+// own, the next thing said IS the command, session restarts included.
 export function createWakeHandler(rec) {
   let capTimer = null;
+  let armed = false, armedTimer = null;
+
+  function disarm() { armed = false; clearTimeout(armedTimer); }
+  function arm() {
+    armed = true;
+    clearTimeout(armedTimer);
+    armedTimer = setTimeout(() => {
+      armed = false;
+      $("status").textContent = ui("listening_wake")(wakeWord());
+    }, ARMED_MS);
+  }
+
+  // Debounced send, shared by both ways of speaking: keep waiting while words
+  // keep coming, then fire once and reset the session.
+  function sendWhenDone(cmd, alts) {
+    clearTimeout(capTimer);
+    capTimer = setTimeout(() => {
+      disarm();
+      beep();                                   // confirm only when the command is sent
+      // Strip the wake word from each alternative when it carries one; in the
+      // two-step flow it doesn't, and the alternative passes through as-is.
+      const strip = (s) => { const a = commandAfterWake(s); return a === null ? s : a; };
+      const cleanAlts = (alts || []).map(strip).filter((x) => x && x.trim());
+      runCommand(cmd, cleanAlts.length ? cleanAlts : [cmd]);
+      try { rec.stop(); } catch (e) {}          // reset the session; onend restarts fresh
+    }, 1000);
+  }
 
   function wakeResult(e) {
     // In this browser Chrome's continuous `results` are CUMULATIVE snapshots that
     // grow entry by entry — each one repeats the words before it ("vivavoce",
     // "vivavoce metti", "vivavoce metti Don't", ...), and even final entries do
     // this. Joining them duplicates every word ("vivavoce vivavoce metti ..."),
-    // so take the single fullest (longest) transcript instead, which is the most
-    // complete snapshot; use its alternatives when it's a final result.
-    let best = null;
-    for (let i = 0; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (!best || r[0].transcript.length > best[0].transcript.length) best = r;
+    // so act on ONE entry: the last, which for a growing utterance is the
+    // fullest snapshot of it.
+    //
+    // Not the LONGEST, which is what this used to take. Snapshots grow within
+    // one utterance, but a second utterance in the same session starts a fresh
+    // entry — so the two-step flow left ["vivavoce", "pausa"] here, and the
+    // longest of those is the wake word. Every command spoken promptly after
+    // the prompt was thrown away in favour of the phrase that asked for it,
+    // and the panel just asked again.
+    const entries = Array.from(e.results, (r) => r);
+    const textOf = (r) => ((r && r[0] && r[0].transcript) || "").trim();
+    let best = entries[entries.length - 1] || null;
+    // One guard kept from the longest-wins rule it replaces: a stray short
+    // interim can arrive after a fuller snapshot. When the last entry carries
+    // no wake word and none was expected, fall back to the fullest that does.
+    if (best && !armed && commandAfterWake(textOf(best)) === null) {
+      for (const r of entries) {
+        if (commandAfterWake(textOf(r)) !== null
+            && textOf(r).length > textOf(best).length) best = r;
+      }
     }
-    const txt = best ? (best[0].transcript || "").trim() : "";
+    const txt = textOf(best);
     const alts = best && best.isFinal ? Array.from(best, (a) => a.transcript) : null;
 
     // Only act on speech that actually contains the wake word: ambient noise
@@ -89,22 +145,35 @@ export function createWakeHandler(rec) {
     // command is sent, so silence stays silent.
     const after = commandAfterWake(txt);        // null when the wake word isn't present
     if (after === null) {
-      $("status").textContent = ui("listening_wake")(wakeWord());
+      // No wake word here. Normally that's ambient noise to ignore — unless
+      // we just asked for a command, in which case this is it.
+      const heard = txt.trim();
+      if (armed && heard) {
+        $("status").textContent = "… " + heard;
+        sendWhenDone(heard, alts);
+      } else if (!armed) {
+        $("status").textContent = ui("listening_wake")(wakeWord());
+      }
       return;
     }
     const cmd = after.trim();
-    if (!cmd) { $("status").textContent = ui("say_command"); return; }  // just the wake word
+    if (!cmd) {                                 // just the wake word: ask, and wait
+      arm();
+      $("status").textContent = ui("say_command");
+      return;
+    }
 
+    disarm();                                   // wake word and command in one breath
     $("status").textContent = "… " + cmd;
-    clearTimeout(capTimer);                     // keep waiting while words keep coming
-    capTimer = setTimeout(() => {
-      beep();                                   // confirm only when the command is sent
-      const strip = (s) => { const a = commandAfterWake(s); return a === null ? s : a; };
-      const cleanAlts = (alts || []).map(strip).filter((x) => x && x.trim());
-      runCommand(cmd, cleanAlts.length ? cleanAlts : [cmd]);
-      try { rec.stop(); } catch (e) {}          // reset the session; onend restarts fresh
-    }, 1000);
+    sendWhenDone(cmd, alts);
   }
 
-  return { wakeResult, clearCap: () => clearTimeout(capTimer) };
+  return {
+    wakeResult,
+    // mic.js consults this so a session restart mid-question doesn't wipe the
+    // "tell me the command" prompt, nor blink the button as if listening had
+    // stopped while it is in fact still waiting for an answer.
+    isArmed: () => armed,
+    clearCap: () => { clearTimeout(capTimer); disarm(); },
+  };
 }

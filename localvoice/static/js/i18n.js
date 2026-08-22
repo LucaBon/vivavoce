@@ -34,8 +34,9 @@ const UI_EN = {
   wakeword_lbl: "keyword to say:",
   wakehint: 'Continuous listening: the microphone stays on and the audio goes through ' +
     'the browser’s speech recognition. Tap the mic once, then say ' +
-    '“<b><span id="wwlabel">vivavoce</span></b> …” followed by the command, ' +
-    '<b>all in one sentence</b>. ' +
+    '“<b><span id="wwlabel">vivavoce</span></b> …” followed by the command. ' +
+    'Either <b>all in one sentence</b>, or say just the keyword, wait to be asked ' +
+    'for the command, and then say it. ' +
     '<span class="warn">On Android the browser plays a sound every time listening restarts ' +
     '(every few seconds) and it cannot be silenced from here: on phones, leave this off and ' +
     'use tap-to-talk (one sound per command). The keyword works best on PC/tablet with ' +
