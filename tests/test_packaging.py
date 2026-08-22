@@ -73,6 +73,49 @@ def test_addon_dockerfile_copies_paths_that_exist():
     assert missing == []
 
 
+# -- CPU architecture ----------------------------------------------------------
+#
+# Both optional engines rest on onnxruntime (openWakeWord directly,
+# faster-whisper through CTranslate2), and neither has ever published a 32-bit
+# wheel — not on PyPI, not on piwheels. So "armv7 is supported" and "the image
+# installs an optional group" cannot both be true, and today they aren't: the
+# add-on image installs neither group, which is exactly why it can honestly
+# claim all three architectures. Adding one without dropping armv7 would ship
+# an add-on that fails to build for a third of the machines it advertises,
+# during a Supervisor build nothing in this repo would witness.
+
+# The dependency groups whose wheels are 64-bit only (see pyproject.toml).
+SIXTY_FOUR_BIT_ONLY_GROUPS = ("asr", "wakeword")
+THIRTY_TWO_BIT_ARCHES = ("armv7", "armhf", "i386")
+
+
+def _addon_arches():
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(_read("ha-addon", "config.yaml")).get("arch") or []
+
+
+def test_addon_declares_only_arches_it_can_actually_build_for():
+    dockerfile = _read("ha-addon", "Dockerfile")
+    installs = [g for g in SIXTY_FOUR_BIT_ONLY_GROUPS
+                if f"--group {g}" in dockerfile
+                or re.search(rf"\b{g}\b.*==|pip install.*{g}", dockerfile)]
+    declared_32bit = [a for a in _addon_arches() if a in THIRTY_TWO_BIT_ARCHES]
+    assert not (installs and declared_32bit), (
+        f"the add-on image installs {installs}, which has no 32-bit wheels, "
+        f"while config.yaml still advertises {declared_32bit}: drop those "
+        f"arches or drop the group")
+
+
+def test_deploy_docs_state_the_64_bit_requirement():
+    # The gap that prompted all of this: every other constraint was documented
+    # with care (Python floor, why the groups are separate, what is untested)
+    # and the architecture one was not, while four places advertise Raspberry
+    # Pi. One marker per optional section, so a rewrite that drops the note
+    # fails here rather than in a user's hands.
+    deploy = _read("DEPLOY.md")
+    assert deploy.count("Needs a 64-bit OS") == len(SIXTY_FOUR_BIT_ONLY_GROUPS)
+
+
 # -- versions ------------------------------------------------------------------
 
 def _pyproject_version():

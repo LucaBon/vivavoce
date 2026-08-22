@@ -40,6 +40,12 @@ Everything is configured via environment variables in
 > [docker-compose.yml](docker-compose.yml): map the port and put the host's LAN
 > IP in `VIVAVOCE_CERT_HOSTS`.
 
+> **Architecture.** The image is multi-arch and the app itself is
+> stdlib-only, so it runs anywhere Python does — including a 32-bit Raspberry
+> Pi. The two *optional* Pro engines (local speech recognition, server-side
+> wake word) need a **64-bit** OS; see their sections below for why, and what
+> a 32-bit box gets instead.
+
 ### Home Assistant add-on
 
 If you run Home Assistant OS/Supervised, Vivavoce installs as an add-on
@@ -106,6 +112,16 @@ uv sync --group asr                      # the core stays dependency-free withou
 uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
 ```
 
+- **Needs a 64-bit OS.** x86-64 and **aarch64** (a Raspberry Pi 4/5 running a
+  64-bit image) are fine. On a **32-bit** system — Raspberry Pi OS's 32-bit
+  image, still the default download for older Pis — this group **cannot be
+  installed at all**: faster-whisper rests on CTranslate2 and onnxruntime, and
+  neither has ever published a 32-bit wheel, on any release. Nor does
+  [piwheels](https://www.piwheels.org), the extra index Raspberry Pi OS
+  configures by default. `uv sync --group asr` fails outright rather than
+  degrading quietly, and the server says why at startup. Same hardware with a
+  64-bit image: everything works. The core app is stdlib-only either way, so a
+  32-bit box still runs Vivavoce — just with the browser's speech engine.
 - **Model & RAM**: `--asr-model` or `VIVAVOCE_ASR_MODEL`. The default is
   **RAM-aware**: on machines with ~4 GB or more, `small`; on smaller boxes
   local recognition **stays off** unless you set a model explicitly. That's a
@@ -154,6 +170,17 @@ uv sync --group wakeword                 # deliberately its own group, not "asr"
 uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 ```
 
+- **Needs a 64-bit OS.** x86-64 and **aarch64** (a Raspberry Pi 4/5 running a
+  64-bit image) are fine. On a **32-bit** system — Raspberry Pi OS's 32-bit
+  image, still the default download for older Pis — this group **cannot be
+  installed at all**: openWakeWord rests on onnxruntime, which has never
+  published a 32-bit wheel on any release. [piwheels](https://www.piwheels.org),
+  the extra index Raspberry Pi OS configures by default, doesn't save it
+  either: it carries armv7l builds of scipy and scikit-learn (openWakeWord's
+  other compiled dependencies) but none of onnxruntime. `uv sync --group
+  wakeword` fails outright rather than degrading quietly, and the server says
+  why at startup. Same hardware with a 64-bit image: everything works, and a
+  32-bit box still gets the browser's own wake word — beep and all.
 - **Fixed phrase, English only.** openWakeWord ships pretrained models for a
   handful of English phrases; it has no support for an arbitrary typed
   phrase like the default mode's free-text field, and training a custom

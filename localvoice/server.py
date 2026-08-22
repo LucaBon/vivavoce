@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import socket
 import sys
 import time
@@ -141,6 +142,29 @@ _DISCOVERY_PHASES = {
 }
 
 
+def optional_groups_unavailable_here() -> str:
+    """Why neither optional group can be installed on this machine, or ``""``.
+
+    Both rest on onnxruntime — openWakeWord directly, faster-whisper through
+    CTranslate2 — and neither project has *ever* published a 32-bit wheel:
+    not on PyPI (checked across every release of both), and not on piwheels
+    either, the extra index Raspberry Pi OS configures by default and which
+    does carry numpy/scipy/scikit-learn for armv7l. So on a Pi running a
+    32-bit image, "uv sync --group wakeword" sends pip into a source build
+    that cannot succeed, and the printed instruction is a dead end.
+
+    A 64-bit OS on the same hardware has wheels for everything (aarch64 is
+    fully supported); this is a userland word-size limit, not an ARM one.
+    """
+    machine = platform.machine().lower()
+    thirty_two_bit_arm = machine.startswith(("armv6", "armv7")) or machine == "armhf"
+    if not thirty_two_bit_arm:
+        return ""
+    return (" Su questa macchina non è installabile: il sistema è ARM a 32 bit "
+            f"({platform.machine()}) e onnxruntime non pubblica wheel a 32 bit. "
+            "Serve un sistema operativo a 64 bit (aarch64) sullo stesso hardware.")
+
+
 def _discovery_progress(phase: str) -> None:
     line = _DISCOVERY_PHASES.get(phase)
     if line:
@@ -206,7 +230,8 @@ def main() -> int:
     transcriber = None
     if not WhisperTranscriber().available():
         print("Riconoscimento vocale locale non installato: il microfono usa "
-              "il riconoscimento del browser. Per attivarlo: uv sync --group asr")
+              "il riconoscimento del browser. Per attivarlo: uv sync --group asr"
+              + optional_groups_unavailable_here())
     elif asr_model:
         transcriber = WhisperTranscriber(
             asr_model, cache_dir=os.path.join(data_dir, "asr-models"))
@@ -232,7 +257,8 @@ def main() -> int:
     if not wakeword_sessions.available():
         print("Parola chiave lato server non installata: l'ascolto continuo "
               "usa il riconoscimento del browser (col beep su Android). "
-              "Per attivarla: uv sync --group wakeword")
+              "Per attivarla: uv sync --group wakeword"
+              + optional_groups_unavailable_here())
     else:
         print(f"Parola chiave lato server attiva (openWakeWord, modello "
               f"{wakeword_model}): nessun beep durante l'ascolto continuo.")
