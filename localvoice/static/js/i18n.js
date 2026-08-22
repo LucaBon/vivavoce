@@ -31,16 +31,24 @@ const UI_EN = {
   lbl_source: "Music source",
   lbl_player: "Where the music plays",
   wakemode_lbl: "voice-activate with a keyword",
+  wakeword_lbl: "keyword to say:",
   wakehint: 'Continuous listening: the microphone stays on and the audio goes through ' +
     'the browser’s speech recognition. Tap the mic once, then say ' +
-    '“<b><span id="wwlabel">vivavoce</span></b> …” followed by the command. ' +
+    '“<b><span id="wwlabel">vivavoce</span></b> …” followed by the command, ' +
+    '<b>all in one sentence</b>. ' +
     '<span class="warn">On Android the browser plays a sound every time listening restarts ' +
     '(every few seconds) and it cannot be silenced from here: on phones, leave this off and ' +
     'use tap-to-talk (one sound per command). The keyword works best on PC/tablet with ' +
     'Chrome.</span>',
+  wakehint_server: 'Continuous listening without the beep: the server does the wake-word ' +
+    'detection, and the browser only takes the microphone for the command itself. It works ' +
+    'in <b>two steps</b>: say “<b><span id="wwlabel_srv">Hey Jarvis</span></b>”, ' +
+    '<b>wait for the beep</b>, then say the command. The activation phrase is fixed and ' +
+    'English, decided by the model on the server: it cannot be customized. The free-text ' +
+    'keyword comes back with the other engine.',
   localasr_lbl: "🎙 local speech recognition (Whisper on the server: audio never leaves home)",
-  serverwake_lbl: "🔈 server-side wake word, no Android beep (only “hey jarvis” in " +
-    "English, not customizable)",
+  serverwake_lbl: "🔈 detect the wake word on the server (no Android beep; fixed " +
+    "“Hey Jarvis” phrase, in English)",
   readback_lbl: "🔊 read the reply aloud",
   voices_summary: "Voices &amp; languages",
   lbl_foreign: "Default language for foreign titles",
@@ -268,9 +276,10 @@ export function applyUI() {
   // the data-i18n swap resets #micstate to idle text: keep it truthful while listening
   $("micstate").textContent = $("mic").classList.contains("listening")
     ? ui("micstate_listening") : ui("micstate_idle");
-  // wakehint embeds the wake-word span: restore its live value after the swap
-  const ww = $("wwlabel");
-  if (ww) ww.textContent = ($("wakeword").value || "vivavoce").trim();
+  // wakehint embeds the wake-word span: restore its live value after the
+  // swap. Via the hook, not by reading the field — the phrase in use isn't
+  // always the field's (see setWakeWordOverride in settings.js).
+  hooks.syncWakeLabel();
   hooks.buildSourceOptions();
   hooks.buildVoicePickers();  // re-localizes the "(no voice)" option
   hooks.applyPro();           // re-localizes the Pro panel strings

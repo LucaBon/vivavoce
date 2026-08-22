@@ -154,3 +154,237 @@ def test_wakemode_preference_restored_without_web_speech(page_with_fake_mic, web
     assert page.eval_on_selector("#wakemode", "el => el.checked") is True
 
 
+
+
+# --- The hand-off between the wake stream and the command capture ----------
+#
+# Everything below exercises what happens AFTER a trigger fires, which is
+# where server-side wake word was unusable in the field: the phrase was
+# detected, and then nothing said after it was ever understood, while the mic
+# button went dark as if listening had stopped.
+
+FAKE_SPEECH_RECOGNITION = """
+    // A scriptable stand-in for Web Speech: headless Chromium ships an
+    // interface that never produces results, and these tests need to drive
+    // start/end/result precisely rather than hope.
+    // mic.js reconfigures ONE recogniser between continuous (its own wake
+    // mode) and one-shot (the capture after a server-side trigger), so the
+    // counters are split by that: a stop during an engine switch must not
+    // look like the capture being cancelled.
+    window.__sr = { starts: 0, stops: 0, live: null, continuous: null,
+                    captureStarts: 0, captureStops: 0 };
+    class FakeSR {
+      constructor() {
+        this.continuous = false; this.lang = ""; this.maxAlternatives = 1;
+        this.interimResults = false; this._running = false;
+      }
+      start() {
+        if (this._running) {
+          throw new DOMException("already started", "InvalidStateError");
+        }
+        this._running = true;
+        window.__sr.starts++;
+        if (!this.continuous) window.__sr.captureStarts++;
+        window.__sr.live = this;
+        window.__sr.continuous = this.continuous;
+        setTimeout(() => { if (this.onstart) this.onstart(); }, 0);
+      }
+      stop() {
+        if (!this._running) return;
+        this._running = false;
+        window.__sr.stops++;
+        if (!this.continuous) window.__sr.captureStops++;
+        setTimeout(() => { if (this.onend) this.onend(); }, 0);
+      }
+      // Test hook: deliver one final transcript, then end the session the way
+      // a real one-shot recognition does.
+      finish(text) {
+        const alt = { transcript: text };
+        const result = Object.assign([alt], { isFinal: true, length: 1 });
+        if (this.onresult) {
+          this.onresult({ resultIndex: 0, results: [result] });
+        }
+        this.stop();
+      }
+    }
+    window.SpeechRecognition = FakeSR;
+    window.webkitSpeechRecognition = FakeSR;
+    localStorage.setItem('reclang', 'it');
+    localStorage.setItem('source', 'auto');
+"""
+
+
+class TriggeringDetector:
+    """Fires the wake word on every chunk, optionally after a delay.
+
+    The delay is what makes the duplicate-trigger test deterministic: the
+    browser posts a chunk roughly every 85 ms without waiting for the
+    previous answer, so a detector that takes longer than that guarantees
+    several chunks are in flight when the first one comes back triggered.
+    """
+
+    def __init__(self, delay=0.0):
+        self.delay = delay
+
+    def process(self, pcm_bytes):
+        if self.delay:
+            import time
+            time.sleep(self.delay)
+        return True
+
+    def reset(self):
+        pass
+
+
+class TriggeringSessions(FakeSessions):
+    def __init__(self, trigger_after=2, delay=0.0):
+        super().__init__()
+        self.trigger_after = trigger_after
+        self.delay = delay
+
+    def get_or_create(self, client_id):
+        self.chunk_calls += 1
+        if self.chunk_calls > self.trigger_after:
+            return TriggeringDetector(self.delay)
+        return FakeDetector()
+
+
+def _start_server_wake(page, srv):
+    """Boot the page and get to "listening for the wake word, server engine".
+
+    No tap on the mic button: ticking the boxes is enough now that the engine
+    choice applies immediately: a tap here would *stop* what they started.
+    """
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    _wait_visible(page, "#serverwakerow")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+    page.check("#wakemode")    # continuous listening on, browser engine
+    page.check("#serverwake")  # ...switched to the server engine, live
+
+
+def test_wake_trigger_lends_the_mic_to_the_capture_and_takes_it_back(
+        page_with_fake_mic, web):
+    # The input device is exclusive: while the wake stream held it, the
+    # command capture heard silence and no command after "hey jarvis" was
+    # ever understood. The stream must release the mic (and stop posting
+    # chunks) for the length of one capture, then take it back.
+    page = page_with_fake_mic
+    page.add_init_script(FAKE_SPEECH_RECOGNITION)
+    sessions = TriggeringSessions(trigger_after=2)
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
+    _start_server_wake(page, srv)
+
+    # A one-shot capture opens, not the continuous session Web Speech runs
+    # when it is the engine in charge.
+    page.wait_for_function("() => window.__sr.captureStarts === 1", timeout=8000)
+
+    # While the capture is open, the wake stream must be silent.
+    during = sessions.chunk_calls
+    page.wait_for_timeout(600)
+    assert sessions.chunk_calls == during, (
+        f"wake stream kept posting chunks during the capture "
+        f"({during} -> {sessions.chunk_calls}); the mic was never released")
+
+    # The capture ends the way a real one-shot does; the stream takes over.
+    page.evaluate("window.__sr.live.finish('pausa')")
+    for _ in range(40):
+        if sessions.chunk_calls > during:
+            break
+        page.wait_for_timeout(100)
+    assert sessions.chunk_calls > during, (
+        "the wake stream never resumed after the command capture")
+    # ...and says so: it used to go dark, as if listening had stopped.
+    assert page.eval_on_selector("#mic", "el => el.classList.contains('listening')")
+
+
+def test_duplicate_triggers_do_not_cancel_the_capture(page_with_fake_mic, web):
+    # Chunks go out every ~85 ms without waiting, so several are in flight and
+    # more than one can come back triggered for the same phrase. The second
+    # onTriggered used to call captureCommand() again -> startManual() with
+    # the recogniser already running -> rec.stop(): the capture that had just
+    # opened was closed a moment later, and nothing was ever heard.
+    page = page_with_fake_mic
+    page.add_init_script(FAKE_SPEECH_RECOGNITION)
+    sessions = TriggeringSessions(trigger_after=0, delay=0.25)
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
+    _start_server_wake(page, srv)
+
+    page.wait_for_function("() => window.__sr.captureStarts === 1", timeout=8000)
+    # Long enough for every chunk that was already in flight to answer.
+    page.wait_for_timeout(800)
+    assert page.evaluate("window.__sr.captureStops") == 0, (
+        "a duplicate trigger stopped the capture that had just opened")
+    assert page.evaluate("window.__sr.captureStarts") == 1
+
+
+def test_switching_engine_while_listening_applies_immediately(
+        page_with_fake_mic, web):
+    # The engine checkbox used to only write to localStorage: flipping it
+    # mid-session changed nothing until wake mode was switched off and on,
+    # which read exactly like the choice being ignored.
+    page = page_with_fake_mic
+    page.add_init_script(FAKE_SPEECH_RECOGNITION)
+    sessions = FakeSessions()
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
+    _start_server_wake(page, srv)
+
+    for _ in range(40):
+        if sessions.chunk_calls >= 2:
+            break
+        page.wait_for_timeout(100)
+    assert sessions.chunk_calls >= 2, "no /wakeword/chunk traffic observed"
+
+    page.uncheck("#serverwake")  # back to the browser engine, right now
+    for _ in range(40):
+        if sessions.stopped:
+            break
+        page.wait_for_timeout(100)
+    assert sessions.stopped, "the server stream kept running after the switch"
+    # Web Speech takes over in CONTINUOUS mode: that is its wake mode.
+    page.wait_for_function("() => window.__sr.continuous === true", timeout=5000)
+
+
+def test_wake_panel_shows_the_phrase_and_grammar_of_the_chosen_engine(
+        page_with_fake_mic, web):
+    # Two engines, two phrases and two ways of speaking: one sentence for the
+    # browser one, "phrase, beep, command" for the server one. The panel
+    # advertised the free-text word and the single-sentence grammar for both,
+    # so testers said "hey jarvis pausa" in one breath at a detector that
+    # cannot hear anything after the trigger.
+    page = page_with_fake_mic
+    page.add_init_script(FAKE_SPEECH_RECOGNITION)
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=FakeSessions())
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    _wait_visible(page, "#serverwakerow")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+
+    display = "el => getComputedStyle(el).display"
+    # Nothing about the engine until continuous listening is even on.
+    assert page.eval_on_selector("#wakeopts", display) == "none"
+    page.check("#wakemode")
+    assert page.eval_on_selector("#wakeopts", display) != "none"
+
+    # Browser engine: the free-text word, and one single sentence.
+    assert page.eval_on_selector("#wakehint", display) != "none"
+    assert page.eval_on_selector("#wakehint_server", display) == "none"
+    assert page.eval_on_selector("#wwlabel", "el => el.textContent") == "vivavoce"
+    assert page.eval_on_selector("#wakeword", "el => el.disabled") is False
+
+    # Server engine: the model's own phrase, and the two-step grammar. The
+    # free-text field configures nothing here, so it goes away rather than
+    # contradicting the hint sitting right next to it.
+    page.check("#serverwake")
+    assert page.eval_on_selector("#wakehint", display) == "none"
+    assert page.eval_on_selector("#wakehint_server", display) != "none"
+    assert page.eval_on_selector("#wwlabel_srv", "el => el.textContent") == "Hey Jarvis"
+    assert page.eval_on_selector("#wakewordrow", display) == "none"
+    assert page.eval_on_selector("#wakeword", "el => el.disabled") is True
+
+    # ...and comes back, with what was typed in it, on the way out.
+    page.uncheck("#serverwake")
+    assert page.eval_on_selector("#wakehint", display) != "none"
+    assert page.eval_on_selector("#wakewordrow", display) != "none"
+    assert page.eval_on_selector("#wakeword", "el => el.disabled") is False
+    assert page.eval_on_selector("#wakeword", "el => el.value") == "vivavoce"

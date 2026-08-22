@@ -10,7 +10,7 @@ import { $, clientId } from "./util.js";
 import { LANGS, ui, recLang, getStatusBase, setStatusBase, refreshStatus } from "./i18n.js";
 import { isPro, showProUpsell } from "./pro.js";
 import { handleManualFinal } from "./chat.js";
-import { wakeWord } from "./settings.js";
+import { wakeWord, setWakeWordOverride } from "./settings.js";
 import { createWakeHandler, beep } from "./wakeword.js";
 import { startWakeStream } from "./serverwake.js";
 
@@ -71,6 +71,26 @@ function modelDisplayName(name) {
 function renderServerWakeRow() {
   $("serverwakerow").style.display =
     (SERVERWAKE.available && serverWakeCanUse()) ? "" : "none";
+  syncWakePhrase();
+}
+
+// The two engines don't just hear different phrases, they are SPOKEN
+// differently — one sentence ("vivavoce metti i Pink Floyd") for Web Speech,
+// two steps (phrase, beep, command) for the server one, because openWakeWord
+// detects the trigger and nothing after it. One shared hint had testers
+// saying "hey jarvis pausa" in a single breath, which can never work: the
+// command capture only opens once the trigger has fired. So the panel shows
+// the hint for the engine actually selected, and names the phrase that engine
+// can actually hear.
+function syncWakePhrase() {
+  const server = serverWakeOn();
+  setWakeWordOverride(server ? modelDisplayName(SERVERWAKE.model) : "");
+  $("wakehint").style.display = server ? "none" : "";
+  $("wakehint_server").style.display = server ? "" : "none";
+  // Not merely greyed: a row labelled "keyword to say" above a box holding
+  // "vivavoce" contradicts the hint next to it, which says the phrase is
+  // fixed. The field comes back, with its value, on switching engine again.
+  $("wakewordrow").style.display = server ? "none" : "";
 }
 
 export async function refreshServerWake() {
@@ -90,6 +110,31 @@ export async function refreshServerWake() {
 // SECOND concurrent stream, leaking the first one's mic/AudioContext forever.
 let serverWakeStarting = false;
 
+// "(re)start continuous listening with whichever engine is selected now",
+// filled in by whichever branch of initMic() set the recogniser up. The
+// engine checkbox is wired outside those branches and used to only write to
+// localStorage: flipping it while already listening changed nothing until
+// wake mode was switched off and on again, which looked exactly like the
+// engine choice being ignored. Stays null where there is no wake mode to
+// restart at all (insecure context).
+let restartWakeListening = null;
+
+// A command capture is open right now (started by a wake trigger). Chunks go
+// out every ~85 ms without waiting for the previous answer, so several are in
+// flight at once and more than one can come back triggered:true for the same
+// "hey jarvis" — and the second onTriggered ran captureCommand() again, which
+// with Web Speech already running means startManual() -> rec.stop(): the
+// capture that had just opened was closed a moment later, and the command was
+// never heard. pause() narrows that window, this closes it.
+let capturing = false;
+let captureWatchdog = null;
+// Every way a capture normally ends routes through endCommandCapture(). Every
+// way it can fail to start does not: rec.start() throwing is swallowed, so no
+// onstart/onend ever comes and the flag above would stay raised forever —
+// deafening the wake word for the rest of the session, with the mic still on
+// loan. Slightly longer than LOCALREC_MAX_MS, the longest legitimate capture.
+const CAPTURE_MAX_MS = LOCALREC_MAX_MS + 5000;
+
 async function startServerWake(onCommand) {
   const statusEl = $("status");
   serverWakeStarting = true;
@@ -97,7 +142,17 @@ async function startServerWake(onCommand) {
     serverWakeStream = await startWakeStream({
       clientId: clientId(),
       onTriggered: () => {
+        if (capturing) return;  // a duplicate trigger for the same phrase
+        capturing = true;
+        clearTimeout(captureWatchdog);
+        captureWatchdog = setTimeout(endCommandCapture, CAPTURE_MAX_MS);
         beep();
+        // Lend the microphone to the command capture for the length of one
+        // command. The input device is exclusive (see startWakeStream): with
+        // this stream still holding it, Web Speech / MediaRecorder heard
+        // silence and nothing said after "hey jarvis" was ever understood.
+        // endCommandCapture() takes it back when the capture finishes.
+        if (serverWakeStream) serverWakeStream.pause();
         onCommand();
       },
       onError: (e) => {
@@ -117,6 +172,8 @@ async function startServerWake(onCommand) {
 }
 
 function stopServerWake() {
+  capturing = false;
+  clearTimeout(captureWatchdog);
   if (serverWakeStream) {
     const s = serverWakeStream;
     serverWakeStream = null;
@@ -124,6 +181,32 @@ function stopServerWake() {
   }
   micUI(false);
   $("status").textContent = ui("tap_mic");
+}
+
+// The end of a command capture (Web Speech one-shot or local ASR), whatever
+// started it. Two things have to happen here, and both were missing:
+//
+// * give the microphone back to the server-side wake stream, which lent it
+//   out at the trigger (see onTriggered) — without this the stream stayed
+//   alive but deaf, so "hey jarvis" worked exactly once per tap;
+// * tell the truth in the UI: if that stream is still running in the
+//   background (it never stops just because one command was captured), the
+//   button and status line must keep showing "listening for hey jarvis"
+//   instead of going idle, or every command made the mic look switched off.
+//
+// Called on plain tap-to-talk too, where there is no wake stream and both
+// steps degrade to the idle UI: resume() is a no-op unless paused.
+function endCommandCapture() {
+  capturing = false;
+  clearTimeout(captureWatchdog);
+  if (serverWakeStream) {
+    serverWakeStream.resume();
+    micUI(true);
+    $("status").textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+  } else {
+    micUI(false);
+    $("status").textContent = ui("tap_mic");
+  }
 }
 
 function stopLocalRec() {
@@ -148,7 +231,7 @@ async function startLocalRec() {
     stream.getTracks().forEach(t => t.stop());
     localRec = null;
     clearTimeout(localRecTimer);
-    micUI(false);
+    endCommandCapture();
     transcribeBlob(new Blob(chunks, { type: rec.mimeType || "audio/webm" }));
   };
   localRec = rec;
@@ -190,7 +273,7 @@ export function initMic() {
   // preference on every reload even though server-side wake word (which
   // never needed Web Speech) could otherwise still honor it there.
   $("wakemode").checked = localStorage.getItem("wakemode") === "1";
-  $("wakehint").style.display = $("wakemode").checked ? "" : "none";
+  $("wakeopts").style.display = $("wakemode").checked ? "" : "none";
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const mic = $("mic");
@@ -215,14 +298,19 @@ export function initMic() {
       }
       if (localAsrOn()) startLocalRec(); else refreshStatus();
     };
+    // No Web Speech here, so continuous listening only exists via the
+    // server-side engine; without it selected, there is nothing to start.
+    restartWakeListening = () => {
+      stopServerWake();
+      if ($("wakemode").checked && serverWakeOn() && !serverWakeStarting) {
+        startServerWake(captureCommandNoSR);
+      }
+    };
     $("wakemode").onchange = () => {
       const on = $("wakemode").checked;
       localStorage.setItem("wakemode", on ? "1" : "0");
-      $("wakehint").style.display = on ? "" : "none";
-      // No Web Speech here, so continuous listening only exists via the
-      // server-side engine; without it selected, there is nothing to start.
-      if (on && serverWakeOn()) startServerWake(captureCommandNoSR);
-      else stopServerWake();
+      $("wakeopts").style.display = on ? "" : "none";
+      restartWakeListening();
     };
   } else if (!window.isSecureContext && location.hostname !== "localhost"
              && location.hostname !== "127.0.0.1") {
@@ -283,16 +371,23 @@ export function initMic() {
       statusEl.textContent = mode === "wake" ? ui("listening_wake")(wakeWord()) : ui("listening");
     };
     rec.onend = () => {
-      active = false; micUI(false);
+      active = false;
       if (mode === "wake") {  // keep listening (mobile/Chrome auto-stop after a pause)
+        micUI(false);  // brief flicker while Chrome cycles the continuous session
         setTimeout(() => { if (mode === "wake" && !active) { try { rec.start(); } catch (e) {} } }, 350);
-      } else { mode = "off"; statusEl.textContent = ui("tap_mic"); }
+      } else {
+        // A plain tap-to-talk shot goes idle; a shot captured after a
+        // server-wake trigger (mode "manual" via captureCommand) instead
+        // falls back to "still listening for hey jarvis" when that's true.
+        mode = "off";
+        endCommandCapture();
+      }
     };
     rec.onerror = (e) => {
       statusEl.textContent = ui("mic_error") + e.error;
       // A denied/blocked mic would otherwise restart-loop in wake mode: turn it off.
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        mode = "off"; $("wakemode").checked = false; $("wakehint").style.display = "none";
+        mode = "off"; $("wakemode").checked = false; $("wakeopts").style.display = "none";
       }
     };
     rec.onresult = (e) => {
@@ -308,28 +403,39 @@ export function initMic() {
       if (finalTxt) handleManualFinal(finalTxt, finalAlts);
     };
 
+    // Stop whichever engine is running before starting the selected one:
+    // both are wired to the same button and checkbox, and leaving the old one
+    // alive would mean two things holding the microphone. startWake() right
+    // after stopAll() throws (the session is still ending) and is swallowed,
+    // but rec.onend then restarts it 350 ms later — the same self-healing
+    // cycle continuous mode already relies on.
+    restartWakeListening = () => {
+      stopAll();
+      stopServerWake();
+      if (!$("wakemode").checked) return;
+      if (serverWakeOn()) { if (!serverWakeStarting) startServerWake(captureCommand); }
+      else startWake();
+    };
     $("wakemode").onchange = () => {
       const on = $("wakemode").checked;
       localStorage.setItem("wakemode", on ? "1" : "0");
-      $("wakehint").style.display = on ? "" : "none";
-      if (on) {
-        if (serverWakeOn()) { if (!serverWakeStarting) startServerWake(captureCommand); }
-        else startWake();
-      } else {
-        stopAll();
-        stopServerWake();
-      }
+      $("wakeopts").style.display = on ? "" : "none";
+      restartWakeListening();
     };
   }
 
-  // The "server-side wake word" checkbox is its own engine choice, available
-  // whenever GET /wakeword said so (see refreshServerWake) — independent of
-  // whether Web Speech exists at all, EXCEPT that the post-trigger command
-  // capture above falls back to Web Speech's one-shot recognition when local
-  // ASR isn't installed, so it still needs the `else` branch above to have
-  // set up `rec`. Kept simple: the checkbox just persists a preference,
-  // read at the moment wake mode actually starts.
+  // Which engine detects the wake word, available whenever GET /wakeword said
+  // so (see refreshServerWake) — independent of whether Web Speech exists at
+  // all, EXCEPT that the post-trigger command capture above falls back to Web
+  // Speech's one-shot recognition when local ASR isn't installed, so it still
+  // needs the `else` branch above to have set up `rec`. Flipping it applies
+  // immediately, mid-session: it is a choice about the listening happening
+  // right now, not a preference read at some later start.
   $("serverwake").checked = localStorage.getItem("serverwake") === "1";
-  $("serverwake").onchange = () =>
+  $("serverwake").onchange = () => {
     localStorage.setItem("serverwake", $("serverwake").checked ? "1" : "0");
+    syncWakePhrase();
+    if (restartWakeListening) restartWakeListening();
+  };
+  syncWakePhrase();
 }

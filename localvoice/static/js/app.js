@@ -9,12 +9,14 @@ import { initTts, buildVoicePickers } from "./tts.js";
 import { initChat, bubble, send } from "./chat.js";
 import { initPro, applyPro, renderKidsafe, refreshLicense, refreshKidsafe,
          showProUpsell } from "./pro.js";
-import { initSettings, buildSourceOptions, renderPlayers, setPlayersData } from "./settings.js";
+import { initSettings, buildSourceOptions, renderPlayers, setPlayersData,
+         syncWakeLabel } from "./settings.js";
 import { initNowPlaying, renderNowPlaying } from "./nowplaying.js";
 import { initMic, refreshAsr, refreshServerWake } from "./mic.js";
 
 initI18n();  // snapshot the Italian markup before anything rewrites it
-setUIHooks({ buildSourceOptions, buildVoicePickers, applyPro, renderKidsafe });
+setUIHooks({ buildSourceOptions, buildVoicePickers, applyPro, renderKidsafe,
+             syncWakeLabel });
 initChat();
 initTts();
 initPro();

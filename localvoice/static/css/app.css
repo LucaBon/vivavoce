@@ -168,6 +168,16 @@ button.send:disabled { opacity: .55; cursor: default; }
 @keyframes dots { 0%{ opacity:.2 } 50%{ opacity:1 } 100%{ opacity:.2 } }
 .hint { color: var(--text-muted); font-size: .875rem; text-align: center; max-width: 480px; }
 .warn { color: var(--danger); }
+/* Everything that configures continuous listening, shown only while it is on.
+   The rule that matters is the left border + indent: the engine choice used to
+   sit as a sibling of the switch that turns listening on, so it read as an
+   independent feature and nobody saw that BOTH had to be ticked. */
+.wakeopts { width: 100%; max-width: 480px;
+            border-left: 2px solid var(--border);
+            padding-left: .75rem; margin: .1rem 0 .3rem;
+            display: flex; flex-direction: column; gap: .35rem; }
+.wakeopts .hint { max-width: 100%; }
+.wakeopts #wakeword:disabled { opacity: .5; cursor: not-allowed; }
 .card { background: var(--surface); border: 1px solid var(--border);
         border-radius: var(--radius-m); box-shadow: var(--shadow);
         padding: .7rem 1rem; width: 100%; max-width: 480px; text-align: left; }

@@ -43,24 +43,48 @@ function floatTo16BitPCM(float32) {
 }
 
 /**
- * Start streaming the microphone to /wakeword/chunk. Returns a handle with
- * .stop() (async — tears down the mic, audio graph, and tells the server to
- * release this client's session). Errors (no mic permission, fetch
- * failures) go to opts.onError; opts.onTriggered() fires each time a chunk
- * comes back with triggered:true.
+ * Start streaming the microphone to /wakeword/chunk. Returns a handle with:
+ *
+ * * ``.pause()`` / ``.resume()`` — release and re-take the *microphone*
+ *   while keeping the server session (see "the microphone is exclusive"
+ *   below). Both are safe to call redundantly.
+ * * ``.stop()`` (async) — tear down the mic and audio graph for good and
+ *   tell the server to release this client's detector.
+ *
+ * Errors (no mic permission, fetch failures) go to opts.onError;
+ * opts.onTriggered() fires each time a chunk comes back with triggered:true.
+ *
+ * **The microphone is exclusive.** This stream and the command capture that
+ * follows a trigger (Web Speech, or MediaRecorder for local ASR — see
+ * mic.js) cannot both hold the input device: on Android the system speech
+ * recogniser takes the mic exclusively, so with this stream still holding it
+ * the capture heard silence and *no command after "hey jarvis" was ever
+ * understood*. Hence pause/resume rather than "just keep streaming":
+ * mic.js lends the device out for the length of one command and takes it
+ * back afterwards. Tearing the whole thing down instead would work too, but
+ * would drop the server-side detector and pay to reload the ONNX model on
+ * every single command.
  */
 export async function startWakeStream({ clientId, onTriggered, onError }) {
-  let stopped = false;
+  let stopped = false;   // stop() was called: this handle never comes back
+  let paused = false;    // the mic is on loan to a command capture
+  let resuming = null;   // in-flight resume(), so two calls can't open two graphs
   let ctx, source, processor, stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+  async function openMic() {
+    const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (stopped) {  // stop() landed while getUserMedia was still pending
+      media.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    stream = media;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     source = ctx.createMediaStreamSource(stream);
     const bufferSize = 4096;
     processor = (ctx.createScriptProcessor || ctx.createJavaScriptNode)
       .call(ctx, bufferSize, 1, 1);
     processor.onaudioprocess = (event) => {
-      if (stopped) return;
+      if (stopped || paused) return;
       const float32 = event.inputBuffer.getChannelData(0);
       const resampled = resample(float32, ctx.sampleRate, TARGET_RATE);
       const pcm16 = floatTo16BitPCM(resampled);
@@ -79,18 +103,44 @@ export async function startWakeStream({ clientId, onTriggered, onError }) {
     mute.gain.value = 0;
     processor.connect(mute);
     mute.connect(ctx.destination);
+  }
+
+  function closeMic() {
+    try { processor && processor.disconnect(); } catch (e) {}
+    try { source && source.disconnect(); } catch (e) {}
+    try { stream && stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    try { ctx && ctx.close(); } catch (e) {}
+    processor = source = stream = ctx = null;
+  }
+
+  try {
+    await openMic();
   } catch (e) {
     if (onError) onError(e);
     throw e;
   }
 
   return {
+    pause() {
+      if (stopped || paused) return;
+      paused = true;
+      closeMic();
+    },
+    resume() {
+      if (stopped || !paused) return resuming || Promise.resolve();
+      paused = false;
+      resuming = openMic()
+        .catch((e) => {
+          paused = true;  // the mic is genuinely gone; report, stay paused
+          if (onError) onError(e);
+        })
+        .then(() => { resuming = null; });
+      return resuming;
+    },
     stop() {
       stopped = true;
-      try { processor && processor.disconnect(); } catch (e) {}
-      try { source && source.disconnect(); } catch (e) {}
-      try { stream && stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
-      try { ctx && ctx.close(); } catch (e) {}
+      paused = false;
+      closeMic();
       return fetch("/wakeword/stop?client=" + encodeURIComponent(clientId), {
         method: "POST",
       }).catch(() => {});  // best-effort: the server also just leaks memory, not state

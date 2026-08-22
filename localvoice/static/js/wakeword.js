@@ -10,6 +10,13 @@ import { wakeWord } from "./settings.js";
 const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
 // A short, self-contained "listening" cue for hands-free wake (no asset/CDN).
+//
+// The context is closed when the tone ends. Chrome caps a page at ~6 live
+// AudioContexts and then makes `new AudioContext()` THROW: leaking one per
+// beep meant that after a handful of wake triggers the next context creation
+// failed — and with server-side wake word that context is the microphone
+// stream itself (serverwake.js), so the failure surfaced as the mic simply
+// switching itself off mid-session.
 export function beep() {
   try {
     const ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -19,6 +26,7 @@ export function beep() {
     g.gain.exponentialRampToValueAtTime(0.18, ac.currentTime + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.18);
     o.start(); o.stop(ac.currentTime + 0.2);
+    o.onended = () => { try { ac.close(); } catch (e) {} };
   } catch (e) { /* audio optional */ }
 }
 

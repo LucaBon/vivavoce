@@ -1,14 +1,20 @@
 // Service worker minimale per la PWA Vivavoce.
 //
-// Strategia: network-first per la pagina (un aggiornamento del server arriva
-// subito; la cache serve solo da fallback offline per l'apertura dell'app),
-// cache-first per gli asset immutabili (icone, manifest). /command non passa
-// mai dalla cache: è il canale comandi verso LMS.
+// Strategia: network-first per la pagina *e per /static/* (un aggiornamento
+// del server arriva subito; la cache serve solo da fallback offline), e
+// cache-first per i soli asset davvero immutabili (icone, manifest).
+// /command non passa mai dalla cache: è il canale comandi verso LMS.
+//
+// Perché /static/ è network-first e non cache-first: staticfiles.py rilegge
+// quei file a ogni richiesta apposta, "così una modifica arriva con un
+// refresh". Con cache-first il service worker annullava quella scelta —
+// un mic.js corretto restava invisibile all'app installata finché non si
+// bumpava VERSION a mano, e la modifica sembrava semplicemente non funzionare.
 //
 // Nota: Chrome registra il service worker solo su HTTPS *fidato* — quindi con
 // la CA locale installata (vedi /ca.pem), non con il certificato "accettato
 // nonostante l'avviso".
-const VERSION = "vivavoce-v7";
+const VERSION = "vivavoce-v8";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png",
                "/static/css/app.css",
                "/static/js/app.js", "/static/js/chat.js", "/static/js/i18n.js",
@@ -42,15 +48,17 @@ self.addEventListener("fetch", (e) => {
   if (NETWORK_ONLY.some((p) => url.pathname.startsWith(p))) {
     return; // stato live del player: sempre rete, mai cache
   }
-  if (url.pathname === "/" || url.pathname === "/index.html") {
+  const isPage = url.pathname === "/" || url.pathname === "/index.html";
+  if (isPage || url.pathname.startsWith("/static/")) {
+    const key = isPage ? "/" : e.request;
     e.respondWith(
       fetch(e.request)
         .then((resp) => {
           const copy = resp.clone();
-          caches.open(VERSION).then((c) => c.put("/", copy));
+          caches.open(VERSION).then((c) => c.put(key, copy));
           return resp;
         })
-        .catch(() => caches.match("/"))
+        .catch(() => caches.match(key))
     );
     return;
   }
