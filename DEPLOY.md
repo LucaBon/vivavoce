@@ -120,8 +120,10 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
   [piwheels](https://www.piwheels.org), the extra index Raspberry Pi OS
   configures by default. `uv sync --group asr` fails outright rather than
   degrading quietly, and the server says why at startup. Same hardware with a
-  64-bit image: everything works. The core app is stdlib-only either way, so a
-  32-bit box still runs Vivavoce — just with the browser's speech engine.
+  64-bit image: everything works — CI installs this group and loads the
+  native libraries on a real aarch64 runner on every push. The core app is
+  stdlib-only either way, so a 32-bit box still runs Vivavoce — just with the
+  browser's speech engine.
 - **Model & RAM**: `--asr-model` or `VIVAVOCE_ASR_MODEL`. The default is
   **RAM-aware**: on machines with ~4 GB or more, `small`; on smaller boxes
   local recognition **stays off** unless you set a model explicitly. That's a
@@ -179,8 +181,10 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
   either: it carries armv7l builds of scipy and scikit-learn (openWakeWord's
   other compiled dependencies) but none of onnxruntime. `uv sync --group
   wakeword` fails outright rather than degrading quietly, and the server says
-  why at startup. Same hardware with a 64-bit image: everything works, and a
-  32-bit box still gets the browser's own wake word — beep and all.
+  why at startup. Same hardware with a 64-bit image: everything works —
+  CI runs the real openWakeWord model against real audio frames on an aarch64
+  runner on every push — and a 32-bit box still gets the browser's own wake
+  word, beep and all.
 - **Fixed phrase, English only.** openWakeWord ships pretrained models for a
   handful of English phrases; it has no support for an arbitrary typed
   phrase like the default mode's free-text field, and training a custom

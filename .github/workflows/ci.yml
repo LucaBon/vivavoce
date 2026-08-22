@@ -36,6 +36,17 @@ jobs:
           # non viene mai eseguito: una gamba basta a coprirlo.
           - os: windows-latest
             python: "3.12"
+          # aarch64 (runner ARM ospitato da GitHub, gratuito sui repo
+          # pubblici): DEPLOY.md indica il Raspberry Pi in quattro punti e
+          # fino a qui nessun job girava su ARM. Il core è solo stdlib e
+          # dovrebbe essere indifferente all'architettura — "dovrebbe" è
+          # esattamente ciò che un job rende un fatto. Due gambe, il minimo
+          # supportato e una recente, non l'intera matrice: qui interessa
+          # l'architettura, le versioni le copre già la matrice x86.
+          - os: ubuntu-24.04-arm
+            python: "3.9"
+          - os: ubuntu-24.04-arm
+            python: "3.13"
     steps:
       - uses: actions/checkout@v4
 
@@ -73,8 +84,22 @@ jobs:
         run: uv run pytest tests/e2e -v
 
   wakeword:
-    name: server wake word (py3.11)
-    runs-on: ubuntu-latest
+    name: server wake word (py3.11, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          # The claim this leg exists to prove: DEPLOY.md tells a Raspberry Pi
+          # 4/5 on a 64-bit image that the server-side wake word works there.
+          # That rested on onnxruntime publishing aarch64 wheels — true, and
+          # checked, but a wheel existing is not the same as the ONNX model
+          # loading and scoring audio on that CPU. This runs the real
+          # openwakeword against real frames on real aarch64.
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -92,6 +117,57 @@ jobs:
 
       - name: Run the wake-word test suite
         run: uv run --python 3.11 pytest tests/test_wakeword.py tests/test_wakeword_web.py -v
+
+  asr:
+    name: local speech recognition (py3.12, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Installazione vera, non risoluzione: faster-whisper si appoggia a
+      # CTranslate2 e onnxruntime, ed è la coppia che decide se il gruppo
+      # esiste su un'architettura (vedi la nota in DEPLOY.md). Su armv7 non
+      # esiste affatto, e non c'è runner ARM a 32 bit per dimostrarlo qui:
+      # quel lato lo coprono i test di packaging e il messaggio d'avvio.
+      - name: Sync dependencies (incl. the asr group)
+        run: uv sync --python 3.12 --group asr
+
+      # Nessun modello scaricato (~500 MB e minuti, per nulla che riguardi
+      # l'architettura). L'import È il controllo: `import ctranslate2` carica
+      # libctranslate2, la libreria nativa compilata per questa CPU, ed è
+      # esattamente lì che un'architettura sbagliata si rompe. Poi il probe
+      # che il server fa davvero all'avvio.
+      #
+      # tests/test_transcribe.py non gira qui apposta: usa un trascrittore
+      # finto da cima a fondo, quindi passerebbe identico senza il gruppo
+      # installato — la matrice principale lo copre già, e ripeterlo qui
+      # darebbe l'impressione di una prova che non è.
+      - name: The native libraries load, and the engine reports itself installed
+        run: |
+          uv run --python 3.12 python -c "
+          import sys, platform
+          import ctranslate2, onnxruntime
+          sys.path.insert(0, 'localvoice')
+          from pro.asr import WhisperTranscriber
+          assert WhisperTranscriber().available(), 'faster-whisper non importabile'
+          print(platform.machine(),
+                '- ctranslate2', ctranslate2.__version__,
+                '- onnxruntime', onnxruntime.__version__,
+                '- providers', onnxruntime.get_available_providers())
+          "
 
   sanity:
     name: sanity checks

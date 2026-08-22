@@ -106,6 +106,61 @@ def test_addon_declares_only_arches_it_can_actually_build_for():
         f"arches or drop the group")
 
 
+# Every runner label the workflow may use. An allowlist rather than a regex:
+# a typo'd label doesn't fail loudly, the job just never gets picked up, and a
+# green tick on a workflow that silently skipped a leg is the worst outcome
+# available here.
+KNOWN_RUNNERS = {"ubuntu-latest", "windows-latest", "ubuntu-24.04-arm"}
+
+
+def _ci_jobs():
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(_read(".github", "workflows", "ci.yml"))["jobs"]
+
+
+def _job_runners(job):
+    """Every runner label a job can land on, matrix legs included."""
+    matrix = job.get("strategy", {}).get("matrix", {})
+    labels = list(matrix.get("os") or [])
+    for leg in matrix.get("include", []):
+        label = leg.get("os") or leg.get("runner")
+        if label:
+            labels.append(label)
+    runs_on = job.get("runs-on", "")
+    if "${{" not in runs_on:  # a literal label, not a matrix reference
+        labels.append(runs_on)
+    return labels
+
+
+def test_ci_runner_labels_are_all_known():
+    unknown = {label for job in _ci_jobs().values()
+               for label in _job_runners(job) if label not in KNOWN_RUNNERS}
+    assert unknown == set(), f"unrecognised runner labels: {sorted(unknown)}"
+
+
+def test_ci_proves_the_64_bit_claim_on_real_aarch64():
+    # DEPLOY.md tells a Raspberry Pi 4/5 on a 64-bit image that both optional
+    # engines work there. That started as an inference from wheels existing on
+    # PyPI — necessary but not sufficient, since a wheel installing is not the
+    # same as an ONNX model loading and scoring on that CPU. Each group now has
+    # a job that runs it for real on aarch64, and deleting one has to fail here
+    # rather than quietly turn a tested claim back into an assumed one.
+    jobs = _ci_jobs()
+    for group in SIXTY_FOUR_BIT_ONLY_GROUPS:
+        assert group in jobs, f"no CI job named {group!r} to prove it"
+        runners = _job_runners(jobs[group])
+        assert any("arm" in label for label in runners), (
+            f"the {group!r} job runs only on {runners}: nothing exercises the "
+            f"aarch64 support DEPLOY.md promises")
+
+
+def test_ci_runs_the_core_suite_on_aarch64():
+    # The core is stdlib-only, so this should be indifferent to architecture —
+    # which is exactly the kind of "should" worth one cheap job.
+    runners = _job_runners(_ci_jobs()["test"])
+    assert any("arm" in label for label in runners)
+
+
 def test_deploy_docs_state_the_64_bit_requirement():
     # The gap that prompted all of this: every other constraint was documented
     # with care (Python floor, why the groups are separate, what is untested)
