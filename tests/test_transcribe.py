@@ -118,6 +118,21 @@ def test_transcribe_empty_body_is_refused(live_server):
     assert fake.calls == []
 
 
+def test_transcribe_oversized_body_is_refused(live_server):
+    # The 15 MB cap: a spoken command is seconds long, so anything past it is
+    # a runaway or a bomb, and must be refused without ever reaching the
+    # engine. The wake-word endpoint's own cap has always been tested; this
+    # one shares its guard now, and an untested half of a shared guard is how
+    # a cap quietly stops being one.
+    fake = FakeTranscriber()
+    srv = live_server(transcriber=fake)
+    oversized = b"\x00" * (15 * 1024 * 1024 + 1)
+    resp = srv.post("/transcribe", oversized, AUDIO_TYPE)
+    assert resp.status == 200
+    assert resp.json() == {"ok": False, "error": "too_large"}
+    assert fake.calls == []
+
+
 def test_transcribe_garbage_audio_answers_200(live_server):
     # Whatever blows up inside the engine (corrupt container, decode error)
     # must come back as ok:false, never as a 5xx.

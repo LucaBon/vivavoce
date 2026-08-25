@@ -1,9 +1,14 @@
 """The HTTP surface of the local web app: ``make_handler`` and its routes.
 
 Moved verbatim from ``server.py`` (which keeps startup, discovery and the
-CLI): this module owns everything that happens after a request arrives —
-routing, the JSON contracts, and the "never a 5xx" guarantees the page
-relies on. Stdlib ``http.server`` only.
+CLI): this module owns what happens after a request arrives — routing, the
+JSON contracts, and the "never a 5xx" guarantees the page relies on. Stdlib
+``http.server`` only.
+
+One family of routes lives next door rather than here: the endpoints backed
+by the optional audio engines (``/asr``, ``/transcribe``, ``/wakeword/*``) are
+a mixin from ``audio_api.py``, mixed into ``Handler`` below. They read binary
+bodies and are Pro-gated server-side, which nothing else here does.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ import os
 import threading
 
 import staticfiles
+from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
 from messages import msg
 from router import Router
@@ -60,7 +66,11 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 routers[key] = r
             return r
 
-    class Handler(BaseHTTPRequestHandler):
+    # The audio-engine endpoints (/asr, /transcribe, /wakeword/*) live in
+    # audio_api.py and are mixed in here, which is the only place the two
+    # halves meet: they call back into _send/_query_params below.
+    class Handler(audio_routes(license_mgr, transcriber, wakeword_sessions),
+                  BaseHTTPRequestHandler):
         def _send(self, code, body, ctype="application/json"):
             data = body.encode("utf-8") if isinstance(body, str) else body
             self.send_response(code)
@@ -131,125 +141,6 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._wakeword_status()
             else:
                 self._send(404, "not found", "text/plain")
-
-        def _asr_status(self):
-            # La pagina mostra l'interruttore «riconoscimento locale» solo se
-            # il motore c'è davvero (gruppo opzionale "asr" installato).
-            ok = transcriber is not None and transcriber.available()
-            payload = {"available": ok}
-            if ok:
-                payload["model"] = getattr(transcriber, "model_name", None)
-            self._send(200, json.dumps(payload))
-
-        def _wakeword_status(self):
-            # Come /asr: l'interruttore «parola chiave lato server» compare
-            # solo se il motore c'è davvero (gruppo opzionale SEPARATO
-            # "wakeword" — vedi pro/wakeword.py per il perché non è "asr").
-            # Il gate Pro è sull'azione (POST /wakeword/chunk), non qui —
-            # stessa scelta di /asr rispetto a /transcribe.
-            ok = wakeword_sessions is not None and wakeword_sessions.available()
-            payload = {"available": ok}
-            if ok:
-                payload["model"] = wakeword_sessions.model
-            self._send(200, json.dumps(payload))
-
-        # Un comando parlato dura pochi secondi: 15 MB coprono con margine
-        # anche un wav non compresso, e tolgono senso a un upload-bomba.
-        MAX_AUDIO_BYTES = 15 * 1024 * 1024
-
-        def _transcribe(self):
-            # Il corpo è il blob audio di MediaRecorder (webm/opus o wav),
-            # la lingua viaggia nella query string. Come gli altri endpoint:
-            # mai un 5xx — i casi degradati rispondono 200 con ok:false.
-            length = int(self.headers.get("Content-Length", 0) or 0)
-
-            def refuse(error):
-                if length:  # drena il corpo: keep-alive pulito anche su rifiuto
-                    self.rfile.read(length)
-                self._send(200, json.dumps({"ok": False, "error": error}))
-
-            if transcriber is None or not transcriber.available():
-                refuse("unavailable")
-                return
-            # Funzione Pro, applicata lato server come il kid-safe: il toggle
-            # nascosto nella UI non basta a proteggere la CPU del server.
-            if license_mgr and not license_mgr.is_pro():
-                refuse("pro_required")
-                return
-            if not length:
-                refuse("empty")
-                return
-            if length > self.MAX_AUDIO_BYTES:
-                refuse("too_large")
-                return
-            audio = self.rfile.read(length)
-            lang = (self._query_params().get("lang") or ["it"])[0]
-            try:
-                result = transcriber.transcribe(audio, lang)
-            except Exception as exc:
-                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
-                return
-            text = (result.get("text") or "").strip()
-            alternatives = [a for a in (result.get("alternatives") or [])
-                            if a and a.strip()]
-            if not alternatives and text:
-                alternatives = [text]
-            self._send(200, json.dumps(
-                {"ok": True, "text": text, "alternatives": alternatives},
-                ensure_ascii=False))
-
-        # A wake-word chunk is ~300 ms of 16-bit mono PCM at 16 kHz (~10 KB);
-        # 256 KB is a generous multiple of that, and refuses a runaway client
-        # rather than buffering an unbounded body.
-        MAX_WAKEWORD_CHUNK_BYTES = 256 * 1024
-
-        def _wakeword_chunk(self):
-            # Il corpo è un chunk PCM16 mono a 16 kHz (vedi
-            # static/js/serverwake.js), il client id viaggia in query string —
-            # come /transcribe, mai un 5xx: i casi degradati rispondono 200
-            # con ok:false.
-            length = int(self.headers.get("Content-Length", 0) or 0)
-
-            def refuse(error):
-                if length:
-                    self.rfile.read(length)
-                self._send(200, json.dumps({"ok": False, "error": error}))
-
-            if wakeword_sessions is None or not wakeword_sessions.available():
-                refuse("unavailable")
-                return
-            # Funzione Pro, applicata lato server come /transcribe: il
-            # toggle nascosto nella UI non basta a proteggere la CPU.
-            if license_mgr and not license_mgr.is_pro():
-                refuse("pro_required")
-                return
-            if not length:
-                refuse("empty")
-                return
-            if length > self.MAX_WAKEWORD_CHUNK_BYTES:
-                refuse("too_large")
-                return
-            client_id = (self._query_params().get("client") or ["default"])[0]
-            audio = self.rfile.read(length)
-            detector = wakeword_sessions.get_or_create(client_id)
-            try:
-                triggered = detector.process(audio)
-                if triggered:
-                    detector.reset()  # ready to fire again right away
-            except Exception as exc:
-                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
-                return
-            self._send(200, json.dumps({"ok": True, "triggered": triggered}))
-
-        def _wakeword_stop(self):
-            # Rilascia il modello del client: senza, la sessione (memoria ONNX)
-            # resterebbe viva per sempre a ogni dispositivo che ha mai usato
-            # la funzione. Idempotente e mai un errore: fermare due volte, o
-            # fermare una sessione mai aperta, non cambia nulla.
-            if wakeword_sessions is not None:
-                client_id = (self._query_params().get("client") or ["default"])[0]
-                wakeword_sessions.stop(client_id)
-            self._send(200, json.dumps({"ok": True}))
 
         def _kidsafe_state(self, client_id: str) -> dict:
             state = {

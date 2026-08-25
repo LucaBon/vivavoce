@@ -244,3 +244,65 @@ def test_deploy_yaml_parses(parts):
     # design, and CI installs the dev group.
     yaml = pytest.importorskip("yaml")
     assert yaml.safe_load(_read(*parts)) is not None
+
+
+# -- file size -----------------------------------------------------------------
+#
+# "No file over 400 lines" was the acceptance criterion of two separate tasks
+# (the index.html split, the server.py split), declared satisfied both times,
+# and then nobody looked again: mic.js drifted back to 470 lines and
+# http_api.py to 463 before anyone noticed. A rule no test checks is not a
+# rule, so it is checked here — this module exists precisely for what the rest
+# of the suite cannot see.
+#
+# Scope: the code that ships (engine/, localvoice/). Both original criteria
+# were about runtime files, and that is where an unreadable module costs
+# something. Tests and tools are deliberately out.
+
+MAX_LINES = 400
+SIZED_TREES = ("engine", "localvoice")
+SIZED_SUFFIXES = (".py", ".js", ".html", ".css")
+
+# Files already over the line when the rule got its test, each with the split
+# that would fix it. A ratchet, not an amnesty: entries may leave this list,
+# never join it — anything not named here has to be born under the limit.
+OVERSIZED_TODAY = {
+    "engine/actions.py",       # one class per intent family would halve it
+    "engine/lms.py",           # transport, search and queue in one client
+    "localvoice/router.py",    # the intent table has outgrown its module
+}
+
+
+def _sized_files():
+    for tree in SIZED_TREES:
+        for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, tree)):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for name in filenames:
+                if not name.endswith(SIZED_SUFFIXES):
+                    continue
+                full = os.path.join(dirpath, name)
+                yield os.path.relpath(full, ROOT).replace(os.sep, "/"), full
+
+
+def _line_count(path):
+    with open(path, encoding="utf-8") as f:
+        return sum(1 for _ in f)
+
+
+def test_no_source_file_is_oversized():
+    too_big = {rel: _line_count(full) for rel, full in _sized_files()
+               if rel not in OVERSIZED_TODAY and _line_count(full) > MAX_LINES}
+    assert too_big == {}, (
+        f"over {MAX_LINES} lines: {too_big} — split it, or (only with a reason) "
+        f"add it to OVERSIZED_TODAY")
+
+
+def test_the_oversized_list_only_shrinks():
+    # The ratchet's other half: once a listed file is split, its entry has to
+    # go, or the exemption outlives the problem and quietly permits a regrowth.
+    files = dict(_sized_files())
+    for rel in sorted(OVERSIZED_TODAY):
+        assert rel in files, f"{rel} no longer exists: drop it from OVERSIZED_TODAY"
+        assert _line_count(files[rel]) > MAX_LINES, (
+            f"{rel} is now under {MAX_LINES} lines: drop it from OVERSIZED_TODAY "
+            f"so it stays that way")
