@@ -45,10 +45,19 @@ unlocks the hands-free features and funds development:
 | Typed commands (the text box, works on every device over plain HTTP) | 🎙️ **Microphone** tap-to-talk |
 | All search & playback: local library, TIDAL, Qobuz, "did you mean" with tappable choices | 🪄 **Wake word** («vivavoce metti Time») |
 | Transport, volume slider, sleep timer, now-playing panel with artwork | 🌍 **Multilingual read-back voices** |
-| Docker / Home Assistant add-on / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side on every device |
+| Docker / Home Assistant add-on / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side for every device *asking Vivavoce*[^kidsafe] |
 | Updates | 🛋️ **Multi-room**: room selector + «metti X **in cucina**» voice targeting |
 | | 🏠 **Local speech recognition**: Whisper on *your* server — mic audio never leaves the LAN |
 | | Future Pro features — and priority on your feedback |
+
+[^kidsafe]: To be exact about what it covers, because a child-safety promise
+    deserves it: the blocklist is enforced on the server, so it holds for
+    every phone, tablet and PC that asks *Vivavoce* — no browser setting or
+    cleared storage gets around it. It is not a lock on the hi-fi: LMS's own
+    web UI, Material Skin and apps like Squeezer talk to LMS directly and
+    never pass through here, so they can still play anything. Kid-safe makes
+    the voice assistant safe to hand to a child; it does not make the whole
+    system child-proof.
 
 **Every install starts with 14 days of full Pro**, microphone included — no
 key, no card, no account. The window opens the first time the server starts

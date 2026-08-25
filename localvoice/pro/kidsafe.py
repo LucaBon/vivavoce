@@ -28,9 +28,22 @@ STATE_FILE = "kidsafe.json"
 UNLOCK_SECONDS = 15 * 60
 PBKDF2_ITERATIONS = 200_000
 # Un bambino che prova PIN a raffica sulla LAN: dopo MAX_ATTEMPTS sbagliati
-# il client aspetta LOCKOUT_SECONDS prima di poter riprovare.
+# si aspetta prima di poter riprovare, e l'attesa raddoppia a ogni errore
+# successivo fino a LOCKOUT_MAX_SECONDS.
+#
+# Il conteggio è **globale**, non per client: il client id arriva dal corpo
+# della richiesta, quindi un contatore per-client si azzera cambiando stringa
+# — cinque tentativi freschi a ogni giro, cioè nessun limite. (E ogni
+# tentativo costa 200k iterazioni PBKDF2: il ciclo era anche un modo per
+# tenere occupata la CPU del server.) Il client id resta solo per la finestra
+# di sblocco, che è per-dispositivo per definizione.
 MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 60
+LOCKOUT_MAX_SECONDS = 3600
+# Un PIN a 4 cifre sono 10.000 combinazioni: con la finestra qui sopra sono
+# secoli, ma il margine costa una cifra in più. I PIN già impostati restano
+# validi — il minimo vale solo per quelli nuovi.
+MIN_PIN_LENGTH = 6
 
 
 def _hash_pin(pin: str, salt: bytes) -> str:
@@ -46,7 +59,6 @@ class KidSafe:
         self.license = license_mgr
         self.now = now
         self._unlocked: Dict[str, float] = {}   # client_id -> unlocked_until
-        self._failures: Dict[str, list] = {}    # client_id -> [count, retry_at]
 
     # -- state ---------------------------------------------------------------
 
@@ -77,10 +89,43 @@ class KidSafe:
         self._save(pin={"salt": salt.hex(), "hash": _hash_pin(pin, salt),
                         "iterations": PBKDF2_ITERATIONS})
 
-    def verify_pin(self, pin: str, client_id: str) -> bool:
-        """Constant-ish check with a per-client lockout after repeated misses."""
-        count, retry_at = self._failures.get(client_id, [0, 0])
-        if count >= MAX_ATTEMPTS and self.now() < retry_at:
+    def _lockout(self) -> Dict[str, Any]:
+        """The install-wide wrong-PIN counter ``{"count", "retry_at"}``."""
+        raw = self._state().get("lockout")
+        if not isinstance(raw, dict):
+            return {"count": 0, "retry_at": 0.0}
+        count = raw.get("count")
+        retry_at = raw.get("retry_at")
+        return {
+            "count": count if isinstance(count, int) and count > 0 else 0,
+            "retry_at": float(retry_at) if isinstance(retry_at, (int, float))
+                        else 0.0,
+        }
+
+    def locked_out_for(self) -> float:
+        """Seconds still to wait before a PIN may be tried again (0 = now)."""
+        lock = self._lockout()
+        if lock["count"] < MAX_ATTEMPTS:
+            return 0.0
+        return max(0.0, lock["retry_at"] - self.now())
+
+    def _backoff_seconds(self, count: int) -> float:
+        """How long to wait after ``count`` consecutive misses."""
+        if count < MAX_ATTEMPTS:
+            return 0.0
+        return min(LOCKOUT_SECONDS * (2 ** (count - MAX_ATTEMPTS)),
+                   LOCKOUT_MAX_SECONDS)
+
+    def verify_pin(self, pin: str, client_id: str = "") -> bool:
+        """Constant-time check behind an install-wide exponential backoff.
+
+        The lockout is consulted *before* hashing, so a client hammering the
+        endpoint during its window costs nothing (200k PBKDF2 iterations per
+        try is a fine way to occupy a server otherwise). ``client_id`` is
+        accepted and ignored: it is client-chosen, so it can never bound
+        anything — see the note on MAX_ATTEMPTS.
+        """
+        if self.locked_out_for() > 0:
             return False
         stored = self._state().get("pin") or {}
         try:
@@ -89,14 +134,25 @@ class KidSafe:
         except (KeyError, ValueError):
             return False
         ok = secrets.compare_digest(_hash_pin(pin or "", salt), expected)
+        lock = self._lockout()
         if ok:
-            self._failures.pop(client_id, None)
+            if lock["count"]:
+                self._save(lockout={"count": 0, "retry_at": 0.0})
         else:
-            self._failures[client_id] = [count + 1,
-                                         self.now() + LOCKOUT_SECONDS]
+            count = lock["count"] + 1
+            self._save(lockout={"count": count,
+                                "retry_at": self.now()
+                                + self._backoff_seconds(count)})
         return ok
 
     # -- unlock window ---------------------------------------------------------
+
+    def _sweep_unlocked(self) -> None:
+        """Drop expired unlock windows. Without this the map grows one entry
+        per browser that ever typed the PIN, forever."""
+        now = self.now()
+        for client in [c for c, until in self._unlocked.items() if until <= now]:
+            self._unlocked.pop(client, None)
 
     def is_unlocked(self, client_id: str) -> bool:
         return self.now() < self._unlocked.get(client_id, 0)
@@ -104,6 +160,7 @@ class KidSafe:
     def unlock(self, client_id: str, pin: str) -> bool:
         if not self.verify_pin(pin, client_id):
             return False
+        self._sweep_unlocked()
         self._unlocked[client_id] = self.now() + UNLOCK_SECONDS
         return True
 
@@ -118,10 +175,15 @@ class KidSafe:
             return {"ok": False, "error": "pro_required"}
         pin = (pin or "").strip()
         if not self.has_pin():
-            if len(pin) < 4:
-                return {"ok": False, "error": "pin_too_short"}
+            if len(pin) < MIN_PIN_LENGTH:
+                return {"ok": False, "error": "pin_too_short",
+                        "min": MIN_PIN_LENGTH}
             self._set_pin(pin)
         elif not self.verify_pin(pin, client_id):
+            wait = self.locked_out_for()
+            if wait > 0:
+                return {"ok": False, "error": "locked_out",
+                        "retry_in": int(wait) + 1}
             return {"ok": False, "error": "wrong_pin"}
         self._save(enabled=True)
         self._unlocked[client_id] = self.now() + UNLOCK_SECONDS

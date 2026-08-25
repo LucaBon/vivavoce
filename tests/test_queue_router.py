@@ -280,7 +280,7 @@ def test_queue_list_hides_blocked_titles(lms, transport, tmp_path):
     from pro.kidsafe import KidSafe
 
     kidsafe = KidSafe(str(tmp_path), FakeLicense(pro=True))
-    kidsafe.enable("1234", "owner")  # unlocked only for "owner", not "kid"
+    kidsafe.enable("123456", "owner")  # unlocked only for "owner", not "kid"
     kidsafe.store.put(["Bad Song"])
 
     r = Router(lms, kidsafe=kidsafe, client_id="kid")

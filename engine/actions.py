@@ -160,13 +160,30 @@ def _did_you_mean(query: Optional[str], cands: List[Dict]) -> ActionResult:
     return ActionResult(speech, ok=True, candidates=picks, kind="disambiguate", terms=terms)
 
 
+def _undo_play(lms) -> None:
+    """Stop and empty what we just started. ``mode="play"`` replaces the queue,
+    so this only undoes our own action — used when the artist turns out to be
+    blocked and we learn it only from the now-playing status."""
+    try:
+        lms.clear_queue()
+    except LMSError:
+        pass
+
+
 def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
                       mode: str = "play", guard: Optional[Guard] = None) -> ActionResult:
-    if guard and guard.blocks(track.get("title")):
+    if guard and guard.blocks_item(track):
         return ActionResult(msg("blocked"), ok=False)
     if mode == "play":
         lms.play_url(track["url"])
         speech, terms = _confirm_song(lms, track, fallback_title)
+        # _confirm_song may have LEARNED the artist from the now-playing
+        # status: TIDAL song-search items don't always carry one, and a
+        # blocked artist discovered a moment late must still not play — and
+        # certainly must not be read aloud in the confirmation.
+        if guard and guard.blocks(*terms):
+            _undo_play(lms)
+            return ActionResult(msg("blocked"), ok=False)
         return ActionResult(speech, ok=True, terms=terms)
     getattr(lms, f"{mode}_url")(track["url"])
     name = track.get("title") or fallback_title
@@ -227,6 +244,20 @@ def is_blocked(text: Optional[str], blocklist: Optional[List[str]]) -> bool:
     return False
 
 
+# Every field of a resolved item that names something a blocklist term could
+# be about. Checking only ``title`` was the hole: with ["Eminem"] blocked, a
+# child asking «metti Lose Yourself» never says the blocked word, so the
+# request text passed — and the track played, artist read aloud.
+ITEM_NAME_FIELDS = ("title", "artist", "album", "name")
+
+
+def is_blocked_item(item: Optional[Dict], blocklist: Optional[List[str]]) -> bool:
+    """True if any blocklist term matches ANY name field of a resolved item."""
+    if not item:
+        return False
+    return any(is_blocked(item.get(f), blocklist) for f in ITEM_NAME_FIELDS)
+
+
 class Guard:
     """Speaker-based access gate. When ``restricted`` is True, any request text
     matching ``blocklist`` is refused with :data:`BLOCKED_SPEECH`. When it's
@@ -240,6 +271,15 @@ class Guard:
         if not self.restricted:
             return False
         return any(is_blocked(t, self.blocklist) for t in texts if t)
+
+    def blocks_item(self, item: Optional[Dict]) -> bool:
+        """The single choke point for a *resolved* item (a track, album,
+        artist or favourite dict): checks every name field, not just the
+        title. Use this everywhere something is about to be played, queued or
+        read aloud — the request text alone never sees the artist."""
+        if not self.restricted:
+            return False
+        return is_blocked_item(item, self.blocklist)
 
 # Splits "titolo dall'album X" / "title from album X" into title + album.
 _ALBUM_SEP = re.compile(
@@ -326,7 +366,7 @@ def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None)
     #    genuinely different titles -> ask the top 3.
     head = strong[:DIDYOUMEAN_LIMIT]
     if guard and guard.restricted:
-        head = [t for t in head if not is_blocked(t.get("title"), guard.blocklist)]
+        head = [t for t in head if not is_blocked_item(t, guard.blocklist)]
     if not head:
         return ActionResult(msg("no_track_found", title=title), ok=False)
     if _ndistinct_titles(head) < 2:
@@ -362,14 +402,14 @@ def _play_from_album(
     if not result["album"]:
         return ActionResult(msg("album_not_found", album=album), ok=False)
     album_name = result["album"]["title"] or album
-    if guard and guard.blocks(album_name):
+    if guard and (guard.blocks_item(result["album"]) or guard.blocks(album_name)):
         return ActionResult(msg("blocked"), ok=False)
     suffix = _MODE_SUFFIX[mode]
     if title:
         ranked = _rank(title, result["tracks"])
         if ranked and ranked[0][0] >= CONFIDENT_SCORE:
             track = ranked[0][1]
-            if guard and guard.blocks(track.get("title")):
+            if guard and guard.blocks_item(track):
                 return ActionResult(msg("blocked"), ok=False)
             getattr(lms, f"{mode}_url")(track["url"])
             return ActionResult(
@@ -399,7 +439,7 @@ def play_album(lms, album: Optional[str], *, guard: Optional[Guard] = None) -> A
         if not cands:
             return ActionResult(msg("album_not_found", album=album), ok=False)
         item = _rank(album, cands)[0][1]  # best title match, not blindly the first
-        if guard and guard.blocks(item.get("title")):
+        if guard and guard.blocks_item(item):
             return ActionResult(msg("blocked"), ok=False)
         lms.play_browse_item(item["id"])
     except LMSError:
@@ -418,7 +458,7 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
         result = lms.artist_top_tracks(artist)
         if not result["artist"]:
             return ActionResult(msg("artist_not_found", artist=artist), ok=False)
-        if guard and guard.blocks(result["artist"].get("title")):
+        if guard and guard.blocks_item(result["artist"]):
             return ActionResult(msg("blocked"), ok=False)
         tracks = result["tracks"]
         if not tracks:
@@ -440,7 +480,7 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
         if not cands:
             return ActionResult(msg("playlist_not_found", name=name), ok=False)
         item = _rank(name, cands)[0][1]
-        if guard and guard.blocks(item.get("title")):
+        if guard and guard.blocks_item(item):
             return ActionResult(msg("blocked"), ok=False)
         lms.play_browse_item(item["id"])
     except LMSError:
@@ -544,7 +584,7 @@ def queue_list(lms, limit: int = LIST_LIMIT, *, guard: Optional[Guard] = None) -
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
     if guard and guard.restricted:  # never read a blocked title back aloud
-        upcoming = [t for t in upcoming if not is_blocked(t.get("title"), guard.blocklist)]
+        upcoming = [t for t in upcoming if not is_blocked_item(t, guard.blocklist)]
     if not upcoming:
         return ActionResult(msg("queue_empty"), ok=True)
     listing = ", ".join(
@@ -563,7 +603,7 @@ def play_favorites(lms, *, guard: Optional[Guard] = None) -> ActionResult:
         return ActionResult(msg("err_unreachable"), ok=False)
     cands = [it for it in items if it.get("id") and it.get("name")]
     if guard and guard.restricted:
-        cands = [c for c in cands if not is_blocked(c["name"], guard.blocklist)]
+        cands = [c for c in cands if not is_blocked_item(c, guard.blocklist)]
     if not cands:
         return ActionResult(msg("favorites_empty"), ok=False)
     chosen = cands[0]
@@ -591,7 +631,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
     cands = [{"title": it.get("name"), "id": it.get("id")}
              for it in items if it.get("id") and it.get("name")]
     if guard and guard.restricted:
-        cands = [c for c in cands if not is_blocked(c["title"], guard.blocklist)]
+        cands = [c for c in cands if not is_blocked_item(c, guard.blocklist)]
     if not cands:
         return ActionResult(msg("radio_not_found", name=name), ok=False)
     score, best = _rank(name, cands)[0]
@@ -621,7 +661,7 @@ def top_tracks_list(
     except LMSError:
         return {"speech": msg("err_unreachable"), "candidates": []}
     if guard and guard.restricted:  # drop blocked tracks so they can't be chosen
-        tracks = [t for t in tracks if not is_blocked(t.get("title"), guard.blocklist)]
+        tracks = [t for t in tracks if not is_blocked_item(t, guard.blocklist)]
     tracks = tracks[:limit]
     if not tracks:
         return {"speech": msg("no_tracks_for", artist=artist), "candidates": []}
@@ -668,7 +708,7 @@ def choose_from(
     if number is None or number < 1 or number > len(candidates):
         return msg("pick_range", n=len(candidates))
     chosen = candidates[number - 1]
-    if guard and guard.blocks(chosen.get("title")):
+    if guard and guard.blocks_item(chosen):
         return msg("blocked")
     try:
         _dispatch_play(lms, chosen, mode=mode)
@@ -715,7 +755,7 @@ def choose_by_name(
                 break
     if chosen is None:
         return None
-    if guard and guard.blocks(chosen.get("title")):
+    if guard and guard.blocks_item(chosen):
         return msg("blocked")
     try:
         _dispatch_play(lms, chosen, mode=mode)
@@ -733,7 +773,7 @@ def _local_group(cands, query, kind, action, guard):
     (album/track by title, artist by name) and turned into a choose_from-ready dict."""
     out = []
     for c in cands:
-        if guard and guard.restricted and is_blocked(c.get("title"), guard.blocklist):
+        if guard and guard.restricted and is_blocked_item(c, guard.blocklist):
             continue
         s = _score(query, c.get("title"))
         if s < LOCAL_CONFIDENT:
@@ -805,7 +845,7 @@ def local_albums_list(
         return {"speech": msg("local_no_artist", artist=artist), "candidates": []}
     albums = result["albums"]
     if guard and guard.restricted:  # drop blocked albums so they can't be chosen
-        albums = [a for a in albums if not is_blocked(a.get("title"), guard.blocklist)]
+        albums = [a for a in albums if not is_blocked_item(a, guard.blocklist)]
     albums = albums[:limit]
     if not albums:
         return {"speech": msg("local_no_albums", artist=artist), "candidates": []}
