@@ -197,7 +197,9 @@ def test_wakeword_stop_unknown_client_is_a_noop(live_server):
 
 def _trial_license(tmp_path, days_in=0.0):
     from licensing import LicenseManager
-    opened = 1_000_000
+    # After licensing.BUILD_EPOCH: the manager refuses to open a window while
+    # the clock reads earlier than this code existed (the pre-NTP Pi case).
+    opened = 1_800_000_000
     mgr = LicenseManager(str(tmp_path), http_post=None, now=lambda: opened,
                          environ={})
     mgr.start_trial()
@@ -221,3 +223,39 @@ def test_wakeword_chunk_is_refused_once_the_trial_window_closes(live_server,
     resp = srv.post("/wakeword/chunk?client=phone", b"\x00\x01")
     assert resp.json() == {"ok": False, "error": "pro_required"}
     assert sessions.detectors == {}  # no ONNX model loaded for a free install
+
+
+# -- abandoned sessions are released ------------------------------------------
+
+def test_an_idle_session_is_released_without_a_stop(monkeypatch):
+    """POST /wakeword/stop is the polite exit and usually arrives — but a tab
+    closed, a phone that slept or a browser killed never sends it, and each
+    abandoned session holds an ONNX runtime in memory for good."""
+    from pro.wakeword import IDLE_SESSION_SECONDS, ServerWakeWordSessions
+
+    now = {"t": 0.0}
+    sessions = ServerWakeWordSessions(now=lambda: now["t"])
+    monkeypatch.setattr(sessions, "available", lambda: True)
+    monkeypatch.setattr("pro.wakeword.ServerWakeWordDetector.__init__",
+                        lambda self, model=None: None)
+
+    sessions.get_or_create("gone")
+    assert "gone" in sessions._sessions
+
+    now["t"] += IDLE_SESSION_SECONDS + 1
+    sessions.get_or_create("still-here")     # any later chunk sweeps
+    assert "gone" not in sessions._sessions
+    assert "still-here" in sessions._sessions
+
+
+def test_a_session_that_keeps_streaming_is_kept(monkeypatch):
+    from pro.wakeword import IDLE_SESSION_SECONDS, ServerWakeWordSessions
+
+    now = {"t": 0.0}
+    sessions = ServerWakeWordSessions(now=lambda: now["t"])
+    monkeypatch.setattr("pro.wakeword.ServerWakeWordDetector.__init__",
+                        lambda self, model=None: None)
+    first = sessions.get_or_create("phone")
+    for _ in range(4):
+        now["t"] += IDLE_SESSION_SECONDS / 2
+        assert sessions.get_or_create("phone") is first

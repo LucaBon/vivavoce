@@ -34,7 +34,14 @@ def post():
     return FakePost()
 
 
-def mgr(tmp_path, post, now=lambda: 1_000_000, environ=None):
+# Every fake clock here reads *after* licensing.BUILD_EPOCH: the manager
+# refuses to open a trial window while the clock is earlier than that (the
+# pre-NTP Pi case, tested on its own below), so a 1970-ish fixture time would
+# make every trial test fail for the wrong reason.
+NOW = 1_800_000_000  # 2027-01-15T08:00:00Z
+
+
+def mgr(tmp_path, post, now=lambda: NOW, environ=None):
     return LicenseManager(str(tmp_path), api_base="https://ls.test/licenses",
                           http_post=post, now=now, environ=environ or {})
 
@@ -212,7 +219,7 @@ def test_license_endpoints(tmp_path, post, lms):
 DAY = 24 * 3600
 
 
-def _clock(start=1_000_000):
+def _clock(start=NOW):
     """A movable clock: ``now()`` reads it, ``at(days)`` moves it."""
     state = {"t": start}
 
@@ -360,6 +367,44 @@ def test_an_open_window_outlives_a_revoked_key(tmp_path, post):
     assert m.is_pro() is True   # still inside the window
     now.at(14)
     assert m.is_pro() is False  # and out of it when it ends
+
+
+# -- the pre-NTP clock -----------------------------------------------------
+
+def test_a_pre_epoch_clock_does_not_open_a_dead_window(tmp_path, post):
+    # A Pi without an RTC boots at the fake-hwclock time. Opening the window
+    # then wrote a start date decades in the past, and the first page load
+    # said the 14 days had expired 56 years ago.
+    m = mgr(tmp_path, post, now=lambda: 100.0)
+    assert m.start_trial() is False
+    assert not (tmp_path / "trial.json").exists()
+    assert m.trial_status()["expired"] is False
+
+
+def test_the_window_opens_when_the_clock_arrives(tmp_path, post):
+    clock = {"t": 100.0}
+    m = mgr(tmp_path, post, now=lambda: clock["t"])
+
+    def fake_sleep(_seconds):
+        clock["t"] = NOW  # NTP answers between two polls
+
+    opened, thread = m.start_trial_async(sleep=fake_sleep, poll=0)
+    assert opened is False and thread is not None
+    thread.join(timeout=5)
+    assert m.trial_active() is True
+    assert m.trial_status()["days_left"] == 14
+
+
+def test_a_good_clock_opens_the_window_without_a_thread(tmp_path, post):
+    opened, thread = mgr(tmp_path, post).start_trial_async()
+    assert opened is True and thread is None
+
+
+def test_an_open_window_is_never_re_examined_for_the_clock(tmp_path, post):
+    m = mgr(tmp_path, post)
+    m.start_trial()
+    opened, thread = m.start_trial_async()
+    assert opened is True and thread is None   # already open: nothing to wait for
 
 
 def test_corrupt_trial_file_is_ignored_not_fatal(tmp_path, post):

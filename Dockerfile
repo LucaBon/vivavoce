@@ -2,7 +2,7 @@
 #
 #   docker compose up -d          # vedi docker-compose.yml (consigliato)
 #   docker build -t vivavoce .
-#   docker run --network host -v squeezesay-data:/data vivavoce
+#   docker run --network host -v vivavoce-data:/data vivavoce
 #
 # L'immagine contiene la web app locale (localvoice/ + motore engine/).
 # Il certificato TLS viene generato al primo avvio nel volume /data.
@@ -42,5 +42,24 @@ RUN chmod +x /entrypoint.sh
 
 VOLUME /data
 EXPOSE 8730
+
+# L'app non ha bisogno di root: gira su una porta alta e scrive solo in /data.
+# L'entrypoint genera il certificato al primo avvio, quindi /data deve essere
+# scrivibile da questo utente — `docker run --user` o un volume con altri
+# permessi vanno adeguati di conseguenza.
+RUN useradd --system --uid 10001 --home-dir /data vivavoce \
+ && mkdir -p /data && chown -R vivavoce:vivavoce /data /app
+USER vivavoce
+
+# Un container "su" ma con l'LMS irraggiungibile, o bloccato in attesa, non è
+# un container sano: /tls è l'endpoint più economico che esiste qui e non
+# tocca l'LMS, quindi risponde esattamente quando il server HTTP serve.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD python -c "import os,urllib.request,ssl; \
+port=os.environ.get('VIVAVOCE_PORT','8730'); \
+scheme='http' if os.environ.get('VIVAVOCE_HTTPS')=='0' else 'https'; \
+ctx=ssl._create_unverified_context(); \
+urllib.request.urlopen(f'{scheme}://127.0.0.1:{port}/tls', timeout=4, \
+context=ctx if scheme=='https' else None)"
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -54,7 +54,14 @@ from __future__ import annotations
 
 import importlib.util
 import threading
+import time
 from typing import Dict, Optional
+
+# A session whose client has not sent a chunk for this long is gone: the tab
+# was closed, the phone slept, the browser was killed. POST /wakeword/stop is
+# the polite exit and it usually arrives — but "usually" is not a lifecycle,
+# and each abandoned session holds an ONNX runtime in memory forever.
+IDLE_SESSION_SECONDS = 120.0
 
 # openWakeWord's own guidance: feed it 16 kHz, 16-bit mono PCM, in frames
 # that are multiples of 80 ms (1280 samples) for the best latency/efficiency
@@ -164,22 +171,38 @@ class ServerWakeWordSessions:
     first use and released when wake-listening stops (or memory would grow
     with every device that has ever used the feature)."""
 
-    def __init__(self, model: str = DEFAULT_MODEL) -> None:
+    def __init__(self, model: str = DEFAULT_MODEL,
+                 now=time.monotonic) -> None:
         self.model = model
+        self.now = now
         self._sessions: Dict[str, ServerWakeWordDetector] = {}
+        self._seen: Dict[str, float] = {}
         self._lock = threading.Lock()
 
     def available(self) -> bool:
         return available()
 
+    def _sweep(self) -> None:
+        """Drop sessions nobody has fed for a while. Called under the lock
+        from get_or_create — a client that stopped streaming has, by
+        definition, stopped calling in, so there is no other moment to notice
+        it; the next client's chunk is a fine one."""
+        cutoff = self.now() - IDLE_SESSION_SECONDS
+        for client in [c for c, seen in self._seen.items() if seen < cutoff]:
+            self._sessions.pop(client, None)
+            self._seen.pop(client, None)
+
     def get_or_create(self, client_id: str) -> ServerWakeWordDetector:
         with self._lock:
+            self._sweep()
             det = self._sessions.get(client_id)
             if det is None:
                 det = ServerWakeWordDetector(self.model)
                 self._sessions[client_id] = det
+            self._seen[client_id] = self.now()
             return det
 
     def stop(self, client_id: str) -> None:
         with self._lock:
             self._sessions.pop(client_id, None)
+            self._seen.pop(client_id, None)

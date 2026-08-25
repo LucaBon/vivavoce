@@ -20,10 +20,18 @@ services:
     network_mode: host
     restart: unless-stopped
     volumes:
-      # Certificato TLS, licenza Pro e kid-safe persistenti. Il nome interno
-      # del volume resta quello storico: un rename lo orfanerebbe, perdendo
-      # certificato e attivazione della licenza degli utenti esistenti.
-      - squeezesay-data:/data
+      # Certificato TLS, licenza Pro e kid-safe persistenti. UN SOLO nome, lo
+      # stesso di DEPLOY.md: finché erano due (qui quello storico
+      # «squeezesay-data», nei documenti «vivavoce-data»), passare dai
+      # documenti a questo file creava un volume vuoto — tutti i telefoni da
+      # rifidare, una delle 5 attivazioni bruciata, kid-safe spento in
+      # silenzio. Chi arriva dal nome storico lo migra una volta sola:
+      #
+      #   docker run --rm -v squeezesay-data:/from -v vivavoce-data:/to \
+      #     alpine sh -c "cp -a /from/. /to/"
+      #
+      # e poi «docker volume rm squeezesay-data» quando è soddisfatto.
+      - vivavoce-data:/data
     environment:
       VIVAVOCE_PORT: "8730"
       # Tutte opzionali — decommenta solo ciò che ti serve (i vecchi nomi
@@ -46,4 +54,4 @@ services:
     #   - "8730:8730"
 
 volumes:
-  squeezesay-data:
+  vivavoce-data:

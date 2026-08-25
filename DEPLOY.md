@@ -40,7 +40,22 @@ you would rather choose when to move.
 > [!NOTE]
 > Working from a checkout? [docker-compose.yml](docker-compose.yml) in this
 > repo builds from source instead (`build: .`), which is what you want while
-> changing the code. Both produce the same container.
+> changing the code. Both produce the same container, and both use the
+> `vivavoce-data` volume, so you can move between them without losing the
+> certificate, the licence activation or the kid-safe list.
+
+> [!IMPORTANT]
+> Installed before 0.3 and have a `squeezesay-data` volume? Copy it across
+> once, then start as above:
+>
+> ```bash
+> docker run --rm -v squeezesay-data:/from -v vivavoce-data:/to \
+>   alpine sh -c "cp -a /from/. /to/"
+> ```
+>
+> Skipping this is not destructive — you just start from scratch: every phone
+> re-trusts the certificate, one of your five activations is spent, and an
+> enabled kid-safe blocklist comes back switched off.
 
 That's it: LMS is auto-discovered on the LAN, the TLS certificate is generated on
 first start into a persistent volume (so the browser warning is one-time), and the

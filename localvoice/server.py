@@ -222,7 +222,11 @@ def main() -> int:
     # La finestra di prova parte qui — all'installazione — e non da una
     # richiesta del browser: così l'orologio non si riarma svuotando i dati
     # del sito, e nessun client può farla ripartire. Idempotente.
-    if license_mgr.start_trial():
+    trial_opened, waiting_for_clock = license_mgr.start_trial_async()
+    if waiting_for_clock is not None:
+        print("Orologio di sistema non ancora sincronizzato: apro la prova Pro "
+              "appena l'ora è corretta (niente panico, non hai perso giorni).")
+    if trial_opened:
         print(f"Prova Pro: {licensing.TRIAL_DAYS} giorni con tutte le "
               f"funzioni attive (microfono compreso). Alla scadenza restano "
               f"i comandi scritti, e nulla si rompe.")

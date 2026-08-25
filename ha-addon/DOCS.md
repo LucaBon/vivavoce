@@ -51,6 +51,14 @@ dell'add-on, quindi l'avviso del browser va accettato una sola volta. Se cambi
 
 ## Note
 
-- L'add-on scarica il codice dal branch `main` del repo al momento della
-  build; un update dell'add-on ricompila con il codice aggiornato.
+- L'add-on scarica il codice dal **tag** corrispondente alla sua versione
+  (`v<versione di config.yaml>`), non da un branch: due build della stessa
+  versione, oggi e fra sei mesi, danno lo stesso identico codice. Un update
+  dell'add-on ricompila dal tag nuovo.
+- I motori opzionali (riconoscimento vocale locale, parola chiave lato
+  server) **non** sono nell'immagine dell'add-on: pesano centinaia di MB e
+  vogliono CPU che un Home Assistant condiviso non ha da regalare. Su HA il
+  microfono usa quindi il riconoscimento del browser. Per averli, usa
+  l'immagine Docker con `--build-arg ASR=1` / `--build-arg WAKEWORD=1`
+  (vedi DEPLOY.md).
 - Problemi o idee: https://github.com/LucaBon/vivavoce/issues

@@ -7,8 +7,12 @@
 # auto-discovered on the LAN; add `--lms http://IP:9000` to ExecStart to pin it.
 [Unit]
 Description=Vivavoce — local voice server for Daphile/LMS
-After=network-online.target
-Wants=network-online.target
+# time-sync.target: on a board without an RTC (a Pi) the clock reads the
+# fake-hwclock time until NTP answers. The trial window is one timestamp
+# compared against that clock, so starting before the time is real used to
+# open a window already 56 years expired.
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
 
 [Service]
 Type=simple

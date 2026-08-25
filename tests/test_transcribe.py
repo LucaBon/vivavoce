@@ -9,6 +9,9 @@ engine, and passes the alternatives through for the /command mechanism.
 """
 
 from conftest import FakeLicense
+import pytest
+
+import pro.asr as asr
 from pro.asr import MIN_RAM_GIB, default_model, total_ram_gib
 
 
@@ -194,7 +197,9 @@ def test_total_ram_probe_is_plausible():
 def _trial_license(tmp_path, days_in=0.0):
     """A real manager whose window opened ``days_in`` days ago."""
     from licensing import LicenseManager
-    opened = 1_000_000
+    # After licensing.BUILD_EPOCH: the manager refuses to open a window while
+    # the clock reads earlier than this code existed (the pre-NTP Pi case).
+    opened = 1_800_000_000
     mgr = LicenseManager(str(tmp_path), http_post=None, now=lambda: opened,
                          environ={})
     mgr.start_trial()
@@ -223,3 +228,36 @@ def test_transcribe_is_refused_once_the_trial_window_closes(live_server,
     assert resp.status == 200
     assert resp.json() == {"ok": False, "error": "pro_required"}
     assert fake.calls == []
+
+
+# -- the RAM probe under a container limit ---------------------------------
+def test_the_ram_probe_reads_the_container_limit_not_the_host(tmp_path,
+                                                              monkeypatch):
+    """A NAS with 16 GB running this with `mem_limit: 1g` picked the "small"
+    model — ~1 GB at peak — and was OOM-killed on the first command."""
+    limit = tmp_path / "memory.max"
+    limit.write_text(str(1 * 1024 ** 3), encoding="ascii")
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", (str(limit),))
+    assert asr.total_ram_gib() == pytest.approx(1.0)
+    assert asr.default_model() is None       # stays off, rather than crashing
+
+
+def test_an_unlimited_cgroup_falls_back_to_the_machine(tmp_path, monkeypatch):
+    limit = tmp_path / "memory.max"
+    limit.write_text("max", encoding="ascii")
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", (str(limit),))
+    monkeypatch.setattr(asr, "_cgroup_limit_gib", asr._cgroup_limit_gib)
+    assert asr.total_ram_gib() > 0.0         # the real machine answered
+
+
+def test_a_v1_unlimited_sentinel_is_not_read_as_8_exabytes(tmp_path,
+                                                           monkeypatch):
+    limit = tmp_path / "memory.limit_in_bytes"
+    limit.write_text(str(2 ** 63 - 4096), encoding="ascii")
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", (str(limit),))
+    assert asr._cgroup_limit_gib() == 0.0
+
+
+def test_a_missing_cgroup_file_is_not_an_error(monkeypatch):
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", ("/nope/memory.max",))
+    assert asr._cgroup_limit_gib() == 0.0

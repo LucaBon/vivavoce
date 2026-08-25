@@ -13,7 +13,11 @@ moved, so "day 3" and "day 15" are the real thing rather than a mocked flag.
 import licensing
 
 DAY = 24 * 3600
-OPENED = 1_000_000
+# After licensing.BUILD_EPOCH: the manager refuses to open a window while the
+# clock reads earlier than this code existed (the pre-NTP Pi case, covered in
+# tests/test_licensing.py), so a 1970-ish fixture time would leave every test
+# here staring at a page with no window at all.
+OPENED = 1_800_000_000  # 2027-01-15T08:00:00Z
 
 
 def trial_at(tmp_path, day, key=None):

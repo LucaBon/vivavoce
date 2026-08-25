@@ -43,11 +43,29 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Fixed dates (deterministic output, like the original self-signed cert): the
-# CA lasts ~20 years so installed trust survives; server certs ~10.
+# The CA is a trust anchor installed by hand once, so it may be long-lived:
+# 20 years, from a fixed date, keeps its fingerprint stable across
+# regenerations of the leaf below.
 NOT_BEFORE = _dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc)
 CA_NOT_AFTER = _dt.datetime(2044, 1, 1, tzinfo=_dt.timezone.utc)
-CERT_NOT_AFTER = _dt.datetime(2034, 1, 1, tzinfo=_dt.timezone.utc)
+
+# The SERVER certificate cannot be. Apple refuses any TLS server certificate
+# valid for more than 825 days — since iOS 13/macOS 10.15, and regardless of
+# whether its CA is trusted. The leaf used to be issued for ten years from a
+# fixed date, so every iPhone and Mac in the house rejected it no matter how
+# carefully the CA had been installed: the whole certificate-install flow
+# ended in a warning it could not clear. 800 days leaves margin under the
+# limit and still means re-running this tool roughly every two years.
+LEAF_MAX_DAYS = 800
+# Backdated a day so a client whose clock runs slightly behind still accepts
+# a certificate generated a minute ago.
+LEAF_BACKDATE = _dt.timedelta(days=1)
+
+
+def leaf_validity(now: _dt.datetime = None):
+    """``(not_before, not_after)`` for a server certificate issued now."""
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    return now - LEAF_BACKDATE, now + _dt.timedelta(days=LEAF_MAX_DAYS)
 
 
 def local_ipv4s() -> list:
@@ -112,7 +130,10 @@ def _load_or_create_ca(out_dir: str):
         )
         .sign(ca_key, hashes.SHA256())
     )
-    with open(ca_key_path, "wb") as f:
+    # 0600: this is the key that signs certificates every device in the house
+    # trusts. It sits in the same directory the server publishes /ca.pem from.
+    with open(os.open(ca_key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                      0o600), "wb") as f:
         f.write(
             ca_key.private_bytes(
                 serialization.Encoding.PEM,
@@ -144,6 +165,7 @@ def main() -> int:
     ca_cert, ca_key, ca_created = _load_or_create_ca(args.out)
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    leaf_not_before, leaf_not_after = leaf_validity()
 
     ips = local_ipv4s()
     hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
@@ -166,8 +188,8 @@ def main() -> int:
         .issuer_name(ca_cert.subject)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(NOT_BEFORE)
-        .not_valid_after(CERT_NOT_AFTER)
+        .not_valid_before(leaf_not_before)
+        .not_valid_after(leaf_not_after)
         .add_extension(x509.SubjectAlternativeName(sans), critical=False)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(
@@ -193,7 +215,8 @@ def main() -> int:
         .sign(ca_key, hashes.SHA256())
     )
 
-    with open(key_path, "wb") as f:
+    with open(os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                      0o600), "wb") as f:
         f.write(
             key.private_bytes(
                 serialization.Encoding.PEM,
@@ -207,6 +230,11 @@ def main() -> int:
     print(f"CA locale: {os.path.join(args.out, 'ca.pem')}"
           + ("  (creata ora)" if ca_created else "  (riusata)"))
     print(f"Creati:\n  {cert_path}\n  {key_path}")
+    print(f"Il certificato del server scade il "
+          f"{leaf_not_after.date().isoformat()} "
+          f"({LEAF_MAX_DAYS} giorni: iOS e macOS rifiutano di più). "
+          "Rilancia questo comando per rinnovarlo — la CA resta la stessa, "
+          "quindi non si reinstalla niente sui telefoni.")
     print("SAN (host validi):", ", ".join(ips + hosts + ["localhost"]))
     print("Suggerimento: installa ca.pem sul telefono/PC (una volta sola) per il "
           "lucchetto verde e l'app installabile; il server la offre su /ca.pem.")
