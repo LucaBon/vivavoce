@@ -113,9 +113,13 @@ def test_addon_declares_only_arches_it_can_actually_build_for():
 KNOWN_RUNNERS = {"ubuntu-latest", "windows-latest", "ubuntu-24.04-arm"}
 
 
-def _ci_jobs():
+def _workflow_jobs(name="ci.yml"):
     yaml = pytest.importorskip("yaml")
-    return yaml.safe_load(_read(".github", "workflows", "ci.yml"))["jobs"]
+    return yaml.safe_load(_read(".github", "workflows", name))["jobs"]
+
+
+def _ci_jobs():
+    return _workflow_jobs("ci.yml")
 
 
 def _job_runners(job):
@@ -132,10 +136,43 @@ def _job_runners(job):
     return labels
 
 
-def test_ci_runner_labels_are_all_known():
-    unknown = {label for job in _ci_jobs().values()
+@pytest.mark.parametrize("workflow", ["ci.yml", "release.yml"])
+def test_runner_labels_are_all_known(workflow):
+    unknown = {label for job in _workflow_jobs(workflow).values()
                for label in _job_runners(job) if label not in KNOWN_RUNNERS}
     assert unknown == set(), f"unrecognised runner labels: {sorted(unknown)}"
+
+
+# -- the published image -------------------------------------------------------
+#
+# DEPLOY.md offers a pull-and-run path and recommends a Raspberry Pi, so an
+# image published for amd64 only would break the exact machine the docs push
+# people towards — quietly, on their machine, at `docker run`. And a release
+# workflow that publishes without checking would ship an image whose version
+# label the code does not agree with: CI runs on branches, not tags, so this
+# workflow is the only thing standing between a tag and a public artefact.
+
+def test_the_release_workflow_publishes_both_architectures():
+    build = _read(".github", "workflows", "release.yml")
+    for arch in ("linux/amd64", "linux/arm64"):
+        assert arch in build, f"the release image drops {arch}"
+
+
+def test_the_release_workflow_is_triggered_by_version_tags():
+    workflow = _read(".github", "workflows", "release.yml")
+    yaml = pytest.importorskip("yaml")
+    # PyYAML reads a bare `on:` key as the boolean True (the Norway problem).
+    triggers = yaml.safe_load(workflow)
+    on = triggers.get("on", triggers.get(True))
+    assert "tags" in on["push"], "nothing ties the release to a tag"
+
+
+def test_the_release_workflow_checks_the_tag_against_the_code():
+    # The failure RELEASING.md is mostly about: two hand-edited copies of one
+    # number, and a tag that has to match both.
+    workflow = _read(".github", "workflows", "release.yml")
+    assert "pyproject.toml" in workflow
+    assert "tests/test_packaging.py" in workflow
 
 
 def test_ci_proves_the_64_bit_claim_on_real_aarch64():

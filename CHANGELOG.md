@@ -4,6 +4,14 @@
 
 ### New
 
+- **The container image is published**, so "Docker — one command" is finally
+  one command: `docker run … ghcr.io/lucabon/vivavoce:latest`, no clone and no
+  build. Every release tag publishes for **amd64 and arm64** as `:X.Y.Z`,
+  `:X.Y` and `:latest`. Building from a checkout is unchanged — the compose
+  file in the repo still builds from source, with the published image as a
+  commented alternative — and a 32-bit Raspberry Pi still builds its own, which
+  DEPLOY.md now says instead of implying otherwise.
+
 - **Guided certificate setup.** The mic needs HTTPS, so the browser's "your
   connection is not private" warning stood exactly in front of the feature
   people pay for. The *"Installa come app"* panel now recognises that state and

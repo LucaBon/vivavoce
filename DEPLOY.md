@@ -9,17 +9,46 @@ the address at all.
 
 ### Docker — one command, HTTPS included (Linux / NAS / Raspberry Pi)
 
+No clone, no build. The image is published on GHCR for **amd64 and arm64** on
+every release:
+
 ```bash
-docker compose up -d
+docker run -d --name vivavoce --network host --restart unless-stopped \
+  -v vivavoce-data:/data ghcr.io/lucabon/vivavoce:latest
 # open https://<ip-of-this-host>:8730 and accept the certificate warning once
 ```
+
+Or the same thing as a compose file you can paste anywhere — you do not need
+this repository for it:
+
+```yaml
+services:
+  vivavoce:
+    image: ghcr.io/lucabon/vivavoce:latest
+    container_name: vivavoce
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - vivavoce-data:/data
+volumes:
+  vivavoce-data:
+```
+
+Pin a version (`:0.3.0`, or `:0.3` to follow patches) instead of `:latest` if
+you would rather choose when to move.
+
+> [!NOTE]
+> Working from a checkout? [docker-compose.yml](docker-compose.yml) in this
+> repo builds from source instead (`build: .`), which is what you want while
+> changing the code. Both produce the same container.
 
 That's it: LMS is auto-discovered on the LAN, the TLS certificate is generated on
 first start into a persistent volume (so the browser warning is one-time), and the
 container restarts on boot (`restart: unless-stopped` — no systemd/autostart needed).
-Everything is configured via environment variables in
-[docker-compose.yml](docker-compose.yml), all optional (the pre-rename
-`SQUEEZESAY_*` names still work for one release, with a deprecation note):
+Everything is configured via environment variables (all optional; the pre-rename
+`SQUEEZESAY_*` names still work for one release, with a deprecation note) — in
+[docker-compose.yml](docker-compose.yml) if you use it, or `-e` flags on
+`docker run`:
 
 | Variable | Meaning | Default |
 |---|---|---|
@@ -40,9 +69,10 @@ Everything is configured via environment variables in
 > [docker-compose.yml](docker-compose.yml): map the port and put the host's LAN
 > IP in `VIVAVOCE_CERT_HOSTS`.
 
-> **Architecture.** The image is multi-arch and the app itself is
-> stdlib-only, so it runs anywhere Python does — including a 32-bit Raspberry
-> Pi. The two *optional* Pro engines (local speech recognition, server-side
+> **Architecture.** The published image covers amd64 and arm64; the app itself
+> is stdlib-only, so building it from source runs anywhere Python does —
+> including a 32-bit Raspberry Pi, which has no published image and needs
+> `docker build` (or the no-Docker route below). The two *optional* Pro engines (local speech recognition, server-side
 > wake word) need a **64-bit** OS; see their sections below for why, and what
 > a 32-bit box gets instead.
 
@@ -317,8 +347,11 @@ always win over the selector. (Docker needs nothing: detection is the default.)
 ---
 
 ## Updating
-Edit files in `engine/`/`localvoice/` and restart the local server (Docker:
-`docker compose pull && docker compose up -d`; HA: update the add-on).
+Running the published image: `docker compose pull && docker compose up -d`, or
+`docker pull ghcr.io/lucabon/vivavoce:latest` and recreate the container. Your
+`/data` volume — certificate, licence, kid-safe list — is untouched by an
+update. Home Assistant: update the add-on. Working from a checkout: edit files
+in `engine/`/`localvoice/` and restart the server.
 
 ## Audio quality
 Vivavoce sends **only commands**: audio flows LMS → Squeezelite (Daphile) →

@@ -56,10 +56,22 @@ git push origin vX.Y.Z
 The tag must point at the **`main` merge commit**, so the tagged tree is
 exactly what a release build downloads. Tag *after* the merge, never before.
 
-### 5. Check CI and the add-on build
+### 5. Watch the release workflow publish the image
+
+Pushing the tag starts `.github/workflows/release.yml`, which builds the image
+for amd64 and arm64 and pushes it to GHCR as `:X.Y.Z`, `:X.Y` and `:latest`.
+It refuses to publish if the tag disagrees with `pyproject.toml`, which is the
+mistake this whole file exists to prevent — so a red release job usually means
+step 1 was half-done, not that the build is broken.
+
+Nothing else needs doing: the token is the workflow's own `GITHUB_TOKEN`.
+
+### 6. Check CI and the add-on build
 
 CI runs on the push to `main`: the suite on Python 3.9–3.14 plus Windows,
-`compileall`, and the root Docker image.
+`compileall`, and the root Docker image. Note it does **not** run on the tag —
+tags are the release workflow's business, which is why that workflow re-checks
+the packaging invariants itself.
 
 CI does **not** build the add-on image (it needs `BUILD_FROM` and the network),
 so verify that by hand once the tag is pushed:
@@ -80,8 +92,9 @@ misnamed — the directory inside the tarball drops the leading `v`
 
 ## Notes
 
-- **Docker Hub / compose users** track the image, not the tag; the HA add-on is
-  the only consumer pinned to tags.
+- **Image users** track `:latest` (or a pinned `:X.Y`), not the git tag — but
+  the tag is what publishes the image, so it is no longer optional for them
+  either. The HA add-on remains the consumer that resolves a tag by name.
 - **The add-on slug** changed at 0.2.0 (`squeezesay` → `vivavoce`), so the
   Supervisor treats it as a new add-on for anyone from before then: they
   reinstall rather than update, and version comparison never enters into it.

@@ -10,7 +10,12 @@
 # quindi di norma NON serve configurare nulla.
 services:
   vivavoce:
+    # Da sorgente, che è ciò che serve quando si ha il repo sotto mano.
+    # Per usare invece l'immagine pubblicata a ogni release (amd64 + arm64,
+    # nessun build): commenta la riga qui sotto e decommenta `image:`.
+    # Producono lo stesso container.
     build: .
+    # image: ghcr.io/lucabon/vivavoce:latest
     container_name: vivavoce
     network_mode: host
     restart: unless-stopped
