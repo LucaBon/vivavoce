@@ -77,10 +77,46 @@ jobs:
 
       # Nel job matrix i browser non ci sono e tests/e2e/ salta da solo:
       # questo è l'unico job che li installa e quindi li esegue davvero.
+      #
+      # `playwright install` ESCE 0 ANCHE QUANDO FALLISCE: stampa "Failed to
+      # install browsers" e ritorna successo. Quindi questo passo non può
+      # essere l'unica garanzia — senza il resto, un'installazione fallita
+      # diventa un job verde con 24 test saltati, cioè una gamba che non ha
+      # guidato nessun browser mentre il segno di spunta dice il contrario.
+      #
+      # Il fallback esiste perché è già successo in locale: da Ubuntu 26.04
+      # Playwright 1.60 rifiuta di installare chromium ("does not support
+      # chromium on ubuntu26.04-x64"), e la build per 24.04 gira benissimo lì.
+      # `ubuntu-latest` prima o poi diventerà 26.04 e questo job smetterà di
+      # provare qualcosa nello stesso identico modo.
       - name: Install the Playwright browser
-        run: uv run playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          if ! uv run playwright install --with-deps chromium 2>&1 | tee /tmp/pw.log \
+             || grep -q "Failed to install browsers" /tmp/pw.log; then
+            echo "::warning::retrying with PLAYWRIGHT_HOST_PLATFORM_OVERRIDE"
+            PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 \
+              uv run playwright install --with-deps chromium
+          fi
 
+      # La prova che l'installazione è servita, invece del suo codice di
+      # uscita: se il browser non parte, questo passo fallisce qui e ora.
+      - name: The browser actually launches
+        run: |
+          uv run python -c "
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as pw:
+              b = pw.chromium.launch()
+              print('chromium', b.version)
+              b.close()
+          "
+
+      # VIVAVOCE_REQUIRE_BROWSER=1: qui uno skip è un errore. Vedi la
+      # docstring di tests/e2e/conftest.py — un test che non gira in silenzio
+      # è peggio di uno che fallisce.
       - name: Run the browser flows
+        env:
+          VIVAVOCE_REQUIRE_BROWSER: "1"
         run: uv run pytest tests/e2e -v
 
   wakeword:

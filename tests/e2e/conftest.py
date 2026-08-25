@@ -14,12 +14,37 @@ Kept cheap and honest:
   ``uv run playwright install chromium`` enables it;
 * every page records uncaught JS errors; ``page`` asserts none at teardown,
   so a broken module import fails loudly in any test that touches the page.
+
+**VIVAVOCE_REQUIRE_BROWSER=1 turns every skip in this file into a failure**,
+and CI sets it. That is not belt-and-braces, it closes a hole that had already
+swallowed this whole directory: a skip is invisible in a green run, and
+``playwright install`` **exits 0 when it fails** — it prints "Failed to install
+browsers" and returns success. So an install step can go green, all 24 browser
+tests can skip, and the job reports passing having driven no browser at all.
+That is exactly what was happening locally, undetected, until it was looked at
+directly. A test that silently does not run is worse than one that fails.
 """
+
+import os
 
 import pytest
 
-playwright_api = pytest.importorskip(
-    "playwright.sync_api", reason="playwright is not installed (dev group)")
+REQUIRE_BROWSER = os.environ.get("VIVAVOCE_REQUIRE_BROWSER") == "1"
+
+
+def _skip_or_fail(reason):
+    """Skip, unless the environment says these tests must actually run."""
+    if REQUIRE_BROWSER:
+        pytest.fail(f"{reason}\n\nVIVAVOCE_REQUIRE_BROWSER=1 is set: these "
+                    f"tests are required to run here, not to be skipped.")
+    pytest.skip(reason)
+
+
+try:
+    import playwright.sync_api as playwright_api
+except ImportError:  # pragma: no cover - depends on the environment
+    playwright_api = None
+    _skip_or_fail("playwright is not installed (dev group)")
 
 
 @pytest.fixture(scope="session")
@@ -40,7 +65,7 @@ def browser(_playwright):
     try:
         browser = _playwright.chromium.launch()
     except Error as exc:
-        pytest.skip(f"chromium not available: {exc}")
+        _skip_or_fail(f"chromium not available: {exc}")
     yield browser
     browser.close()
 
@@ -59,7 +84,7 @@ def browser_with_fake_mic(_playwright):
             "--use-fake-device-for-media-stream",
         ])
     except Error as exc:
-        pytest.skip(f"chromium not available: {exc}")
+        _skip_or_fail(f"chromium not available: {exc}")
     yield browser
     browser.close()
 
@@ -139,7 +164,7 @@ def local_ca(tmp_path_factory):
         [sys.executable, "tools/make_cert.py", "--out", str(out)],
         capture_output=True, text=True)
     if proc.returncode != 0:  # cryptography missing: nothing to test here
-        pytest.skip(f"make_cert failed: {proc.stderr[-300:]}")
+        _skip_or_fail(f"make_cert failed: {proc.stderr[-300:]}")
     return out, str(out / "cert.pem"), str(out / "key.pem")
 
 
@@ -152,7 +177,7 @@ def browser_trusting_certs(_playwright):
         browser = _playwright.chromium.launch(
             args=["--ignore-certificate-errors"])
     except Error as exc:
-        pytest.skip(f"chromium not available: {exc}")
+        _skip_or_fail(f"chromium not available: {exc}")
     yield browser
     browser.close()
 
@@ -218,7 +243,7 @@ def http_elsewhere_web(lms, transport):
     try:
         httpd = ThreadingHTTPServer(("127.0.0.2", 0), handler)
     except OSError as exc:  # not every platform routes the whole 127/8
-        pytest.skip(f"127.0.0.2 not bindable here: {exc}")
+        _skip_or_fail(f"127.0.0.2 not bindable here: {exc}")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"http://127.0.0.2:{httpd.server_address[1]}"
     httpd.shutdown()

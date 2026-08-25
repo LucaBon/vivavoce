@@ -76,6 +76,15 @@
 
 ### Internal
 
+- **The browser suite can no longer skip in silence.** `playwright install`
+  exits 0 when it fails — it prints "Failed to install browsers" and returns
+  success — so a broken install left a green CI job in which every browser test
+  had skipped, which is exactly what had been happening locally. CI now sets
+  `VIVAVOCE_REQUIRE_BROWSER=1`, under which those skips become failures, proves
+  a browser really launches instead of trusting the installer's exit code, and
+  falls back to `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE` on platforms Playwright
+  does not recognise yet (Ubuntu 26.04 already refuses; `ubuntu-latest` will
+  get there). Three packaging tests keep CI from quietly dropping any of it.
 - **Frontend split**: the 1.700-line `index.html` is now a markup shell plus
   native ES modules (`localvoice/static/js/`) and a real stylesheet — no
   bundler, no new dependencies. The installed PWA refetches the shell once.

@@ -143,6 +143,39 @@ def test_runner_labels_are_all_known(workflow):
     assert unknown == set(), f"unrecognised runner labels: {sorted(unknown)}"
 
 
+# -- the browser suite actually running ----------------------------------------
+#
+# The failure this guards is one that already happened, unnoticed, for as long
+# as nobody looked: `playwright install` exits 0 when it fails, so a broken
+# install leaves a green job in which all 24 browser tests skipped. Since that
+# directory is the only thing checking the page's JS wiring, the tick would
+# have meant nothing. VIVAVOCE_REQUIRE_BROWSER=1 turns those skips into
+# failures (see tests/e2e/conftest.py) — and this makes sure CI keeps setting
+# it, because a safety net nobody checks is how the first one was lost.
+
+def test_ci_requires_the_browser_suite_to_really_run():
+    steps = _ci_jobs()["e2e"]["steps"]
+    setting = [step for step in steps
+               if step.get("env", {}).get("VIVAVOCE_REQUIRE_BROWSER") == "1"]
+    assert setting, ("the e2e job does not set VIVAVOCE_REQUIRE_BROWSER=1: a "
+                     "missing browser would skip every test and still pass")
+    assert any("pytest" in str(step.get("run", "")) for step in setting), (
+        "VIVAVOCE_REQUIRE_BROWSER=1 is set on a step that does not run pytest")
+
+
+def test_ci_proves_the_browser_launches_rather_than_trusting_the_installer():
+    # `playwright install` returning 0 is not evidence. Launching one is.
+    runs = " ".join(str(step.get("run", "")) for step in _ci_jobs()["e2e"]["steps"])
+    assert "chromium.launch()" in runs, (
+        "nothing in the e2e job checks that a browser can actually start")
+
+
+def test_ci_has_a_fallback_for_platforms_playwright_does_not_know_yet():
+    # Ubuntu 26.04 already refuses; ubuntu-latest will get there.
+    runs = " ".join(str(step.get("run", "")) for step in _ci_jobs()["e2e"]["steps"])
+    assert "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE" in runs
+
+
 # -- the published image -------------------------------------------------------
 #
 # DEPLOY.md offers a pull-and-run path and recommends a Raspberry Pi, so an
