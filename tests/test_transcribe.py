@@ -181,3 +181,45 @@ def test_default_model_is_ram_aware():
 def test_total_ram_probe_is_plausible():
     gib = total_ram_gib()
     assert 0.0 <= gib < 4096  # 0.0 = unknown is acceptable, garbage is not
+
+
+# -- the trial window, where it is actually enforced ---------------------------
+#
+# The one enforcement claim in T0.1 that is real rather than trust-based:
+# /transcribe spends the server's CPU, so it is gated server-side, and the
+# trial window has to open and close that gate for real. A real
+# LicenseManager, not the FakeLicense used above — the point is the window,
+# and a fake would only prove that a boolean works.
+
+def _trial_license(tmp_path, days_in=0.0):
+    """A real manager whose window opened ``days_in`` days ago."""
+    from licensing import LicenseManager
+    opened = 1_000_000
+    mgr = LicenseManager(str(tmp_path), http_post=None, now=lambda: opened,
+                         environ={})
+    mgr.start_trial()
+    mgr.now = lambda: opened + days_in * 24 * 3600
+    return mgr
+
+
+def test_transcribe_works_inside_the_trial_window(live_server, tmp_path):
+    fake = FakeTranscriber()
+    srv = live_server(transcriber=fake,
+                      license_mgr=_trial_license(tmp_path, days_in=3))
+    data = srv.post("/transcribe", b"AUDIO", AUDIO_TYPE).json()
+    assert data["ok"] is True
+    assert data["text"] == "metti la radio"
+    assert fake.calls  # the engine really ran: no key, still Pro
+
+
+def test_transcribe_is_refused_once_the_trial_window_closes(live_server,
+                                                            tmp_path):
+    # The line the whole free tier rests on. Fourteen days in, with no key,
+    # a POST here must cost the server nothing.
+    fake = FakeTranscriber()
+    srv = live_server(transcriber=fake,
+                      license_mgr=_trial_license(tmp_path, days_in=14))
+    resp = srv.post("/transcribe", b"AUDIO", AUDIO_TYPE)
+    assert resp.status == 200
+    assert resp.json() == {"ok": False, "error": "pro_required"}
+    assert fake.calls == []

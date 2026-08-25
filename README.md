@@ -50,6 +50,12 @@ unlocks the hands-free features and funds development:
 | | 🏠 **Local speech recognition**: Whisper on *your* server — mic audio never leaves the LAN |
 | | Future Pro features — and priority on your feedback |
 
+**Every install starts with 14 days of full Pro**, microphone included — no
+key, no card, no account. The window opens the first time the server starts
+and is stored next to the license, so it cannot be re-armed by clearing the
+browser. When it ends nothing breaks and nothing is deleted: you are back to
+the free column, which is the whole left-hand side of that table.
+
 Activation is once, online, from the page settings (sold via Lemon Squeezy,
 which handles VAT/invoices); after that the license is cached locally and
 **works offline forever** — there is no phone-home requirement. The license

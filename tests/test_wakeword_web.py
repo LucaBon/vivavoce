@@ -186,3 +186,38 @@ def test_wakeword_stop_unknown_client_is_a_noop(live_server):
     resp = live_server(wakeword_sessions=sessions).post(
         "/wakeword/stop?client=never-started", b"")
     assert resp.json() == {"ok": True}
+
+
+# -- the trial window ----------------------------------------------------------
+#
+# The same real gate as /transcribe: server CPU, so server-side enforcement,
+# opened and closed by the window rather than by a key. (The browser mic and
+# the language picker are trust-based by construction and gate nothing here —
+# Web Speech never reaches this server at all.)
+
+def _trial_license(tmp_path, days_in=0.0):
+    from licensing import LicenseManager
+    opened = 1_000_000
+    mgr = LicenseManager(str(tmp_path), http_post=None, now=lambda: opened,
+                         environ={})
+    mgr.start_trial()
+    mgr.now = lambda: opened + days_in * 24 * 3600
+    return mgr
+
+
+def test_wakeword_chunk_works_inside_the_trial_window(live_server, tmp_path):
+    sessions = FakeSessions()
+    srv = live_server(wakeword_sessions=sessions,
+                      license_mgr=_trial_license(tmp_path, days_in=1))
+    assert srv.post("/wakeword/chunk?client=phone", b"\x00\x01").json()["ok"]
+    assert sessions.detectors  # a detector really got built
+
+
+def test_wakeword_chunk_is_refused_once_the_trial_window_closes(live_server,
+                                                                tmp_path):
+    sessions = FakeSessions()
+    srv = live_server(wakeword_sessions=sessions,
+                      license_mgr=_trial_license(tmp_path, days_in=14))
+    resp = srv.post("/wakeword/chunk?client=phone", b"\x00\x01")
+    assert resp.json() == {"ok": False, "error": "pro_required"}
+    assert sessions.detectors == {}  # no ONNX model loaded for a free install

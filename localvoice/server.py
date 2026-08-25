@@ -218,6 +218,17 @@ def main() -> int:
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
     license_mgr.revalidate_async()  # settimanale, best-effort, mai bloccante
+    # La finestra di prova parte qui — all'installazione — e non da una
+    # richiesta del browser: così l'orologio non si riarma svuotando i dati
+    # del sito, e nessun client può farla ripartire. Idempotente.
+    if license_mgr.start_trial():
+        print(f"Prova Pro: {licensing.TRIAL_DAYS} giorni con tutte le "
+              f"funzioni attive (microfono compreso). Alla scadenza restano "
+              f"i comandi scritti, e nulla si rompe.")
+    else:
+        trial = license_mgr.trial_status()
+        if trial["active"] and not license_mgr.status()["key"]:
+            print(f"Prova Pro: restano {trial['days_left']} giorni.")
     from pro.kidsafe import KidSafe
     kidsafe = KidSafe(data_dir, license_mgr)
     # Riconoscimento vocale locale (Pro): il modello si carica solo al primo

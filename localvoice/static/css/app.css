@@ -161,6 +161,11 @@ button.send:disabled { opacity: .55; cursor: default; }
 .sys.warn { border-color: var(--danger); background: var(--danger-soft); color: var(--text); }
 /* \26A0 without \FE0F = monochrome glyph, tinted to match the red lamp */
 .sys.warn::before { content: "\26A0  "; color: var(--danger); font-weight: 600; }
+/* The in-flow upgrade hint (chat.js): a note in the conversation, not a
+   reply — quieter than a system bubble, and visibly not the server talking. */
+.sys.upsell { background: transparent; box-shadow: none;
+              border-style: dashed; color: var(--text-muted);
+              font-size: .875rem; }
 .sys.pending { background: var(--amber-soft); }
 .sys.pending::after { content: " \00B7\00B7\00B7"; letter-spacing: .15em;
                       color: var(--amber-text);

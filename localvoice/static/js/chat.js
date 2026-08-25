@@ -3,10 +3,11 @@
 // both recognisers (Web Speech and the server's local ASR).
 
 import { $, clientId } from "./util.js";
-import { ui, recLang } from "./i18n.js";
+import { ui, recLang, getStatusBase } from "./i18n.js";
 import { currentSource, currentPlayer } from "./settings.js";
 import { refreshNowPlaying } from "./nowplaying.js";
 import { readbackOn, speak } from "./tts.js";
+import { trialInfo, isLicensed, showProUpsell } from "./pro.js";
 
 export function bubble(text, who) {
   const log = $("log");
@@ -85,8 +86,46 @@ function renderChoices(afterEl, choices) {
   afterEl.after(row);
 }
 
+// --- The in-flow upgrade prompt ---
+// The ask used to live in the settings panel, where nobody goes and where
+// "buy Pro" is an abstraction. It belongs at the one moment it means
+// something concrete: just after a command the user TYPED, which they could
+// have simply said. Two rules keep it a hint rather than nagging — never
+// before the third day, and at most once per page session.
+const PROMPT_FIRST_DAY = 3;
+let promptedThisSession = false;
+
+function micIsUsableHere() {
+  // No point advertising a button that cannot work: a browser with no speech
+  // recognition, or a page served over plain HTTP from another device, says
+  // so in the status line already.
+  const base = getStatusBase();
+  return base !== "nomic" && base !== "nohttps";
+}
+
+function maybePromptSpoken(afterEl) {
+  if (promptedThisSession || isLicensed() || !micIsUsableHere()) return;
+  const trial = trialInfo();
+  if (!trial || trial.day < PROMPT_FIRST_DAY) return;
+  promptedThisSession = true;
+  const note = document.createElement("div");
+  note.className = "bubble sys upsell";
+  note.innerHTML = trial.active ? ui("upsell_spoken_trial")(trial.days_left)
+                                : ui("upsell_spoken_over");
+  afterEl.after(note);
+  if (trial.active) return;  // the mic is right there; nothing to sell yet
+  const row = document.createElement("div");
+  row.className = "choices";
+  const btn = document.createElement("button");
+  btn.className = "choice";
+  btn.textContent = ui("upsell_see_pro");
+  btn.onclick = showProUpsell;
+  row.appendChild(btn);
+  note.after(row);
+}
+
 let sending = false;
-export async function send(text, alternatives) {
+export async function send(text, alternatives, opts) {
   text = (text || "").trim();
   if (!text || sending) return;  // one in-flight command at a time
   sending = true;
@@ -120,6 +159,11 @@ export async function send(text, alternatives) {
     if (Array.isArray(data.choices) && data.choices.length) renderChoices(p, data.choices);
     // Parser gap (nothing matched): offer the local, user-initiated report.
     if (data.unmatched) renderReportButton(p, (data.used || text));
+    // Only when it worked: an upgrade pitch stapled to a failure reads as
+    // "pay us and maybe it will understand you", which is not the offer.
+    if (data.ok !== false && !data.unmatched && opts && opts.typed) {
+      maybePromptSpoken(p);
+    }
     if (readbackOn()) speak(data.speech, data.terms);
     // A play/skip command changes the track: don't wait for the next poll.
     setTimeout(refreshNowPlaying, 800);
@@ -166,7 +210,7 @@ export function initChat() {
   // survives the innerHTML swap done by applyUI() on language change.
   $("empty").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-cmd]");
-    if (btn) send(btn.dataset.cmd);
+    if (btn) send(btn.dataset.cmd, null, { typed: true });
   });
 
   // Read from the wake-mode key directly rather than the checkbox: initChat()
@@ -177,8 +221,12 @@ export function initChat() {
   $("autosend").onchange = () =>
     localStorage.setItem(AUTOSEND_KEY, $("autosend").checked ? "1" : "0");
 
-  $("send").onclick = () => { send($("text").value); $("text").value = ""; };
+  const sendTyped = () => {
+    send($("text").value, null, { typed: true });
+    $("text").value = "";
+  };
+  $("send").onclick = sendTyped;
   $("text").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { send($("text").value); $("text").value = ""; }
+    if (e.key === "Enter") sendTyped();
   });
 }

@@ -128,6 +128,17 @@ const UI_EN = {
   pro_err_network: "Couldn't reach the license server. Check the connection and try again.",
   pro_err_invalid: "Key not valid (or activation limit reached): ",
   pro_only: " — Pro feature",
+  pro_trial: (n) => "<b>Pro trial — " + (n === 1 ? "last day" : n + " days left") +
+    ".</b> Everything is on, microphone included. When it ends, typed commands " +
+    "keep working exactly as they do now: nothing breaks, nothing is deleted.",
+  pro_trial_over: "<b>Your Pro trial has ended.</b> Typing commands is free, always — " +
+    "the microphone, wake word, read-back voices, multi-room and kid-safe come back " +
+    "with a one-time license, yours forever.",
+  upsell_spoken_trial: (n) => "👆 You could have just said that. Tap the microphone " +
+    "and try it — the Pro trial is on for " + (n === 1 ? "one more day" : n + " more days") + ".",
+  upsell_spoken_over: "👆 You could have just said that out loud. The microphone is a " +
+    "Pro feature — typing stays free.",
+  upsell_see_pro: "See Pro",
   ks_chip: "🧒 kid-safe on",
   ks_pin_lbl: "Kid-safe PIN",
   ks_add_lbl: "Term to block",
@@ -200,6 +211,18 @@ const UI_IT = {
   pro_err_network: "Non raggiungo il server delle licenze. Controlla la connessione e riprova.",
   pro_err_invalid: "Chiave non valida (o limite attivazioni raggiunto): ",
   pro_only: " — funzione Pro",
+  pro_trial: (n) => "<b>Prova Pro — " + (n === 1 ? "ultimo giorno" : "restano " + n + " giorni") +
+    ".</b> È tutto attivo, microfono compreso. Alla scadenza i comandi scritti " +
+    "continuano a funzionare esattamente come ora: non si rompe niente, non si perde niente.",
+  pro_trial_over: "<b>La prova Pro è finita.</b> Scrivere i comandi è gratis, sempre — " +
+    "microfono, parola chiave, voci di lettura, multi-stanza e kid-safe tornano con " +
+    "una licenza una tantum, tua per sempre.",
+  upsell_spoken_trial: (n) => "👆 Questo potevi dirlo a voce. Tocca il microfono e " +
+    "provalo — la prova Pro è attiva ancora per " +
+    (n === 1 ? "un giorno" : n + " giorni") + ".",
+  upsell_spoken_over: "👆 Questo potevi dirlo a voce. Il microfono è una funzione Pro — " +
+    "scrivere resta gratis.",
+  upsell_see_pro: "Scopri Pro",
   ks_chip: "🧒 kid-safe attivo",
   ks_pin_lbl: "PIN kid-safe",
   ks_add_lbl: "Termine da bloccare",

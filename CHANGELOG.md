@@ -4,6 +4,16 @@
 
 ### New
 
+- **14 days of full Pro on every install**, microphone included — no key, no
+  card, no account, and no network call: the window is one timestamp in the
+  data directory, opened the first time the server starts. Because it lives
+  server-side it also unlocks the features enforced there (local speech
+  recognition, server-side wake word), and clearing the browser's storage does
+  not re-arm it. When it ends, typed commands keep working exactly as before —
+  nothing breaks, nothing is deleted. The settings panel says how many days
+  are left rather than claiming a license nobody bought, and after a command
+  you typed, the page points out — at most once per session, and never in the
+  first two days — that you could have simply said it.
 - **Queue management** (free): «aggiungi X alla coda» / "add X to the queue"
   queues a song at the end; «metti X dopo questa» / "play X next" queues it
   right after the current track; «svuota la coda» / "clear the queue"; «cosa
