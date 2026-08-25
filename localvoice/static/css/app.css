@@ -95,6 +95,9 @@ a, a.hint { color: var(--accent-text); }
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 999px; padding: .28rem .32rem; box-shadow: var(--shadow); }
 .prolock { font-size: .8em; opacity: .85; }
+/* A Pro control that is locked rather than disabled: it looks unavailable but
+   still receives taps, so tapping it can explain itself (see settings.js). */
+select.locked { opacity: .55; }
 #probox, #kidsafebox { width: 100%; border-top: 1px solid var(--border);
           margin-top: .4rem; padding-top: .55rem; }
 #ksstatus { text-align: left; }

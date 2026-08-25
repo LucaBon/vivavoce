@@ -76,7 +76,13 @@ export function renderPlayers() {
   const cur = currentPlayer();
   sel.value = (cur && PLAYERS.some(p => p.id === cur)) ? cur
             : (PLAYERS_CURRENT || PLAYERS[0].id);
-  sel.disabled = !isPro();
+  // NOT `disabled`: a disabled control dispatches no events at all, so the
+  // padlock next to it was the one thing on this panel that did nothing when
+  // tapped — the gesture that most obviously means "tell me about this".
+  // aria-disabled says the same thing to assistive tech, and the handlers
+  // below both refuse the change and answer the question.
+  sel.setAttribute("aria-disabled", isPro() ? "false" : "true");
+  sel.classList.toggle("locked", !isPro());
   $("playerlock").hidden = isPro();
 }
 // The screenshot harness feeds the selector without a backend.
@@ -108,6 +114,11 @@ export function initSettings() {
     if (!isPro() && PLAYERS.length > 1) { e.preventDefault(); showProUpsell(); }
   });
   $("player").onchange = () => {
+    if (!isPro()) {         // locked, not disabled: put the choice back
+      renderPlayers();
+      showProUpsell();
+      return;
+    }
     localStorage.setItem("player", $("player").value);
     refreshNowPlaying();  // the mini-player follows the room immediately
   };

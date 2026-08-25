@@ -96,7 +96,15 @@ export function renderCertSetup() {
 export async function initCertSetup() {
   try {
     hasCA = !!(await (await fetch("/tls")).json()).ca;
-  } catch (e) { hasCA = false; }
+  } catch (e) {
+    // A failed /tls means we do not KNOW whether the server has a CA — a
+    // dropped Wi-Fi answers the same way a server without one does. It was
+    // being read as "no CA on the server", which walks the user through
+    // fixing something that isn't broken. Assume there is one: the worst
+    // case is offering an install that then can't be downloaded, and the
+    // steps say to fetch /ca.pem, which will fail visibly.
+    hasCA = true;
+  }
   state = await resolveState();
 
   $("certverify").onclick = () => {

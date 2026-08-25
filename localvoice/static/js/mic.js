@@ -183,6 +183,18 @@ export function initMic() {
     // mode: "off" (idle) | "manual" (one tap-to-talk shot) | "wake" (continuous,
     // listening for the wake word). `active` mirrors whether the recogniser runs.
     let mode = "off", active = false;
+    // Chrome ends a silent continuous session with `no-speech` roughly every
+    // 8 seconds, and `aborted` whenever a session is replaced. Neither is
+    // something to tell the user about: printing them made wake mode flip
+    // between "Errore microfono: no-speech" and "In ascolto…" forever, with
+    // an earcon each time — the app looked broken while working exactly as
+    // designed. They are silent; the ones that mean something are not.
+    const ROUTINE_ERRORS = new Set(["no-speech", "aborted"]);
+    // A real fault (network, audio-capture) restarted just as blindly, so a
+    // failing mic looped without ever saying why. After this many in a row,
+    // wake mode stops and says what happened.
+    const MAX_WAKE_FAILURES = 5;
+    let wakeFailures = 0;
     // Set when a live session is torn down deliberately (see stopAll), cleared
     // when the next one actually starts. There is only ONE recogniser object,
     // reused for every mode, so a late onend/onerror carries nothing that says
@@ -242,7 +254,7 @@ export function initMic() {
       else startManual();
     };
     rec.onstart = () => {
-      active = true; tornDown = false; micUI(true);
+      active = true; tornDown = false; wakeFailures = 0; micUI(true);
       if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
       // A restart in the middle of "yes? tell me the command" — or of "check
       // the text and press Send" — must not answer its own question with
@@ -258,7 +270,18 @@ export function initMic() {
         // while a command has been asked for and not yet given, where going
         // dark reads as "it stopped listening" exactly when it hasn't.
         if (!wake.isArmed()) micUI(false);
-        setTimeout(() => { if (mode === "wake" && !active) { try { rec.start(); } catch (e) {} } }, 350);
+        setTimeout(() => {
+          if (mode !== "wake" || active) return;
+          try {
+            rec.start();
+          } catch (e) {
+            // iOS Safari refuses to reopen the microphone outside a user
+            // gesture, and the throw was swallowed: the panel kept saying
+            // "In ascolto" over a recogniser that had stopped for good.
+            statusEl.textContent = ui("tap_to_resume");
+            micUI(false);
+          }
+        }, 350);
       } else if (tornDown) {
         mode = "off";  // torn down on purpose: whoever did it owns the status
       } else {
@@ -269,13 +292,32 @@ export function initMic() {
         endCommandCapture();
       }
     };
+    function leaveWakeMode() {
+      mode = "off";
+      $("wakemode").checked = false;
+      $("wakeopts").style.display = "none";
+      localStorage.setItem("wakemode", "0");
+      micUI(false);
+    }
     rec.onerror = (e) => {
       if (tornDown) return;  // an error about the session we just killed
-      statusEl.textContent = ui("mic_error") + e.error;
       // A denied/blocked mic would otherwise restart-loop in wake mode: turn it off.
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        mode = "off"; $("wakemode").checked = false; $("wakeopts").style.display = "none";
+        statusEl.textContent = ui("mic_error") + e.error;
+        leaveWakeMode();
+        return;
       }
+      if (mode === "wake") {
+        // The routine end-of-session errors say nothing; onend restarts.
+        if (ROUTINE_ERRORS.has(e.error)) return;
+        // Anything else is a real fault. Give it a few restarts (a Wi-Fi
+        // blip recovers), then stop and say so rather than loop in silence.
+        if (++wakeFailures < MAX_WAKE_FAILURES) return;
+        statusEl.textContent = ui("wake_gave_up")(e.error);
+        leaveWakeMode();
+        return;
+      }
+      statusEl.textContent = ui("mic_error") + e.error;
     };
     rec.onresult = (e) => {
       if (mode === "wake") { wake.wakeResult(e); return; }

@@ -124,7 +124,15 @@ function maybePromptSpoken(afterEl) {
   note.after(row);
 }
 
+// A /command round-trip is a couple of LMS calls; anything past this is the
+// server being gone, not slow. Without a deadline `sending` never cleared and
+// the whole session went quiet: every later voice command was beeped at, then
+// dropped on the `sending` guard with nothing on screen to explain it.
+const COMMAND_TIMEOUT_MS = 15000;
+
 let sending = false;
+/** Is a command in flight? The wake path checks this before beeping. */
+export const isSending = () => sending;
 export async function send(text, alternatives, opts) {
   text = (text || "").trim();
   if (!text || sending) return;  // one in-flight command at a time
@@ -144,7 +152,9 @@ export async function send(text, alternatives, opts) {
     const r = await fetch("/command", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout
+        ? AbortSignal.timeout(COMMAND_TIMEOUT_MS) : undefined
     });
     const data = await r.json();
     // If the server kept a different alternative than what we heard first,
@@ -168,10 +178,13 @@ export async function send(text, alternatives, opts) {
     // A play/skip command changes the track: don't wait for the next poll.
     setTimeout(refreshNowPlaying, 800);
   } catch (e) {
+    // Whatever went wrong, the pending bubble must stop pretending: it is
+    // the only thing on screen saying a command is still being worked on.
     p.classList.remove("pending");
     p.removeAttribute("aria-hidden");
     p.classList.add("warn");
-    p.textContent = ui("net_error");
+    p.textContent = (e && (e.name === "TimeoutError" || e.name === "AbortError"))
+      ? ui("cmd_timeout") : ui("net_error");
   } finally {
     sending = false;
     $("send").disabled = false;

@@ -13,6 +13,16 @@
 
 const TARGET_RATE = 16000;
 
+// How much audio goes in one POST. A ScriptProcessor hands us 4096 frames at
+// a time — ~85 ms at 48 kHz — and each of those used to be its own request:
+// twelve TCP+TLS handshakes a second, per phone, on a machine that may be a
+// Raspberry Pi. Worse, they were fired without waiting, so several were in
+// flight at once and the server received them out of order, scrambling the
+// mel frames across chunk boundaries. Buffering to ~320 ms and sending one
+// at a time fixes both, and openWakeWord is perfectly happy with the larger
+// window (its own reference client uses 1280-sample chunks in-process).
+const CHUNK_MS = 320;
+
 // Linear-interpolation downsampler: browsers rarely honor a requested
 // AudioContext sampleRate (Safari/iOS especially keeps the hardware rate),
 // so this runs whenever the actual context rate isn't already 16 kHz —
@@ -70,6 +80,52 @@ export async function startWakeStream({ clientId, onTriggered, onError }) {
   let paused = false;    // the mic is on loan to a command capture
   let resuming = null;   // in-flight resume(), so two calls can't open two graphs
   let ctx, source, processor, stream;
+  // One chunk in flight at a time, and the samples that arrive meanwhile
+  // waiting their turn — see CHUNK_MS.
+  let pending = [];      // Int16Array pieces not yet sent
+  let pendingSamples = 0;
+  let inFlight = false;
+
+  function queue(pcm16) {
+    pending.push(pcm16);
+    pendingSamples += pcm16.length;
+    flush();
+  }
+
+  function takeChunk() {
+    const out = new Int16Array(pendingSamples);
+    let at = 0;
+    for (const part of pending) { out.set(part, at); at += part.length; }
+    pending = [];
+    pendingSamples = 0;
+    return out;
+  }
+
+  function flush() {
+    if (inFlight || stopped) return;
+    if (pendingSamples < (TARGET_RATE * CHUNK_MS) / 1000) return;
+    inFlight = true;
+    const chunk = takeChunk();
+    fetch("/wakeword/chunk?client=" + encodeURIComponent(clientId), {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: chunk.buffer,
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d && d.triggered) onTriggered(); })
+      .catch((e) => { if (onError) onError(e); })
+      .finally(() => { inFlight = false; flush(); });
+  }
+
+  // ONE AudioContext for the life of this handle. Creating a new one per
+  // resume() meant creating it outside a user gesture, and on iOS Safari such
+  // a context stays suspended for good: hands-free died silently after the
+  // first command while the panel still said "In ascolto". Chrome also caps a
+  // page at ~6 live contexts and then throws.
+  function audioContext() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    return ctx;
+  }
 
   async function openMic() {
     const media = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -78,7 +134,12 @@ export async function startWakeStream({ clientId, onTriggered, onError }) {
       return;
     }
     stream = media;
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx = audioContext();
+    // A context created (or left) suspended produces no audio at all and
+    // reports no error; resume() is a no-op on a running one.
+    if (ctx.state === "suspended") {
+      try { await ctx.resume(); } catch (e) { /* reported by the caller */ }
+    }
     source = ctx.createMediaStreamSource(stream);
     const bufferSize = 4096;
     processor = (ctx.createScriptProcessor || ctx.createJavaScriptNode)
@@ -87,14 +148,7 @@ export async function startWakeStream({ clientId, onTriggered, onError }) {
       if (stopped || paused) return;
       const float32 = event.inputBuffer.getChannelData(0);
       const resampled = resample(float32, ctx.sampleRate, TARGET_RATE);
-      const pcm16 = floatTo16BitPCM(resampled);
-      fetch("/wakeword/chunk?client=" + encodeURIComponent(clientId), {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: pcm16.buffer,
-      }).then((r) => r.json()).then((d) => {
-        if (d && d.triggered) onTriggered();
-      }).catch((e) => { if (onError) onError(e); });
+      queue(floatTo16BitPCM(resampled));
     };
     source.connect(processor);
     // A ScriptProcessor must be connected to a destination to fire
@@ -105,12 +159,20 @@ export async function startWakeStream({ clientId, onTriggered, onError }) {
     mute.connect(ctx.destination);
   }
 
-  function closeMic() {
+  // Release the microphone and the graph, but NOT the AudioContext: it is
+  // kept for the life of the handle (see audioContext) so a resume() outside
+  // a user gesture still has a running one. Buffered audio is dropped —
+  // whatever was said while the mic was on loan is not for this detector.
+  function closeMic(keepContext) {
     try { processor && processor.disconnect(); } catch (e) {}
     try { source && source.disconnect(); } catch (e) {}
     try { stream && stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    processor = source = stream = null;
+    pending = [];
+    pendingSamples = 0;
+    if (keepContext) return;
     try { ctx && ctx.close(); } catch (e) {}
-    processor = source = stream = ctx = null;
+    ctx = null;
   }
 
   try {
@@ -124,7 +186,7 @@ export async function startWakeStream({ clientId, onTriggered, onError }) {
     pause() {
       if (stopped || paused) return;
       paused = true;
-      closeMic();
+      closeMic(true);   // keep the context: resume() may be gesture-less
     },
     resume() {
       if (stopped || !paused) return resuming || Promise.resolve();

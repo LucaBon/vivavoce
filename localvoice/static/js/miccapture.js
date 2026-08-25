@@ -19,7 +19,40 @@ import { setWakeWordOverride } from "./settings.js";
 import { beep } from "./wakeword.js";
 import { startWakeStream } from "./serverwake.js";
 
+// --- Screen wake lock -------------------------------------------------------
+// Hands-free listening dies when the screen sleeps: the tab is frozen, the
+// recogniser stops, and the page comes back saying "In ascolto" over nothing.
+// A wake lock is exactly the promise being made — "leave this on the counter
+// and talk to it" — and it is released the moment listening stops, so a phone
+// left on a table does not stay lit.
+let wakeLock = null;
+
+async function acquireWakeLock() {
+  if (wakeLock || !navigator.wakeLock) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    // The system drops the lock on its own when the tab is hidden; take it
+    // back when the page is shown again (below).
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (e) { /* denied, low battery, unsupported: listening still works */ }
+}
+
+function releaseWakeLock() {
+  const held = wakeLock;
+  wakeLock = null;
+  if (held) { try { held.release(); } catch (e) {} }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  // Re-acquire only if something is still meant to be listening.
+  if (serverWakeRunning() || $("mic").classList.contains("listening")) {
+    acquireWakeLock();
+  }
+});
+
 export function micUI(listening) {
+  if (listening) acquireWakeLock(); else releaseWakeLock();
   $("mic").classList.toggle("listening", listening);
   $("mic").setAttribute("aria-pressed", listening ? "true" : "false");
   $("micstate").textContent = listening ? ui("micstate_listening") : ui("micstate_idle");

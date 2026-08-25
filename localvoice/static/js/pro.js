@@ -151,6 +151,9 @@ async function ksAction(action, extra) {
       if (d.error === "pro_required") { showProUpsell(); }
       else if (d.error === "wrong_pin") {
         st.innerHTML += ' <span class="warn">' + ui("ks_wrong_pin") + "</span>";
+      } else if (d.error === "locked_out") {
+        st.innerHTML += ' <span class="warn">'
+          + ui("ks_locked_out")(d.retry_in || 0) + "</span>";
       } else if (d.error === "pin_too_short") {
         st.innerHTML += ' <span class="warn">' + ui("ks_pin_short") + "</span>";
       }

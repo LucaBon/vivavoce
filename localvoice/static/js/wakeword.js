@@ -4,7 +4,7 @@
 
 import { $ } from "./util.js";
 import { ui } from "./i18n.js";
-import { handleManualFinal, autosendOn } from "./chat.js";
+import { handleManualFinal, autosendOn, isSending } from "./chat.js";
 import { wakeWord } from "./settings.js";
 
 const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -31,10 +31,21 @@ export function beep() {
 }
 
 // Fuzzy token match so common it-IT mis-hearings of the wake word still fire
-// ("vivavoce" vs "viva voce"/"vivavoci"): equal, a ≥4-char prefix, or ≤1 edit.
+// ("vivavoce" vs "viva voce"/"vivavoci"): equal, a near-complete prefix, or
+// ≤1 edit.
+//
+// The prefix rule used to accept any shared 4-character head, which is not a
+// mis-hearing rule — it is a "any word that starts the same" rule. Bare
+// «viva» fired «vivavoce», and so did anything the recogniser wrote with it
+// glued to the next word. The prefix now has to cover most of the longer
+// token, which is what a mis-heard ENDING looks like and an unrelated word
+// does not.
+const PREFIX_MIN_COVERAGE = 0.75;
 function tokEq(a, b) {
   if (a === b) return true;
-  if (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a))) return true;
+  if (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a))
+      && Math.min(a.length, b.length) / Math.max(a.length, b.length)
+         >= PREFIX_MIN_COVERAGE) return true;
   if (Math.abs(a.length - b.length) > 1) return false;
   let i = 0, j = 0, edits = 0;
   while (i < a.length && j < b.length) {
@@ -101,7 +112,10 @@ export function createWakeHandler(rec) {
     clearTimeout(capTimer);
     capTimer = setTimeout(() => {
       disarm();
-      beep();                                   // confirm only when the command is sent
+      // The beep used to fire here, BEFORE the checks below — so a command
+      // that was then dropped (another one still in flight) was confirmed
+      // out loud and never happened. It now sounds only once the command has
+      // actually been handed over; see below.
       // Strip the wake word from each alternative when it carries one; in the
       // two-step flow it doesn't, and the alternative passes through as-is.
       const strip = (s) => { const a = commandAfterWake(s); return a === null ? s : a; };
@@ -110,6 +124,13 @@ export function createWakeHandler(rec) {
       // to send unconditionally, so "send right after the mic" was a checkbox
       // that did nothing here while governing every other way of speaking.
       awaitingReview = !autosendOn();
+      // A command that can't be sent right now must not be confirmed as if
+      // it had been: with one already in flight, send() drops this one.
+      if (autosendOn() && isSending()) {
+        $("status").textContent = ui("still_working");
+        return;
+      }
+      beep();                                   // confirm: the command is going
       handleManualFinal(cmd, cleanAlts.length ? cleanAlts : [cmd]);
       try { rec.stop(); } catch (e) {}          // reset the session; onend restarts fresh
     }, 1000);

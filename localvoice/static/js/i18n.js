@@ -40,6 +40,8 @@ export function refreshStatus() {
       ui(statusBase === "nomic" ? "no_mic" : "need_https") + "</span>";
   } else if (statusBase === "lmsdown") {
     statusEl.innerHTML = '<span class="warn">' + ui("lms_down") + "</span>";
+  } else if (statusBase === "offline") {
+    statusEl.innerHTML = '<span class="warn">' + ui("offline") + "</span>";
   } else {
     statusEl.textContent = ui("status_tap_write");
   }
@@ -47,10 +49,15 @@ export function refreshStatus() {
 
 // LMS reachability lamp: the header LED turns red and the status line warns.
 // Only the "default" status is replaced — mic problems keep their message.
-export function setLmsDown(down) {
+export function setLmsDown(down, offline) {
   document.body.classList.toggle("lmsdown", down);
-  if (down && statusBase === "default") { statusBase = "lmsdown"; refreshStatus(); }
-  else if (!down && statusBase === "lmsdown") { statusBase = "default"; refreshStatus(); }
+  // "This device has no network" and "the hi-fi is unreachable" look
+  // identical from here — a failed fetch — but they send the user to
+  // different rooms. Say which one it is when the browser knows.
+  const want = down ? (offline ? "offline" : "lmsdown") : "default";
+  const replaceable = statusBase === "default" || statusBase === "lmsdown"
+                      || statusBase === "offline";
+  if (replaceable && statusBase !== want) { statusBase = want; refreshStatus(); }
 }
 
 // Renderers owned by other modules, injected once from app.js (see above).
