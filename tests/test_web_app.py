@@ -313,3 +313,78 @@ def test_tls_reports_no_ca_when_the_file_is_missing(live_server, tmp_path):
     # Same fail-safe as /ca.pem: configured but absent reads as absent.
     absent = str(tmp_path / "never-made.pem")
     assert live_server(ca_path=absent).get("/tls").json() == {"ca": False}
+
+
+# -- bounded state -------------------------------------------------------------
+
+def test_the_router_map_does_not_grow_with_every_client(live_server,
+                                                        transport):
+    """The key is a client-chosen string, so it is unbounded input: a private
+    window, cleared storage or a scanner each added a Router that never went
+    away. The eviction is visible from outside: a client whose Router was
+    dropped has lost its open "metti la N" list."""
+    import http_api
+
+    transport.responses["artists"] = {"artists_loop": [{"id": 1, "artist": "Yes"}]}
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 10, "album": "Fragile"}, {"id": 11, "album": "90125"}]
+    }
+    srv = live_server()
+    srv.json_post("/command", {"text": "quali album ho di Yes",
+                               "client": "the-oldest"})
+    # ...still pickable right now.
+    assert "90125" in srv.json_post("/command", {"text": "metti la 2",
+                                                 "client": "the-oldest"})["speech"]
+    srv.json_post("/command", {"text": "quali album ho di Yes",
+                               "client": "the-oldest"})
+
+    for i in range(http_api.MAX_ROUTERS + 1):
+        srv.json_post("/command", {"text": "pausa", "client": f"client-{i}"})
+
+    reply = srv.json_post("/command", {"text": "metti la 2",
+                                       "client": "the-oldest"})
+    assert "Prima chiedimi un elenco" in reply["speech"]
+
+
+def test_a_returning_client_keeps_its_place_in_the_queue(live_server,
+                                                         transport):
+    # LRU, not FIFO: a phone in daily use must not be evicted by a burst of
+    # one-off clients just because it connected first.
+    import http_api
+
+    transport.responses["artists"] = {"artists_loop": [{"id": 1, "artist": "Yes"}]}
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 10, "album": "Fragile"}, {"id": 11, "album": "90125"}]
+    }
+    srv = live_server()
+    srv.json_post("/command", {"text": "quali album ho di Yes",
+                               "client": "the-phone"})
+    for i in range(http_api.MAX_ROUTERS - 1):
+        srv.json_post("/command", {"text": "pausa", "client": f"client-{i}"})
+        srv.json_post("/command", {"text": "pausa", "client": "the-phone"})
+    reply = srv.json_post("/command", {"text": "metti la 2",
+                                       "client": "the-phone"})
+    assert "90125" in reply["speech"]
+
+
+def test_the_artwork_proxy_forwards_images_only(live_server, transport):
+    # The upstream Content-Type was forwarded verbatim, so anything the LMS
+    # (or something answering in its place) served came back under this
+    # origin with its own type.
+    transport.responses["status"] = {
+        "playlist_loop": [{"title": "T", "artwork_url": "http://lms/x"}]}
+
+    def evil_fetch(url, timeout=5.0):
+        return "text/html", b"<script>alert(1)</script>"
+
+    srv = live_server(artwork_fetch=evil_fetch)
+    assert srv.try_get("/artwork").status == 404
+
+    def image_fetch(url, timeout=5.0):
+        return "image/jpeg", b"\xff\xd8\xff"
+
+    srv = live_server(artwork_fetch=image_fetch)
+    resp = srv.get("/artwork")
+    assert resp.status == 200
+    assert resp.headers["Content-Type"] == "image/jpeg"
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"

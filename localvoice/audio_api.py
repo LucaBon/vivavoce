@@ -45,9 +45,15 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None):
         def _refuse_audio(self, length: int, error: str):
             """Reject a binary POST without reading it as audio. Drains the
             body first: a refusal that leaves it unread desynchronises the
-            connection, so the *next* request on it fails too."""
-            if length:
-                self.rfile.read(length)
+            connection, so the *next* request on it fails too. Drained in
+            chunks — an oversized body is refused precisely because we don't
+            want it in memory."""
+            remaining = length
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
             self._send(200, json.dumps({"ok": False, "error": error}))
 
         def _audio_body_error(self, length: int, engine, max_bytes: int):
@@ -90,7 +96,10 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None):
             # Il corpo è il blob audio di MediaRecorder (webm/opus o wav),
             # la lingua viaggia nella query string. Come gli altri endpoint:
             # mai un 5xx — i casi degradati rispondono 200 con ok:false.
-            length = int(self.headers.get("Content-Length", 0) or 0)
+            # content_length() rather than int(header): a non-numeric value
+            # used to raise here, uncaught, and drop the connection with no
+            # reply at all.
+            length = self.content_length()
             error = self._audio_body_error(length, transcriber,
                                            self.MAX_AUDIO_BYTES)
             if error:
@@ -117,7 +126,7 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None):
             # static/js/serverwake.js), il client id viaggia in query string —
             # come /transcribe, mai un 5xx: i casi degradati rispondono 200
             # con ok:false.
-            length = int(self.headers.get("Content-Length", 0) or 0)
+            length = self.content_length()
             error = self._audio_body_error(length, wakeword_sessions,
                                            self.MAX_WAKEWORD_CHUNK_BYTES)
             if error:

@@ -3,6 +3,8 @@ data-dir resolution order, and atomic JSON read/write fail-open behavior."""
 
 import os
 
+import pytest
+
 import appdata
 
 
@@ -87,3 +89,63 @@ def test_atomic_write_replaces_existing(tmp_path):
     appdata.atomic_write_json(path, {"v": 1})
     appdata.atomic_write_json(path, {"v": 2})
     assert appdata.read_json(path) == {"v": 2}
+
+
+# -- atomic writes are actually atomic, and durable ---------------------------
+
+def test_two_writers_never_promote_a_half_written_file(tmp_path):
+    """The temp file used to be a FIXED `<path>.tmp` name: two threads each
+    opened it, each truncated it, and one renamed whatever was there — or
+    lost the race with FileNotFoundError."""
+    import threading
+
+    path = str(tmp_path / "state.json")
+    appdata.atomic_write_json(path, {"v": 0})
+    errors = []
+    payloads = [{"v": i, "pad": "x" * 20_000} for i in range(1, 9)]
+
+    def writer(payload):
+        for _ in range(20):
+            try:
+                appdata.atomic_write_json(path, payload)
+            except Exception as exc:       # noqa: BLE001 - the bug was a raise
+                errors.append(exc)
+                return
+            # Every read must see one of the whole payloads, never a splice.
+            got = appdata.read_json(path)
+            if not isinstance(got, dict) or got not in payloads:
+                errors.append(AssertionError(f"torn read: {str(got)[:60]}"))
+                return
+
+    threads = [threading.Thread(target=writer, args=(p,)) for p in payloads]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert appdata.read_json(path) in payloads
+
+
+def test_no_temp_files_are_left_behind(tmp_path):
+    appdata.atomic_write_json(str(tmp_path / "state.json"), {"v": 1})
+    assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+
+def test_a_failed_write_leaves_the_old_file_and_no_debris(tmp_path):
+    path = str(tmp_path / "state.json")
+    appdata.atomic_write_json(path, {"v": 1})
+
+    class Unserialisable:
+        pass
+
+    with pytest.raises(TypeError):
+        appdata.atomic_write_json(path, {"v": Unserialisable()})
+    assert appdata.read_json(path) == {"v": 1}
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["state.json"]
+
+
+def test_secrets_can_be_written_unreadable_by_others(tmp_path):
+    import stat
+    path = str(tmp_path / "license.json")
+    appdata.atomic_write_json(path, {"key": "SECRET"}, mode=0o600)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600

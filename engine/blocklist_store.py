@@ -16,11 +16,45 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import threading
 from typing import List
+
+# The file holds the kid-safe PIN hash and the wrong-PIN lockout alongside the
+# terms, so it is written from two places (here and pro/kidsafe.py) and read
+# by every request. One process-wide lock keeps those writes from interleaving.
+_write_lock = threading.Lock()
 
 
 class BlocklistStoreError(Exception):
     """Raised when the blocklist store cannot be written."""
+
+
+def _write_json_durably(path: str, state: dict) -> None:
+    """Replace ``path`` with ``state`` as JSON — atomically and durably.
+
+    A unique temp file rather than a fixed ``.tmp`` name (two writers would
+    otherwise each open, truncate and rename the same one, promoting a
+    half-written file or losing the race), fsync before the rename so a power
+    cut leaves the old file or the new one, and 0600 because this file holds
+    the kid-safe PIN hash.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    with _write_lock:
+        fd, tmp = tempfile.mkstemp(dir=directory, prefix=".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
 
 class JsonBlocklistStore:
@@ -55,10 +89,7 @@ class JsonBlocklistStore:
         state = self._read_state()
         state["terms"] = clean
         try:
-            tmp = self.path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(state, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.path)
+            _write_json_durably(self.path, state)
         except OSError as exc:
             raise BlocklistStoreError(f"blocklist write failed: {exc}") from exc
 

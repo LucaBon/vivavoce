@@ -82,7 +82,8 @@ class KidSafe:
     def _save(self, **changes: Any) -> None:
         state = self._state()
         state.update(changes)
-        appdata.atomic_write_json(self.path, state)
+        # 0600: this file holds the PIN hash and the lockout counter.
+        appdata.atomic_write_json(self.path, state, mode=0o600)
 
     def _set_pin(self, pin: str) -> None:
         salt = secrets.token_bytes(16)

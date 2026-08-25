@@ -14,7 +14,6 @@ import sys
 import threading
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
 
 import pytest
 
@@ -24,6 +23,7 @@ LOCALVOICE_DIR = os.path.join(ROOT, "localvoice")
 sys.path.insert(0, ENGINE_DIR)
 sys.path.insert(0, LOCALVOICE_DIR)
 
+import httpbase  # noqa: E402
 import server  # noqa: E402
 from lms import LMSClient, LMSError  # noqa: E402
 from messages import set_lang  # noqa: E402
@@ -190,10 +190,11 @@ class LiveServer:
     def get(self, path="/", timeout=5):
         return self._open(urllib.request.Request(self.url + path), timeout)
 
-    def post(self, path, data=b"", content_type="application/json", timeout=5):
+    def post(self, path, data=b"", content_type="application/json", timeout=5,
+             headers=None):
         req = urllib.request.Request(
             self.url + path, data=data, method="POST",
-            headers={"Content-Type": content_type})
+            headers={"Content-Type": content_type, **(headers or {})})
         return self._open(req, timeout)
 
     def post_json(self, path, payload, timeout=5):
@@ -215,9 +216,9 @@ class LiveServer:
             return Response(exc.code, dict(exc.headers), exc.read())
 
     def try_post(self, path, data=b"", content_type="application/json",
-                 timeout=5):
+                 timeout=5, headers=None):
         try:
-            return self.post(path, data, content_type, timeout)
+            return self.post(path, data, content_type, timeout, headers)
         except urllib.error.HTTPError as exc:
             return Response(exc.code, dict(exc.headers), exc.read())
 
@@ -249,7 +250,9 @@ def live_server(lms):
         handler = server.make_handler(client or lms, material_url,
                                       list(services), default_service,
                                       **kwargs)
-        httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        # The same server class the app runs (bounded threads, quiet on a
+        # dropped connection) — a test stack that isn't it proves less.
+        httpd = httpbase.BoundedThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         servers.append(httpd)
         return LiveServer(f"http://127.0.0.1:{httpd.server_address[1]}")

@@ -13,15 +13,25 @@ bodies and are Pro-gated server-side, which nothing else here does.
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import threading
 
+import httpbase
 import staticfiles
+import webguard
 from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
 from messages import msg
 from router import Router
+
+# One Router per (client id, player) — see router_for. The map is keyed on a
+# client-chosen string, so it is bounded: without a cap, every page load with
+# a fresh id (a private window, a cleared storage, a scanner) added an entry
+# that never went away. Least-recently-used wins; an evicted client just gets
+# a fresh Router, i.e. loses its open "metti la N" list.
+MAX_ROUTERS = 64
 
 
 def _http_fetch(url: str, timeout: float = 5.0):
@@ -35,12 +45,13 @@ def _http_fetch(url: str, timeout: float = 5.0):
 def make_handler(lms, material_url: str, services, default_service: str,
                  ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
                  kidsafe=None, transcriber=None, multiroom=None,
-                 app_version: str = "", wakeword_sessions=None):
+                 app_version: str = "", wakeword_sessions=None,
+                 allowed_hosts=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
     # id; without one they share a single default router.
-    routers = {}
+    routers = collections.OrderedDict()
     lock = threading.Lock()
     services = list(services)
 
@@ -64,42 +75,18 @@ def make_handler(lms, material_url: str, services, default_service: str,
                            kidsafe=kidsafe, client_id=client_id,
                            multiroom=multiroom)
                 routers[key] = r
+                while len(routers) > MAX_ROUTERS:
+                    routers.popitem(last=False)  # drop the least recently used
+            else:
+                routers.move_to_end(key)
             return r
 
     # The audio-engine endpoints (/asr, /transcribe, /wakeword/*) live in
     # audio_api.py and are mixed in here, which is the only place the two
     # halves meet: they call back into _send/_query_params below.
     class Handler(audio_routes(license_mgr, transcriber, wakeword_sessions),
-                  BaseHTTPRequestHandler):
-        def _send(self, code, body, ctype="application/json"):
-            data = body.encode("utf-8") if isinstance(body, str) else body
-            self.send_response(code)
-            self.send_header("Content-Type", f"{ctype}; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
-        def _query_params(self) -> dict:
-            """The request's query string, parsed once (``?a=1&b=2`` ->
-            ``{"a": ["1"], "b": ["2"]}``)."""
-            from urllib.parse import parse_qs, urlparse
-            return parse_qs(urlparse(self.path).query)
-
-        def _read_json_object(self) -> dict:
-            """The POST body as a JSON object, or ``{}`` on anything else —
-            absent body, malformed JSON, *or* valid JSON that isn't an
-            object (``null``, a number, a list, a bare string). That last
-            case is not a ``ValueError``: ``json.loads`` happily returns it,
-            and a bare ``.get()`` on it would raise ``AttributeError`` —
-            uncaught, that drops the connection with no response, breaking
-            this module's own "never a 5xx" guarantee."""
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                return {}
-            return payload if isinstance(payload, dict) else {}
+                  httpbase.RequestBase, BaseHTTPRequestHandler):
+        host_policy = webguard.HostPolicy(allowed_hosts)
 
         def do_GET(self):
             if self.path in ("/", "/index.html"):
@@ -180,8 +167,13 @@ def make_handler(lms, material_url: str, services, default_service: str,
             pin = payload.get("pin") or ""
             term = payload.get("term") or ""
             if action == "unlock":
-                result = ({"ok": True} if kidsafe.unlock(client_id, pin)
-                          else {"ok": False, "error": "wrong_pin"})
+                if kidsafe.unlock(client_id, pin):
+                    result = {"ok": True}
+                else:
+                    wait = kidsafe.locked_out_for()
+                    result = ({"ok": False, "error": "locked_out",
+                               "retry_in": int(wait) + 1} if wait > 0
+                              else {"ok": False, "error": "wrong_pin"})
             elif action == "lock":
                 kidsafe.lock(client_id)
                 result = {"ok": True}
@@ -302,14 +294,24 @@ def make_handler(lms, material_url: str, services, default_service: str,
             except Exception:
                 self._send(404, "artwork unavailable", "text/plain")
                 return
+            # Only ever an image: the proxy forwarded whatever Content-Type
+            # the upstream announced, so anything the LMS (or something
+            # answering in its place) served came back under this origin with
+            # its own type. nosniff stops the browser guessing past it.
+            if not (ctype or "").lower().startswith("image/"):
+                self._send(404, "artwork unavailable", "text/plain")
+                return
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(data)
 
         def do_POST(self):
+            if self._reject_cross_site():
+                return
             if self.path == "/license":
                 self._activate_license()
                 return

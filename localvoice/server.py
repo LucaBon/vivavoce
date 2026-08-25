@@ -21,14 +21,12 @@ assets in ``staticfiles.py``, TLS in ``tls.py``.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import platform
 import socket
 import sys
 import time
 import urllib.parse
-from http.server import ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -37,8 +35,10 @@ sys.path.insert(0, HERE)  # router, http_api, ...
 
 import appdata  # noqa: E402
 import discovery  # noqa: E402
+from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
 import tls  # noqa: E402
+import webguard  # noqa: E402
 from http_api import make_handler  # noqa: E402,F401  (re-exported for tests)
 from lms import SERVICES, LMSClient, LMSError  # noqa: E402
 
@@ -106,17 +106,13 @@ def _lms_cache_path(data_dir: str) -> str:
 
 
 def _cached_lms(data_dir: str) -> str:
-    try:
-        with open(_lms_cache_path(data_dir), encoding="utf-8") as f:
-            return json.load(f).get("lms") or ""
-    except (OSError, ValueError):
-        return ""
+    cached = appdata.read_json(_lms_cache_path(data_dir), {})
+    return (cached.get("lms") or "") if isinstance(cached, dict) else ""
 
 
 def _save_cached_lms(data_dir: str, url: str) -> None:
     try:
-        with open(_lms_cache_path(data_dir), "w", encoding="utf-8") as f:
-            json.dump({"lms": url}, f)
+        appdata.atomic_write_json(_lms_cache_path(data_dir), {"lms": url})
     except OSError:
         pass  # cartella read-only: pazienza, si riscopre al prossimo avvio
 
@@ -184,6 +180,10 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=int(appdata.env("PORT", "8730")))
     ap.add_argument("--cert", help="certificato TLS (per il mic da altri device)")
     ap.add_argument("--key", help="chiave TLS")
+    ap.add_argument("--allowed-hosts", default=appdata.env("ALLOWED_HOSTS"),
+                    help="nomi host extra accettati nell'header Host, separati "
+                         "da virgola. Servono solo dietro un dominio pubblico: "
+                         "IP, localhost e .local sono gi\u00e0 ok (webguard.py).")
     ap.add_argument("--data-dir", default=None,
                     help="cartella per lo stato persistente del server "
                          "(licenza, kid-safe). Default: PREFIX_DATA_DIR, poi "
@@ -342,13 +342,14 @@ def main() -> int:
 
     material_url = args.material_url or (lms_url.rstrip("/") + "/material/")
     ca_path = tls.find_ca(args.cert)
-    httpd = ThreadingHTTPServer(
+    httpd = BoundedThreadingHTTPServer(
         (args.host, args.port),
         make_handler(client, material_url, services, default_service,
                      ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version(),
-                     wakeword_sessions=wakeword_sessions),
+                     wakeword_sessions=wakeword_sessions,
+                     allowed_hosts=webguard.parse_hosts(args.allowed_hosts)),
     )
 
     scheme = "http"
