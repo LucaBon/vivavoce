@@ -4,6 +4,20 @@
 
 ### New
 
+- **Guided certificate setup.** The mic needs HTTPS, so the browser's "your
+  connection is not private" warning stood exactly in front of the feature
+  people pay for. The *"Installa come app"* panel now recognises that state and
+  opens by itself, shows the two steps for **your** device only (Android,
+  iPhone/iPad, Windows, macOS, Linux — the others are one tap away for when you
+  are setting up a phone from a laptop), and checks by itself that it worked.
+  The check is not a guess: a browser refuses to register a service worker on
+  an untrusted certificate, so a registration that succeeds *is* the proof the
+  CA is installed. It also knows the cases where there is nothing to do —
+  you are on the server machine, the server serves plain HTTP, or it uses a
+  certificate of its own — and asks for nothing in each. DEPLOY.md additionally
+  documents the ACME/DNS-01 route for households that own a domain and would
+  rather install nothing on any device.
+
 - **14 days of full Pro on every install**, microphone included — no key, no
   card, no account, and no network call: the window is one timestamp in the
   data directory, opened the first time the server starts. Because it lives

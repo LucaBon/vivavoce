@@ -289,3 +289,27 @@ def test_ca_pem_is_404_when_the_file_is_missing(live_server, tmp_path):
     # Configured but not yet generated: a 404 beats a traceback.
     absent = str(tmp_path / "never-made.pem")
     assert live_server(ca_path=absent).try_get("/ca.pem").status == 404
+
+
+# -- /tls ----------------------------------------------------------------------
+#
+# The one thing the page cannot work out for itself. It can see its own
+# protocol and can tell whether the browser trusts the certificate (a service
+# worker refuses to register otherwise), but not whether there is a local CA
+# to install at all — and walking a household that uses its own certificate
+# through installing a ca.pem that does not exist is a wild goose chase.
+
+def test_tls_reports_a_local_ca_when_there_is_one(live_server, tmp_path):
+    ca = tmp_path / "ca.pem"
+    ca.write_bytes(b"-----BEGIN CERTIFICATE-----\nfake\n")
+    assert live_server(ca_path=str(ca)).get("/tls").json() == {"ca": True}
+
+
+def test_tls_reports_no_ca_without_one(live_server):
+    assert live_server().get("/tls").json() == {"ca": False}
+
+
+def test_tls_reports_no_ca_when_the_file_is_missing(live_server, tmp_path):
+    # Same fail-safe as /ca.pem: configured but absent reads as absent.
+    absent = str(tmp_path / "never-made.pem")
+    assert live_server(ca_path=absent).get("/tls").json() == {"ca": False}

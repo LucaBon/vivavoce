@@ -86,15 +86,63 @@ uv run python localvoice/server.py --cert cert.pem --key key.pem
 and signs the server certificate with it. You can stop at the one-time browser
 warning — everything works as before — or go one step further:
 
-**Install the CA once per device → green lock + installable app.** The server
-offers the CA at **`/ca.pem`** (the page's *"📱 Installa come app"* panel has
-per-OS steps). Once trusted, the warning disappears **and** the service worker
-turns on, so *Install app / Add to Home Screen* gives a real fullscreen PWA
-with an offline shell. (Chrome refuses service workers on untrusted certificates,
-even after clicking through the warning — that's why the CA matters for the PWA.)
+**Install the CA once per device → green lock + installable app.** You do not
+have to follow this from here: open the page on the device itself and the
+*"📱 Installa come app"* panel walks you through it. It opens by itself when
+the certificate is not trusted, shows the steps for **that** device only
+(Android, iPhone/iPad, Windows, macOS, Linux), and — this is the part that
+used to be missing — **checks for you that it worked**. That check is not a
+guess: a browser refuses to register a service worker on an untrusted
+certificate even after you click through the warning, so if the service worker
+registers, the CA is genuinely installed. Which is also why the CA is what
+makes *Install app / Add to Home Screen* give a real fullscreen PWA with an
+offline shell.
+
 Re-issuing the server cert for new IPs reuses the CA, so devices stay trusted.
+The server offers the CA at **`/ca.pem`**; `GET /tls` says whether there is one
+to offer.
 
 The **text box works everywhere**, even over HTTP.
+
+#### Or skip the warning entirely: a real certificate
+
+Installing a CA is a per-device chore, and on some managed or work phones it is
+not permitted at all. If you already own a domain, ACME (Let's Encrypt) gives a
+certificate every browser trusts with nothing to install anywhere — including
+the ones where the CA route is blocked.
+
+The catch is that it cannot be done from inside this app, which is why it is
+documented rather than implemented: a LAN server has no public address, so the
+HTTP-01 challenge cannot reach it. The route that does work is **DNS-01**, and
+it needs three things this project deliberately does not have — a domain, API
+credentials for its DNS provider, and a renewal job. Vivavoce would also have
+to grow an ACME client (a runtime dependency, against the stdlib-only rule) or
+shell out to one.
+
+So it stays a documented recipe, with the ACME client outside the app:
+
+1. Own a domain and point a name at the server's **LAN** address —
+   `vivavoce.example.com → 192.168.1.20`. Public DNS pointing at a private IP
+   is fine and common; nothing outside your network can reach it.
+2. Get a certificate over **DNS-01** with your provider's plugin, e.g.
+   `certbot certonly --dns-cloudflare -d vivavoce.example.com`. No inbound
+   port, no port forwarding, nothing exposed.
+3. Start the server with it:
+   `--cert /etc/letsencrypt/live/vivavoce.example.com/fullchain.pem
+   --key .../privkey.pem`, and open the page at that **name** (not the IP —
+   the certificate is for the name).
+4. Renew on a timer (certbot installs one) and restart the server after.
+
+Trade-offs, honestly: 90-day certificates that must keep renewing, DNS API
+credentials on the machine, and a dependency on your domain and DNS provider
+staying put — against never touching a device again. The local CA has none of
+those and costs one install per device. Neither is wrong; households with a
+domain already will find the second obviously better, and everyone else the
+first.
+
+With a real certificate the page's panel simply reports the certificate as
+trusted and asks for nothing — there is no local CA to install, and it does not
+invent one to offer.
 
 ### Local speech recognition (Pro, optional)
 
@@ -228,14 +276,19 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 1. Same Wi-Fi as the server PC.
 2. Open **Chrome/Edge** at `https://<this-pc-ip>:8730`.
 3. First time: "connection not private" (self-signed cert) → **Advanced → Proceed**, once.
-4. Tap the **mic**, allow the permission, speak in Italian — or use the text box. The
-   reply shows on screen (silent by default). Tip: install the **local CA** (page panel
-   *"📱 Installa come app"* → `/ca.pem`) and then **Install app**: green lock, no
-   warnings, fullscreen app icon. When the reply offers a numbered list, its choices
-   appear as **tappable buttons** — tap instead of saying "metti la 2".
-5. Optional, hands-free: tick **"attiva a voce con una parola chiave"** and start commands
+4. The page opens the *"📱 Installa come app"* panel by itself, because it can tell the
+   certificate is not trusted. Follow its two steps — they are the ones for **your**
+   phone, not a list of four platforms — then tap **"L'ho installata — ricontrolla"**:
+   the page reloads and tells you whether it worked. After that: green lock, no
+   warnings, and **Install app / Add to Home Screen** gives a fullscreen app icon.
+   (Prefer a certificate no device has to trust? See *"Or skip the warning entirely"*
+   above.)
+5. Tap the **mic**, allow the permission, speak in Italian — or use the text box. The
+   reply shows on screen (silent by default). When the reply offers a numbered list, its
+   choices appear as **tappable buttons** — tap instead of saying "metti la 2".
+6. Optional, hands-free: tick **"attiva a voce con una parola chiave"** and start commands
    with the wake word ("vivavoce" by default) — «vivavoce metti Time».
-6. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
+7. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
    **Voci & lingue** panel then lets you pick natural per-language voices.
 
 ### Streaming services (TIDAL / Qobuz)

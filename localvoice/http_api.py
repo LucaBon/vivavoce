@@ -130,6 +130,13 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._send_artwork()
             elif self.path.startswith("/players"):
                 self._send_players()
+            elif self.path == "/tls":
+                # Whether there is a local CA to install at all. The page can
+                # see its own protocol, but not this: a household using its
+                # own certificate (or none) must not be walked through
+                # installing a ca.pem that does not exist.
+                self._send(200, json.dumps(
+                    {"ca": bool(ca_path and os.path.exists(ca_path))}))
             elif self.path == "/license":
                 status = license_mgr.status() if license_mgr else {"pro": False}
                 self._send(200, json.dumps(status))

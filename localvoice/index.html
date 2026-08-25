@@ -161,6 +161,16 @@
   </details>
   <details class="hint card" id="installpanel">
     <summary data-i18n="install_summary">Installa come app (senza avvisi del certificato)</summary>
+    <!-- Filled by certsetup.js: the verdict for THIS device, then the steps
+         for THIS platform. No data-i18n — applyUI() re-renders it through the
+         renderCertSetup hook instead, or it would wipe the live state. -->
+    <div id="certstate" class="certstate"></div>
+    <ol id="certsteps" style="text-align:left; padding-left:1.2rem; margin:.4rem 0"></ol>
+    <div id="certactions" class="choices">
+      <button class="choice" id="certverify" type="button"></button>
+      <button class="choice" id="certother" type="button"></button>
+    </div>
+    <div id="certallsteps" hidden>
     <ol style="text-align:left; padding-left:1.2rem; margin:.4rem 0" data-i18n="install_steps">
       <li>Scarica la CA locale: <a id="calink" href="/ca.pem">ca.pem</a> (una volta sola per dispositivo).</li>
       <li><b>Android</b>: Impostazioni → Sicurezza → Altro / Crittografia e credenziali →
@@ -173,6 +183,7 @@
         scegli <b>Installa app</b> / <b>Aggiungi a schermata Home</b>: si apre a tutto schermo
         come un'app vera.</li>
     </ol>
+    </div>
     <div data-i18n="install_ca_note">La CA è generata in casa tua e firma solo questo server: non dà a nessun altro
       la possibilità di intercettare il tuo traffico.</div>
   </details>

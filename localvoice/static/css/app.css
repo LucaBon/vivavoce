@@ -171,6 +171,11 @@ button.send:disabled { opacity: .55; cursor: default; }
                       color: var(--amber-text);
                       animation: dots 1s steps(4) infinite; }
 @keyframes dots { 0%{ opacity:.2 } 50%{ opacity:1 } 100%{ opacity:.2 } }
+/* The certificate verdict (certsetup.js): the only one that is good news
+   gets the green treatment; the rest read as the warnings they are. */
+.certstate { margin: .4rem 0; text-align: left; }
+.certstate.untrusted b, .certstate.nocert b { color: var(--danger); }
+.certstate.ok b { color: var(--accent-text); }
 .hint { color: var(--text-muted); font-size: .875rem; text-align: center; max-width: 480px; }
 .warn { color: var(--danger); }
 /* Everything that configures continuous listening, shown only while it is on.
