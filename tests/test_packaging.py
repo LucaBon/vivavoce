@@ -343,3 +343,50 @@ def test_the_oversized_list_only_shrinks():
         assert _line_count(files[rel]) > MAX_LINES, (
             f"{rel} is now under {MAX_LINES} lines: drop it from OVERSIZED_TODAY "
             f"so it stays that way")
+
+
+# -- the launch material -------------------------------------------------------
+#
+# The price is quoted in three files written at different times, in two
+# languages, with two decimal separators. That is exactly the shape of thing
+# that drifts silently and then gets discovered by a customer quoting the old
+# number back at you — so the numbers live in the plan, and this checks that
+# every file agrees with them.
+
+LIST_PRICE = "11.90"
+LAUNCH_PRICE = "8.90"
+PRICED_FILES = [("README.md",),
+                ("docs", "launch", "lyrion-forum-post.md"),
+                ("docs", "launch", "reddit-r-squeezebox.md")]
+
+
+def _prices_in(text):
+    """Every euro amount, with the decimal comma normalised to a point."""
+    return set(re.findall(r"(\d+[.,]\d{2})\s*€", text.replace(",", ".")))
+
+
+@pytest.mark.parametrize("parts", PRICED_FILES,
+                         ids=[p[-1] for p in PRICED_FILES])
+def test_every_price_quoted_is_a_price_we_actually_charge(parts):
+    quoted = _prices_in(_read(*parts))
+    assert quoted, f"{parts[-1]} quotes no price at all"
+    assert quoted <= {LIST_PRICE, LAUNCH_PRICE}, (
+        f"{parts[-1]} quotes {sorted(quoted - {LIST_PRICE, LAUNCH_PRICE})}, "
+        f"which is not the list price ({LIST_PRICE}) or the launch price "
+        f"({LAUNCH_PRICE})")
+
+
+def test_the_launch_posts_link_the_repository():
+    # These were TODO placeholders long enough to be worth a check.
+    for parts in PRICED_FILES[1:]:
+        assert "github.com/LucaBon/vivavoce" in _read(*parts)
+
+
+def test_the_launch_posts_promise_the_trial_and_the_refund():
+    # Both are the offer, not decoration: the window is what makes the mic
+    # felt before it is sold, and the refund is what makes the price a small
+    # decision. A post that forgets either is selling something else.
+    for parts in PRICED_FILES[1:]:
+        text = _read(*parts).lower()
+        assert "14 days of full pro" in text, f"{parts[-1]} drops the trial"
+        assert "no questions asked" in text, f"{parts[-1]} drops the refund"
