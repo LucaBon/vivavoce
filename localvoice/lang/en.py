@@ -27,7 +27,7 @@ MINUTE_WORDS.update({
 DURATIONS = (
     (c(r"^half\s+an?\s+hour\b"), 30),
     (c(r"^(?:an|one|1)\W?\s*hour\b"), 60),
-    (c(r"^(\d+)\s*hours?\b"), "hours"),
+    (c(r"^(\d+|[a-z]+)\s*hours?\b"), "hours"),
     (c(r"^(\d+|[a-z]+)\s*(?:minut\w*|min\b)"), "minutes"),
 )
 
@@ -45,14 +45,19 @@ PATTERNS = {
     "next": c(r"\b(next|skip|forward)\b"),
     "prev": c(r"\b(previous|go\s+back|back)\b"),
     "vol_up": c(r"(?:turn|put|pump|crank)?\s*up.{0,12}volume|volume\s+up"
-                r"|(?:raise|increase)\s.{0,8}volume|turn\s+it\s+up|louder"),
+                r"|(?:raise|increase)\s.{0,8}volume"),
     "vol_down": c(r"(?:turn|put)?\s*down.{0,12}volume|volume\s+down"
-                  r"|(?:lower|decrease|reduce)\s.{0,8}volume|turn\s+it\s+down"
-                  r"|quieter|softer"),
+                  r"|(?:lower|decrease|reduce)\s.{0,8}volume"),
+    # Loose forms that name no control: gated on is_play in the router, so a
+    # title containing them still plays (see the Italian pack).
+    "vol_up_loose": c(r"turn\s+it\s+up|louder"),
+    "vol_down_loose": c(r"turn\s+it\s+down|quieter|softer"),
     # Sleep timer: the captured tail must parse as a duration (see DURATIONS),
     # otherwise the phrase falls through to pause/play.
-    "sleep": c(r"(?:sleep|stop|turn\s+off|switch\s+off|shut\s+(?:down|off))"
-               r"\b.{0,20}?\bin\s+(.+)$"),
+    # "pause" belongs here too: "pause in 30 minutes" used to pause now. The
+    # tail must still parse as a duration, so a title can't become a timer.
+    "sleep": c(r"(?:sleep|stop|pause|turn\s+off|switch\s+off"
+               r"|shut\s+(?:down|off))\b.{0,20}?\bin\s+(.+)$"),
     "sleep_cancel": c(r"^(?:cancel|clear|remove)\b.{0,15}(?:sleep|timer)"),
     # Loose on purpose (mirrors the Italian style) and gated by is_play in
     # handle(), so "play What Is This Feeling" stays a play command. Also

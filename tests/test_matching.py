@@ -389,3 +389,71 @@ def test_search_tracks_includes_artist_when_present(lms, transport, make_tidal):
         {"url": "tidal://1.flc", "title": "Time", "artist": "PF"},
         {"url": "tidal://2.flc", "title": "Money"},
     ]
+
+
+# -- normalisation: punctuation used to decide matches ------------------------
+def test_punctuation_does_not_defeat_a_title():
+    # Measured before the fix: 0.089 — «wall» could not find this song at all.
+    assert _score("wall", "Another Brick in the Wall, Pt. 1") >= 0.9
+
+
+def test_a_dropped_apostrophe_still_matches():
+    # Web Speech writes «dont», and Italian is full of l'/dell'. This scored
+    # 0.84 — below EXACT_SCORE, so it asked "which one?" instead of playing.
+    assert _score("dont stop me now", "Don't Stop Me Now") == 1.0
+    assert _score("Don’t Stop Me Now", "Don't Stop Me Now") == 1.0
+    assert _score("l'amore", "lamore") == 1.0
+
+
+def test_letters_without_a_combining_mark_are_folded_too():
+    assert actions._normalize("Straße") == "strasse"
+    assert actions._normalize("Sigur Rós") == "sigur ros"
+    assert actions._normalize("Motörhead") == "motorhead"
+
+
+def test_non_latin_titles_keep_their_characters():
+    assert actions._normalize("Полюшко Поле") == "полюшко поле"
+
+
+# -- the artist separator -----------------------------------------------------
+def test_the_last_connector_splits_title_from_artist():
+    # Split on the FIRST "by" and this searched for a song called "Stand".
+    assert actions.parse_song_query("Stand By Me by Ben E. King") == {
+        "title": "Stand By Me", "artist": "Ben E. King", "album": None}
+
+
+def test_a_connector_inside_a_title_is_not_an_artist():
+    assert actions.parse_song_query("Ti amo di più")["artist"] is None
+
+
+def test_a_leading_connector_left_by_the_filler_is_dropped():
+    assert actions.parse_song_query("la canzone di Marinella di De André") == {
+        "title": "Marinella", "artist": "De André", "album": None}
+
+
+# -- a named artist that isn't in the results ---------------------------------
+def test_a_named_artist_with_no_edition_is_not_silently_swapped(
+        lms, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Yesterday", "artist": "The Beatles"}]},
+    )
+    reply = actions.play_song(lms, "Yesterday di Vasco Rossi")
+    assert reply.ok is False
+    assert "Vasco Rossi" in reply
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+
+
+def test_the_named_artist_is_found_below_the_top_three(lms, transport,
+                                                       make_tidal):
+    # Only the top 3 were scanned; the right edition often sits lower.
+    items = [{"isaudio": 1, "url": f"tidal://{i}.flc", "name": "Yesterday",
+              "artist": "A Cover Band"} for i in range(1, 6)]
+    items.append({"isaudio": 1, "url": "tidal://real.flc",
+                  "name": "Yesterday", "artist": "The Beatles"})
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": items})
+    reply = actions.play_song(lms, "Yesterday dei Beatles")
+    assert reply.ok is True
+    assert ["playlist", "play", "tidal://real.flc"] in transport.commands()

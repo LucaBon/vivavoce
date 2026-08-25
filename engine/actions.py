@@ -201,12 +201,41 @@ BLOCKED_SPEECH = msg("blocked")
 NOT_OWNER_SPEECH = msg("not_owner")
 
 
+# Apostrophes in every shape a title, a keyboard or a recogniser produces.
+# They are DELETED rather than turned into a space: Italian is full of
+# l'/dell'/nell', and splitting "l'amore" into two tokens would match every
+# title containing a bare "l". The practical case is the other direction —
+# Web Speech drops the apostrophe entirely, so «dont stop me now» has to
+# reach "Don't Stop Me Now".
+_APOSTROPHES = "'\u2019\u02bc\u2018\u00b4`"
+
+# Letters that carry no combining mark to strip: NFKD leaves them whole, so a
+# small table is the only way «Motörhead» stays fine while "Straße" and
+# "Sigur Rós"-style Nordic spellings still fold to what a recogniser writes.
+_FOLD_MAP = {
+    "\u00df": "ss", "\u00f8": "o", "\u00e6": "ae", "\u0153": "oe",
+    "\u0142": "l", "\u0111": "d", "\u00f0": "d", "\u00fe": "th",
+    "\u0131": "i", "\u0127": "h", "\u014b": "n",
+}
+
+
 def _normalize(text: Optional[str]) -> str:
-    """Lowercase + strip accents + collapse spaces, for accent/case-insensitive
-    Italian matching ('Andrà' -> 'andra')."""
-    decomposed = unicodedata.normalize("NFKD", (text or "").lower())
+    """Lowercase, fold accents and punctuation, collapse spaces.
+
+    Punctuation used to survive this, and it decided matches: "Another Brick
+    in the Wall, Pt. 1" scored 0.089 against «wall» because the comma and the
+    full stop welded themselves to their neighbours, and "Don't Stop Me Now"
+    scored 0.84 against the apostrophe-less «dont stop me now» — enough to
+    ask "which one?" instead of playing it. Anything that isn't a letter or a
+    digit is a separator now (``isalnum`` rather than an ASCII class, so
+    Cyrillic/Greek/CJK titles keep their characters), and apostrophes vanish.
+    """
+    lowered = "".join(_FOLD_MAP.get(c, c) for c in (text or "").lower())
+    decomposed = unicodedata.normalize("NFKD", lowered)
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", stripped).strip()
+    stripped = "".join(c for c in stripped if c not in _APOSTROPHES)
+    spaced = "".join(c if c.isalnum() else " " for c in stripped)
+    return re.sub(r"\s+", " ", spaced).strip()
 
 
 def parse_blocklist(raw) -> List[str]:
@@ -294,6 +323,15 @@ _ARTIST_SEP = re.compile(
     r"\b(?:dei|degli|delle|della|dell['’]|del|di|by)\s+", re.IGNORECASE
 )
 
+# Tails that are never an artist name — the phrase just happens to contain a
+# connector. Without this, "Ti amo di più" searched for a singer called
+# «più», and "Stand By Me" for one called "Me".
+_NOT_AN_ARTIST = {
+    "piu", "meno", "me", "te", "noi", "voi", "lui", "lei", "loro", "se",
+    "you", "us", "it", "her", "him", "them", "myself", "yourself", "now",
+    "here", "there", "one", "two", "all", "more", "less", "everyone",
+}
+
 
 def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
     """Parse a free-text song request into ``{'title', 'artist', 'album'}``.
@@ -309,12 +347,25 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
         album = text[match.end():].strip() or None
     else:
         pre = text
+    # Stripping the lead filler can leave the connector in front («la canzone
+    # di Marinella di De André» -> "di Marinella di De André"): drop it, or it
+    # becomes part of the title and drags every score down.
+    lead = _ARTIST_SEP.match(pre)
+    if lead and pre[lead.end():].strip():
+        pre = pre[lead.end():].strip()
     title, artist = pre, None
-    am = _ARTIST_SEP.search(pre)
-    if am:
+    # The LAST connector, not the first: "Stand By Me by Ben E. King" split on
+    # its own "By" and searched for a song called "Stand". Scanned right to
+    # left so a title that itself contains a connector keeps it, and skipped
+    # entirely when the tail is a word no artist is called.
+    for am in reversed(list(_ARTIST_SEP.finditer(pre))):
         head, tail = pre[: am.start()].strip(), pre[am.end():].strip()
-        if head and tail:  # both sides non-empty -> treat as "title <conn> artist"
-            title, artist = head, tail
+        if not head or not tail:
+            continue
+        if _normalize(tail) in _NOT_AN_ARTIST:
+            continue
+        title, artist = head, tail
+        break
     return {"title": title or None, "artist": artist, "album": album}
 
 
@@ -351,11 +402,21 @@ def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None)
     exacts = [t for t in tracks if _score(title, t.get("title")) >= EXACT_SCORE]
     strong = [t for t in tracks if _score(title, t.get("title")) >= CONFIDENT_SCORE]
     # 1) An artist was named -> play the matching edition (search_tracks carries the
-    #    artist, so this picks the right one among identical-title songs).
+    #    artist, so this picks the right one among identical-title songs). Every
+    #    strong hit is scanned, not just the top 3: the search returns 20, and
+    #    the named artist's edition sits below the fold often enough to matter.
     if artist and strong:
-        best = max(strong[:DIDYOUMEAN_LIMIT], key=lambda t: _score(artist, t.get("artist")))
+        best = max(strong, key=lambda t: _score(artist, t.get("artist")))
         if _score(artist, best.get("artist")) >= CONFIDENT_SCORE:
             return _play_tidal_track(lms, best, title, mode=mode, guard=guard)
+        # An artist was named and nobody in the results is them. Say so rather
+        # than falling through to exacts[0]: «Yesterday di Vasco Rossi» played
+        # The Beatles, and in queue mode it did that without even asking.
+        # Only when the results carry artists at all — some feeds don't, and
+        # then we genuinely cannot tell.
+        if any(t.get("artist") for t in strong):
+            return ActionResult(msg("no_track_by", title=title, artist=artist),
+                                ok=False)
     # 2) Exact title match -> play TIDAL's top exact (e.g. "Money" over "Money for
     #    Nothing"). 3) No title match at all -> trust TIDAL's own ranking.
     if exacts:
@@ -532,15 +593,25 @@ def change_volume(lms, direction: str) -> ActionResult:
                         ok=True)
 
 
+# A sleep timer beyond half a day is a misheard number, not a request
+# («spegni tra 100000 minuti» was armed as-is).
+MAX_SLEEP_MINUTES = 12 * 60
+
+
 def set_sleep(lms, minutes: int) -> ActionResult:
     """Arm the LMS sleep timer: playback stops after ``minutes``."""
     if not minutes or minutes <= 0:
         return ActionResult(msg("ask_sleep"), ok=False)
+    minutes = int(minutes)
+    if minutes > MAX_SLEEP_MINUTES:
+        return ActionResult(msg("sleep_too_long", max=MAX_SLEEP_MINUTES),
+                            ok=False)
     try:
-        lms.sleep(int(minutes) * 60)
+        lms.sleep(minutes * 60)
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
-    return ActionResult(msg("sleep_set", minutes=int(minutes)), ok=True)
+    key = "sleep_set_one" if minutes == 1 else "sleep_set"
+    return ActionResult(msg(key, minutes=minutes), ok=True)
 
 
 def cancel_sleep(lms) -> ActionResult:
@@ -558,14 +629,23 @@ def now_playing(lms) -> str:
         return msg("err_unreachable")
     if not info or not info.get("title"):
         return ActionResult(msg("nothing_playing"), ok=True)
+    # "status - 1" hands back the queue head whatever the transport is doing,
+    # so a stopped player used to answer "Sta suonando X" about a song nobody
+    # could hear. Paused says paused; stopped says nothing is playing. Only an
+    # explicit mode contradicts the queue head — a transport that reports none
+    # is taken at face value, as before.
+    mode = info.get("mode")
+    if mode == "stop":
+        return ActionResult(msg("nothing_playing"), ok=True)
+    prefix = "paused_on" if mode == "pause" else "now_playing"
     title = info.get("title")
     artist = info.get("artist")
     if artist:
         return ActionResult(
-            msg("now_playing_by", title=title, artist=artist),
+            msg(prefix + "_by", title=title, artist=artist),
             ok=True, terms=[title, artist],
         )
-    return ActionResult(msg("now_playing", title=title), ok=True, terms=[title])
+    return ActionResult(msg(prefix, title=title), ok=True, terms=[title])
 
 
 # -- queue (playlist) management -------------------------------------------
@@ -768,6 +848,12 @@ def choose_by_name(
 
 
 # -- local library (Music Folder / USB) -----------------------------------
+# On a score tie the category order used to decide, and it listed albums
+# first: asking for an artist whose name is also one of their album titles
+# played the album. Preference order when scores are equal.
+_LOCAL_KIND_RANK = {"artist": 0, "track": 1, "album": 2}
+
+
 def _local_group(cands, query, kind, action, guard):
     """Confident, distinct candidates for one category, each scored by its own name
     (album/track by title, artist by name) and turned into a choose_from-ready dict."""
@@ -809,7 +895,9 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
         ]
         if not groups:
             return ActionResult(msg("local_not_found", query=query), ok=False)
-        groups.sort(key=lambda g: -g[0][0])  # best-scoring category wins
+        # Best-scoring category wins; an exact tie goes to the artist.
+        groups.sort(key=lambda g: (-g[0][0],
+                                   _LOCAL_KIND_RANK.get(g[0][1]["_kind"], 9)))
         winner = [cand for _s, cand in groups[0]]
         distinct = _dedup_by_title_artist(winner)
         if len(distinct) >= 2:

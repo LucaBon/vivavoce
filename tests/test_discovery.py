@@ -55,14 +55,30 @@ def test_candidate_phases_order_and_dedup(monkeypatch):
     monkeypatch.setattr(discovery, "_local_prefixes",
                         lambda: ["192.168.1", "172.17.0"])
     phases = dict(discovery._candidate_phases())
-    assert list(phases) == ["local", "common", "full"]
+    assert list(phases) == ["local", "common", "wide", "full"]
     assert phases["local"] == ["192.168.1", "172.17.0"]
     assert "192.168.1" not in phases["common"]          # già in "local"
     assert "10.0.0" in phases["common"]
     assert "192.168.1" not in phases["full"]            # niente doppioni
     assert "192.168.123" in phases["full"]              # il resto del /16 c'è
-    all_prefixes = phases["local"] + phases["common"] + phases["full"]
+    all_prefixes = sum(phases.values(), [])
     assert len(all_prefixes) == len(set(all_prefixes))
+
+
+def test_a_wide_local_range_is_swept_beyond_its_own_24(monkeypatch):
+    # Una rete piatta 10.0.0.0/16 (NAS, switch gestito): l'LMS sta in una /24
+    # vicina alla nostra, e prima della fase "wide" non veniva mai trovato.
+    monkeypatch.setattr(discovery, "_local_prefixes", lambda: ["10.0.1"])
+    phases = dict(discovery._candidate_phases())
+    assert "10.0.7" in phases["wide"]
+    assert "10.0.1" not in phases["wide"]               # già in "local"
+    assert "10.0.0" not in phases["wide"]               # già in "common"
+
+
+def test_a_192_168_local_range_adds_no_wide_phase(monkeypatch):
+    # Lì il /24 del router è la regola e la fase "full" copre già il /16.
+    monkeypatch.setattr(discovery, "_local_prefixes", lambda: ["192.168.1"])
+    assert "wide" not in dict(discovery._candidate_phases())
 
 
 def test_local_prefixes_skips_loopback_and_link_local(monkeypatch):

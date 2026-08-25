@@ -34,7 +34,7 @@ MINUTE_WORDS.update({
 DURATIONS = (
     (c(r"^mezz\W?ora\b"), 30),
     (c(r"^(?:un|1)\W?\s*ora\b"), 60),
-    (c(r"^(\d+)\s*ore\b"), "hours"),
+    (c(r"^(\d+|[a-zà-ù]+)\s*ore\b"), "hours"),
     (c(r"^(\d+|[a-zà-ù]+)\s*(?:minut\w*|min\b)"), "minutes"),
 )
 
@@ -51,11 +51,19 @@ PATTERNS = {
     "resume": c(r"\b(riprendi|riparti|continua|play)\b"),
     "next": c(r"\b(success|prossim|avanti|salta)"),
     "prev": c(r"\b(precedent|indietro|torna)"),
-    "vol_up": c(r"(alza|aumenta).{0,12}volume|pi[uù] forte"),
-    "vol_down": c(r"(abbassa|diminuisci).{0,12}volume|pi[uù] piano"),
+    "vol_up": c(r"(alza|aumenta).{0,12}volume"),
+    "vol_down": c(r"(abbassa|diminuisci).{0,12}volume"),
+    # Loose forms that name no control: gated on is_play in the router, or
+    # «metti Più Forte di Sempre» raised the volume instead of playing it.
+    "vol_up_loose": c(r"pi[uù] forte"),
+    "vol_down_loose": c(r"pi[uù] piano"),
     # Sleep timer: the captured tail must parse as a duration (see DURATIONS),
     # otherwise the phrase falls through to pause/play.
-    "sleep": c(r"(?:spegni(?:ti)?|ferma(?:ti)?|stop)\b.{0,20}?\b(?:tra|fra)\s+(.+)$"),
+    # "pausa" belongs here too: «metti in pausa tra 30 minuti» used to reach
+    # pause_explicit and pause immediately. The tail must still parse as a
+    # duration, so a title can't be mistaken for a timer.
+    "sleep": c(r"(?:spegni(?:ti)?|ferma(?:ti)?|stop|pausa)\b.{0,20}?"
+               r"\b(?:tra|fra)\s+(.+)$"),
     "sleep_cancel": c(r"^(?:annulla|cancella|togli)\b.{0,15}"
                       r"(?:spegnimento|timer|sleep)"),
     "nowplaying": c(r"(cosa|che).{0,8}(suona|canzone|ascolt)"),

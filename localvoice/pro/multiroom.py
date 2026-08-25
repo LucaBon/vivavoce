@@ -41,6 +41,21 @@ def _fold(text: Optional[str]) -> str:
     return "".join(c for c in t if not unicodedata.combining(c))
 
 
+# How close a spoken room has to be to a player name. The fuzzy path used to
+# open at 0.75 with no length floor, and that is not a room-matching rule, it
+# is a title-eating one: a player called «Amelia» claimed «metti Breakfast in
+# America», and «Paradiso» claimed "Lost in Paradise". A prefix or an exact
+# name still wins outright (see below) — this threshold governs only the
+# genuinely approximate case, which is ASR spelling, not a different word.
+# 0.90 rather than the more obvious 0.85: «paradise» scores 0.875 against a
+# player named «Paradiso», and "Lost in Paradise" is a song. One character in
+# ten is as far as a room name may drift.
+FUZZY_MIN_RATIO = 0.90
+# ...and only for something long enough for a ratio to mean anything: on 3
+# characters a single shared letter already scores 0.66.
+FUZZY_MIN_CHARS = 4
+
+
 def _match_player(room: str, players: List[Dict[str, Any]]) -> Optional[Dict]:
     """The player whose name best matches a spoken room, or None. Fuzzy on
     purpose: ASR writes «salotto» for a player named «Salotto Hi-Fi»."""
@@ -56,12 +71,18 @@ def _match_player(room: str, players: List[Dict[str, Any]]) -> Optional[Dict]:
         name_f = _fold(player.get("name"))
         if not name_f or not player.get("playerid"):
             continue
+        # A player LMS reports as disconnected is not a room anyone is in:
+        # targeting it swallows the command and plays nothing, silently.
+        if "connected" in player and not player.get("connected"):
+            continue
         score = difflib.SequenceMatcher(None, room_f, name_f).ratio()
         if len(room_f) >= 3 and (name_f.startswith(room_f) or room_f == name_f):
             score = max(score, 0.96)
+        elif len(room_f) < FUZZY_MIN_CHARS or score < FUZZY_MIN_RATIO:
+            continue   # too short, or too far, for the fuzzy path
         if score > best_score:
             best, best_score = player, score
-    return best if best_score >= 0.75 else None
+    return best if best_score >= FUZZY_MIN_RATIO else None
 
 
 class MultiRoom:

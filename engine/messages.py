@@ -29,6 +29,7 @@ IT = {
     # -- play (streaming) ----------------------------------------------------
     "ask_title": "Non ho capito il titolo. Puoi ripetere?",
     "no_track_found": "Non ho trovato nessun brano per {title}.",
+    "no_track_by": "Non ho trovato {title} di {artist}.",
     "playing": "Riproduco {name}.",
     "playing_by": "Riproduco {name} di {artist}.",
     "album_not_found": "Non ho trovato l'album {album}.",
@@ -87,10 +88,14 @@ IT = {
     "volume_down": "Volume abbassato.",
     "ask_sleep": "Non ho capito tra quanti minuti spegnere. Puoi ripetere?",
     "sleep_set": "Va bene, spengo tra {minutes} minuti.",
+    "sleep_set_one": "Va bene, spengo tra un minuto.",
+    "sleep_too_long": "\u00c8 troppo: posso spegnere al massimo tra {max} minuti.",
     "sleep_cancelled": "Timer di spegnimento annullato.",
     "nothing_playing": "Al momento non sta suonando niente.",
     "now_playing": "Sta suonando {title}.",
     "now_playing_by": "Sta suonando {title} di {artist}.",
+    "paused_on": "\u00c8 in pausa su {title}.",
+    "paused_on_by": "\u00c8 in pausa su {title} di {artist}.",
 
     # -- lists -> numbered choice -------------------------------------------
     "which_artist": "Di quale artista?",
@@ -157,6 +162,7 @@ EN = {
     # -- play (streaming) ----------------------------------------------------
     "ask_title": "I didn't catch the title. Can you repeat?",
     "no_track_found": "I couldn't find any track for {title}.",
+    "no_track_by": "I couldn't find {title} by {artist}.",
     "playing": "Playing {name}.",
     "playing_by": "Playing {name} by {artist}.",
     "album_not_found": "I couldn't find the album {album}.",
@@ -216,10 +222,14 @@ EN = {
     "volume_down": "Volume down.",
     "ask_sleep": "I didn't catch in how many minutes to stop. Can you repeat?",
     "sleep_set": "Okay, stopping in {minutes} minutes.",
+    "sleep_set_one": "Okay, stopping in one minute.",
+    "sleep_too_long": "That's too far off: I can stop in at most {max} minutes.",
     "sleep_cancelled": "Sleep timer cancelled.",
     "nothing_playing": "Nothing is playing right now.",
     "now_playing": "Now playing {title}.",
     "now_playing_by": "Now playing {title} by {artist}.",
+    "paused_on": "Paused on {title}.",
+    "paused_on_by": "Paused on {title} by {artist}.",
 
     # -- lists -> numbered choice -------------------------------------------
     "which_artist": "Which artist?",

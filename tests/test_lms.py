@@ -331,7 +331,16 @@ def test_now_playing_info_parses(lms, transport):
     transport.responses["status"] = {
         "playlist_loop": [{"title": "Time", "artist": "Pink Floyd"}]
     }
-    assert lms.now_playing_info() == {"title": "Time", "artist": "Pink Floyd"}
+    assert lms.now_playing_info() == {"title": "Time", "artist": "Pink Floyd",
+                                     "mode": None}
+
+
+def test_now_playing_info_carries_the_transport_mode(lms, transport):
+    transport.responses["status"] = {
+        "mode": "stop",
+        "playlist_loop": [{"title": "Time", "artist": "Pink Floyd"}],
+    }
+    assert lms.now_playing_info()["mode"] == "stop"
 
 
 def test_now_playing_info_none_when_stopped(lms, transport):

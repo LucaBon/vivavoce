@@ -25,6 +25,7 @@ State (the last read-out list) is kept in-instance for the "metti la N" /
 from __future__ import annotations
 
 import re
+import time
 
 import actions
 from lang import PACKS
@@ -70,7 +71,10 @@ def _parse_minutes(tail):
             if not m:
                 continue
             if spec == "hours":
-                return int(m.group(1)) * 60
+                token = m.group(1)
+                hours = (int(token) if token.isdigit()
+                         else _MINUTE_WORDS.get(token))
+                return hours * 60 if hours else None
             if spec == "minutes":
                 token = m.group(1)
                 return int(token) if token.isdigit() else _MINUTE_WORDS.get(token)
@@ -113,9 +117,22 @@ def _source_suffix(name) -> str:
     return msg("from_service", service=_SERVICE_LABELS.get(name, name))
 
 
+# How long a read-out list stays pickable. Without a clock on it, the list
+# lived for the life of the process: days later a one-word title («Uno»,
+# «Sei», «Prima») was read as a pick from a list nobody remembered opening,
+# instead of being searched — and because it "matched", the web app never
+# offered its "report this phrase" button either.
+CANDIDATES_TTL = 300.0
+# After a pick has been acted on the list is nearly done: long enough that the
+# choice buttons still on screen keep working ("no, the other one"), short
+# enough that it can't hijack anything later.
+CANDIDATES_GRACE = 30.0
+
+
 class Router:
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
-                 kidsafe=None, client_id="default", multiroom=None):
+                 kidsafe=None, client_id="default", multiroom=None,
+                 now=time.monotonic):
         self.lms = lms
         # Multi-room (Pro): an injected feature object (pro/multiroom.py) with
         # a narrow contract — extract_room(text, lang) and pro_ok(). Like
@@ -131,7 +148,10 @@ class Router:
         self.kidsafe = kidsafe
         self.client_id = client_id
         self._guard = None  # computed per handle() call
+        self.now = now
         self.candidates = None  # candidates from the last list command
+        # When the open list stops being pickable (see CANDIDATES_TTL).
+        self.cand_until = 0.0
         # Where those candidates play from ('local' or a service name), so a
         # follow-up pick's confirmation can say the source too.
         self.cand_source = None
@@ -174,12 +194,32 @@ class Router:
         return actions.ActionResult(speech, ok=True, candidates=res.candidates,
                                     kind=res.kind, terms=res.terms)
 
+    def _expire_candidates(self) -> None:
+        """Forget a list nobody picked from in time (see CANDIDATES_TTL)."""
+        if self.candidates and self.now() >= self.cand_until:
+            self.candidates = None
+            self.cand_source = None
+            self.cand_player = None
+            self.cand_mode = "play"
+
+    def _used_list(self) -> None:
+        """A pick was acted on: the list has done its job. Kept alive for a
+        short grace window so the choice buttons still on screen keep working,
+        then gone."""
+        self.cand_until = min(self.cand_until, self.now() + CANDIDATES_GRACE)
+
+    def _open_list(self, src, mode="play") -> None:
+        self.cand_source = src
+        self.cand_mode = mode
+        self.cand_until = self.now() + CANDIDATES_TTL
+        self._opened = True
+
     def _remember(self, result: dict, src=None) -> str:
         self.candidates = result["candidates"] or None
         self._opened = bool(self.candidates)
         if self.candidates:
-            self.cand_source = src
-            self.cand_mode = "play"  # these lists are always meant to be played
+            # these lists are always meant to be played
+            self._open_list(src, "play")
         return result["speech"]
 
     def _played(self, result, src=None, mode="play"):
@@ -189,9 +229,7 @@ class Router:
         cands = getattr(result, "candidates", None)
         if cands:
             self.candidates = cands
-            self.cand_source = src
-            self.cand_mode = mode
-            self._opened = True
+            self._open_list(src, mode)
         return result
 
     def _resolve(self, arg: str, stream_fn, source: str):
@@ -280,6 +318,7 @@ class Router:
         # buttons (the list was already shown on the previous reply).
         self._opened = False
         self._unmatched = False  # _route sets it on the "non ho capito" path
+        self._expire_candidates()
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
         t = (text or "").strip()
@@ -385,15 +424,17 @@ class Router:
 
         # 1) transport & info (source-independent). The sleep timer goes first:
         # «spegni/stop tra 30 minuti» contains transport words, but only counts
-        # when its tail really parses as a duration.
-        if not is_play:
-            if P["sleep_cancel"].search(t):
-                return actions.cancel_sleep(self.lms)
-            m = P["sleep"].search(t)
-            if m:
-                minutes = _parse_minutes(m.group(1))
-                if minutes:
-                    return actions.set_sleep(self.lms, minutes)
+        # when its tail really parses as a duration — which is also why it is
+        # NOT gated on is_play: «metti in pausa tra 30 minuti» carries a play
+        # verb, and used to reach pause_explicit and pause the music at once.
+        # The duration requirement is the guard a title needs.
+        if not is_play and P["sleep_cancel"].search(t):
+            return actions.cancel_sleep(self.lms)
+        m = P["sleep"].search(t)
+        if m:
+            minutes = _parse_minutes(m.group(1))
+            if minutes:
+                return actions.set_sleep(self.lms, minutes)
         if P["pause_explicit"].search(t) or (not is_play and P["pause"].search(t)):
             return actions.pause(self.lms)
         # Bare "play" is a resume even though "play" is also a play verb.
@@ -403,9 +444,11 @@ class Router:
             return actions.next_track(self.lms)
         if not is_play and P["prev"].search(t):
             return actions.previous_track(self.lms)
-        if P["vol_up"].search(t):
+        # The loose forms («più forte», "louder") name no control, so a title
+        # can be one: they only count when nothing asked to play something.
+        if P["vol_up"].search(t) or (not is_play and P["vol_up_loose"].search(t)):
             return actions.change_volume(self.lms, "up")
-        if P["vol_down"].search(t):
+        if P["vol_down"].search(t) or (not is_play and P["vol_down_loose"].search(t)):
             return actions.change_volume(self.lms, "down")
         # Gated by is_play so a title like "What Is This Feeling" still plays.
         if not is_play and P["nowplaying"].search(t):
@@ -429,10 +472,12 @@ class Router:
             if self.cand_player and not self._room_turn:
                 pick_lms = self.lms.for_player(self.cand_player[0])
                 room_suffix = msg("in_room", room=self.cand_player[1])
+            picked = actions.choose_from(pick_lms, self.candidates, number,
+                                         mode=self.cand_mode, guard=self._guard)
+            if getattr(picked, "ok", False):
+                self._used_list()
             return self._tag(
-                self._tag(actions.choose_from(pick_lms, self.candidates, number,
-                                              mode=self.cand_mode, guard=self._guard),
-                          _source_suffix(self.cand_source)),
+                self._tag(picked, _source_suffix(self.cand_source)),
                 room_suffix)
 
         # 3) explicit source override phrases (win over the selector). Service
@@ -483,6 +528,8 @@ class Router:
                     mode=self.cand_mode, guard=self._guard
                 )
                 if chosen is not None:
+                    if getattr(chosen, "ok", False):
+                        self._used_list()
                     return self._tag(
                         self._tag(chosen, _source_suffix(self.cand_source)),
                         room_suffix)

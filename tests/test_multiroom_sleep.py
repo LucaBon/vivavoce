@@ -227,6 +227,29 @@ def test_fresh_list_without_room_forgets_the_room(room_router, transport):
     assert picks[-1][0] == "aa:bb:cc:dd:ee:ff"
 
 
+def test_a_song_title_is_not_a_room(lms, transport):
+    """The fuzzy path used to open at 0.75 with no length floor, so a player
+    called «Amelia» claimed «metti Breakfast in America»."""
+    router = Router(lms, multiroom=make_multiroom(
+        players=[{"playerid": "am:am", "name": "Amelia"},
+                 {"playerid": "pa:pa", "name": "Paradiso"}]))
+    for phrase in ("metti Breakfast in America", "metti Lost in Paradise"):
+        assert router.multiroom.extract_room(phrase, "it")[1] is None
+
+
+def test_a_real_room_still_matches_through_asr_spelling(lms):
+    mr = make_multiroom(players=[{"playerid": "s:s", "name": "Salotto Hi-Fi"}])
+    stripped, player = mr.extract_room("metti Time in salotto", "it")
+    assert player["playerid"] == "s:s"
+    assert stripped == "metti Time"
+
+
+def test_a_disconnected_player_is_not_a_room(lms):
+    mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cucina",
+                                  "connected": 0}])
+    assert mr.extract_room("metti Time in cucina", "it")[1] is None
+
+
 def test_room_targeting_is_pro_gated(lms, transport):
     # No license infrastructure: a room-targeted command gets the Pro pitch
     # and nothing reaches the LMS.

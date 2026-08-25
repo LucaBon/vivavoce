@@ -134,6 +134,7 @@ def _lms_reachable(url: str, timeout: float = 2.0) -> bool:
 _DISCOVERY_PHASES = {
     "sweep": "Nessuna risposta al broadcast (normale dentro Docker): "
              "discovery unicast, subnet per subnet...",
+    "wide": "Non ancora trovato: provo le altre subnet della tua rete...",
     "full": "Non ancora trovato: scansione completa di 192.168.*...",
 }
 

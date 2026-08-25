@@ -245,6 +245,7 @@ class LMSClient:
 
     def _http_transport(self, params: list) -> Dict[str, Any]:
         import base64
+        import http.client
         import json
         import urllib.error
         import urllib.request
@@ -265,7 +266,12 @@ class LMSClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except (urllib.error.URLError, OSError, ValueError,
+                http.client.HTTPException) as exc:
+            # http.client.HTTPException is NOT an OSError: an LMS restarted
+            # mid-response raised BadStatusLine/IncompleteRead straight past
+            # this handler, and the caller's `except LMSError` never saw it —
+            # the page got a traceback instead of the friendly message.
             raise LMSError(f"LMS request failed: {exc}") from exc
         if not isinstance(body, dict) or "result" not in body:
             raise LMSError(f"Unexpected LMS response: {body!r}")
@@ -531,12 +537,19 @@ class LMSClient:
         return self.command("playlistcontrol", "cmd:insert", f"track_id:{track_id}")
 
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
+        """The queue head plus the transport ``mode`` (play/pause/stop).
+
+        The mode matters: ``status - 1`` returns the current queue entry
+        whatever the player is doing, so without it a stopped player answered
+        "now playing X" about a song nobody could hear.
+        """
         res = self.command("status", "-", "1", "tags:aAlN")
         loop = res.get("playlist_loop") or []
         if not loop:
             return None
         item = loop[0]
-        return {"title": item.get("title"), "artist": item.get("artist")}
+        return {"title": item.get("title"), "artist": item.get("artist"),
+                "mode": res.get("mode")}
 
     def status_info(self) -> Dict[str, Any]:
         """Player status for the web now-playing panel.
