@@ -13,6 +13,7 @@ the mini-player ``volume`` action, and the Pro gate on all of it.
 import pytest
 
 from conftest import FakeLicense
+from messages import msg
 from pro.multiroom import MultiRoom
 from router import Router
 
@@ -255,9 +256,29 @@ def test_room_targeting_is_pro_gated(lms, transport):
     # and nothing reaches the LMS.
     free = Router(lms, multiroom=make_multiroom(pro=None))
     reply = free.handle("metti Time in cucina")
-    assert reply == ("Questa è una funzione Pro: si attiva dalle "
-                     "impostazioni della pagina.")
+    assert "Pro" in str(reply)
     assert transport.calls == []
+
+
+def test_the_gated_reply_names_the_room_and_the_way_out(lms, transport):
+    """The refusal has to say which room it thinks it heard.
+
+    Not manners: a room name is a GUESS about what the words meant, and this
+    sentence is the only place it becomes visible. On a system with a player
+    called «America», «metti breakfast in america» is refused as a room
+    command — and until this reply named the room, the listener had no way to
+    see why a song they own was answered with an advertisement. (That the
+    guess wins at all is the open half: T2.7.)
+
+    It also has to offer the one-turn way out, which is what makes refusing
+    cheap for whoever is talking rather than a dead end."""
+    free = Router(lms, multiroom=make_multiroom(pro=None))
+    reply = str(free.handle("metti Time in cucina"))
+    assert "Cucina" in reply, reply
+    assert "senza la stanza" in reply, reply
+    # And it is NOT the shared wall that also answers kid-safe: that one
+    # cannot name a room, so reusing it is what hid the guess.
+    assert reply != msg("pro_required")
 
 
 def test_room_targeting_gated_on_revoked_license(lms, transport):

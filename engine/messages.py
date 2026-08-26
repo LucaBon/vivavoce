@@ -155,6 +155,27 @@ IT = {
     # Room tag appended when a command targets another player («… in cucina»):
     # {room} is the player's LMS name, spoken as-is.
     "in_room": " in {room}",
+    # Same situation, no Pro. Its own key rather than the shared
+    # ``pro_required`` — which also answers kid-safe — because this reply has
+    # three jobs that a generic Pro wall cannot do.
+    #
+    # It NAMES THE ROOM, and that is the load-bearing part: a room name is
+    # only ever a guess about what the words meant, so saying it out loud is
+    # what makes a wrong guess visible. «metti breakfast in america» on a
+    # system with a player called «America» answers «per farlo in America
+    # serve Pro» — and the listener knows instantly what went wrong, where the
+    # generic string hid it completely.
+    #
+    # It offers the one-turn way out, which is what makes refusing cheap for
+    # whoever is talking: a dead end becomes a retry.
+    #
+    # «farlo»/«lo faccio», not «metterlo»: this fires BEFORE routing, so
+    # nobody knows yet whether the phrase was a play or a pause, and the
+    # sentence has to hold for both. Two short sentences on purpose — the
+    # reply is read aloud.
+    "room_needs_pro":
+        "Per farlo in {room} serve Pro. "
+        "Dillo senza la stanza e lo faccio qui.",
     "heard_nothing": "Non ho sentito niente.",
     "router_fallback":
         "Non ho capito. Prova con: riproduci, metti l'album, dalla mia musica, "
@@ -299,6 +320,11 @@ EN = {
     # Room tag appended when a command targets another player ("… in the
     # kitchen"): {room} is the player's LMS name, spoken as-is.
     "in_room": " in {room}",
+    # See the Italian catalog for why this names the room and offers the way
+    # out instead of reusing the shared ``pro_required``.
+    "room_needs_pro":
+        "Doing that in {room} needs Pro. "
+        "Say it without the room and I'll do it here.",
     "heard_nothing": "I didn't hear anything.",
     "router_fallback":
         "I didn't understand. Try: play, play the album, from my music, "

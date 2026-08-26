@@ -115,6 +115,17 @@
 
 ### Changed
 
+- **Asking for another room without Pro now says which room it heard**, and how
+  to get the music anyway: «Per farlo in Cucina serve Pro. Dillo senza la
+  stanza e lo faccio qui.» It used to answer with the same generic sentence
+  that answers kid-safe, which told you neither. Naming the room is the useful
+  part — a room name is only ever a guess about what the words meant, so
+  hearing it back is what lets you see a wrong guess. If you have a player
+  called *America*, «metti breakfast in america» is read as a room command, and
+  now you can tell at once why a song you own was answered with a Pro notice
+  instead of music. That it is read as a room command at all is a separate
+  problem, still open.
+
 - **The Docker data volume is now `vivavoce-data`**, not `squeezesay-data`. It
   holds the TLS certificate, the licence, the trial window and the kid-safe
   blocklist, so a `docker compose pull && up -d` that silently starts on an

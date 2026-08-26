@@ -453,9 +453,17 @@ class Router:
         if self.multiroom is not None:
             stripped, target = self.multiroom.extract_room(t, lang)
             if target is not None:
-                # Answer with the pitch, not a confusing search miss.
+                # Answer with the pitch, not a confusing search miss — but
+                # with the room in it, because the room is a GUESS about what
+                # the words meant and naming it is what makes a wrong guess
+                # visible. A player called «America» turns «metti breakfast in
+                # america» into a Pro wall, and the generic string hid the
+                # reason completely; this one says «per farlo in America serve
+                # Pro» and the listener can see it. (That the guess is taken
+                # for a fact at all is the open half of this — T2.7.)
                 if not self.multiroom.pro_ok():
-                    return msg("pro_required")
+                    return msg("room_needs_pro",
+                               room=target.get("name") or "")
                 t = stripped
         self._room_turn = target is not None
         if target is None:
