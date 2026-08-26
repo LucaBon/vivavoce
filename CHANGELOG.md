@@ -1,8 +1,38 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — August 2026
 
 ### Fixed
+
+- **A refusal no longer reports itself as a success — and no longer gets
+  retried past.** Every reply carries a flag saying whether it acted on your
+  request; for some replies that flag was not set but *guessed*, from whether
+  the sentence began with «Non ». Plenty of refusals do not. «Per farlo in
+  Cucina serve Pro» is one, and it was being handed to callers of
+  `POST /api/v1/command` marked as a success, so a Home Assistant automation
+  branching on it took the wrong branch.
+
+  Fixing that flag uncovered the worse half. The app tries several of the
+  recogniser's transcriptions in turn, stopping at the first that works — and
+  a refusal now looked like something to try again. So «metti Beatles in
+  salotto» on the free tier was refused, and then the second-best
+  transcription, «metti Beatles», carried no room name, sailed past the very
+  refusal that had just stopped it, and started the music in whichever room
+  the selector pointed at. You never heard why. Kid-safe had the same hole and
+  had had it longer: a blocked singer could be asked for repeatedly until one
+  spelling slipped through.
+
+  Refusals about *who is asking* — no Pro, not the parent, not for this
+  listener — now end the turn, because no re-transcription of your words buys
+  a license. Refusals about the *words* are still retried, which is the whole
+  reason that machinery exists: «metti sfigati» becoming «metti Audioslave» on
+  the second attempt still works exactly as before.
+
+- **Blocklist replies no longer claim a room they do not have.** «blocca
+  Eminem in salotto» answered «Ok, ho bloccato Eminem in Salotto», which
+  describes a per-room blocked-songs list that does not exist — the list is
+  the whole house. The read-out was worse: «Brani bloccati: Eminem in Salotto»
+  reads as though «Eminem in Salotto» were the blocked term.
 
 - **A player named after a word of a song no longer swallows the song.** If one
   of your players is called «America» and your library has *Breakfast in
