@@ -78,6 +78,14 @@ def test_last_days_are_emphasised(page, web, tmp_path):
 def test_expired_window_locks_the_mic_and_explains_itself(page, web, tmp_path):
     page.goto(web(license_mgr=trial_at(tmp_path, day=15)).url)
     page.wait_for_selector("#mic.locked")
+    # NOT enough on its own: applyPro() runs at boot with no server data yet
+    # and locks the mic then, so that selector is already true before
+    # /license has answered — the panel is still showing the generic Pro
+    # pitch. Waiting for the copy itself is the wait for the answer, and it
+    # still fails (by timing out) if the answer never says "expired".
+    page.wait_for_function(
+        "() => /prova|trial/i.test("
+        "document.getElementById('prostatus').textContent)", timeout=5000)
     status = page.inner_text("#prostatus").lower()
     assert "prova" in status or "trial" in status
     # "Never brick": typed commands are untouched by the expiry.

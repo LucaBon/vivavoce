@@ -144,8 +144,20 @@ def test_a_failed_write_leaves_the_old_file_and_no_debris(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["state.json"]
 
 
+@pytest.mark.skipif(os.name == "nt",
+                    reason="POSIX permission bits; Windows os.chmod only "
+                           "toggles read-only, so 0600 is not representable "
+                           "and st_mode comes back 0666")
 def test_secrets_can_be_written_unreadable_by_others(tmp_path):
     import stat
     path = str(tmp_path / "license.json")
     appdata.atomic_write_json(path, {"key": "SECRET"}, mode=0o600)
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_the_mode_argument_is_harmless_where_it_cannot_be_honoured(tmp_path):
+    # The call site passes mode= unconditionally (kidsafe.json, license.json),
+    # so on Windows it has to be a no-op rather than an error.
+    path = str(tmp_path / "license.json")
+    appdata.atomic_write_json(path, {"key": "SECRET"}, mode=0o600)
+    assert appdata.read_json(path) == {"key": "SECRET"}
