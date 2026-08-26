@@ -316,7 +316,7 @@ def main() -> int:
     # Multi-stanza (Pro): come il kid-safe, il modulo vive in pro/ e il core
     # riceve solo l'oggetto col suo piccolo contratto.
     from pro.multiroom import MultiRoom
-    multiroom = MultiRoom(license_mgr, client.get_players)
+    multiroom = MultiRoom(license_mgr, client.get_players, lms=client)
 
     # Which streaming services the source selector offers. "auto" asks the LMS
     # which plugins are installed; an explicit list skips the detection (the

@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A player named after a word of a song no longer swallows the song.** If one
+  of your players is called «America» and your library has *Breakfast in
+  America*, «metti breakfast in america» used to be heard as a command for that
+  room — and on an installation without Pro that meant an answer about Pro and
+  no music at all: a record you own, served with an advertisement. Same for a
+  player called «Bianco» and *Notte in bianco*, or «Paradise» and *Lost in
+  Paradise*.
+
+  A room name was only ever a *guess* about what the words meant, and it was
+  being spent as if it were a fact. Both readings of the sentence — with the
+  room and without it — are now looked up in your local library, and the one
+  the library actually recognises wins. «breakfast in america» is the name of a
+  record and «breakfast» merely resembles one, so the record plays; «bollicine
+  in cucina» is the other way round, so it stays a room command and behaves
+  exactly as before. A tie keeps the room, which is the safe direction: being
+  told no costs you a turn, while music starting in the wrong room costs you a
+  trip to go and stop it.
+
+  The same reading applies with or without Pro, deliberately — which record
+  your words name is not something a license should have an opinion about. And
+  when Pro is active and a room you said out loud gets overruled this way, the
+  answer says so («… — l'ho preso come titolo, quindi suona qui»), because a
+  room that simply vanishes from the reply is a wrong guess you cannot see.
+  «pausa in cucina» and «in cucina metti X» are untouched and do not even ask
+  the library: there is no title in either of them to weigh.
+
+  Three things this does not do. It needs a **local** library to consult, so an
+  installation that only streams still gets the old answer. When your library
+  holds *both* readings — a track called *Notte* and one called *Notte in
+  bianco*, with a player called «Bianco» — the sentence really is ambiguous,
+  and the room keeps it. And a title that resembles the whole sentence wins
+  even when you meant the room: if you own an album called *Musica in Cucina*,
+  «metti musica in cucina» plays it. With Pro the answer tells you that is what
+  happened, so the correction is one sentence away.
+
 ### New
 
 - **A documented API for other programs: `POST /api/v1/command`.** Vivavoce's

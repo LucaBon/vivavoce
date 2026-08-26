@@ -155,6 +155,13 @@ IT = {
     # Room tag appended when a command targets another player («… in cucina»):
     # {room} is the player's LMS name, spoken as-is.
     "in_room": " in {room}",
+    # The room was heard and then overruled: the library says these words name
+    # a record, not a place. Only Pro ever gets this — without it the room
+    # would have been refused anyway, so there is nothing to explain. It has to
+    # be said out loud for the reason T2.7a exists: a room the listener spoke
+    # cannot just disappear from the answer, or a wrong guess is invisible
+    # exactly where it costs the most.
+    "read_as_title": " — l'ho preso come titolo, quindi suona qui",
     # Same situation, no Pro. Its own key rather than the shared
     # ``pro_required`` — which also answers kid-safe — because this reply has
     # three jobs that a generic Pro wall cannot do.
@@ -320,6 +327,8 @@ EN = {
     # Room tag appended when a command targets another player ("… in the
     # kitchen"): {room} is the player's LMS name, spoken as-is.
     "in_room": " in {room}",
+    # See the Italian catalog for why an overruled room still gets said.
+    "read_as_title": " — I read that as a title, so it's playing here",
     # See the Italian catalog for why this names the room and offers the way
     # out instead of reusing the shared ``pro_required``.
     "room_needs_pro":

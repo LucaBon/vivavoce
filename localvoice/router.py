@@ -204,6 +204,42 @@ class Router:
         # The language pack's mood vocabulary for this turn (set in handle()).
         self._mood_words = {}
 
+    #: The play branches of :meth:`_route` that name what they want, in the
+    #: order _route tries them (album 5, playlist 6, artist 7, generic 8). The
+    #: room gate walks the same list, because a gate that measured «l'album
+    #: breakfast in america» while the route searched «breakfast in america»
+    #: would find nothing, and answer a record on the disk with an advert.
+    _PLAY_BRANCHES = ("album", "playlist", "artist", "generic_play")
+
+    def _play_query(self, t: str, P: dict):
+        """The search terms a play would use for ``t``, or ``None`` when ``t``
+        asks for no music at all.
+
+        Only the room gate calls this. Step 8 of :meth:`_route` deliberately
+        does *not*: by the time the route reaches it, steps 5-7 have already
+        declined, so it may consult the generic branch and nothing else. The
+        gate has no such ordering — it runs before any of them and has to ask
+        about all four.
+        """
+        for name in self._PLAY_BRANCHES:
+            pattern = P.get(name)
+            m = pattern.search(t) if pattern else None
+            if m:
+                return m.group(1).strip()
+        if "generic_play_suffix" in P:  # EN: "put Dark Side on"
+            m = P["generic_play_suffix"].match(t)
+            if m:
+                return m.group(1).strip()
+        # Last resort, and the gate's alone: a leading play verb with something
+        # after it. English «put love on repeat» matches no branch above — the
+        # adjacent "put on" is not there and the phrase does not end in "on" —
+        # and without this the gate would hand the turn to the room without
+        # ever asking whether *Love on Repeat* is on the disk.
+        verb = P.get("is_play")
+        lead = verb.match(t) if verb else None
+        tail = t[lead.end():].strip() if lead else ""
+        return tail or None
+
     def _stream_name(self, source):
         """The streaming service a request goes to: ``source`` when it names a
         known service, else the default streaming service."""
@@ -450,21 +486,49 @@ class Router:
         # Room targeting (Pro, pro/multiroom.py): a one-shot retarget of this
         # turn to the named player (the UI selector rules every other turn).
         target = None
+        overruled = False
         if self.multiroom is not None:
             stripped, target = self.multiroom.extract_room(t, lang)
             if target is not None:
-                # Answer with the pitch, not a confusing search miss — but
-                # with the room in it, because the room is a GUESS about what
-                # the words meant and naming it is what makes a wrong guess
-                # visible. A player called «America» turns «metti breakfast in
-                # america» into a Pro wall, and the generic string hid the
-                # reason completely; this one says «per farlo in America serve
-                # Pro» and the listener can see it. (That the guess is taken
-                # for a fact at all is the open half of this — T2.7.)
-                if not self.multiroom.pro_ok():
-                    return msg("room_needs_pro",
-                               room=target.get("name") or "")
-                t = stripped
+                # A room name is a GUESS about what the words meant, so before
+                # it is spent, both readings go to the library and the better
+                # one wins (T2.7b). Only a play can have a title in it: for
+                # «pausa in cucina» there is nothing to weigh and nothing is
+                # asked, which is what makes rejected approach #2 — pausing the
+                # living room — impossible here rather than merely unlikely.
+                # One reading for both licenses, deliberately: which record the
+                # words name is not a thing a license gets a say in.
+                whole = self._play_query(t, P)
+                # ``room_q`` may legitimately be None while ``whole`` is not:
+                # «play in my room» strips to a bare «play», which names
+                # nothing. That is not a reason to skip the library — it is the
+                # strongest evidence there is that the "room" was the title,
+                # because the room reading leaves nothing to play at all. The
+                # library still settles it: with *In My Room* on the disk the
+                # song wins, and without it the phrase stays what it also is,
+                # «resume, in that room».
+                room_q = self._play_query(stripped, P) if whole else None
+                if self.multiroom.room_reading_wins(
+                        whole, room_q, guard=self._guard):
+                    # Answer with the pitch, not a confusing search miss — and
+                    # with the room in it, because naming the guess is what
+                    # makes a wrong one visible where the library had no
+                    # opinion either way.
+                    if not self.multiroom.pro_ok():
+                        return msg("room_needs_pro",
+                                   room=target.get("name") or "")
+                    t = stripped
+                else:
+                    # The words name a record we own. Play it, here, on the
+                    # full phrase — «metti breakfast in america» is Supertramp,
+                    # not a command for a player that happens to be called
+                    # America.
+                    target = None
+                    # ...and say so, to whoever could have had the room. This
+                    # turn has been judged not to be about a room, so a list
+                    # left open in one must not capture it either.
+                    overruled = self.multiroom.pro_ok()
+                    self.cand_player = None
         self._room_turn = target is not None
         if target is None:
             result = self._route(t, source, P)
@@ -473,6 +537,8 @@ class Router:
             if self._mood_turn:
                 self.mood_player = None  # a mood started here stays here
             self._settle_mood(result)
+            if overruled:  # _tag itself skips misses and questions
+                result = self._tag(result, msg("read_as_title"))
             return result
         saved = self.lms
         self.lms = saved.for_player(target["playerid"])
@@ -723,7 +789,10 @@ class Router:
         if m:
             return self._resolve(m.group(1).strip(), actions.play_artist, source)
 
-        # 8) generic play — streaming or local per selector
+        # 8) generic play — streaming or local per selector. Steps 5-7 have
+        # already declined, so only the generic branch may answer here — which
+        # is why this does not go through ``_play_query``, and ``_play_query``
+        # says so.
         m = P["generic_play"].search(t)
         if not m and "generic_play_suffix" in P:  # EN: "put Dark Side on"
             m = P["generic_play_suffix"].match(t)

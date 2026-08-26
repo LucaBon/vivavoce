@@ -69,11 +69,24 @@ class ActionResult(str):
         return obj
 
 
-def _score(query: Optional[str], text: Optional[str]) -> float:
+def _score(query: Optional[str], text: Optional[str], *,
+           subset_floor: bool = True) -> float:
     """Similarity of a candidate ``text`` to the requested ``query`` in 0..1,
     accent/case-insensitive. Rewards the query's words all appearing in the
     candidate (so 'time' matches 'Time (Remastered)') and blends in a character
-    ratio for near-misses/typos."""
+    ratio for near-misses/typos.
+
+    ``subset_floor=False`` turns off the 0.95 shortcut below. The floor answers
+    "does this candidate satisfy the request?", and for that it is right — but
+    it saturates, and a saturated score cannot rank two *phrasings* of the same
+    request against each other. Every phrase whose words merely contain a title
+    lands on the same 0.95: «bollicine in cucina» against *Bollicine* and
+    «musica rilassante in cucina» against an album called *Cucina* are
+    indistinguishable with the floor on, and tell the two apart cleanly with it
+    off (0.457 against 0.295). The room gate in ``pro/multiroom.py`` is the one
+    caller that needs to compare phrasings; everything else wants the floor and
+    gets it by default.
+    """
     q = _normalize(query)
     t = _normalize(text)
     if not q or not t:
@@ -89,7 +102,7 @@ def _score(query: Optional[str], text: Optional[str]) -> float:
     # requested word is in the title ('time' -> 'Time (Remastered)'), OR the whole
     # title is in the request ('Comfortably Numb' <- 'comfortably numb pink floyd',
     # where the user appended the artist to disambiguate).
-    if q_tokens and (q_tokens <= t_tokens or t_tokens <= q_tokens):
+    if subset_floor and q_tokens and (q_tokens <= t_tokens or t_tokens <= q_tokens):
         score = max(score, 0.95)
     return score
 
@@ -870,6 +883,52 @@ def _local_group(cands, query, kind, action, guard):
         out.append((s, cand))
     out.sort(key=lambda x: -x[0])
     return out
+
+
+def library_candidates(lms, query: Optional[str], *,
+                       guard: Optional[Guard] = None) -> List[Dict]:
+    """Every local album/artist/track the LMS offers for ``query``, deduped.
+
+    The retrieval half of :func:`play_local` with the scoring, the choosing and
+    the playing left out — a genuine dry run, three read-only searches and not
+    one command that touches a player. It exists because until now the only way
+    to ask "does the library know this phrase?" was to call a resolver, and
+    every resolver in this module answers by *playing* something.
+
+    ``[]`` for an empty query, an empty library, or an LMS that cannot be
+    reached: all three mean "no opinion", and the caller's default stands.
+
+    ``guard`` drops what kid-safe blocks. Not belt-and-braces — the resolvers
+    downstream do refuse a blocked item, but by then it has already decided the
+    routing, and the refusal («c'è, ma non è adatta alla tua età») confirms the
+    record is in the house where the answer it replaced leaked nothing.
+    """
+    query = _strip_lead_filler(query)
+    if not query:
+        return []
+    if guard and guard.blocks(query):
+        return []
+    try:
+        # count=10 apiece, as everywhere else here. Worth knowing at the call
+        # site: on a big library the truncation bites the narrower query first.
+        cands = (lms.local_album_candidates(query)
+                 + lms.local_artist_candidates(query)
+                 + lms.local_track_candidates(query))
+    except LMSError:
+        return []
+    keep = [c for c in cands
+            if c.get("title") and not (guard and guard.restricted
+                                       and is_blocked_item(c, guard.blocklist))]
+    return _dedup_by_title_artist(keep)
+
+
+def best_match_score(query: Optional[str], items: Optional[List[Dict]], *,
+                     key: str = "title", subset_floor: bool = True) -> float:
+    """The best :func:`_score` of ``query`` over ``items``; ``0.0`` for none."""
+    if not items:
+        return 0.0
+    return max(_score(query, it.get(key), subset_floor=subset_floor)
+               for it in items)
 
 
 def play_local(lms, query: Optional[str], *, mode: str = "play",
