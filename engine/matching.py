@@ -49,6 +49,29 @@ _MODE_KEY = {"play": "playing", "add": "queued", "insert": "queued_next"}
 _MODE_KEY_BY = {"add": "queued_by", "insert": "queued_next_by"}
 
 
+# ``kind`` values that mean something to the dispatch, not just to bookkeeping.
+#
+# GATE marks a refusal the words cannot argue with: no Pro licence, not the
+# owner, blocked for this listener. It answers a question about *who is asking*
+# and what they hold, never about what was heard — which is why ``handle_many``
+# must stop trying speech-recognition alternatives when it sees one. Retrying
+# is not merely pointless (a second transcription does not buy a licence): an
+# alternative that mangles the room name, or the blocked artist, misses the
+# gate entirely and routes somewhere that *acts*. A free listener asking for
+# music in the front room heard it start in the kitchen instead of the pitch,
+# and a child could re-roll the dice until one alternative slipped past.
+#
+# It is also, being a truthy ``kind``, invisible to ``Router._tag`` — which is
+# right on its own terms: a refusal is not a play to hang a source or a room on.
+GATE = "gate"
+
+# A blocklist reply is about the whole house — the store behind it is global —
+# so ``Router._tag`` must not splice a room into it. «Ok, ho bloccato Eminem in
+# Salotto» describes a per-room blocklist that does not exist, and the read-out
+# was worse: «Brani bloccati: Eminem in Salotto» reads as a blocked *term*.
+BLOCKLIST = "blocklist"
+
+
 class ActionResult(str):
     """A speech string that also carries structured outcome data.
 

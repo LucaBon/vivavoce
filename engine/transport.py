@@ -91,11 +91,11 @@ def cancel_sleep(lms) -> ActionResult:
     return ActionResult(msg("sleep_cancelled"), ok=True)
 
 
-def now_playing(lms) -> str:
+def now_playing(lms) -> ActionResult:
     try:
         info = lms.now_playing_info()
     except LMSError:
-        return msg("err_unreachable")
+        return ActionResult(msg("err_unreachable"), ok=False)
     if not info or not info.get("title"):
         return ActionResult(msg("nothing_playing"), ok=True)
     # "status - 1" hands back the queue head whatever the transport is doing,

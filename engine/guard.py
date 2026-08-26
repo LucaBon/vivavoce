@@ -13,7 +13,7 @@ import re
 from typing import Dict, List, Optional
 
 from blocklist_store import BlocklistStoreError
-from matching import _normalize
+from matching import BLOCKLIST, GATE, ActionResult, _normalize
 from messages import msg
 
 # Spoken when a restricted (non-owner) speaker asks for a blocked song/singer.
@@ -98,46 +98,54 @@ class Guard:
 # -- voice-editable blocklist (owner only) --------------------------------
 # These edit only the *dynamic* stored terms; the config KIDSAFE_BLOCKLIST
 # baseline is permanent and can't be removed by voice.
-def add_block(store, term: Optional[str], *, is_owner: bool) -> str:
+# "Already blocked" and "not in the list" are ``ok=True`` on purpose, and it is
+# not a judgement call about wording. ``ok`` is what ``handle_many`` reads to
+# decide whether to try the NEXT speech-recognition alternative, and a second
+# alternative of an edit command is a *different term*: calling "it is already
+# blocked" a miss would go on to block whatever the second-best transcription
+# heard. The request is satisfied either way — the term is in the list, or it
+# is not — so the honest answer is also the safe one.
+def add_block(store, term: Optional[str], *, is_owner: bool) -> ActionResult:
     """Add a song/singer term to the blocklist. Owner-gated."""
     if not is_owner:
-        return msg("not_owner")
+        return ActionResult(msg("not_owner"), ok=False, kind=GATE)
     term = (term or "").strip()
     if not term:
-        return msg("ask_block")
+        return ActionResult(msg("ask_block"), ok=False, kind=BLOCKLIST)
     try:
         terms = store.get()
         if any(_normalize(t) == _normalize(term) for t in terms):
-            return msg("already_blocked", term=term)
+            return ActionResult(msg("already_blocked", term=term), ok=True, kind=BLOCKLIST)
         store.put(terms + [term])
     except BlocklistStoreError:
-        return msg("blocklist_save_error")
-    return msg("block_added", term=term)
+        return ActionResult(msg("blocklist_save_error"), ok=False, kind=BLOCKLIST)
+    return ActionResult(msg("block_added", term=term), ok=True, kind=BLOCKLIST)
 
 
-def remove_block(store, term: Optional[str], *, is_owner: bool) -> str:
+def remove_block(store, term: Optional[str], *, is_owner: bool) -> ActionResult:
     """Remove a term from the blocklist. Owner-gated."""
     if not is_owner:
-        return msg("not_owner")
+        return ActionResult(msg("not_owner"), ok=False, kind=GATE)
     term = (term or "").strip()
     if not term:
-        return msg("ask_unblock")
+        return ActionResult(msg("ask_unblock"), ok=False, kind=BLOCKLIST)
     try:
         terms = store.get()
         kept = [t for t in terms if _normalize(t) != _normalize(term)]
         if len(kept) == len(terms):
-            return msg("not_in_blocklist", term=term)
+            return ActionResult(msg("not_in_blocklist", term=term), ok=True, kind=BLOCKLIST)
         store.put(kept)
     except BlocklistStoreError:
-        return msg("blocklist_update_error")
-    return msg("block_removed", term=term)
+        return ActionResult(msg("blocklist_update_error"), ok=False, kind=BLOCKLIST)
+    return ActionResult(msg("block_removed", term=term), ok=True, kind=BLOCKLIST)
 
 
-def list_blocks(store, *, is_owner: bool) -> str:
+def list_blocks(store, *, is_owner: bool) -> ActionResult:
     """Read the blocked terms aloud. Owner-gated."""
     if not is_owner:
-        return msg("not_owner")
+        return ActionResult(msg("not_owner"), ok=False, kind=GATE)
     terms = store.get()
     if not terms:
-        return msg("blocklist_empty")
-    return msg("blocklist_listing", terms=", ".join(terms))
+        return ActionResult(msg("blocklist_empty"), ok=True, kind=BLOCKLIST)
+    return ActionResult(msg("blocklist_listing", terms=", ".join(terms)),
+                        ok=True, kind=BLOCKLIST)

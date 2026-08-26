@@ -34,7 +34,8 @@ class IntentTable:
                  or P["block_list"].match(t))
             if m:
                 if not self.kidsafe.pro_ok():
-                    return msg("pro_required")
+                    return actions.ActionResult(msg("pro_required"), ok=False,
+                                                kind=actions.GATE)
                 is_owner = self.kidsafe.is_unlocked(self.client_id)
                 if P["block_add"].match(t):
                     return actions.add_block(
@@ -272,4 +273,4 @@ class IntentTable:
             return self._resolve(m.group(1).strip(), actions.play_song, source)
 
         self._unmatched = True
-        return msg("router_fallback")
+        return actions.ActionResult(msg("router_fallback"), ok=False)

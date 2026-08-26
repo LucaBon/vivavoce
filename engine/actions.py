@@ -14,7 +14,7 @@ from typing import Dict, Optional
 
 from guard import Guard, is_blocked_item
 from lms import LMSError
-from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE,
+from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
                       ActionResult, _MODE_KEY, _MODE_KEY_BY, _MODE_SUFFIX,
                       _dedup_by_title_artist, _did_you_mean, _ndistinct_titles,
                       _normalize, _rank, _score, parse_song_query)
@@ -34,7 +34,7 @@ def _undo_play(lms) -> None:
 def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
                       mode: str = "play", guard: Optional[Guard] = None) -> ActionResult:
     if guard and guard.blocks_item(track):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     if mode == "play":
         lms.play_url(track["url"])
         speech, terms = _confirm_song(lms, track, fallback_title)
@@ -44,7 +44,7 @@ def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
         # certainly must not be read aloud in the confirmation.
         if guard and guard.blocks(*terms):
             _undo_play(lms)
-            return ActionResult(msg("blocked"), ok=False)
+            return ActionResult(msg("blocked"), ok=False, kind=GATE)
         return ActionResult(speech, ok=True, terms=terms)
     getattr(lms, f"{mode}_url")(track["url"])
     name = track.get("title") or fallback_title
@@ -66,7 +66,7 @@ def play_song(lms, query: Optional[str], *, mode: str = "play",
     if not title and not album:
         return ActionResult(msg("ask_title"), ok=False)
     if guard and guard.blocks(title, artist, album):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         if album:
             return _play_from_album(lms, title, album, mode=mode, guard=guard)
@@ -150,14 +150,14 @@ def _play_from_album(
         return ActionResult(msg("album_not_found", album=album), ok=False)
     album_name = result["album"]["title"] or album
     if guard and (guard.blocks_item(result["album"]) or guard.blocks(album_name)):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     suffix = _MODE_SUFFIX[mode]
     if title:
         ranked = _rank(title, result["tracks"])
         if ranked and ranked[0][0] >= CONFIDENT_SCORE:
             track = ranked[0][1]
             if guard and guard.blocks_item(track):
-                return ActionResult(msg("blocked"), ok=False)
+                return ActionResult(msg("blocked"), ok=False, kind=GATE)
             getattr(lms, f"{mode}_url")(track["url"])
             return ActionResult(
                 msg("playing_track_from_album" + suffix, title=track["title"], album=album_name),
@@ -180,14 +180,14 @@ def play_album(lms, album: Optional[str], *, guard: Optional[Guard] = None) -> A
     if not album:
         return ActionResult(msg("ask_album"), ok=False)
     if guard and guard.blocks(album):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         cands = lms.album_candidates(album)
         if not cands:
             return ActionResult(msg("album_not_found", album=album), ok=False)
         item = _rank(album, cands)[0][1]  # best title match, not blindly the first
         if guard and guard.blocks_item(item):
-            return ActionResult(msg("blocked"), ok=False)
+            return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
@@ -200,13 +200,13 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
     if not artist:
         return ActionResult(msg("ask_artist"), ok=False)
     if guard and guard.blocks(artist):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         result = lms.artist_top_tracks(artist)
         if not result["artist"]:
             return ActionResult(msg("artist_not_found", artist=artist), ok=False)
         if guard and guard.blocks_item(result["artist"]):
-            return ActionResult(msg("blocked"), ok=False)
+            return ActionResult(msg("blocked"), ok=False, kind=GATE)
         tracks = result["tracks"]
         if not tracks:
             return ActionResult(msg("artist_unplayable", artist=artist), ok=False)
@@ -221,14 +221,14 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
     if not name:
         return ActionResult(msg("ask_playlist"), ok=False)
     if guard and guard.blocks(name):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         cands = lms.playlist_candidates(name)
         if not cands:
             return ActionResult(msg("playlist_not_found", name=name), ok=False)
         item = _rank(name, cands)[0][1]
         if guard and guard.blocks_item(item):
-            return ActionResult(msg("blocked"), ok=False)
+            return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
@@ -264,7 +264,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
     if not name:
         return ActionResult(msg("ask_radio"), ok=False)
     if guard and guard.blocks(name):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         items = lms.favorites_items(query=name)
     except LMSError:
@@ -299,7 +299,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 # and forgetting it here is the one mistake this file can still make on its
 # own, which is why a test walks the four modules and checks.
 # ruff: noqa: E402, F401
-from matching import (ERR_UNREACHABLE, LIST_LIMIT, _LEAD_FILLER,
+from matching import (BLOCKLIST, ERR_UNREACHABLE, LIST_LIMIT, _LEAD_FILLER,
                       _strip_lead_filler, LOCAL_CONFIDENT, _label,
                       _APOSTROPHES, _FOLD_MAP, _ALBUM_SEP, _ARTIST_SEP,
                       _NOT_AN_ARTIST)

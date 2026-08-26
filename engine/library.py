@@ -14,12 +14,24 @@ from typing import Dict, List, Optional
 
 from guard import Guard, is_blocked_item
 from lms import LMSError
-from matching import (LIST_LIMIT, LOCAL_CONFIDENT, ActionResult, _MODE_KEY,
+from matching import (GATE, LIST_LIMIT, LOCAL_CONFIDENT, ActionResult, _MODE_KEY,
                       _MODE_SUFFIX, _dedup_by_title_artist, _did_you_mean,
                       _normalize, _score, _strip_lead_filler)
 from messages import msg
 
 # -- conversational flow: list -> choose by number ------------------------
+# A list read out loud is an answer, so its speech carries ``ok=True`` — but
+# ``kind="list"`` with it, because ``Router._tag`` splices its source and room
+# tags only into results with no ``kind``, and a read-out is not a play to tag.
+# The failure branches carry ``ok=False`` for the reason every other refusal in
+# the engine does: ``handle_many`` reads it to tell a miss from a hit, and a
+# question ("which artist?") is not a hit.
+#
+# No ``terms`` on either read-out, deliberately. They were empty before — the
+# speech was a plain string — and ``terms`` drives which fragments the web
+# client reads with a foreign voice. Filling them in is a change to how a list
+# is spoken aloud, which is a different question from what ``ok`` says, and it
+# should be answered on its own.
 def top_tracks_list(
     lms, artist: Optional[str], limit: int = LIST_LIMIT, *, guard: Optional[Guard] = None
 ) -> Dict:
@@ -27,22 +39,27 @@ def top_tracks_list(
     stores ``candidates`` (title+url) in session for a follow-up choice."""
     artist = (artist or "").strip()
     if not artist:
-        return {"speech": msg("which_artist"), "candidates": []}
+        return {"speech": ActionResult(msg("which_artist"), ok=False),
+                "candidates": []}
     if guard and guard.blocks(artist):
-        return {"speech": msg("blocked"), "candidates": []}
+        return {"speech": ActionResult(msg("blocked"), ok=False, kind=GATE),
+                "candidates": []}
     try:
         tracks = lms.artist_top_tracks(artist)["tracks"]
     except LMSError:
-        return {"speech": msg("err_unreachable"), "candidates": []}
+        return {"speech": ActionResult(msg("err_unreachable"), ok=False),
+                "candidates": []}
     if guard and guard.restricted:  # drop blocked tracks so they can't be chosen
         tracks = [t for t in tracks if not is_blocked_item(t, guard.blocklist)]
     tracks = tracks[:limit]
     if not tracks:
-        return {"speech": msg("no_tracks_for", artist=artist), "candidates": []}
+        return {"speech": ActionResult(msg("no_tracks_for", artist=artist), ok=False),
+                "candidates": []}
     listing = ", ".join(
         msg("enum_item", n=i + 1, name=t["title"]) for i, t in enumerate(tracks)
     )
-    speech = msg("top_tracks", artist=artist, listing=listing)
+    speech = ActionResult(msg("top_tracks", artist=artist, listing=listing),
+                          ok=True, kind="list")
     candidates = [{"title": t["title"], "url": t["url"]} for t in tracks]
     return {"speech": speech, "candidates": candidates}
 
@@ -74,20 +91,20 @@ def choose_from(
     *,
     mode: str = "play",
     guard: Optional[Guard] = None,
-) -> str:
+) -> ActionResult:
     """Act on the N-th candidate from a previously read-out list (mode: see
     :func:`play_song`)."""
     if not candidates:
-        return msg("no_open_list")
+        return ActionResult(msg("no_open_list"), ok=False)
     if number is None or number < 1 or number > len(candidates):
-        return msg("pick_range", n=len(candidates))
+        return ActionResult(msg("pick_range", n=len(candidates)), ok=False)
     chosen = candidates[number - 1]
     if guard and guard.blocks_item(chosen):
-        return msg("blocked")
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         _dispatch_play(lms, chosen, mode=mode)
     except LMSError:
-        return msg("err_unreachable")
+        return ActionResult(msg("err_unreachable"), ok=False)
     key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
@@ -101,7 +118,7 @@ def choose_by_name(
     *,
     mode: str = "play",
     guard: Optional[Guard] = None,
-) -> Optional[str]:
+) -> Optional[ActionResult]:
     """Act on the candidate whose title matches ``name`` from a previously
     read-out list (mode: see :func:`play_song`). Returns ``None`` when
     there's no list, no name, or no title matches, so the caller falls back
@@ -130,11 +147,11 @@ def choose_by_name(
     if chosen is None:
         return None
     if guard and guard.blocks_item(chosen):
-        return msg("blocked")
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         _dispatch_play(lms, chosen, mode=mode)
     except LMSError:
-        return msg("err_unreachable")
+        return ActionResult(msg("err_unreachable"), ok=False)
     key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
@@ -224,7 +241,7 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
     if not query:
         return ActionResult(msg("ask_query"), ok=False)
     if guard and guard.blocks(query):
-        return ActionResult(msg("blocked"), ok=False)
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         groups = [
             g for g in (
@@ -262,25 +279,32 @@ def local_albums_list(
     candidate plays that album by id when chosen."""
     artist = (artist or "").strip()
     if not artist:
-        return {"speech": msg("which_artist"), "candidates": []}
+        return {"speech": ActionResult(msg("which_artist"), ok=False),
+                "candidates": []}
     if guard and guard.blocks(artist):
-        return {"speech": msg("blocked"), "candidates": []}
+        return {"speech": ActionResult(msg("blocked"), ok=False, kind=GATE),
+                "candidates": []}
     try:
         result = lms.local_albums_by_artist(artist)
     except LMSError:
-        return {"speech": msg("err_unreachable"), "candidates": []}
+        return {"speech": ActionResult(msg("err_unreachable"), ok=False),
+                "candidates": []}
     if not result["artist"]:
-        return {"speech": msg("local_no_artist", artist=artist), "candidates": []}
+        return {"speech": ActionResult(msg("local_no_artist", artist=artist), ok=False),
+                "candidates": []}
     albums = result["albums"]
     if guard and guard.restricted:  # drop blocked albums so they can't be chosen
         albums = [a for a in albums if not is_blocked_item(a, guard.blocklist)]
     albums = albums[:limit]
     if not albums:
-        return {"speech": msg("local_no_albums", artist=artist), "candidates": []}
+        return {"speech": ActionResult(msg("local_no_albums", artist=artist), ok=False),
+                "candidates": []}
     listing = ", ".join(
         msg("enum_item", n=i + 1, name=a["title"]) for i, a in enumerate(albums)
     )
-    speech = msg("local_albums", artist=result["artist"]["title"], listing=listing)
+    speech = ActionResult(
+        msg("local_albums", artist=result["artist"]["title"], listing=listing),
+        ok=True, kind="list")
     candidates = [
         {"title": a["title"], "action": "play_album_id", "arg": a["id"]} for a in albums
     ]

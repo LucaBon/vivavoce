@@ -237,13 +237,36 @@ class Router(ConversationState, IntentTable):
         primary = None
         for alt in alts:
             speech = self.handle(alt, source, lang)
-            # A result is a hit when it acted on the request. ActionResult carries
-            # an explicit ``.ok``; for any plain string we fall back to the old
-            # "Non ..." heuristic so nothing regresses (Italian-only, harmless
-            # in English: EN misses are ActionResults and carry .ok).
+            # A result is a hit when it acted on the request, and ``.ok`` is
+            # how it says so. The ``getattr`` default is a backstop for a
+            # plain string, and nothing in this codebase returns one any more:
+            # it used to, and the heuristic was wrong in both languages, not
+            # just in English as it once claimed. «Per farlo in Cucina serve
+            # Pro» does not start with "non", so a refusal was reported as a
+            # hit — to the web app, and to ``/api/v1/command``'s ``ok``, which
+            # is a promise made to callers who cannot read the sentence. Every
+            # path now carries the flag; the default stays for an injected
+            # action from outside the engine, and keeps the old reading so
+            # such a caller sees no change.
             ok = getattr(speech, "ok", not speech.strip().lower().startswith("non "))
             if primary is None:
                 primary = (speech, alt, ok, self._unmatched)
+            # A gate is the end of the turn even though it is not a hit. The
+            # alternatives exist to find better *words*; a gate has already
+            # said the words are not the problem — no licence, not the owner,
+            # not for this listener — so trying the next one cannot change
+            # the answer, and can do harm. «metti Beatles in salotto» on the
+            # free tier is refused with the room named and the way out; its
+            # second-best transcription is «metti Beatles», which names no
+            # room, sails past the gate and starts the music in the kitchen.
+            # The listener never hears the refusal. Same shape for kid-safe:
+            # retry the blocked artist until one spelling slips through.
+            if not ok and getattr(speech, "kind", None) == actions.GATE:
+                return {"speech": speech, "used": alt, "ok": False,
+                        "terms": list(getattr(speech, "terms", [])),
+                        "choices": self._choices(),
+                        "needs_choice": self._needs_choice(),
+                        "unmatched": False}
             if ok:
                 return {"speech": speech, "used": alt, "ok": True,
                         "terms": list(getattr(speech, "terms", [])),
@@ -290,7 +313,7 @@ class Router(ConversationState, IntentTable):
         # search terms, so strip it.
         t = re.sub(r"[.!?…]+$", "", t).strip()
         if not t:
-            return msg("heard_nothing")
+            return actions.ActionResult(msg("heard_nothing"), ok=False)
 
         # Kid-safe guard for this request: restrictive only when the feature is
         # enabled and this client isn't PIN-unlocked. Recomputed per turn so an
@@ -330,8 +353,10 @@ class Router(ConversationState, IntentTable):
                     # makes a wrong one visible where the library had no
                     # opinion either way.
                     if not self.multiroom.pro_ok():
-                        return msg("room_needs_pro",
-                                   room=target.get("name") or "")
+                        return actions.ActionResult(
+                            msg("room_needs_pro",
+                                room=target.get("name") or ""),
+                            ok=False, kind=actions.GATE)
                     t = stripped
                 else:
                     # The words name a record we own. Play it, here, on the
