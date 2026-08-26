@@ -10,7 +10,7 @@
 # il Supervisor questa è un'app NUOVA — chi aveva la vecchia deve
 # disinstallarla e installare questa (vedi CHANGELOG.md qui accanto).
 name: Vivavoce
-version: "0.2.0"
+version: "0.3.0"
 slug: vivavoce
 description: Controllo vocale in italiano/inglese per LMS/Squeezebox/Daphile, TIDAL e Qobuz inclusi
 url: https://github.com/LucaBon/vivavoce

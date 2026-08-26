@@ -11,7 +11,7 @@ versioni [SemVer](https://semver.org/lang/it/). La versione dell'app coincide
 sempre con quella del progetto: l'immagine viene compilata dal tag
 `v<versione>`, non da un branch.
 
-## [Non rilasciato]
+## [0.3.0] - 2026-08-26
 
 ### Aggiunto
 
@@ -56,6 +56,25 @@ sempre con quella del progetto: l'immagine viene compilata dal tag
 - `/command`, `/kidsafe`, `/player` e `/license` non chiudono più la
   connessione quando ricevono un corpo JSON che non è un oggetto (`null`, un
   numero, una stringa, una lista).
+
+- **Un rifiuto non fa più partire la musica nella stanza sbagliata.** L'app
+  prova più trascrizioni del riconoscitore, fermandosi alla prima che funziona,
+  e un rifiuto sembrava qualcosa da riprovare. Così «metti Beatles in salotto»
+  senza Pro veniva rifiutato, e poi la seconda trascrizione — «metti Beatles»,
+  senza il nome della stanza — passava accanto al rifiuto appena dato e faceva
+  partire la musica dove puntava il selettore, senza dire perché. Kid-safe
+  aveva lo stesso buco: un cantante bloccato poteva essere richiesto finché una
+  grafia non passava. I rifiuti che riguardano *chi sta chiedendo* — niente
+  Pro, non sei il genitore, non adatto a chi ascolta — ora chiudono il turno;
+  quelli che riguardano le *parole* si riprovano come prima.
+
+- **Le risposte sulla lista dei brani bloccati non nominano più una stanza.**
+  «blocca Eminem in salotto» rispondeva «Ok, ho bloccato Eminem in Salotto»,
+  che descrive una lista per stanza che non esiste: la lista vale per tutta la
+  casa.
+
+- `ok`, nella risposta di `POST /api/v1/command`, dice davvero se il comando è
+  stato eseguito: alcuni rifiuti venivano marcati come riusciti.
 
 ## [0.2.0] - 2026-08-21
 
