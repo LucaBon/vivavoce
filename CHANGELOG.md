@@ -4,6 +4,30 @@
 
 ### New
 
+- **A documented API for other programs: `POST /api/v1/command`.** Vivavoce's
+  command endpoint was always reachable — it is how the page itself works —
+  but it was the web app talking to itself, free to change shape with the page
+  it serves. It is now a versioned contract with `docs/api.md` behind it, so a
+  Home Assistant blueprint, a script or an automation can send a sentence and
+  get a structured answer back without reading the source to find out what the
+  fields mean.
+
+  Two things the contract adds. **`needs_choice`** says outright that the
+  answer asked a question — «Ne ho diversi per Love. 1: … 2: … Quale metto?» —
+  instead of leaving a caller to infer it from a list being non-empty.
+  **`conversation_id`** names the session that the numbered list belongs to,
+  and `docs/api.md` writes down how long it lasts (five minutes) and what
+  happens when it runs out; the old field name `client` still works. The error
+  branch was also brought in line: the reply used to drop `choices` when
+  something went wrong, which is the worst moment for a field to vanish, and
+  now every answer carries every field.
+
+  `POST /command` keeps working, unversioned, answering exactly the same
+  thing — nothing that already calls it has to move. The web app itself now
+  goes through `/api/v1/command`, which is the only honest way to know the
+  contract works. There is deliberately **no `room` field** yet, and
+  `docs/api.md` says why rather than leaving it to be guessed at.
+
 - **Vague requests now play something, and say what.** «metti qualcosa di
   rilassante», «musica per cena», «metti un po' di jazz» / "play something
   relaxing", "play some music for dinner" used to be searched for as if they

@@ -2,7 +2,7 @@
 """Local voice web server — no cloud, no accounts.
 
 Serves a page with a microphone button (browser speech recognition, it-IT) that
-posts the transcript to ``/command``; the ``actions.py``/``lms.py`` engine
+posts the transcript to ``/api/v1/command``; the ``actions.py``/``lms.py`` engine
 drives LMS/Daphile over the LAN. Runs entirely at home.
 
     python localvoice/server.py            # auto-discovers LMS on the LAN

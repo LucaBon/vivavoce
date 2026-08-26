@@ -59,7 +59,7 @@ export const currentSource = () => $("source").value || "auto";
 // («metti … in cucina», both enforced server-side). Filled from /players;
 // hidden while the house has a single player; locked (padlock + upsell) on
 // the free tier. The choice is per-device (localStorage) and rides along on
-// /command, /player, /nowplaying — only when Pro, so a stale value is inert.
+// /api/v1/command, /player, /nowplaying — only when Pro, so a stale value is inert.
 export const currentPlayer = () => (isPro() ? localStorage.getItem("player") || "" : "");
 let PLAYERS = [], PLAYERS_CURRENT = "";
 export function renderPlayers() {

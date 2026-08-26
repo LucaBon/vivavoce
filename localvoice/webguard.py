@@ -33,7 +33,8 @@ from typing import Optional, Sequence
 
 # The routes that take a JSON body and change something. GET routes are not
 # listed: they are safe to trigger cross-site because the answer can't be read.
-JSON_ROUTES = frozenset({"/command", "/kidsafe", "/license", "/player"})
+JSON_ROUTES = frozenset({"/api/v1/command", "/command", "/kidsafe",
+                         "/license", "/player"})
 
 # Suffixes that only ever resolve on the local network, so they cannot be
 # pointed at us by an attacker who controls a public zone.

@@ -359,7 +359,8 @@ class Router:
         alts = [a for a in (alternatives or []) if (a or "").strip()]
         if not alts:
             return {"speech": msg("heard_nothing"), "used": "", "ok": False,
-                    "terms": [], "choices": [], "unmatched": False}
+                    "terms": [], "choices": [], "needs_choice": False,
+                    "unmatched": False}
         primary = None
         for alt in alts:
             speech = self.handle(alt, source, lang)
@@ -373,16 +374,33 @@ class Router:
             if ok:
                 return {"speech": speech, "used": alt, "ok": True,
                         "terms": list(getattr(speech, "terms", [])),
-                        "choices": self._choices(), "unmatched": False}
+                        "choices": self._choices(),
+                        "needs_choice": self._needs_choice(),
+                        "unmatched": False}
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
                 "terms": list(getattr(primary[0], "terms", [])),
-                "choices": self._choices(), "unmatched": primary[3]}
+                "choices": self._choices(),
+                "needs_choice": self._needs_choice(),
+                "unmatched": primary[3]}
+
+    def _needs_choice(self) -> bool:
+        """Is this reply waiting for the user to pick from the list it just
+        read out?
+
+        The same predicate ``_choices`` decides on, said once and out loud.
+        The web app can afford to infer it from a non-empty ``choices``; an
+        external client (a Home Assistant blueprint, say) should not have to
+        read a meaning — "I asked instead of playing" — out of a list's
+        length, so ``/api/v1/command`` states it. It is about THIS turn: an
+        open list survives for CANDIDATES_TTL, but only the reply that opened
+        it is the one asking."""
+        return bool(self._opened and self.candidates)
 
     def _choices(self) -> list:
         """Tappable numbered choices for the web app, but only for a reply that
         just opened a list; ``[]`` otherwise. Reuses ``actions._label`` so the
         button text matches the spoken '1: Title di Artist' read-out."""
-        if not self._opened or not self.candidates:
+        if not self._needs_choice():
             return []
         return [{"n": i + 1, "label": actions._label(c)}
                 for i, c in enumerate(self.candidates)]

@@ -3,7 +3,8 @@
 // Strategia: network-first per la pagina *e per /static/* (un aggiornamento
 // del server arriva subito; la cache serve solo da fallback offline), e
 // cache-first per i soli asset davvero immutabili (icone, manifest).
-// /command non passa mai dalla cache: è il canale comandi verso LMS.
+// I comandi (/api/v1/command e il suo alias /command) non passano mai dalla
+// cache: sono POST, e il filtro sul metodo qui sotto li lascia sempre alla rete.
 //
 // Perché /static/ è network-first e non cache-first: staticfiles.py rilegge
 // quei file a ogni richiesta apposta, "così una modifica arriva con un
@@ -46,7 +47,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== self.location.origin) {
-    return; // /command (POST) e tutto il resto: sempre rete
+    return; // i comandi (POST) e tutto il resto: sempre rete
   }
   if (NETWORK_ONLY.some((p) => url.pathname.startsWith(p))) {
     return; // stato live del player: sempre rete, mai cache

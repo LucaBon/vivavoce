@@ -1,4 +1,4 @@
-// The chat log and the /command round-trip: bubbles, the tappable
+// The chat log and the /api/v1/command round-trip: bubbles, the tappable
 // "did you mean" choices, and the send pipeline shared by the text box and
 // both recognisers (Web Speech and the server's local ASR).
 
@@ -124,10 +124,11 @@ function maybePromptSpoken(afterEl) {
   note.after(row);
 }
 
-// A /command round-trip is a couple of LMS calls; anything past this is the
-// server being gone, not slow. Without a deadline `sending` never cleared and
-// the whole session went quiet: every later voice command was beeped at, then
-// dropped on the `sending` guard with nothing on screen to explain it.
+// An /api/v1/command round-trip is a couple of LMS calls; anything past this
+// is the server being gone, not slow. Without a deadline `sending` never
+// cleared and the whole session went quiet: every later voice command was
+// beeped at, then dropped on the `sending` guard with nothing on screen to
+// explain it.
 const COMMAND_TIMEOUT_MS = 15000;
 
 let sending = false;
@@ -149,7 +150,7 @@ export async function send(text, alternatives, opts) {
                  lang: recLang(), player: currentPlayer() };
   if (alternatives && alternatives.length > 1) body.alternatives = alternatives;
   try {
-    const r = await fetch("/command", {
+    const r = await fetch("/api/v1/command", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

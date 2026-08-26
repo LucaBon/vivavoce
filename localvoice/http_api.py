@@ -5,10 +5,16 @@ CLI): this module owns what happens after a request arrives — routing, the
 JSON contracts, and the "never a 5xx" guarantees the page relies on. Stdlib
 ``http.server`` only.
 
-One family of routes lives next door rather than here: the endpoints backed
-by the optional audio engines (``/asr``, ``/transcribe``, ``/wakeword/*``) are
-a mixin from ``audio_api.py``, mixed into ``Handler`` below. They read binary
-bodies and are Pro-gated server-side, which nothing else here does.
+Two families of routes live next door rather than here, both mixed into
+``Handler`` below:
+
+* the endpoints backed by the optional audio engines (``/asr``,
+  ``/transcribe``, ``/wakeword/*``), from ``audio_api.py``: they read binary
+  bodies and are Pro-gated server-side, which nothing else here does;
+* ``POST /api/v1/command``, from ``api_v1.py``: the one route with a
+  *versioned promise* attached to it (see ``docs/api.md``). Everything else
+  in this module is the web app talking to itself and may change with the
+  page it serves.
 """
 
 from __future__ import annotations
@@ -21,9 +27,9 @@ import threading
 import httpbase
 import staticfiles
 import webguard
+from api_v1 import api_v1_routes
 from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
-from messages import msg
 from router import Router
 
 # One Router per (client id, player) — see router_for. The map is keyed on a
@@ -81,10 +87,12 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 routers.move_to_end(key)
             return r
 
-    # The audio-engine endpoints (/asr, /transcribe, /wakeword/*) live in
-    # audio_api.py and are mixed in here, which is the only place the two
-    # halves meet: they call back into _send/_query_params below.
-    class Handler(audio_routes(license_mgr, transcriber, wakeword_sessions),
+    # The audio-engine endpoints (/asr, /transcribe, /wakeword/*) and the
+    # versioned command route (/api/v1/command) live in audio_api.py and
+    # api_v1.py; here is the only place the halves meet, and they call back
+    # into _send/_query_params/_read_json_object below.
+    class Handler(api_v1_routes(router_for),
+                  audio_routes(license_mgr, transcriber, wakeword_sessions),
                   httpbase.RequestBase, BaseHTTPRequestHandler):
         host_policy = webguard.HostPolicy(allowed_hosts)
 
@@ -330,32 +338,22 @@ def make_handler(lms, material_url: str, services, default_service: str,
             if self.path.startswith("/wakeword/stop"):
                 self._wakeword_stop()
                 return
-            if self.path != "/command":
-                self._send(404, '{"speech":"non trovato"}')
+            # Both spellings of the same route: /api/v1/command is the
+            # contract external clients get to rely on, /command the original
+            # unversioned path the page and anything already integrated still
+            # use. One implementation, in api_v1.py, so they cannot drift.
+            #
+            # Match on the path without its query string, the way webguard
+            # does (httpbase strips it before the JSON_ROUTES lookup) and the
+            # way /transcribe and /wakeword/* already do with startswith. An
+            # exact match on self.path let a cache-buster or a stray trailing
+            # "?" pass the cross-site guard and then 404 — harmless, because
+            # it failed closed, but an unexplained 404 on the one route that
+            # now promises stability is exactly what a client author trips on.
+            if self.path.split("?", 1)[0] in ("/api/v1/command", "/command"):
+                self._command()
                 return
-            payload = self._read_json_object()
-            text = payload.get("text", "")
-            client_id = payload.get("client") or "default"
-            # The UI player selector: commands go to that player's router.
-            player_id = payload.get("player") or ""
-            # Auto source (default): the router tries the local library first,
-            # then TIDAL. Explicit phrases ("dalla mia musica", "da tidal") and
-            # an explicit source still override.
-            source = payload.get("source") or "auto"
-            # The language the user is speaking (the page's mic-language
-            # selector): commands are parsed and answered in that language.
-            lang = payload.get("lang") or "it"
-            # Prefer the ASR alternatives when present (mic hands-free mode);
-            # the plain text box just sends one string.
-            alternatives = payload.get("alternatives") or ([text] if text else [])
-            try:
-                result = router_for(client_id, player_id).handle_many(
-                    alternatives, source, lang)
-            except Exception as exc:  # never 500 the client
-                result = {"speech": msg("internal_error", error=exc), "used": text,
-                          "ok": False, "error": str(exc), "terms": [],
-                          "unmatched": False}
-            self._send(200, json.dumps(result, ensure_ascii=False))
+            self._send(404, '{"speech":"non trovato"}')
 
         def log_message(self, *args):  # keep the console quiet
             pass

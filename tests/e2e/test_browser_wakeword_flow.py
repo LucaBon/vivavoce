@@ -156,7 +156,7 @@ def test_wake_word_and_command_in_one_breath_still_works(page, web):
     page.wait_for_function(
         "() => [...document.querySelectorAll('#log .bubble')]"
         "        .some(b => b.textContent === 'pausa')", timeout=5000)
-    # The wake word is stripped: what reaches /command is the command alone.
+    # The wake word is stripped: what reaches /api/v1/command is the command alone.
     assert "pausa" in _bubbles(page)
     assert "vivavoce pausa" not in _bubbles(page)
 
