@@ -4,6 +4,24 @@
 
 ### New
 
+- **Vague requests now play something, and say what.** «metti qualcosa di
+  rilassante», «musica per cena», «metti un po' di jazz» / "play something
+  relaxing", "play some music for dinner" used to be searched for as if they
+  were song titles, and of course nothing was ever called that. They now
+  resolve through your library's own genres first — real music you own — and
+  fall back to the streaming service's curated playlists only when the library
+  has nothing to offer; asking for your own library keeps the answer local.
+  The genre is shuffled, because a mood that opens on the same track every
+  evening is not a mood.
+
+  Every reply reads back what it started («Ho messo un po' di Ambient») and
+  invites «un'altra» / "another one", which picks something different until
+  the ideas run out and it says so. Choosing is only allowed here because
+  nothing was named: a request that names a song, an album or an artist is
+  untouched — «metti Bollicine di Vasco» behaves exactly as before, and so
+  does a song whose title happens to be a mood word. Still deterministic,
+  still no model anywhere: a lookup table and your library's metadata.
+
 - **The container image is published**, so "Docker — one command" is finally
   one command: `docker run … ghcr.io/lucabon/vivavoce:latest`, no clone and no
   build. Every release tag publishes for **amd64 and arm64** as `:X.Y.Z`,

@@ -79,6 +79,21 @@ IT = {
         "Non ho trovato una radio chiamata {name} tra i tuoi preferiti.",
     "playing_radio": "Metto la radio {name}.",
 
+    # -- moods (vague requests — see engine/moods.py) -------------------------
+    # Nothing was named, so nothing can be betrayed by the choice — but the
+    # choice has to be said out loud, and taken back if it misses.
+    #
+    # The two misses deliberately do NOT quote the request back. The spoken
+    # tail is whatever the listener said, and half the vocabulary already
+    # carries its own preposition: "per cena" in a frame ending in "per"
+    # reads «Ho finito le idee per per cena». There is no frame that survives
+    # every tail, and echoing adds nothing they did not just say.
+    "playing_mood_genre": "Ho messo un po' di {genre}. Se non va, dimmi un'altra.",
+    "playing_mood_playlist":
+        "Ho messo la playlist {name}. Se non va, dimmi un'altra.",
+    "mood_not_found": "Non ho trovato niente che vada bene nella tua musica.",
+    "mood_exhausted": "Ho finito le idee. Prova a dirmi un genere.",
+
     # -- transport / info ----------------------------------------------------
     "paused": "In pausa.",
     "resumed": "Riprendo la riproduzione.",
@@ -212,6 +227,14 @@ EN = {
     "radio_not_found":
         "I couldn't find a radio station called {name} among your favorites.",
     "playing_radio": "Playing the radio station {name}.",
+
+    # -- moods (vague requests — see engine/moods.py) -------------------------
+    "playing_mood_genre":
+        "I've put on some {genre}. Say another one if it doesn't fit.",
+    "playing_mood_playlist":
+        "I've put on the {name} playlist. Say another one if it doesn't fit.",
+    "mood_not_found": "I couldn't find anything that fits in your music.",
+    "mood_exhausted": "I'm out of ideas. Try naming a genre.",
 
     # -- transport / info ----------------------------------------------------
     "paused": "Paused.",

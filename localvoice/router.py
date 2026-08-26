@@ -28,6 +28,7 @@ import re
 import time
 
 import actions
+import moods
 from lang import PACKS
 from messages import msg, set_lang
 
@@ -35,6 +36,13 @@ from messages import msg, set_lang
 # is the it-fallback the whole app relies on. (Kept under this name: the
 # tests assert on cross-language key parity through it.)
 PATTERNS = {code: pack.PATTERNS for code, pack in PACKS.items()}
+
+# Mood vocabularies, deliberately NOT merged across languages the way the
+# number tables below are. A number word is a label for a position and means
+# the same thing whichever language says it; a mood word is a content word,
+# and merging the vocabularies would widen the set of tails that turn into a
+# mood — which is the opposite of this filter's job.
+MOOD_WORDS = {code: pack.MOOD_WORDS for code, pack in PACKS.items()}
 
 # The word tables are merged across every registered language on purpose:
 # the recogniser's language and the phrasing don't always agree ("metti la
@@ -129,6 +137,12 @@ CANDIDATES_TTL = 300.0
 CANDIDATES_GRACE = 30.0
 
 
+# An open mood is a conversation ("un'altra") with the same shelf life as an
+# open list, and for the same reason: past it, the follow-up phrase belongs to
+# whatever the listener is doing now.
+MOOD_TTL = 300.0
+
+
 class Router:
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
                  kidsafe=None, client_id="default", multiroom=None,
@@ -174,6 +188,21 @@ class Router:
         # phrase" button only then — an understood-but-failed command (LMS
         # down, no search results) is not a parser gap.
         self._unmatched = False
+        # The open mood (see engine/moods.py): {"key", "used"} while
+        # a vague request is live, None otherwise. ``used`` holds the labels
+        # already given, so «un'altra» has to find a different answer.
+        self.mood = None
+        self.mood_until = 0.0
+        # (playerid, name) when the mood was started by a room-targeted
+        # command, so «un'altra» re-rolls in that room instead of starting
+        # music somewhere nobody asked for. Same idea as cand_player.
+        self.mood_player = None
+        self._mood_turn = False  # this turn acted on the mood
+        # Whether the mood is still what the conversation is about, as far as
+        # the NEXT turn is concerned. See handle() for the rule.
+        self._mood_alive = True
+        # The language pack's mood vocabulary for this turn (set in handle()).
+        self._mood_words = {}
 
     def _stream_name(self, source):
         """The streaming service a request goes to: ``source`` when it names a
@@ -187,10 +216,18 @@ class Router:
     def _tag(self, res, suffix: str):
         """Splice the source tag into a play confirmation ('Riproduco Time.' ->
         'Riproduco Time da Qobuz.'). Only acted-on plays are tagged: misses,
-        errors and 'did you mean' questions pass through untouched."""
+        errors and 'did you mean' questions pass through untouched.
+
+        It goes into the FIRST sentence, which is the same thing as the last
+        one for every confirmation that has only one — all of them until the
+        mood read-back, which ends by inviting «un'altra» and turned
+        «… in cucina» into an instruction about where to say it."""
         if not suffix or not getattr(res, "ok", False) or getattr(res, "kind", None):
             return res
-        speech = (res[:-1] if res.endswith(".") else str(res)) + suffix + "."
+        head, sep, rest = str(res).partition(". ")
+        if head.endswith("."):
+            head = head[:-1]
+        speech = head + suffix + "." + ((" " + rest) if sep else "")
         return actions.ActionResult(speech, ok=True, candidates=res.candidates,
                                     kind=res.kind, terms=res.terms)
 
@@ -201,6 +238,44 @@ class Router:
             self.cand_source = None
             self.cand_player = None
             self.cand_mode = "play"
+
+    def _expire_mood(self) -> None:
+        """Forget a mood nobody came back to in time (see MOOD_TTL)."""
+        if self.mood is not None and self.now() >= self.mood_until:
+            self.mood = None
+
+    def _settle_mood(self, result) -> None:
+        """Record, for the next turn, whether the mood is still the topic."""
+        self._mood_alive = self._mood_turn or not getattr(result, "ok", False)
+
+    def _play_mood(self, source: str):
+        """Start — or re-roll — the open mood, remembering what it picked so
+        the next «un'altra» has to answer differently.
+
+        A local source stays local: ``stream=None`` means the curated service
+        playlists are not a fallback for someone who asked for their own
+        library. Any outcome that isn't a play closes the mood, because both
+        of them ("nothing fits", "out of ideas") are the end of that thread —
+        re-rolling a mood that just told you it has nothing left is a loop."""
+        state = self.mood
+        # A re-roll of a room-targeted mood stays in that room (unless this
+        # very turn names another one — then self.lms already points there and
+        # tagging is the caller's job, exactly like a pick from a list).
+        lms, room_suffix = self.lms, ""
+        if self.mood_player and not self._room_turn:
+            lms = self.lms.for_player(self.mood_player[0])
+            room_suffix = msg("in_room", room=self.mood_player[1])
+        stream = (None if source == "local"
+                  else lms.for_service(self._stream_name(source)))
+        res = moods.play_mood(lms, state["key"], stream=stream,
+                              exclude=state["used"], guard=self._guard)
+        if getattr(res, "ok", False):
+            if res.terms:
+                state["used"].append(res.terms[0])
+            self.mood_until = self.now() + MOOD_TTL
+        else:
+            self.mood = None
+        return self._tag(res, room_suffix)
 
     def _used_list(self) -> None:
         """A pick was acted on: the list has done its job. Kept alive for a
@@ -319,8 +394,27 @@ class Router:
         self._opened = False
         self._unmatched = False  # _route sets it on the "non ho capito" path
         self._expire_candidates()
+        self._expire_mood()
+        # A mood lives only while the conversation is still about it, and the
+        # rule is: a turn that ACTED on something else ends it; a turn that
+        # was not understood does not. The asymmetry is deliberate, and both
+        # halves are load-bearing.
+        #
+        # Ending it on an action is the safe direction of the two: without it
+        # «metti Comfortably Numb» followed by «un'altra» would re-roll a mood
+        # from four minutes ago and change the music out from under someone.
+        #
+        # Surviving a miss is what keeps handle_many honest. It replays the
+        # same spoken turn once per recognition alternative, and its contract
+        # is that trying a miss has no side effect — an alternative that
+        # transcribed badly must not quietly kill the mood before the
+        # alternative that transcribed well gets its turn.
+        if not self._mood_alive:
+            self.mood = None
+        self._mood_turn = False
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
+        self._mood_words = MOOD_WORDS.get(lang) or MOOD_WORDS["it"]
         t = (text or "").strip()
         # Dictation often appends final punctuation ("Metti la 2."): it would
         # break the $-anchored patterns (picks, suffix forms) and leak into the
@@ -350,6 +444,9 @@ class Router:
             result = self._route(t, source, P)
             if self._opened:
                 self.cand_player = None  # a fresh list belongs to this player
+            if self._mood_turn:
+                self.mood_player = None  # a mood started here stays here
+            self._settle_mood(result)
             return result
         saved = self.lms
         self.lms = saved.for_player(target["playerid"])
@@ -361,6 +458,9 @@ class Router:
         if self._opened:
             # «metti la 2» after a room-opened list keeps playing in that room.
             self.cand_player = (target["playerid"], room)
+        if self._mood_turn:
+            self.mood_player = (target["playerid"], room)
+        self._settle_mood(result)
         return self._tag(result, msg("in_room", room=room))
 
     def _route(self, t: str, source: str, P: dict) -> str:
@@ -415,6 +515,50 @@ class Router:
         m = P["radio"].search(t)
         if m:
             return actions.play_radio(self.lms, m.group(1).strip(), guard=self._guard)
+
+        # 0c) vague requests — «metti qualcosa di rilassante», «music for
+        # dinner» (engine/moods.py). Sitting above the play verbs, and above
+        # the transport block below, is only safe because three things have to
+        # hold at once, and the third was the one this step originally missed:
+        # the phrase has to START as a request to play (the pattern is anchored
+        # — see lang/it.py, where the list of phrases that used to start the
+        # music while asking to stop it is written out), a marker noun a title
+        # never carries has to follow immediately, and what that captures has
+        # to BE a whole mood word. «metti la musica di Vasco Rossi» clears the
+        # first two and fails the third, and goes on to the artist path
+        # exactly as before.
+        #
+        # Two things are deliberately out of scope, both of them the same
+        # limitation the queue block above already carries. A mood into the
+        # queue («aggiungi qualcosa di rilassante alla coda»): queue_add is
+        # checked first, so that phrase keeps behaving as it did. And an
+        # explicit source override («dalla mia musica metti qualcosa di
+        # rilassante» / "from my music, play something relaxing"): those do not
+        # start as a play request, so the anchor above turns them down and they
+        # fall through to the local-prefix path unchanged. The UI source
+        # selector is what decides where a mood comes from — exactly like a
+        # queued song. Worth knowing that this makes the most natural way to
+        # ask for a local mood out loud not work; the selector is the answer
+        # today, and lifting it means letting the prefix run first.
+        if self.mood is not None and P["mood_another"].search(t):
+            self._mood_turn = True
+            return self._play_mood(source)
+        m = P["mood"].search(t)
+        if m:
+            tail = m.group(1).strip()
+            key = moods.match_mood(tail, self._mood_words)
+            if key:
+                self.mood = {"key": key, "used": []}
+                self.mood_until = self.now() + MOOD_TTL
+                self._mood_turn = True
+                res = self._play_mood(source)
+                # A mood with nothing to offer is not an answer: fall through
+                # and let the rest of the routing have the phrase. "play some
+                # Fun" names a band, and an empty mood must not be why it
+                # stops being looked for.
+                if getattr(res, "kind", None) != "mood_empty":
+                    return res
+                self._mood_turn = False
 
         # A play command carries a title after the verb; its transport-sounding
         # words ("Don't Stop Me Now" -> "stop") must NOT be mistaken for

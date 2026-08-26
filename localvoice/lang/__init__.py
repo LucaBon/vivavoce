@@ -15,7 +15,7 @@ import importlib
 import pkgutil
 
 REQUIRED = ("CODE", "PATTERNS", "NUM_WORDS", "ORDINAL_WORDS",
-            "MINUTE_WORDS", "DURATIONS")
+            "MINUTE_WORDS", "DURATIONS", "MOOD_WORDS")
 
 #: ``{"it": <module lang.it>, "en": <module lang.en>, ...}``
 PACKS = {}

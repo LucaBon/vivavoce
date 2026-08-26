@@ -71,6 +71,26 @@ PATTERNS = {
     "queue_insert": c(r"\bplay\s+(.+?)\s+next\s*$"),
     "queue_clear": c(r"^(?:clear|empty)\s+the\s+queue\s*$"),
     "queue_list": c(r"what'?s\s+(?:in|on)\s+the\s+queue|queue\s+list"),
+    # Vague requests — see it.py for the three conditions and why the anchor
+    # is one of them ("stop playing something sad" and "I don't want something
+    # sad" both used to start the music), and engine/moods.py for the lookup. "for" is deliberately never consumed: "for dinner" is the
+    # whole tail MOOD_WORDS is asked about, not "dinner" with a stray word.
+    "mood": c(r"^(?:(?:play|put\s+on|start"
+              r"|i\s+want\s+to\s+(?:hear|listen\s+to))\s+(?:me\s+)?)?"
+              r"(?:some|a\s+bit\s+of|a\s+little|something|anything"
+              r"|music|songs|tunes)"
+              r"(?:\s+(?:music|songs))?"
+              # A trailing "music"/"songs" is part of the phrasing, not of the
+              # mood: "some upbeat music" asks for `upbeat`. Lazy plus an
+              # optional tail-noun, so a multi-word mood ("for studying")
+              # still backtracks its way to the whole thing.
+              r"\s+(.+?)(?:\s+(?:music|songs|tunes))?\s*$"),
+    # The whole phrase, politeness aside — see it.py. As a prefix it caught
+    # "another song", which is skip-this-track. And no "next one": same
+    # reason, and it would have shadowed the transport pattern outright.
+    "mood_another": c(r"^(?:no[,\s]+)?(?:another(?:\s+one)?"
+                      r"|something\s+else|change\s+it|not\s+this\s+one"
+                      r")(?:\s+(?:please|thanks))?\s*$"),
     # Favorites & radio (LMS core feature — see engine/actions.py).
     "favorites": c(r"\b(?:play|put\s+on|start)\s+(?:my\s+)?favou?rites\b"),
     "radio": c(r"\bplay\s+(?:the\s+)?radio\s+(.+)$"),
@@ -102,4 +122,58 @@ PATTERNS = {
     "block_remove": c(r"^unblock\s+(.+)$"),
     "block_list": c(r"^(?:(?:what|which)\s+(?:songs?|tracks?)\s+(?:are|is)\s+blocked|"
                     r"what'?s\s+blocked|list\s+(?:the\s+)?blocked)"),
+}
+
+# Spoken tail -> mood key. See it.py: keys are pre-normalized and matched
+# against the WHOLE tail, never a part of it.
+MOOD_WORDS = {
+    # relax
+    "relaxing": "relax", "relaxed": "relax", "calm": "relax",
+    "calming": "relax", "chill": "relax", "chilled": "relax",
+    "mellow": "relax", "quiet": "relax", "to relax": "relax",
+    "laid back": "relax", "soothing": "relax",
+    # sleep
+    "to sleep": "sleep", "for sleeping": "sleep", "to fall asleep": "sleep",
+    "for bedtime": "sleep", "for the night": "sleep", "sleepy": "sleep",
+    # dinner
+    "for dinner": "dinner", "for supper": "dinner", "dinner": "dinner",
+    "for lunch": "dinner", "while we eat": "dinner",
+    "for a dinner party": "dinner",
+    # party
+    "for a party": "party", "for the party": "party", "party": "party",
+    "to dance": "party", "for dancing": "party", "to dance to": "party",
+    # happy
+    "happy": "happy", "cheerful": "happy", "upbeat": "happy",
+    "feel good": "happy", "fun": "happy", "joyful": "happy",
+    # energetic
+    "energetic": "energetic", "for the gym": "energetic",
+    "for a workout": "energetic", "for working out": "energetic",
+    "for running": "energetic", "to run to": "energetic",
+    "pumped up": "energetic", "high energy": "energetic",
+    # focus
+    "for studying": "focus", "to study": "focus", "to study to": "focus",
+    "for working": "focus", "to work to": "focus", "for reading": "focus",
+    "to read to": "focus", "for concentration": "focus", "to focus": "focus",
+    # background
+    "in the background": "background", "for the background": "background",
+    "background": "background", "light": "background",
+    "easy listening": "background", "unobtrusive": "background",
+    # romantic
+    "romantic": "romantic", "for a date": "romantic",
+    "for date night": "romantic", "for lovers": "romantic",
+    "sensual": "romantic",
+    # melancholy
+    "sad": "melancholy", "melancholy": "melancholy",
+    "melancholic": "melancholy", "nostalgic": "melancholy",
+    "moody": "melancholy", "for a rainy day": "melancholy",
+    # morning
+    "for the morning": "morning", "for breakfast": "morning",
+    "to wake up to": "morning", "for waking up": "morning",
+    "morning": "morning",
+    # genre-shaped
+    "classical": "classical", "classical music": "classical",
+    "opera": "classical", "baroque": "classical",
+    "jazz": "jazz", "jazzy": "jazz",
+    "rock": "rock", "classic rock": "rock", "hard rock": "rock",
+    "blues": "blues", "bluesy": "blues",
 }

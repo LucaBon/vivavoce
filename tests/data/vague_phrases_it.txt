@@ -1,0 +1,85 @@
+# Frasi vaghe italiane, scritte come le direbbe una persona — NON come le vuole
+# il parser. È l'unico modo perché la misura del residuo (T2.4) valga qualcosa:
+# un corpus scritto guardando MOOD_WORDS misurerebbe se stesso.
+#
+# Raccolte da come si parla in casa a un impianto, includendo di proposito
+# richieste che la strada A non può coprire (riferimenti obliqui, confronti fra
+# artisti, "come quello di ieri"): sono il residuo che decide se T2.5 serve.
+#
+# Righe vuote e righe che iniziano con # sono ignorate.
+
+metti qualcosa di rilassante
+metti qualcosa di tranquillo
+metti musica rilassante
+metti della musica rilassante
+metti su qualcosa di calmo
+metti qualcosa di soft
+voglio ascoltare qualcosa di tranquillo
+metti qualcosa per rilassarmi
+metti musica per dormire
+metti qualcosa per dormire
+metti della musica per la notte
+metti musica per cena
+metti qualcosa per cena
+metti della musica per la cena
+metti musica da cena
+metti qualcosa per mangiare
+metti musica per il pranzo
+metti musica per la festa
+metti qualcosa da ballare
+metti musica per ballare
+metti qualcosa per fare festa
+metti qualcosa di allegro
+metti musica allegra
+metti qualcosa di spensierato
+metti qualcosa che tiri su
+metti qualcosa di divertente
+metti qualcosa di energico
+metti musica per allenarmi
+metti qualcosa per correre
+metti musica per la palestra
+metti qualcosa di grintoso
+metti musica per studiare
+metti qualcosa per studiare
+metti della musica per lavorare
+metti qualcosa per concentrarmi
+metti musica per leggere
+metti qualcosa di sottofondo
+metti musica in sottofondo
+metti qualcosa di leggero
+metti della musica di atmosfera
+metti qualcosa di romantico
+metti musica romantica
+metti qualcosa per una serata romantica
+metti qualcosa di malinconico
+metti qualcosa di triste
+metti musica nostalgica
+metti qualcosa per la colazione
+metti musica per svegliarmi
+metti della musica del mattino
+metti un po' di classica
+metti della musica classica
+metti un po' di jazz
+metti del jazz
+metti un po' di rock
+metti della musica rock
+metti un po' di blues
+# --- oltre la portata della strada A: metadati e generi non bastano ---
+metti qualcosa tipo i Sigur Ros ma più allegro
+metti qualcosa che assomigli ai Pink Floyd
+metti qualcosa di simile a quello che stavamo ascoltando
+metti quella cosa che mi hai messo ieri sera
+metti qualcosa che piaccia anche ai bambini
+metti qualcosa di italiano degli anni sessanta
+metti musica anni ottanta
+metti qualcosa che non sentiamo da un po'
+metti qualcosa di nuovo che non conosco
+metti qualcosa di famoso
+metti qualcosa che vada bene per tutti
+metti qualcosa di estivo
+metti musica natalizia
+metti qualcosa che si possa cantare insieme
+metti qualcosa di strumentale
+metti qualcosa senza parole
+metti qualcosa di lungo che non finisca subito
+metti qualcosa che mi faccia venire voglia di cucinare

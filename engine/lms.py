@@ -509,6 +509,20 @@ class LMSClient:
         albums = [{"id": a["id"], "title": a.get("album")} for a in loop if a.get("id")]
         return {"artist": artist, "albums": albums}
 
+    # Genres are the one piece of library metadata a mood can be resolved
+    # against without asking anyone's taste (see engine/moods.py): LMS has
+    # tagged every track with one already, and the ids are stable like the
+    # rest of the local-library commands.
+    def local_genres(self, count: int = 200) -> List[Dict[str, Any]]:
+        loop = self.server_command(
+            "genres", "0", str(count)
+        ).get("genres_loop") or []
+        return [{"id": g["id"], "title": g.get("genre")}
+                for g in loop if g.get("id") is not None]
+
+    def play_local_genre(self, genre_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:load", f"genre_id:{genre_id}")
+
     def play_local_artist(self, artist_id: Any) -> Dict[str, Any]:
         return self.command("playlistcontrol", "cmd:load", f"artist_id:{artist_id}")
 
