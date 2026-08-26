@@ -208,4 +208,29 @@ MOOD_WORDS = {
     "jazz": "jazz", "jazzistica": "jazz",
     "rock": "rock", "rock duro": "rock", "hard rock": "rock",
     "blues": "blues",
+    # Metadata axes (T2.4-bis). Adjectives and phrases only, never the bare
+    # noun: «natale» on its own is «Bianco Natale» and «estate» is Vivaldi and
+    # De André at once, and every entry here widens the set of tails that stop
+    # being a title. "di natale" is deliberately absent and would be dead
+    # anyway — the pattern eats the "di", so «metti musica di natale» arrives
+    # here as the bare "natale", which is exactly the entry we refuse to have.
+    "natalizia": "christmas", "natalizie": "christmas",
+    "natalizio": "christmas", "per natale": "christmas",
+    "strumentale": "instrumental", "strumentali": "instrumental",
+    "senza parole": "instrumental",
+    "estivo": "summer", "estiva": "summer", "da spiaggia": "summer",
+    # Decades. A bare "anni ottanta" needs the marker noun in front of it to
+    # get here at all, which is what keeps «metti Anni 60» a search.
+    "anni sessanta": "sixties", "anni 60": "sixties",
+    "degli anni sessanta": "sixties", "dagli anni sessanta": "sixties",
+    "degli anni 60": "sixties", "dagli anni 60": "sixties",
+    "anni settanta": "seventies", "anni 70": "seventies",
+    "degli anni settanta": "seventies", "dagli anni settanta": "seventies",
+    "degli anni 70": "seventies", "dagli anni 70": "seventies",
+    "anni ottanta": "eighties", "anni 80": "eighties",
+    "degli anni ottanta": "eighties", "dagli anni ottanta": "eighties",
+    "degli anni 80": "eighties", "dagli anni 80": "eighties",
+    "anni novanta": "nineties", "anni 90": "nineties",
+    "degli anni novanta": "nineties", "dagli anni novanta": "nineties",
+    "degli anni 90": "nineties", "dagli anni 90": "nineties",
 }

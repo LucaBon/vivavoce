@@ -30,15 +30,25 @@ of the same mood. This is also the shape T2.5 fills in later: a generated
 ``mood_seeds.json`` replaces the source of this data without changing the lookup
 that reads it, and with the file absent the behaviour is what you see here.
 
-A genre plays in library order, so the same mood opens on the same track every
-evening. That is a real annoyance and it is left alone deliberately: LMS's
+A genre used to play in library order, so the same mood opened on the same
+track every evening. The obvious fix was rejected and stays rejected: LMS's
 ``playlist shuffle 1`` is not "shuffle this queue", it is the player's shuffle
 *preference*, and setting it would leave every later «metti The Dark Side of
 the Moon» playing out of order with no voice command anywhere to turn it back
 off. Trading a repeated opening track for silently shuffling somebody's albums
-is not a trade this product gets to make. Randomising the starting index
-without touching that preference is the fix, and it needs a real LMS to get
-right.
+is not a trade this product gets to make.
+
+``playlistcontrol sort:random`` is the third way, and it is what the loads here
+now pass. It is scoped to the single call, touches no preference, and the CLI
+documents it as relevant precisely when ``genre_id``, ``artist_id`` or ``year``
+is supplied — two of which are the shapes this module loads (``play_local_artist``
+serves identified requests, where album order is the right order, and is left
+alone). **Its known limit, because it
+is a limit and not a fix**: ``sort`` is the *album* sort order, so it
+randomises which album opens, not the order of tracks inside it. A mood no
+longer starts on the same track every evening, but it is not a true shuffle,
+and only a real LMS can say how well it reads in practice — there isn't one
+here.
 
 Resolution order is **local library first, then the streaming service**, decided
 with Luca on 2026-08-26: a genre out of the listener's own library is music they
@@ -49,7 +59,7 @@ service playlists are the fallback, not the lead.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from actions import ActionResult, Guard, _normalize, is_blocked_item
 from lms import LMSError
@@ -58,11 +68,19 @@ from messages import msg
 # How many library genres to ask LMS for. A library with more distinct genre
 # tags than this has bigger problems than the tail of the list being ignored.
 GENRE_LIMIT = 200
+# Same, for years. Recorded music is not yet 200 years old.
+YEAR_LIMIT = 200
 # Playlist candidates per service query, as elsewhere in the client.
 PLAYLIST_LIMIT = 20
 
-# mood key -> the genre tags that mean it, best first, and the playlist
-# searches to try when the library has none of them.
+# mood key -> the library axis that means it, best first, and the playlist
+# searches to try when the library answers nothing on that axis.
+#
+# The axis is ``genres`` for almost every entry and ``years`` for a decade —
+# an entry carries one or the other, never both, and ``play_mood`` branches on
+# which. A decade's ``years`` is the closed interval it covers, because no LMS
+# filter anywhere accepts a range: the year the load asks for is a single year
+# picked out of that interval.
 #
 # Genre aliases are matched against the library's own tags two ways: equal when
 # normalized ("Classica" == "classica"), or present as a whole word inside a
@@ -72,7 +90,9 @@ PLAYLIST_LIMIT = 20
 #
 # Playlist queries are English because TIDAL and Qobuz name their curated
 # playlists in English regardless of the account's country.
-MOODS: Dict[str, Dict[str, Sequence[str]]] = {
+# ``Sequence[Any]`` and not ``Sequence[str]``: a decade's ``years`` holds two
+# ints, everything else holds strings.
+MOODS: Dict[str, Dict[str, Sequence[Any]]] = {
     "relax": {
         "genres": ("Ambient", "New Age", "Chillout", "Chill Out", "Downtempo",
                    "Classical", "Classica", "Easy Listening"),
@@ -145,6 +165,41 @@ MOODS: Dict[str, Dict[str, Sequence[str]]] = {
         "genres": ("Blues", "Rhythm and Blues", "R&B"),
         "playlists": ("Blues", "Blues Essentials"),
     },
+    # Metadata axes LMS already carries, added in the second pass. Christmas is
+    # a genre tag people really do have; "instrumental" and "summer" are not —
+    # no library has a tag called either — so both are spelled out as the
+    # genres that genuinely ARE that thing.
+    "christmas": {
+        "genres": ("Christmas", "Natale", "Holiday", "Natalizio"),
+        "playlists": ("Christmas", "Christmas Classics"),
+    },
+    "instrumental": {
+        "genres": ("Instrumental", "Strumentale", "Classical", "Classica",
+                   "Ambient", "Post-Rock"),
+        "playlists": ("Instrumental", "Instrumental Focus"),
+    },
+    "summer": {
+        "genres": ("Reggae", "Latin", "Bossa Nova", "Surf", "Ska"),
+        "playlists": ("Summer", "Summer Hits"),
+    },
+    # Decades: the year axis. See the note above on why the value is an
+    # interval and the load is one year out of it.
+    "sixties": {
+        "years": (1960, 1969),
+        "playlists": ("60s", "60s Hits"),
+    },
+    "seventies": {
+        "years": (1970, 1979),
+        "playlists": ("70s", "70s Hits"),
+    },
+    "eighties": {
+        "years": (1980, 1989),
+        "playlists": ("80s", "80s Hits"),
+    },
+    "nineties": {
+        "years": (1990, 1999),
+        "playlists": ("90s", "90s Hits"),
+    },
 }
 
 
@@ -193,6 +248,30 @@ def _pick_genre(genres: List[Dict], aliases: Sequence[str],
     return None, seen
 
 
+def _pick_year(years: Sequence[int], span: Sequence[int],
+               exclude) -> Tuple[Optional[int], bool]:
+    """(chosen, any_matched) — ``_pick_genre`` on the other axis: the first
+    library year inside the decade, skipping what «un'altra» already used.
+
+    One year, not the whole decade, and that is the deliberate part. Loading
+    ten years means one ``cmd:load`` and nine ``cmd:add``, and it leaves
+    «un'altra» with nothing left to exclude — so it would either do nothing or
+    need a random number generator, and this module has already decided that
+    «un'altra» works by exclusion so the tests stay reproducible. One year
+    keeps it working exactly as it does for a genre, and keeps the read-back
+    honest about what actually started."""
+    start, end = span
+    seen = False
+    for year in years:
+        if not start <= year <= end:
+            continue
+        seen = True
+        if str(year) in exclude:
+            continue
+        return year, True
+    return None, seen
+
+
 def play_mood(lms, key: str, *, stream=None, exclude=(),
               guard: Optional[Guard] = None) -> ActionResult:
     """Start something that fits ``key``, and say what it was.
@@ -210,7 +289,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
     exclude = {e for e in (_normalize(x) for x in exclude) if e}
     offered = False
 
-    # 1) the listener's own library, by genre.
+    # 1) the listener's own library, on whichever axis this mood carries.
     #
     # The guard filters genre NAMES, which is as far as this can see: loading
     # a genre loads every track in it, so a blocked artist inside an allowed
@@ -218,22 +297,45 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
     # actions.play_local_artist already has (cmd:load artist_id: is the same
     # wholesale load), not a new one — but it is worth naming rather than
     # leaving for someone to find, and closing it means resolving a genre to
-    # its tracks and filtering those.
-    try:
-        genres = lms.local_genres(GENRE_LIMIT)
-    except LMSError:
-        return ActionResult(msg("err_unreachable"), ok=False)
-    if guard and guard.restricted:
-        genres = [g for g in genres if not is_blocked_item(g, guard.blocklist)]
-    chosen, offered = _pick_genre(genres, mood["genres"], exclude)
-    if chosen is not None:
+    # its tracks and filtering those. A year has no name to filter at all, so
+    # a decade is that same hole with nothing to hold on to; the blocklist is
+    # about names, and 1985 is not one. Say the rest of it plainly, because it
+    # is the part that is worse: a household that blocks "Christmas" does get
+    # refused on the genre axis, so the blocklist bites there. On the year axis
+    # it cannot bite at all, and one year spans every genre in the library
+    # where a genre is one slice of it — this is the only mood axis a kid-safe
+    # household cannot restrict. The service-playlist fallback below is still
+    # guarded; only the wholesale local load is not.
+    if "years" in mood:
         try:
-            lms.play_local_genre(chosen["id"])
+            years = lms.local_years(YEAR_LIMIT)
         except LMSError:
             return ActionResult(msg("err_unreachable"), ok=False)
-        name = chosen.get("title") or ""
-        return ActionResult(msg("playing_mood_genre", genre=name), ok=True,
-                            terms=[name])
+        year, offered = _pick_year(years, mood["years"], exclude)
+        if year is not None:
+            try:
+                lms.play_local_year(year)
+            except LMSError:
+                return ActionResult(msg("err_unreachable"), ok=False)
+            return ActionResult(msg("playing_mood_year", year=year), ok=True,
+                                terms=[str(year)])
+    else:
+        try:
+            genres = lms.local_genres(GENRE_LIMIT)
+        except LMSError:
+            return ActionResult(msg("err_unreachable"), ok=False)
+        if guard and guard.restricted:
+            genres = [g for g in genres
+                      if not is_blocked_item(g, guard.blocklist)]
+        chosen, offered = _pick_genre(genres, mood["genres"], exclude)
+        if chosen is not None:
+            try:
+                lms.play_local_genre(chosen["id"])
+            except LMSError:
+                return ActionResult(msg("err_unreachable"), ok=False)
+            name = chosen.get("title") or ""
+            return ActionResult(msg("playing_mood_genre", genre=name), ok=True,
+                                terms=[name])
 
     # 2) the service's curated playlists.
     if stream is not None:

@@ -520,8 +520,36 @@ class LMSClient:
         return [{"id": g["id"], "title": g.get("genre")}
                 for g in loop if g.get("id") is not None]
 
+    # The other axis LMS tags every track with, and the reason a decade is a
+    # mood at all (see engine/moods.py). Two things about `years` are not like
+    # `genres` and are easy to get wrong: the response loop is keyed by
+    # ``year``, not by ``id`` — the year is its own identifier — and
+    # ``hasAlbums:1`` is what keeps years that only stray singles live in out
+    # of the list. Nothing anywhere in the CLI accepts a range, so callers ask
+    # for one year at a time.
+    def local_years(self, count: int = 200) -> List[int]:
+        loop = self.server_command(
+            "years", "0", str(count), "hasAlbums:1"
+        ).get("years_loop") or []
+        years = []
+        for entry in loop:
+            try:
+                years.append(int(entry.get("year")))
+            except (AttributeError, TypeError, ValueError):
+                continue
+        return years
+
+    # ``sort:random`` is documented as relevant exactly when genre_id, artist_id
+    # or year is supplied, and it is scoped to this one call — unlike
+    # `playlist shuffle 1`, which is the player's standing preference. It sorts
+    # ALBUMS, not tracks, so it is not a true shuffle; see engine/moods.py.
+    def play_local_year(self, year: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:load", f"year:{year}",
+                            "sort:random")
+
     def play_local_genre(self, genre_id: Any) -> Dict[str, Any]:
-        return self.command("playlistcontrol", "cmd:load", f"genre_id:{genre_id}")
+        return self.command("playlistcontrol", "cmd:load",
+                            f"genre_id:{genre_id}", "sort:random")
 
     def play_local_artist(self, artist_id: Any) -> Dict[str, Any]:
         return self.command("playlistcontrol", "cmd:load", f"artist_id:{artist_id}")

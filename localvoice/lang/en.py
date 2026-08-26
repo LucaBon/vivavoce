@@ -176,4 +176,31 @@ MOOD_WORDS = {
     "jazz": "jazz", "jazzy": "jazz",
     "rock": "rock", "classic rock": "rock", "hard rock": "rock",
     "blues": "blues", "bluesy": "blues",
+    # Metadata axes (T2.4-bis) — see it.py for why the bare noun is the thing
+    # to be careful with. Bare "christmas" is here despite naming real songs,
+    # on the same terms as "fun" already in this table, and it earns it: "put
+    # on some christmas music" is a phrase people say and nothing else covers
+    # it. Bare "summer" was here too and is deliberately gone — measured, it
+    # covered no corpus phrase that "summery" did not already cover, while it
+    # did break "play some Summer", which is how a person asks for a one-word
+    # title. An entry that costs a real request and buys nothing is not a
+    # trade, and the fall-through is a weaker net than it looks: the phrase
+    # handed back still carries its marker, so the search sees "some Summer".
+    "christmas": "christmas", "for christmas": "christmas",
+    "instrumental": "instrumental", "without words": "instrumental",
+    "with no words": "instrumental",
+    "summery": "summer",
+    # Decades.
+    "sixties": "sixties", "the sixties": "sixties",
+    "from the sixties": "sixties", "60s": "sixties",
+    "the 60s": "sixties", "from the 60s": "sixties",
+    "seventies": "seventies", "the seventies": "seventies",
+    "from the seventies": "seventies", "70s": "seventies",
+    "the 70s": "seventies", "from the 70s": "seventies",
+    "eighties": "eighties", "the eighties": "eighties",
+    "from the eighties": "eighties", "80s": "eighties",
+    "the 80s": "eighties", "from the 80s": "eighties",
+    "nineties": "nineties", "the nineties": "nineties",
+    "from the nineties": "nineties", "90s": "nineties",
+    "the 90s": "nineties", "from the 90s": "nineties",
 }

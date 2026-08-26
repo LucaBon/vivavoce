@@ -11,8 +11,16 @@
   resolve through your library's own genres first — real music you own — and
   fall back to the streaming service's curated playlists only when the library
   has nothing to offer; asking for your own library keeps the answer local.
-  The genre is shuffled, because a mood that opens on the same track every
-  evening is not a mood.
+  The load asks LMS for a random album order, so a mood does not open on the
+  same track every evening — it is the album order that is randomised, not the
+  tracks inside an album, and it is scoped to that one request: your player's
+  own shuffle setting is never touched.
+
+  It also answers the axes your library already tags: **a decade** («metti
+  musica anni ottanta» / "play some eighties music" — one year out of it, said
+  out loud, and «un'altra» gives another year of the same decade), **Christmas
+  music**, **instrumental** / "without words", and **summery**. A decade the
+  library has nothing from says so rather than playing the nearest thing.
 
   Every reply reads back what it started («Ho messo un po' di Ambient») and
   invites «un'altra» / "another one", which picks something different until

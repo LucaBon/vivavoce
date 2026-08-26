@@ -91,6 +91,10 @@ IT = {
     "playing_mood_genre": "Ho messo un po' di {genre}. Se non va, dimmi un'altra.",
     "playing_mood_playlist":
         "Ho messo la playlist {name}. Se non va, dimmi un'altra.",
+    # A decade resolves to ONE year, not to the decade: that is what actually
+    # started, so that is what gets said (see engine/moods.py).
+    "playing_mood_year":
+        "Ho messo qualcosa del {year}. Se non va, dimmi un'altra.",
     "mood_not_found": "Non ho trovato niente che vada bene nella tua musica.",
     "mood_exhausted": "Ho finito le idee. Prova a dirmi un genere.",
 
@@ -233,6 +237,8 @@ EN = {
         "I've put on some {genre}. Say another one if it doesn't fit.",
     "playing_mood_playlist":
         "I've put on the {name} playlist. Say another one if it doesn't fit.",
+    "playing_mood_year":
+        "I've put on something from {year}. Say another one if it doesn't fit.",
     "mood_not_found": "I couldn't find anything that fits in your music.",
     "mood_exhausted": "I'm out of ideas. Try naming a genre.",
 

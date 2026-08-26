@@ -42,24 +42,124 @@ def router(lms):
     return Router(lms)
 
 
-def played_genre(transport):
-    """The genre_id the router loaded, or None."""
+YEARS = [{"year": 1967}, {"year": 1978}, {"year": 1985}, {"year": 1987},
+         {"year": 1994}]
+
+
+@pytest.fixture
+def decades(library):
+    """The same library, plus the years LMS would report for it."""
+    library.responses["years"] = {"years_loop": list(YEARS)}
+    return library
+
+
+def _loaded(transport, prefix):
+    """The value the router loaded under ``prefix:``, or None."""
     for cmd in transport.commands():
         if cmd[:2] == ["playlistcontrol", "cmd:load"]:
             for part in cmd[2:]:
-                if part.startswith("genre_id:"):
-                    return part[len("genre_id:"):]
+                if part.startswith(prefix):
+                    return part[len(prefix):]
     return None
+
+
+def played_genre(transport):
+    """The genre_id the router loaded, or None."""
+    return _loaded(transport, "genre_id:")
+
+
+def played_year(transport):
+    """The year the router loaded, or None."""
+    return _loaded(transport, "year:")
+
+
+def loads(transport):
+    """Every playlistcontrol cmd:load the router issued."""
+    return [cmd for cmd in transport.commands()
+            if cmd[:2] == ["playlistcontrol", "cmd:load"]]
 
 
 # -- the table itself ---------------------------------------------------------
 
-def test_every_mood_offers_both_a_genre_and_a_playlist():
+def test_every_mood_offers_a_library_axis_and_a_playlist():
     # A mood with only one of the two has only one of the two fallbacks, and
     # would fail silently for exactly the listeners who don't have the other.
     for key, mood in moods.MOODS.items():
-        assert mood["genres"], f"{key} has no genre aliases"
+        assert mood.get("genres") or mood.get("years"), f"{key} has no axis"
         assert mood["playlists"], f"{key} has no playlist queries"
+
+
+def test_a_mood_resolves_on_exactly_one_axis():
+    # play_mood branches on which key is present. An entry carrying both would
+    # silently lose one of them, and an entry carrying neither would crash.
+    for key, mood in moods.MOODS.items():
+        assert ("genres" in mood) != ("years" in mood), (
+            f"{key} must have genres or years, not both and not neither")
+
+
+def test_a_decade_is_an_interval_not_a_range_filter():
+    # No LMS filter accepts a range, so the interval is ours to walk: it has to
+    # be a well-formed (start, end) or _pick_year silently matches nothing.
+    for key, mood in moods.MOODS.items():
+        if "years" not in mood:
+            continue
+        start, end = mood["years"]
+        assert 1900 < start < end < 2100, key
+
+
+# The second pass (T2.4-bis): the metadata axes LMS already carries. These are
+# the phrases the corpus had and the vocabulary did not - asserted through the
+# real double filter (pattern, then whole-tail lookup), not by reading the
+# table, so a phrase the pattern cannot reach still fails here.
+NEW_PHRASES_IT = [
+    ("metti musica natalizia", "christmas"),
+    ("metti qualcosa di natalizio", "christmas"),
+    ("metti musica per natale", "christmas"),
+    ("metti qualcosa di strumentale", "instrumental"),
+    ("metti qualcosa senza parole", "instrumental"),
+    ("metti qualcosa di estivo", "summer"),
+    ("metti musica da spiaggia", "summer"),
+    ("metti musica anni ottanta", "eighties"),
+    ("metti musica anni 80", "eighties"),
+    ("metti qualcosa degli anni sessanta", "sixties"),
+    ("metti qualcosa dagli anni novanta", "nineties"),
+    ("metti musica anni settanta", "seventies"),
+]
+
+NEW_PHRASES_EN = [
+    ("put on some christmas music", "christmas"),
+    ("play something for christmas", "christmas"),
+    ("play something instrumental", "instrumental"),
+    ("play something without words", "instrumental"),
+    ("play something with no words", "instrumental"),
+    ("play something summery", "summer"),
+    ("play some eighties music", "eighties"),
+    ("play something from the eighties", "eighties"),
+    ("play some 80s music", "eighties"),
+    ("play something from the sixties", "sixties"),
+    ("play some nineties music", "nineties"),
+    ("play some seventies music", "seventies"),
+]
+
+
+def resolved(phrase, code):
+    """The mood key a spoken phrase really produces - both filters, in the
+    order the router runs them."""
+    pack = PACKS[code]
+    m = pack.PATTERNS["mood"].search(phrase)
+    if not m:
+        return None
+    return moods.match_mood(m.group(1).strip(), pack.MOOD_WORDS)
+
+
+@pytest.mark.parametrize("phrase,key", NEW_PHRASES_IT)
+def test_the_new_italian_phrases_reach_their_mood(phrase, key):
+    assert resolved(phrase, "it") == key
+
+
+@pytest.mark.parametrize("phrase,key", NEW_PHRASES_EN)
+def test_the_new_english_phrases_reach_their_mood(phrase, key):
+    assert resolved(phrase, "en") == key
 
 
 @pytest.mark.parametrize("code", sorted(PACKS))
@@ -142,6 +242,100 @@ def test_a_genre_tag_matches_as_a_whole_word_only(router, library):
 
 
 # -- «un'altra» ---------------------------------------------------------------
+
+def test_a_genre_load_asks_for_a_random_album_order(router, library):
+    # The third way out of "the same mood opens on the same track every
+    # evening", after `playlist shuffle 1` was refused for being the player's
+    # standing preference: `sort:random` is scoped to this one call. It is not
+    # decoration and it is not free to drop - without it the load is
+    # deterministic again, silently.
+    router.handle("metti qualcosa di rilassante")
+    assert loads(library) == [["playlistcontrol", "cmd:load", "genre_id:2",
+                               "sort:random"]]
+
+
+# -- the year axis ------------------------------------------------------------
+
+def test_a_decade_plays_one_year_of_it(router, decades):
+    reply = router.handle("metti musica anni ottanta")
+    assert str(reply) == "Ho messo qualcosa del 1985. Se non va, dimmi un'altra."
+    assert played_year(decades) == "1985"
+
+
+def test_a_decade_load_is_a_single_year_and_a_random_order(router, decades):
+    # `year:` never takes a range anywhere in the CLI, and loading the whole
+    # decade would be cmd:load plus nine cmd:add - and would leave the re-roll
+    # with nothing to exclude.
+    router.handle("metti musica anni ottanta")
+    assert loads(decades) == [["playlistcontrol", "cmd:load", "year:1985",
+                               "sort:random"]]
+
+
+def test_the_years_are_asked_for_the_way_lms_reports_them(router, decades):
+    # `years` is not `genres`: it wants hasAlbums:1, and its loop is keyed by
+    # `year`, not by `id`. Copying local_genres verbatim would return nothing.
+    router.handle("metti musica anni ottanta")
+    asked = [cmd for cmd in decades.commands() if cmd[0] == "years"]
+    assert asked and "hasAlbums:1" in asked[0], asked
+
+
+def test_another_one_gives_another_year_of_the_same_decade(router, decades):
+    first = router.handle("metti musica anni ottanta")
+    second = router.handle("un'altra")
+    assert "1985" in str(first)
+    assert "1987" in str(second)
+    assert second.ok
+
+
+def test_a_decade_the_library_has_nothing_from_does_not_pretend(router, decades):
+    # A library that stops in 1979: answering «anni ottanta» with 1978 because
+    # it is the closest would be exactly the silent wrong answer this module
+    # exists to avoid, and it is what a missing bounds check would do.
+    decades.responses["years"] = {"years_loop": [{"year": 1967}, {"year": 1978}]}
+    reply = router.handle("metti musica anni ottanta", source="local")
+    assert not reply.ok
+    assert not loads(decades)
+
+
+def test_a_year_outside_the_decade_is_never_picked(router, decades):
+    router.handle("metti musica anni sessanta", source="local")
+    assert played_year(decades) == "1967"
+
+
+def test_a_decade_falls_back_to_the_service_like_any_other_mood(router, decades,
+                                                                make_tidal):
+    decades.responses["years"] = {"years_loop": [{"year": 1967}]}
+    decades.responses["tidal"] = make_tidal(
+        categories={"Playlists": "P"},
+        items={"P": [{"id": "pl1", "name": "80s Hits"}]},
+    )
+    reply = router.handle("metti musica anni ottanta", source="tidal")
+    assert str(reply) == "Ho messo la playlist 80s Hits. Se non va, dimmi un'altra."
+
+
+def test_an_unreachable_server_is_not_an_empty_decade(router, transport):
+    transport.raise_on.add("years")
+    reply = router.handle("metti musica anni ottanta")
+    assert str(reply) == (
+        "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.")
+    assert not reply.ok
+
+
+def test_a_malformed_year_row_is_skipped_not_played(router, decades):
+    # LMS has been known to report an empty year row for untagged material.
+    # int("") would take the whole mood down with it.
+    decades.responses["years"] = {"years_loop": [
+        {"year": ""}, {"year": None}, {}, {"year": "1985"}]}
+    reply = router.handle("metti musica anni ottanta")
+    assert reply.ok, str(reply)
+    assert played_year(decades) == "1985"
+
+
+def test_a_decade_in_english(router, decades):
+    reply = router.handle("play some eighties music", lang="en")
+    assert str(reply) == (
+        "I've put on something from 1985. Say another one if it doesn't fit.")
+
 
 def test_another_one_picks_something_else(router, library):
     first = router.handle("metti qualcosa di energico")
@@ -446,6 +640,114 @@ def test_the_room_tag_lands_in_the_sentence_that_means_something(lms, library):
     # Not "... dimmi un'altra in Cucina.", which reads as an instruction about
     # where to stand when you say it.
     assert str(reply).startswith("Ho messo un po' di Rock in Cucina.")
+
+
+# -- the double filter, second pass: what the new vocabulary must NOT take -----
+
+# Every entry added to MOOD_WORDS widens the set of tails that stop being a
+# title, which is why the bare nouns are absent: «natale» is «Bianco Natale»
+# and «estate» is Vivaldi and De Andre at once. These are the phrases that got
+# riskier when christmas/instrumental/summer were added, and the two English
+# families at the end are the exact bugs the T2.4 review found - the `^` anchor
+# is what covers them, and this is the test that keeps it there.
+
+@pytest.mark.parametrize("phrase", [
+    "metti Bianco Natale",
+    "metti l'album Musica Strumentale",
+    "metti Estate di De Andre",
+    # The collision that decided against adding a bare «natale» to the table.
+    # Natale is a real artist's name (Natale Galletta), step 0c runs BEFORE the
+    # `artist` pattern, and the pattern eats the «di» - so a bare entry would
+    # take this phrase away from the artist path for good. It reaches the
+    # search today; this is what says so out loud.
+    "metti la musica di Natale",
+    # Same table entry, the other half of the damage: «playlist» makes this an
+    # identified request by definition, and «Natale in Famiglia» is a name
+    # people really give their own playlists.
+    "metti la playlist Natale in Famiglia",
+    "ferma la musica natalizia",
+    "togli la musica natalizia",
+    "blocca musica natalizia",
+    "non voglio musica natalizia",
+    # Same, in Italian: "dagli anni ottanta in poi" contains "dagli anni
+    # ottanta" and means something else entirely.
+    "metti qualcosa dagli anni ottanta in poi",
+])
+def test_the_new_words_do_not_swallow_a_title_or_a_stop(router, decades, phrase):
+    # A library that can answer every one of the new moods, so a phrase that
+    # wrongly became one would demonstrably start music instead of quietly
+    # coming up empty.
+    decades.responses["genres"] = {"genres_loop": [
+        {"id": 8, "genre": "Christmas"}, {"id": 9, "genre": "Classical"},
+        {"id": 10, "genre": "Reggae"}, {"id": 11, "genre": "Instrumental"}]}
+    router.handle(phrase)
+    assert not loads(decades), phrase
+    assert router.mood is None, phrase
+
+
+@pytest.mark.parametrize("phrase", [
+    "play Summer of '69",
+    # The whole-tail rule, which the new vocabulary is what makes testable:
+    # "summer of 69" CONTAINS "summer", and a lookup that scanned for a
+    # substring instead of hitting the whole tail would take the song.
+    "play some Summer of '69",
+    # The phrase that got a bare "summer" removed from the table. It carries a
+    # marker, so the marker alone would not have saved it: the only thing that
+    # keeps this a search for the Calvin Harris track is that "summer" is not
+    # a mood word. Re-adding it breaks exactly this line.
+    "put on some Summer",
+    "stop playing something instrumental",
+    "i don't want something instrumental",
+    "don't play christmas music",
+    "block christmas music",
+])
+def test_the_new_words_do_not_swallow_a_title_or_a_stop_in_english(
+        router, decades, phrase):
+    # A library that can answer every one of the new moods, so a phrase that
+    # wrongly became one would demonstrably start music instead of quietly
+    # coming up empty.
+    decades.responses["genres"] = {"genres_loop": [
+        {"id": 8, "genre": "Christmas"}, {"id": 9, "genre": "Classical"},
+        {"id": 10, "genre": "Reggae"}, {"id": 11, "genre": "Instrumental"}]}
+    router.handle(phrase, lang="en")
+    assert not loads(decades), phrase
+    assert router.mood is None, phrase
+
+
+# The bare nouns, refused on purpose. Nothing else in this file can catch them:
+# they are only reachable through a phrase that IS a mood request, so the test
+# has to be about the table. «natale» on its own is «Bianco Natale», «estate»
+# is Vivaldi and De Andre at once, and either one turns a title into a mood the
+# moment somebody says «metti qualcosa di ...». The cost is a known gap, and it
+# is the cheaper half: «metti musica di natale» arrives here as the bare
+# "natale" (the pattern eats the "di") and therefore does not work - «musica
+# natalizia» and «musica per natale» do.
+#
+# Adding «natale» was reconsidered in review and refused on evidence, not on
+# caution. It buys no corpus phrase (coverage is 112/136 either way, because
+# «musica natalizia» already covers the Italian christmas line) and it costs
+# two things: «metti la musica di Natale» stops reaching the artist Natale
+# Galletta by any phrasing of that shape, and the family splits in half -
+# «metti le canzoni di Natale» would still be an artist search, because the
+# marker list has «canzoni» but not «le canzoni». Two words apart, opposite
+# behaviour, which is the same shape as the «ferma la musica classica» bug the
+# T2.4 review caught. If the gap is ever closed it belongs in the pattern
+# (stop eating «di» before a known mood word), not in this table.
+@pytest.mark.parametrize("word", ["natale", "estate", "spiaggia", "parole",
+                                  "anni", "strumenti"])
+def test_the_bare_italian_nouns_are_not_mood_words(word):
+    assert word not in PACKS["it"].MOOD_WORDS
+
+
+@pytest.mark.parametrize("phrase", ["metti Anni 60", "play 80s"])
+def test_a_bare_decade_without_a_marker_is_still_a_title(router, decades, phrase):
+    # "anni 60"/"80s" ARE mood words now. What keeps «metti Anni 60» a search
+    # is the marker noun the phrase does not carry - the other half of the
+    # filter, doing the work alone.
+    lang = "it" if phrase.startswith("metti") else "en"
+    router.handle(phrase, lang=lang, source="local")
+    assert not loads(decades), phrase
+    assert router.mood is None, phrase
 
 
 # -- English ------------------------------------------------------------------

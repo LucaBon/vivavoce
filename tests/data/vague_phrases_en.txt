@@ -46,7 +46,13 @@ play some jazz
 put on some jazz
 play some rock
 play some blues
-# --- beyond what metadata and genres can answer ---
+# --- written as beyond what metadata and genres can answer ---
+# Six of them were not: "eighties music", "from the sixties", "summery",
+# "christmas music", "instrumental", "without words" ride metadata axes LMS
+# already carries, and the second pass (T2.4-bis, 2026-08-26) covered them.
+# They stay where they were written — reordering a corpus after seeing the
+# result is how a measurement ends up measuring itself. What is left is the
+# real residue: taste, world knowledge, memory of the conversation.
 play something like Sigur Ros but happier
 play something that sounds like Pink Floyd
 play something similar to what we were just listening to

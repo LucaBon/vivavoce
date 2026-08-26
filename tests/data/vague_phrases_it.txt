@@ -64,7 +64,16 @@ metti del jazz
 metti un po' di rock
 metti della musica rock
 metti un po' di blues
-# --- oltre la portata della strada A: metadati e generi non bastano ---
+# --- scritte come fuori portata della strada A ---
+# Cinque di queste non lo erano: «musica anni ottanta», «di estivo», «musica
+# natalizia», «di strumentale», «senza parole» sono assi di metadati che LMS
+# aveva già, e la seconda passata (T2.4-bis, 2026-08-26) le ha coperte. Restano
+# qui dov'erano, nell'ordine in cui furono scritte: riordinare un corpus dopo
+# aver visto il risultato è il modo di far misurare a una misura se stessa.
+# «metti qualcosa di italiano degli anni sessanta» è lasciata fuori di proposito
+# — è anno *e* nazionalità, due assi composti, e non è di questa passata.
+# Il resto è il residuo vero: gusto, conoscenza del mondo, memoria della
+# conversazione.
 metti qualcosa tipo i Sigur Ros ma più allegro
 metti qualcosa che assomigli ai Pink Floyd
 metti qualcosa di simile a quello che stavamo ascoltando
