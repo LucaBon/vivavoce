@@ -449,7 +449,6 @@ SIZED_SUFFIXES = (".py", ".js", ".html", ".css")
 OVERSIZED_TODAY = {
     "engine/actions.py",       # one class per intent family would halve it
     "engine/lms.py",           # transport, search and queue in one client
-    "localvoice/router.py",    # the intent table has outgrown its module
 }
 
 
