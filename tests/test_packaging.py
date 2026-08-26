@@ -8,6 +8,7 @@ hands, not in a test run, so they are worth a cheap check on every push.
 Stdlib only, so this runs locally as well as in CI.
 """
 
+import ast
 import json
 import os
 import re
@@ -447,7 +448,6 @@ SIZED_SUFFIXES = (".py", ".js", ".html", ".css")
 # that would fix it. A ratchet, not an amnesty: entries may leave this list,
 # never join it — anything not named here has to be born under the limit.
 OVERSIZED_TODAY = {
-    "engine/actions.py",       # one class per intent family would halve it
     "engine/lms.py",           # transport, search and queue in one client
 }
 
@@ -532,3 +532,46 @@ def test_the_launch_posts_promise_the_trial_and_the_refund():
         text = _read(*parts).lower()
         assert "14 days of full pro" in text, f"{parts[-1]} drops the trial"
         assert "no questions asked" in text, f"{parts[-1]} drops the refund"
+
+
+# -- the engine's front door ---------------------------------------------------
+#
+# engine/actions.py was 1054 lines and is now five modules, with actions.py
+# re-exporting the other four. That re-export is load-bearing: the router, the
+# tools and a great many tests reach for actions.play_local, actions._score,
+# actions.Guard — private names included — and the split promised none of them
+# would notice. The promise is only kept while every name over there is still
+# reachable from here, and forgetting one is silent until something breaks at
+# runtime. So it is checked, the same way this module checks everything else
+# the test suite cannot see.
+
+ENGINE_PARTS = ("matching", "guard", "transport", "library")
+
+
+def _module_level_names(path):
+    """Every function, class and constant a module defines at the top level."""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return names
+
+
+def test_actions_re_exports_the_whole_engine():
+    import actions
+
+    missing = {}
+    for part in ENGINE_PARTS:
+        path = os.path.join(ROOT, "engine", f"{part}.py")
+        absent = sorted(n for n in _module_level_names(path)
+                        if not hasattr(actions, n))
+        if absent:
+            missing[part] = absent
+    assert missing == {}, (
+        f"engine/actions.py no longer re-exports {missing} — add them to the "
+        f"import block at the bottom, or every caller that reaches through "
+        f"actions breaks without warning")
