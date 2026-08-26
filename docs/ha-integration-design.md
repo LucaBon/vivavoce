@@ -255,6 +255,21 @@ durante T3.3, non una cosa da dedurre adesso.
   `repository.yaml` (name, url, maintainer) e come si aggiunge un repository
   custom. Nessun vincolo di licenza o contenuto scritto da nessuna parte.
   Anche qui: assenza di regola trovata ≠ permesso.
+- **Che il Supervisor *mostri* il `CHANGELOG.md` dell'app prima di un
+  aggiornamento.** La documentazione lo raccomanda accanto a `config.yaml` e
+  motiva così: gli utenti «vedranno un avviso di aggiornamento e probabilmente
+  vorranno sapere cosa è cambiato». Ma **non dichiara nessun contratto di
+  rendering** — non dice dove appaia, né se appaia. Il file va scritto lo
+  stesso (è raccomandato e serve a chi legge il repository), ma nessun documento
+  di Vivavoce deve promettere quel comportamento dell'interfaccia finché
+  qualcuno non lo vede su un HA vero.
+- **La stringa italiana del menu dopo il rename.** Che in inglese
+  `Settings → Add-ons` sia diventato `Settings → Apps` è nel blog ufficiale
+  («add-ons are now called apps»). Che l'italiano sia **«App»** al posto di
+  «Componenti aggiuntivi» viene da fonti terze, non dalla documentazione
+  primaria. Per questo la documentazione di Vivavoce cita il nome nuovo e
+  affianca quello vecchio per chi sta su HA precedente a 2026.2: se la
+  traduzione fosse un'altra, il lettore ha comunque di che orientarsi.
 - **Se Music Assistant richieda un CLA per i contributi.** Non ho trovato
   `CONTRIBUTING.md` né in root né in `.github/` su `music-assistant/server`
   (404 su entrambi, 2026-08-26). Il README rimanda a una sezione "Contributing"
@@ -613,18 +628,33 @@ Cose concrete che lo spike ha trovato e che T3.4 deve chiudere:
   `Dockerfile`, `README.md`, `build.yaml`, `config.yaml`, `run.sh`. Oggi
   Vivavoce compare nello store con l'icona generica. Le icone del PWA esistono
   già (`localvoice/icon-192.png`, `icon-512.png`): è mezz'ora.
-- **Manca `CHANGELOG.md` nella cartella dell'app**, che è ciò che il
-  Supervisor mostra prima di un aggiornamento. Il `CHANGELOG.md` in radice
-  c'è; qui serve quello dell'app.
+- **Manca `CHANGELOG.md` nella cartella dell'app**, che la documentazione
+  raccomanda accanto a `config.yaml` perché chi riceve un avviso di
+  aggiornamento vorrà sapere cosa è cambiato. Il `CHANGELOG.md` in radice
+  c'è; qui serve quello dell'app. (Che il Supervisor lo renderizzi davvero
+  nell'interfaccia di aggiornamento **non è documentato** — vedi §1.4.)
 - `ha-addon/config.yaml` dichiara ancora `version: "0.2.0"` mentre `DEPLOY.md`
   documenta `:0.3.0` come tag dell'immagine. **`RELEASING.md` esiste
   esattamente per questo**, e `tests/test_packaging.py` verifica che i due file
   di versione concordino: la discrepanza è fra la versione dell'app e la
   documentazione, ed è il tipo di cosa che T3.4 deve chiudere insieme al resto.
+
 - Il gate Pro non cambia e non deve cambiare: l'app installa il server, il
   server è dove vive la licenza. Il blueprint di (c) non introduce **nessun**
   nuovo punto di decisione su cosa è libero e cosa no — che è, di per sé, un
   argomento a favore di (c).
+
+> **Chiuso da T3.4 il 2026-08-26.** Le prime quattro cose sono fatte (la
+> quinta non era da fare: il gate Pro resta dov'era, che era il punto).
+> Artwork generato da `tools/make_icons.py`, `ha-addon/CHANGELOG.md` scritto,
+> rename applicato alla documentazione, e `DEPLOY.md` corretto a `:0.2.0` —
+> **correggendo la documentazione, non bumpando la versione**, perché il bump
+> e il tag vanno insieme. La deriva sulle versioni citate nei doc ha ora un
+> test che la coglie (`test_docs_quote_the_declared_version`), che è ciò che
+> mancava: i due file di versione erano guardati, la documentazione no.
+> I riferimenti di riga qui sopra (`README.md:107`, `repository.yaml:3`) sono
+> quelli di prima del rename e non puntano più dove dicono: restano perché
+> questo documento è un reperto datato, non una guida da seguire oggi.
 
 ---
 

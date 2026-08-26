@@ -22,7 +22,7 @@ docker run -d --network host --restart unless-stopped \
   -v vivavoce-data:/data ghcr.io/lucabon/vivavoce:latest
 ```
 
-(HA add-on and plain Python also work.) Any phone on your Wi-Fi opens it, you
+(HA app and plain Python also work.) Any phone on your Wi-Fi opens it, you
 tap the mic or type:
 
 - "play Comfortably Numb by Pink Floyd" → the exact track, from your library

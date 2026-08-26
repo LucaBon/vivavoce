@@ -45,7 +45,7 @@ unlocks the hands-free features and funds development:
 | Typed commands (the text box, works on every device over plain HTTP) | 🎙️ **Microphone** tap-to-talk |
 | All search & playback: local library, TIDAL, Qobuz, "did you mean" with tappable choices | 🪄 **Wake word** («vivavoce metti Time») |
 | Transport, volume slider, sleep timer, now-playing panel with artwork | 🌍 **Multilingual read-back voices** |
-| Docker / Home Assistant add-on / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side for every device *asking Vivavoce*[^kidsafe] |
+| Docker / Home Assistant app / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side for every device *asking Vivavoce*[^kidsafe] |
 | Updates | 🛋️ **Multi-room**: room selector + «metti X **in cucina**» voice targeting |
 | | 🏠 **Local speech recognition**: Whisper on *your* server — mic audio never leaves the LAN |
 | | Future Pro features — and priority on your feedback |
@@ -104,8 +104,9 @@ docker compose up -d
 # (accept the self-signed certificate warning once — the mic then works)
 ```
 
-**As a Home Assistant add-on**: add this repo's URL under *Settings → Add-ons →
-Add-on store → ⋮ → Repositories*, then install **Vivavoce** — see
+**As a Home Assistant app**: add this repo's URL under *Settings → Apps → App
+store → ⋮ → Repositories* (before Home Assistant 2026.2, when apps were called
+add-ons: *Settings → Add-ons → Add-on store*), then install **Vivavoce** — see
 [DEPLOY.md](DEPLOY.md).
 
 

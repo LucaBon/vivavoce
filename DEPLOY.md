@@ -34,7 +34,7 @@ volumes:
   vivavoce-data:
 ```
 
-Pin a version (`:0.3.0`, or `:0.3` to follow patches) instead of `:latest` if
+Pin a version (`:0.2.0`, or `:0.2` to follow patches) instead of `:latest` if
 you would rather choose when to move.
 
 > [!NOTE]
@@ -91,18 +91,20 @@ Everything is configured via environment variables (all optional; the pre-rename
 > wake word) need a **64-bit** OS; see their sections below for why, and what
 > a 32-bit box gets instead.
 
-### Home Assistant add-on
+### Home Assistant app
 
-If you run Home Assistant OS/Supervised, Vivavoce installs as an add-on
+If you run Home Assistant OS/Supervised, Vivavoce installs as an app
 (same engine, wrapped for the Supervisor — see [ha-addon/](ha-addon/)):
 
-1. **Settings → Add-ons → Add-on store → ⋮ → Repositories** → add
-   `https://github.com/LucaBon/vivavoce`.
+1. **Settings → Apps → App store → ⋮ → Repositories** → add
+   `https://github.com/LucaBon/vivavoce`. Home Assistant renamed add-ons to
+   apps in 2026.2; on anything older the menu still says *Add-ons → Add-on
+   store*.
 2. Install **Vivavoce** and start it. LMS is auto-discovered; the options
    (all optional: `lms_url`, `player`, `port`, `https`, `cert_hosts`,
    `material_url`) mirror the Docker environment variables above.
 3. Open `https://<home-assistant-ip>:8730` and accept the certificate warning
-   once. Full details in the add-on's Documentation tab
+   once. Full details in the app's Documentation tab
    ([ha-addon/DOCS.md](ha-addon/DOCS.md)).
 
 ### Without Docker
@@ -234,9 +236,9 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
   `docker build --build-arg ASR=1 -t vivavoce:asr .` (adds ~600 MB to the
   image), or add the build arg under `build:` in your compose file. The
   standard image ships without it and reports `/asr` as unavailable.
-- **Home Assistant add-on**: the published add-on image doesn't include the
+- **Home Assistant app**: the published app image doesn't include the
   engine (it would double its size for everyone). If you want it on HA, build
-  the add-on locally with the same `ASR=1` build arg, or run the ASR Docker
+  the app locally with the same `ASR=1` build arg, or run the ASR Docker
   image alongside HA.
 - **Hardware expectations**: with the default `small` model, a 3–5 s spoken
   command transcribes in roughly **2–4 s on an Intel N100 / Raspberry Pi 5**
@@ -298,7 +300,7 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
   `docker build --build-arg WAKEWORD=1 -t vivavoce:wakeword .`. The standard
   image ships without it and reports `/wakeword` as unavailable; combine
   with `--build-arg ASR=1` if you want both.
-- **Not available on the Home Assistant add-on**, for the same reason local
+- **Not available on the Home Assistant app**, for the same reason local
   ASR isn't (see above).
 - **What this hasn't been tested against**: the browser-to-server audio
   pipeline is covered by the test suite (including a real headless-browser
@@ -365,7 +367,7 @@ always win over the selector. (Docker needs nothing: detection is the default.)
 Running the published image: `docker compose pull && docker compose up -d`, or
 `docker pull ghcr.io/lucabon/vivavoce:latest` and recreate the container. Your
 `/data` volume — certificate, licence, kid-safe list — is untouched by an
-update. Home Assistant: update the add-on. Working from a checkout: edit files
+update. Home Assistant: update the app. Working from a checkout: edit files
 in `engine/`/`localvoice/` and restart the server.
 
 ## Audio quality

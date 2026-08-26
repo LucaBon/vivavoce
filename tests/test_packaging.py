@@ -11,6 +11,7 @@ Stdlib only, so this runs locally as well as in CI.
 import json
 import os
 import re
+import struct
 
 import pytest
 
@@ -264,6 +265,65 @@ def test_addon_version_matches_pyproject():
     assert _addon_version() == _pyproject_version()
 
 
+# Every doc that tells someone which image tag to run. An explicit list, like
+# the price and descriptor checks below: analysis records under docs/ quote
+# versions as findings dated to the day they were written, and freezing those
+# would be wrong.
+VERSIONED_DOCS = [("DEPLOY.md",),
+                  ("README.md",),
+                  ("RELEASING.md",),
+                  ("ha-addon", "DOCS.md"),
+                  ("ha-addon", "README.md")]
+
+# `ghcr.io/lucabon/vivavoce:0.2.0` and the bare backticked pin DEPLOY.md
+# recommends (`` `:0.2.0` ``). Deliberately not a loose ":X.Y" — the release
+# instructions also quote Home Assistant's own base image tag, which is not
+# ours to keep in step, and neither is `amd64-base:3.21` in build.yaml.
+#
+# The backtick has to be the one that OPENS the span, not any closing one,
+# and the two are told apart by what precedes it rather than what follows:
+# in `` `:0.2.0` `` and in `` `python`:3.9 `` the backtick is followed by a
+# colon either way. A pin's backtick opens after a space or a bracket; a
+# closing one comes straight off a word. Nothing in the repo is written the
+# second way today, which is exactly when a regex is cheap to tighten.
+CITED_TAG = re.compile(r"(?:vivavoce:|(?<!\w)`:)(\d+\.\d+(?:\.\d+)?)\b")
+
+
+@pytest.mark.parametrize("parts", VERSIONED_DOCS,
+                         ids=[p[-1] if len(p) == 1 else "/".join(p)
+                              for p in VERSIONED_DOCS])
+def test_docs_quote_the_declared_version(parts):
+    # The third hand-edited copy of the number, and the one nothing watched:
+    # DEPLOY.md recommended pinning `:0.3.0` for months while both version
+    # files said 0.2.0 and no such tag had ever been pushed. That advice does
+    # not fail here, it fails at `docker pull` — with a manifest-unknown error
+    # — on the machine of someone following the install guide to the letter.
+    #
+    # Named for what it checks, which is narrower than "a version that
+    # exists": it pins the docs to the version DECLARED in pyproject.toml.
+    # Between step 1 of RELEASING.md (the bump) and step 5 (the image is
+    # published) that version is deliberately one nobody can pull yet, and
+    # this test wants the docs to move with the bump — so the two agree at
+    # the end of a release rather than at every instant during one.
+    version = _pyproject_version()
+    series = ".".join(version.split(".")[:2])
+    for cited in CITED_TAG.findall(_read(*parts)):
+        expected = series if cited.count(".") == 1 else version
+        assert cited == expected, (
+            f"{parts[-1]} recommends the image tag :{cited}, but the version "
+            f"is {version}: either the docs are ahead of a release that never "
+            f"happened, or a bump forgot them")
+
+
+def test_the_install_guide_quotes_a_tag_at_all():
+    # Guards the check above from going vacuous: it only fails on a citation
+    # it can find, so a reworded pin line it no longer matches would turn the
+    # whole thing green while saying nothing.
+    assert CITED_TAG.findall(_read("DEPLOY.md")), (
+        "DEPLOY.md quotes no image tag any more: either the pin advice went "
+        "away, or CITED_TAG stopped recognising how it is written")
+
+
 def test_changelog_documents_the_current_version():
     # The released version should have an entry to point users at.
     version = _pyproject_version()
@@ -314,6 +374,56 @@ def test_deploy_yaml_parses(parts):
     # design, and CI installs the dev group.
     yaml = pytest.importorskip("yaml")
     assert yaml.safe_load(_read(*parts)) is not None
+
+
+# -- the Home Assistant store page ---------------------------------------------
+#
+# The app is a declared distribution channel (decided 2026-08-26, see the
+# roadmap): the blueprint route into Home Assistant needs the Vivavoce server
+# running next to it, and this is the one-click way to get there. What the
+# Supervisor shows for it is three files beside config.yaml, none of which the
+# build would miss: without an icon the store draws a generic placeholder, and
+# nothing anywhere fails.
+
+def _png_size(*parts):
+    """(width, height) from a PNG's IHDR — stdlib, no Pillow, like the tool
+    that writes these files (tools/make_icons.py)."""
+    with open(os.path.join(ROOT, *parts), "rb") as f:
+        header = f.read(24)
+    assert header[:8] == b"\x89PNG\r\n\x1a\n", f"{parts[-1]} is not a PNG"
+    assert header[12:16] == b"IHDR", f"{parts[-1]} does not start with IHDR"
+    return struct.unpack(">II", header[16:24])
+
+
+def test_the_addon_ships_the_store_artwork():
+    # Home Assistant requires the PNG format and these exact filenames. Both
+    # halves are checked: existence caught a missing file, but a logo.png that
+    # was a text file or a GIF passed happily, and the format is the part the
+    # docs make a requirement rather than a recommendation.
+    for name in ("icon.png", "logo.png"):
+        path = os.path.join(ROOT, "ha-addon", name)
+        assert os.path.exists(path), (
+            f"ha-addon/{name} is missing: the store falls back to a generic "
+            f"placeholder and nothing else complains")
+        width, height = _png_size("ha-addon", name)
+        assert width > 0 and height > 0, f"ha-addon/{name} has no size"
+
+
+def test_the_addon_icon_is_square():
+    # A requirement, not a recommendation: the docs ask for a 1x1 aspect
+    # ratio (128x128 is the suggested size). Regenerate with
+    # `uv run python tools/make_icons.py`.
+    width, height = _png_size("ha-addon", "icon.png")
+    assert width == height, f"ha-addon/icon.png is {width}x{height}, not square"
+
+
+def test_the_addon_has_its_own_changelog():
+    # The root changelog is the project's, written for everyone; this one is
+    # for the person updating the app, and lives beside config.yaml because
+    # that is where the documentation says to put it.
+    changelog = _read("ha-addon", "CHANGELOG.md")
+    assert f"[{_addon_version()}]" in changelog, (
+        f"ha-addon/CHANGELOG.md has no entry for {_addon_version()}")
 
 
 # -- file size -----------------------------------------------------------------

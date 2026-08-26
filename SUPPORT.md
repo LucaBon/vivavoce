@@ -28,8 +28,8 @@ locks).
 ## Before opening an issue
 
 1. Update to the latest version (`docker compose pull && docker compose up -d`
-   or update the Home Assistant add-on).
-2. Grab the server log (Docker: `docker logs vivavoce`; add-on: the Log tab).
+   or update the Home Assistant app).
+2. Grab the server log (Docker: `docker logs vivavoce`; HA app: the Log tab).
 3. Say what LMS version and player you use, and the exact phrase that failed —
    the matching is deterministic, so a phrase is usually all I need to
    reproduce it.

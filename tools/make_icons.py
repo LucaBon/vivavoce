@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
-"""Generate the PWA icons (localvoice/icon-192.png, icon-512.png), stdlib only.
+"""Generate the app's PNG artwork, stdlib only.
 
 A PNG writer over zlib/struct — no Pillow — drawing the app icon: an amber
 eighth note on the app's hi-fi dark plate, ringed in brand green, full-bleed
 (so the same file works both as a normal icon and as a maskable one; note and
-ring sit inside the central safe zone). Icons are deterministic: re-running
-produces byte-identical files, so they are committed and this script only
-needs to run when the design changes.
+ring sit inside the central safe zone). The drawing is deterministic — the same
+pixels every time — so the files are committed and this only needs to run when
+the design changes. The *bytes* are not: zlib emits a slightly different stream
+across versions, so a regeneration can show a diff with identical pixels. Don't
+commit that one.
+
+Two destinations, one drawing:
+
+- ``localvoice/icon-192.png``, ``icon-512.png`` — the PWA icons.
+- ``ha-addon/icon.png``, ``ha-addon/logo.png`` — what the Home Assistant
+  store shows next to the app. They live beside ``config.yaml`` because that
+  is where the Supervisor looks for them.
 
     uv run python tools/make_icons.py
 """
@@ -19,6 +28,7 @@ import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "localvoice")
+ADDON_DIR = os.path.join(ROOT, "ha-addon")
 
 BG = (14, 19, 17)       # #0e1311 — the app's hi-fi dark background
 FG = (232, 161, 60)     # #e8a13c — the amber VU accent (the note)
@@ -94,11 +104,35 @@ def write_png(path: str, rows: list) -> None:
         f.write(png)
 
 
+def _on_plate(rows: list, width: int, height: int) -> list:
+    """Centre a square rendering on a wider plate of plain background."""
+    size = len(rows)
+    left = (width - size) // 2
+    top = (height - size) // 2
+    plate = [[BG + (255,)] * width for _ in range(height)]
+    for y, row in enumerate(rows):
+        plate[top + y][left:left + size] = row
+    return plate
+
+
 def main() -> int:
     for size in (192, 512):
         path = os.path.join(OUT_DIR, f"icon-{size}.png")
         write_png(path, _render(size))
         print(f"Creato: {path}")
+
+    # Home Assistant store artwork. The icon has to be square (a requirement);
+    # 128x128 is what the docs recommend. The logo's 250x100 is explicitly a
+    # recommendation the docs invite you to depart from — so it is the same
+    # glyph centred on a wide plate rather than a stretched one: a square
+    # drawing is not improved by distorting it to fill 2.5:1.
+    icon = os.path.join(ADDON_DIR, "icon.png")
+    write_png(icon, _render(128))
+    print(f"Creato: {icon}")
+
+    logo = os.path.join(ADDON_DIR, "logo.png")
+    write_png(logo, _on_plate(_render(100), 250, 100))
+    print(f"Creato: {logo}")
     return 0
 
 

@@ -25,7 +25,7 @@ docker run -d --network host --restart unless-stopped \
   -v vivavoce-data:/data ghcr.io/lucabon/vivavoce:latest
 ```
 
-(Home Assistant add-on and plain Python work too.) You open it on any
+(Home Assistant app and plain Python work too.) You open it on any
 phone/tablet on your LAN, tap the mic (or type), and say:
 
 - *"play Comfortably Numb by Pink Floyd"* → plays **that** recording, from

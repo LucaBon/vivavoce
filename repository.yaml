@@ -1,6 +1,10 @@
-# Rende questo repo installabile come "add-on repository" di Home Assistant:
-# Impostazioni → Componenti aggiuntivi → Store → ⋮ → Repository →
+# Rende questo repo installabile come repository di app di Home Assistant:
+# Impostazioni → App → Store → ⋮ → Repository →
 #   https://github.com/LucaBon/vivavoce
-name: Vivavoce Add-ons
+#
+# HA 2026.2 ha rinominato "Add-on" in "App" nell'interfaccia: su versioni
+# precedenti la voce di menu si chiama ancora "Componenti aggiuntivi". I nomi
+# dei file e le chiavi dello schema non sono cambiati.
+name: Vivavoce Apps
 url: https://github.com/LucaBon/vivavoce
 maintainer: Luca Bonura

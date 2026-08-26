@@ -12,7 +12,7 @@ code — but it means **the version bump and the tag go out together**.
 
 ## Steps
 
-### 1. Bump the version in both files
+### 1. Bump the version in both files, and the pins that quote it
 
 They are hand-edited copies of one number:
 
@@ -23,10 +23,19 @@ They are hand-edited copies of one number:
 disagree, so you cannot forget the second one.
 
 The HA Supervisor compares its copy against what is installed to decide whether
-an update exists — a stale add-on version means users are never offered the
+an update exists — a stale app version means users are never offered the
 update.
 
-### 2. Write the CHANGELOG entry
+There is a **third** hand-edited copy, and until 2026-08-26 nothing watched it:
+the image tag `DEPLOY.md` tells people to pin, written as a backticked
+`:X.Y.Z` with a `:X.Y` beside it. It recommended the 0.3.0 tag for weeks
+against a declared 0.2.0, which does not fail here — it fails at
+`docker pull`, with a manifest-unknown error, on the machine of somebody
+following the install guide to the letter.
+`test_docs_quote_the_declared_version` now fails if a doc quotes a tag that is
+not the declared version, so update `DEPLOY.md` in the same edit.
+
+### 2. Write the CHANGELOG entries — both of them
 
 Add `## X.Y.Z — <Month Year>` at the top of `CHANGELOG.md`, dated when it
 actually reaches `main` (not when the work started).
@@ -34,6 +43,14 @@ actually reaches `main` (not when the work started).
 
 Sections in use: `### New`, `### Removed`, `### Internal` (CI, tests, build —
 anything that does not change what a user sees).
+
+Then `ha-addon/CHANGELOG.md`, which is the app's own and is **not** a copy of
+the root one: rename its `## [Non rilasciato]` heading to
+`## [X.Y.Z] - YYYY-MM-DD`. It is in Italian, like everything else in that
+folder, and it deliberately leaves out what does not reach someone installing
+the app — the published Docker image, the optional engines the app's image does
+not ship. `test_the_addon_has_its_own_changelog` fails while the version has no
+heading there.
 
 ### 3. Merge to `main`
 
