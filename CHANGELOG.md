@@ -4,6 +4,175 @@
 
 ### Fixed
 
+- **A player named after a word of a song no longer swallows the song.** If one
+  of your players is called «America» and your library has *Breakfast in
+  America*, «metti breakfast in america» used to be heard as a command for that
+  room — and on an installation without Pro that meant an answer about Pro and
+  no music at all: a record you own, served with an advertisement. Same for a
+  player called «Bianco» and *Notte in bianco*, or «Paradise» and *Lost in
+  Paradise*.
+
+  A room name was only ever a *guess* about what the words meant, and it was
+  being spent as if it were a fact. Both readings of the sentence — with the
+  room and without it — are now looked up in your local library, and the one
+  the library actually recognises wins. «breakfast in america» is the name of a
+  record and «breakfast» merely resembles one, so the record plays; «bollicine
+  in cucina» is the other way round, so it stays a room command and behaves
+  exactly as before. A tie keeps the room, which is the safe direction: being
+  told no costs you a turn, while music starting in the wrong room costs you a
+  trip to go and stop it.
+
+  The same reading applies with or without Pro, deliberately — which record
+  your words name is not something a license should have an opinion about. And
+  when Pro is active and a room you said out loud gets overruled this way, the
+  answer says so («… — l'ho preso come titolo, quindi suona qui»), because a
+  room that simply vanishes from the reply is a wrong guess you cannot see.
+  «pausa in cucina» and «in cucina metti X» are untouched and do not even ask
+  the library: there is no title in either of them to weigh.
+
+  Three things this does not do. It needs a **local** library to consult, so an
+  installation that only streams still gets the old answer. When your library
+  holds *both* readings — a track called *Notte* and one called *Notte in
+  bianco*, with a player called «Bianco» — the sentence really is ambiguous,
+  and the room keeps it. And a title that resembles the whole sentence wins
+  even when you meant the room: if you own an album called *Musica in Cucina*,
+  «metti musica in cucina» plays it. With Pro the answer tells you that is what
+  happened, so the correction is one sentence away.
+
+### New
+
+- **A documented API for other programs: `POST /api/v1/command`.** Vivavoce's
+  command endpoint was always reachable — it is how the page itself works —
+  but it was the web app talking to itself, free to change shape with the page
+  it serves. It is now a versioned contract with `docs/api.md` behind it, so a
+  Home Assistant blueprint, a script or an automation can send a sentence and
+  get a structured answer back without reading the source to find out what the
+  fields mean.
+
+  Two things the contract adds. **`needs_choice`** says outright that the
+  answer asked a question — «Ne ho diversi per Love. 1: … 2: … Quale metto?» —
+  instead of leaving a caller to infer it from a list being non-empty.
+  **`conversation_id`** names the session that the numbered list belongs to,
+  and `docs/api.md` writes down how long it lasts (five minutes) and what
+  happens when it runs out; the old field name `client` still works. The error
+  branch was also brought in line: the reply used to drop `choices` when
+  something went wrong, which is the worst moment for a field to vanish, and
+  now every answer carries every field.
+
+  `POST /command` keeps working, unversioned, answering exactly the same
+  thing — nothing that already calls it has to move. The web app itself now
+  goes through `/api/v1/command`, which is the only honest way to know the
+  contract works. There is deliberately **no `room` field** yet, and
+  `docs/api.md` says why rather than leaving it to be guessed at.
+
+- **Vague requests now play something, and say what.** «metti qualcosa di
+  rilassante», «musica per cena», «metti un po' di jazz» / "play something
+  relaxing", "play some music for dinner" used to be searched for as if they
+  were song titles, and of course nothing was ever called that. They now
+  resolve through your library's own genres first — real music you own — and
+  fall back to the streaming service's curated playlists only when the library
+  has nothing to offer; asking for your own library keeps the answer local.
+  The load asks LMS for a random album order, so a mood does not open on the
+  same track every evening — it is the album order that is randomised, not the
+  tracks inside an album, and it is scoped to that one request: your player's
+  own shuffle setting is never touched.
+
+  It also answers the axes your library already tags: **a decade** («metti
+  musica anni ottanta» / "play some eighties music" — one year out of it, said
+  out loud, and «un'altra» gives another year of the same decade), **Christmas
+  music**, **instrumental** / "without words", and **summery**. A decade the
+  library has nothing from says so rather than playing the nearest thing.
+
+  Every reply reads back what it started («Ho messo un po' di Ambient») and
+  invites «un'altra» / "another one", which picks something different until
+  the ideas run out and it says so. Choosing is only allowed here because
+  nothing was named: a request that names a song, an album or an artist is
+  untouched — «metti Bollicine di Vasco» behaves exactly as before, and so
+  does a song whose title happens to be a mood word. Still deterministic,
+  still no model anywhere: a lookup table and your library's metadata.
+
+- **The container image is published**, so "Docker — one command" is finally
+  one command: `docker run … ghcr.io/lucabon/vivavoce:latest`, no clone and no
+  build. Every release tag publishes for **amd64 and arm64** as `:X.Y.Z`,
+  `:X.Y` and `:latest`. Building from a checkout is unchanged — the compose
+  file in the repo still builds from source, with the published image as a
+  commented alternative — and a 32-bit Raspberry Pi still builds its own, which
+  DEPLOY.md now says instead of implying otherwise.
+
+- **Guided certificate setup.** The mic needs HTTPS, so the browser's "your
+  connection is not private" warning stood exactly in front of the feature
+  people pay for. The *"Installa come app"* panel now recognises that state and
+  opens by itself, shows the two steps for **your** device only (Android,
+  iPhone/iPad, Windows, macOS, Linux — the others are one tap away for when you
+  are setting up a phone from a laptop), and checks by itself that it worked.
+  The check is not a guess: a browser refuses to register a service worker on
+  an untrusted certificate, so a registration that succeeds *is* the proof the
+  CA is installed. It also knows the cases where there is nothing to do —
+  you are on the server machine, the server serves plain HTTP, or it uses a
+  certificate of its own — and asks for nothing in each. DEPLOY.md additionally
+  documents the ACME/DNS-01 route for households that own a domain and would
+  rather install nothing on any device.
+
+- **14 days of full Pro on every install**, microphone included — no key, no
+  card, no account, and no network call: the window is one timestamp in the
+  data directory, opened the first time the server starts. Because it lives
+  server-side it also unlocks the features enforced there (local speech
+  recognition, server-side wake word), and clearing the browser's storage does
+  not re-arm it. When it ends, typed commands keep working exactly as before —
+  nothing breaks, nothing is deleted. The settings panel says how many days
+  are left rather than claiming a license nobody bought, and after a command
+  you typed, the page points out — at most once per session, and never in the
+  first two days — that you could have simply said it.
+- **Queue management** (free): «aggiungi X alla coda» / "add X to the queue"
+  queues a song at the end; «metti X dopo questa» / "play X next" queues it
+  right after the current track; «svuota la coda» / "clear the queue"; «cosa
+  c'è in coda» / "what's in the queue" reads back what's coming up. Reuses
+  the existing title/artist parsing and "did you mean" disambiguation — a
+  queue command that opens a numbered list queues (not plays) whichever one
+  you pick — and works with multi-room («aggiungi X alla coda in cucina»).
+- **Favorites & radio** (free): «riproduci i preferiti» / "play my favorites"
+  plays a saved LMS favorite; «metti la radio X» / "play the radio X"
+  searches your favorites for a matching station name. Built on the LMS core
+  Favorites API (not a specific radio plugin), so it works with however you
+  already saved your stations — TuneIn, a plugin, or a raw stream URL.
+- **Server-side wake word** (Pro, optional install — `uv sync --group
+  wakeword`, its own group, see DEPLOY.md): an alternative to the browser's
+  continuous-listening mode that eliminates the Android beep — the single
+  most-cited launch complaint — by streaming mic audio to the server, which
+  runs openWakeWord (CPU, no GPU) instead of restarting Web Speech every few
+  seconds. Trade-off, upfront: only a fixed English phrase ("hey jarvis")
+  today, not the free-text wake word — offered as an *additional* choice
+  next to it, not a replacement. A new settings switch appears once the
+  server reports the engine installed.
+- **"Report a misunderstood phrase"** (free, privacy-first): when a command
+  isn't understood, the reply offers a button that saves the report on your
+  device and opens a pre-filled GitHub issue (phrase, language, source,
+  version) for you to review and submit. Nothing is ever sent by the app
+  itself — see PRIVACY.md.
+
+### Changed
+
+- **Asking for another room without Pro now says which room it heard**, and how
+  to get the music anyway: «Per farlo in Cucina serve Pro. Dillo senza la
+  stanza e lo faccio qui.» It used to answer with the same generic sentence
+  that answers kid-safe, which told you neither. Naming the room is the useful
+  part — a room name is only ever a guess about what the words meant, so
+  hearing it back is what lets you see a wrong guess. If you have a player
+  called *America*, «metti breakfast in america» is read as a room command, and
+  now you can tell at once why a song you own was answered with a Pro notice
+  instead of music. That it is read as a room command at all is a separate
+  problem, still open.
+
+- **The Docker data volume is now `vivavoce-data`**, not `squeezesay-data`. It
+  holds the TLS certificate, the licence, the trial window and the kid-safe
+  blocklist, so a `docker compose pull && up -d` that silently starts on an
+  empty one looks like the app forgot everything it knew. Nothing is deleted:
+  the old volume is still there, and `DEPLOY.md` has the two commands that copy
+  it across. Only Docker is affected — the Home Assistant app keeps using the
+  Supervisor's own storage, which never had the old name.
+
+### Fixed
+
 - **`/command`, `/kidsafe`, `/player` and `/license` no longer drop the
   connection on a non-object JSON body** (`null`, a bare number, a string, a
   list): `json.loads` accepted it without raising, and the unguarded
@@ -13,16 +182,17 @@
   post-phase review of the Fase 1 diff, not introduced by it); now covered
   by tests on all four routes.
 
-### New
-
-- **"Report a misunderstood phrase"** (free, privacy-first): when a command
-  isn't understood, the reply offers a button that saves the report on your
-  device and opens a pre-filled GitHub issue (phrase, language, source,
-  version) for you to review and submit. Nothing is ever sent by the app
-  itself — see PRIVACY.md.
-
 ### Internal
 
+- **The browser suite can no longer skip in silence.** `playwright install`
+  exits 0 when it fails — it prints "Failed to install browsers" and returns
+  success — so a broken install left a green CI job in which every browser test
+  had skipped, which is exactly what had been happening locally. CI now sets
+  `VIVAVOCE_REQUIRE_BROWSER=1`, under which those skips become failures, proves
+  a browser really launches instead of trusting the installer's exit code, and
+  falls back to `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE` on platforms Playwright
+  does not recognise yet (Ubuntu 26.04 already refuses; `ubuntu-latest` will
+  get there). Three packaging tests keep CI from quietly dropping any of it.
 - **Frontend split**: the 1.700-line `index.html` is now a markup shell plus
   native ES modules (`localvoice/static/js/`) and a real stylesheet — no
   bundler, no new dependencies. The installed PWA refetches the shell once.
@@ -36,6 +206,15 @@
 - **Server split**: `server.py` (startup/CLI) now stands apart from
   `http_api.py` (routes), `staticfiles.py` (assets) and `tls.py`;
   `python -m localvoice` works as a second entry point.
+- **The Home Assistant app is a declared channel now**, not something that
+  merely exists: it has the icon and logo the store requires, and the changelog it recommends
+  (`ha-addon/`, artwork generated by `tools/make_icons.py`), and the docs
+  follow Home Assistant 2026.2, which renamed *add-ons* to *apps* in the
+  interface — menu paths name the new label and the old one, since nothing in
+  the file names or config schema changed. `DEPLOY.md` also stopped
+  recommending `:0.3.0`, a tag that was never released; a new packaging test
+  checks every version the install docs quote against `pyproject.toml`, which
+  is how it drifted unnoticed.
 
 ## 0.2.0 — August 2026
 

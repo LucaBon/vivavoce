@@ -1,12 +1,13 @@
-// The chat log and the /command round-trip: bubbles, the tappable
+// The chat log and the /api/v1/command round-trip: bubbles, the tappable
 // "did you mean" choices, and the send pipeline shared by the text box and
 // both recognisers (Web Speech and the server's local ASR).
 
 import { $, clientId } from "./util.js";
-import { ui, recLang } from "./i18n.js";
+import { ui, recLang, getStatusBase } from "./i18n.js";
 import { currentSource, currentPlayer } from "./settings.js";
 import { refreshNowPlaying } from "./nowplaying.js";
 import { readbackOn, speak } from "./tts.js";
+import { trialInfo, isLicensed, showProUpsell } from "./pro.js";
 
 export function bubble(text, who) {
   const log = $("log");
@@ -85,8 +86,55 @@ function renderChoices(afterEl, choices) {
   afterEl.after(row);
 }
 
+// --- The in-flow upgrade prompt ---
+// The ask used to live in the settings panel, where nobody goes and where
+// "buy Pro" is an abstraction. It belongs at the one moment it means
+// something concrete: just after a command the user TYPED, which they could
+// have simply said. Two rules keep it a hint rather than nagging — never
+// before the third day, and at most once per page session.
+const PROMPT_FIRST_DAY = 3;
+let promptedThisSession = false;
+
+function micIsUsableHere() {
+  // No point advertising a button that cannot work: a browser with no speech
+  // recognition, or a page served over plain HTTP from another device, says
+  // so in the status line already.
+  const base = getStatusBase();
+  return base !== "nomic" && base !== "nohttps";
+}
+
+function maybePromptSpoken(afterEl) {
+  if (promptedThisSession || isLicensed() || !micIsUsableHere()) return;
+  const trial = trialInfo();
+  if (!trial || trial.day < PROMPT_FIRST_DAY) return;
+  promptedThisSession = true;
+  const note = document.createElement("div");
+  note.className = "bubble sys upsell";
+  note.innerHTML = trial.active ? ui("upsell_spoken_trial")(trial.days_left)
+                                : ui("upsell_spoken_over");
+  afterEl.after(note);
+  if (trial.active) return;  // the mic is right there; nothing to sell yet
+  const row = document.createElement("div");
+  row.className = "choices";
+  const btn = document.createElement("button");
+  btn.className = "choice";
+  btn.textContent = ui("upsell_see_pro");
+  btn.onclick = showProUpsell;
+  row.appendChild(btn);
+  note.after(row);
+}
+
+// An /api/v1/command round-trip is a couple of LMS calls; anything past this
+// is the server being gone, not slow. Without a deadline `sending` never
+// cleared and the whole session went quiet: every later voice command was
+// beeped at, then dropped on the `sending` guard with nothing on screen to
+// explain it.
+const COMMAND_TIMEOUT_MS = 15000;
+
 let sending = false;
-export async function send(text, alternatives) {
+/** Is a command in flight? The wake path checks this before beeping. */
+export const isSending = () => sending;
+export async function send(text, alternatives, opts) {
   text = (text || "").trim();
   if (!text || sending) return;  // one in-flight command at a time
   sending = true;
@@ -102,10 +150,12 @@ export async function send(text, alternatives) {
                  lang: recLang(), player: currentPlayer() };
   if (alternatives && alternatives.length > 1) body.alternatives = alternatives;
   try {
-    const r = await fetch("/command", {
+    const r = await fetch("/api/v1/command", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout
+        ? AbortSignal.timeout(COMMAND_TIMEOUT_MS) : undefined
     });
     const data = await r.json();
     // If the server kept a different alternative than what we heard first,
@@ -120,14 +170,22 @@ export async function send(text, alternatives) {
     if (Array.isArray(data.choices) && data.choices.length) renderChoices(p, data.choices);
     // Parser gap (nothing matched): offer the local, user-initiated report.
     if (data.unmatched) renderReportButton(p, (data.used || text));
+    // Only when it worked: an upgrade pitch stapled to a failure reads as
+    // "pay us and maybe it will understand you", which is not the offer.
+    if (data.ok !== false && !data.unmatched && opts && opts.typed) {
+      maybePromptSpoken(p);
+    }
     if (readbackOn()) speak(data.speech, data.terms);
     // A play/skip command changes the track: don't wait for the next poll.
     setTimeout(refreshNowPlaying, 800);
   } catch (e) {
+    // Whatever went wrong, the pending bubble must stop pretending: it is
+    // the only thing on screen saying a command is still being worked on.
     p.classList.remove("pending");
     p.removeAttribute("aria-hidden");
     p.classList.add("warn");
-    p.textContent = ui("net_error");
+    p.textContent = (e && (e.name === "TimeoutError" || e.name === "AbortError"))
+      ? ui("cmd_timeout") : ui("net_error");
   } finally {
     sending = false;
     $("send").disabled = false;
@@ -141,6 +199,20 @@ export function runCommand(txt, alts) {
   send(txt, alts);
   $("text").value = "";
 }
+// --- "send right after the mic" ---
+// Persisted like every other toggle in the panel (it wasn't: it reset to off
+// on every reload, so hands-free had to be re-armed by hand each time the app
+// was opened), and until the user has an opinion it FOLLOWS wake mode —
+// continuous listening whose transcript then sits in a box waiting for a tap
+// isn't hands-free at all, and you're across the room. Touching the checkbox
+// once records a choice that is then honoured for good, in both directions.
+const AUTOSEND_KEY = "autosend";
+const autosendChosen = () => localStorage.getItem(AUTOSEND_KEY) !== null;
+export const autosendOn = () => $("autosend").checked;
+export function autosendFollowWakeMode(wakeOn) {
+  if (!autosendChosen()) $("autosend").checked = wakeOn;
+}
+
 export function handleManualFinal(txt, alts) {
   $("text").value = txt;
   if ($("autosend").checked) { runCommand(txt, alts); }
@@ -152,11 +224,23 @@ export function initChat() {
   // survives the innerHTML swap done by applyUI() on language change.
   $("empty").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-cmd]");
-    if (btn) send(btn.dataset.cmd);
+    if (btn) send(btn.dataset.cmd, null, { typed: true });
   });
 
-  $("send").onclick = () => { send($("text").value); $("text").value = ""; };
+  // Read from the wake-mode key directly rather than the checkbox: initChat()
+  // runs before initMic() restores it, and both read the same stored value.
+  $("autosend").checked = autosendChosen()
+    ? localStorage.getItem(AUTOSEND_KEY) === "1"
+    : localStorage.getItem("wakemode") === "1";
+  $("autosend").onchange = () =>
+    localStorage.setItem(AUTOSEND_KEY, $("autosend").checked ? "1" : "0");
+
+  const sendTyped = () => {
+    send($("text").value, null, { typed: true });
+    $("text").value = "";
+  };
+  $("send").onclick = sendTyped;
   $("text").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { send($("text").value); $("text").value = ""; }
+    if (e.key === "Enter") sendTyped();
   });
 }

@@ -36,6 +36,17 @@ jobs:
           # non viene mai eseguito: una gamba basta a coprirlo.
           - os: windows-latest
             python: "3.12"
+          # aarch64 (runner ARM ospitato da GitHub, gratuito sui repo
+          # pubblici): DEPLOY.md indica il Raspberry Pi in quattro punti e
+          # fino a qui nessun job girava su ARM. Il core è solo stdlib e
+          # dovrebbe essere indifferente all'architettura — "dovrebbe" è
+          # esattamente ciò che un job rende un fatto. Due gambe, il minimo
+          # supportato e una recente, non l'intera matrice: qui interessa
+          # l'architettura, le versioni le copre già la matrice x86.
+          - os: ubuntu-24.04-arm
+            python: "3.9"
+          - os: ubuntu-24.04-arm
+            python: "3.13"
     steps:
       - uses: actions/checkout@v4
 
@@ -66,11 +77,133 @@ jobs:
 
       # Nel job matrix i browser non ci sono e tests/e2e/ salta da solo:
       # questo è l'unico job che li installa e quindi li esegue davvero.
+      #
+      # `playwright install` ESCE 0 ANCHE QUANDO FALLISCE: stampa "Failed to
+      # install browsers" e ritorna successo. Quindi questo passo non può
+      # essere l'unica garanzia — senza il resto, un'installazione fallita
+      # diventa un job verde con 24 test saltati, cioè una gamba che non ha
+      # guidato nessun browser mentre il segno di spunta dice il contrario.
+      #
+      # Il fallback esiste perché è già successo in locale: da Ubuntu 26.04
+      # Playwright 1.60 rifiuta di installare chromium ("does not support
+      # chromium on ubuntu26.04-x64"), e la build per 24.04 gira benissimo lì.
+      # `ubuntu-latest` prima o poi diventerà 26.04 e questo job smetterà di
+      # provare qualcosa nello stesso identico modo.
       - name: Install the Playwright browser
-        run: uv run playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          if ! uv run playwright install --with-deps chromium 2>&1 | tee /tmp/pw.log \
+             || grep -q "Failed to install browsers" /tmp/pw.log; then
+            echo "::warning::retrying with PLAYWRIGHT_HOST_PLATFORM_OVERRIDE"
+            PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 \
+              uv run playwright install --with-deps chromium
+          fi
 
+      # La prova che l'installazione è servita, invece del suo codice di
+      # uscita: se il browser non parte, questo passo fallisce qui e ora.
+      - name: The browser actually launches
+        run: |
+          uv run python -c "
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as pw:
+              b = pw.chromium.launch()
+              print('chromium', b.version)
+              b.close()
+          "
+
+      # VIVAVOCE_REQUIRE_BROWSER=1: qui uno skip è un errore. Vedi la
+      # docstring di tests/e2e/conftest.py — un test che non gira in silenzio
+      # è peggio di uno che fallisce.
       - name: Run the browser flows
+        env:
+          VIVAVOCE_REQUIRE_BROWSER: "1"
         run: uv run pytest tests/e2e -v
+
+  wakeword:
+    name: server wake word (py3.11, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          # The claim this leg exists to prove: DEPLOY.md tells a Raspberry Pi
+          # 4/5 on a 64-bit image that the server-side wake word works there.
+          # That rested on onnxruntime publishing aarch64 wheels — true, and
+          # checked, but a wheel existing is not the same as the ONNX model
+          # loading and scoring audio on that CPU. This runs the real
+          # openwakeword against real frames on real aarch64.
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Pinned to 3.11: openwakeword>=0.5 needs tflite-runtime, which has no
+      # wheel past cp311 (see pro/wakeword.py) — this is the one supported
+      # version where `--group wakeword` actually installs, so it's the only
+      # leg that can run tests/test_wakeword.py for real instead of skipping.
+      - name: Sync dependencies (incl. the wakeword group)
+        run: uv sync --python 3.11 --group wakeword
+
+      - name: Run the wake-word test suite
+        run: uv run --python 3.11 pytest tests/test_wakeword.py tests/test_wakeword_web.py -v
+
+  asr:
+    name: local speech recognition (py3.12, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Installazione vera, non risoluzione: faster-whisper si appoggia a
+      # CTranslate2 e onnxruntime, ed è la coppia che decide se il gruppo
+      # esiste su un'architettura (vedi la nota in DEPLOY.md). Su armv7 non
+      # esiste affatto, e non c'è runner ARM a 32 bit per dimostrarlo qui:
+      # quel lato lo coprono i test di packaging e il messaggio d'avvio.
+      - name: Sync dependencies (incl. the asr group)
+        run: uv sync --python 3.12 --group asr
+
+      # Nessun modello scaricato (~500 MB e minuti, per nulla che riguardi
+      # l'architettura). L'import È il controllo: `import ctranslate2` carica
+      # libctranslate2, la libreria nativa compilata per questa CPU, ed è
+      # esattamente lì che un'architettura sbagliata si rompe. Poi il probe
+      # che il server fa davvero all'avvio.
+      #
+      # tests/test_transcribe.py non gira qui apposta: usa un trascrittore
+      # finto da cima a fondo, quindi passerebbe identico senza il gruppo
+      # installato — la matrice principale lo copre già, e ripeterlo qui
+      # darebbe l'impressione di una prova che non è.
+      - name: The native libraries load, and the engine reports itself installed
+        run: |
+          uv run --python 3.12 python -c "
+          import sys, platform
+          import ctranslate2, onnxruntime
+          sys.path.insert(0, 'localvoice')
+          from pro.asr import WhisperTranscriber
+          assert WhisperTranscriber().available(), 'faster-whisper non importabile'
+          print(platform.machine(),
+                '- ctranslate2', ctranslate2.__version__,
+                '- onnxruntime', onnxruntime.__version__,
+                '- providers', onnxruntime.get_available_providers())
+          "
 
   sanity:
     name: sanity checks
@@ -93,20 +226,41 @@ jobs:
         run: uv run --python 3.12 pytest tests/test_packaging.py
 
   docker:
-    name: docker build
+    name: docker build (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Le due varianti opzionali non venivano mai costruite in CI: un pin
+        # che smette di risolvere (openwakeword contro tflite-runtime è
+        # esattamente questo caso) si scopriva solo a valle, da chi la
+        # costruiva a mano.
+        include:
+          - name: base
+            args: |
+              ASR=0
+              WAKEWORD=0
+          - name: asr
+            args: |
+              ASR=1
+              WAKEWORD=0
+          - name: wakeword
+            args: |
+              ASR=0
+              WAKEWORD=1
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
       # Nessun push, nessun segreto: serve solo a scoprire una COPY che punta
-      # a un file spostato, cosa che la suite Python non può vedere.
+      # a un file spostato (cosa che la suite Python non può vedere) e un pin
+      # opzionale che non si installa più.
       - name: Build the image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: false
-          build-args: ASR=0
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: ${{ matrix.args }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

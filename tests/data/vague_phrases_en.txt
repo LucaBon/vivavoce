@@ -1,0 +1,72 @@
+# English vague phrases, written the way a person speaks — see the Italian file
+# for why the corpus must not be written from MOOD_WORDS.
+
+play something relaxing
+put on something relaxing
+play some relaxing music
+play something calm
+put on something mellow
+play something chilled
+i want to listen to something calm
+play some music to relax
+play some music to sleep
+put on something for the night
+play some music for dinner
+play something for dinner
+put on some music for supper
+play some music for a dinner party
+play some music for a party
+play something to dance to
+put on some music for dancing
+play something happy
+play some upbeat music
+put on something cheerful
+play some feel good music
+play something energetic
+play some music for the gym
+put on some music for a workout
+play something for running
+play some music for studying
+play something to study to
+put on some music for working
+play something for reading
+play some background music
+put on something in the background
+play something light
+play something romantic
+put on some music for date night
+play something sad
+play something melancholy
+put on something nostalgic
+play some music for breakfast
+play some music for the morning
+put on some classical music
+play some classical
+play some jazz
+put on some jazz
+play some rock
+play some blues
+# --- written as beyond what metadata and genres can answer ---
+# Six of them were not: "eighties music", "from the sixties", "summery",
+# "christmas music", "instrumental", "without words" ride metadata axes LMS
+# already carries, and the second pass (T2.4-bis, 2026-08-26) covered them.
+# They stay where they were written — reordering a corpus after seeing the
+# result is how a measurement ends up measuring itself. What is left is the
+# real residue: taste, world knowledge, memory of the conversation.
+play something like Sigur Ros but happier
+play something that sounds like Pink Floyd
+play something similar to what we were just listening to
+play that thing you put on last night
+play something the kids will like
+play some eighties music
+play something from the sixties
+play something we haven't heard in a while
+play something new i don't know yet
+play something everyone will like
+play something summery
+put on some christmas music
+play something we can sing along to
+play something instrumental
+play something without words
+play something long that won't stop soon
+play something that makes me want to cook

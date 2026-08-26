@@ -27,7 +27,7 @@ MINUTE_WORDS.update({
 DURATIONS = (
     (c(r"^half\s+an?\s+hour\b"), 30),
     (c(r"^(?:an|one|1)\W?\s*hour\b"), 60),
-    (c(r"^(\d+)\s*hours?\b"), "hours"),
+    (c(r"^(\d+|[a-z]+)\s*hours?\b"), "hours"),
     (c(r"^(\d+|[a-z]+)\s*(?:minut\w*|min\b)"), "minutes"),
 )
 
@@ -45,20 +45,55 @@ PATTERNS = {
     "next": c(r"\b(next|skip|forward)\b"),
     "prev": c(r"\b(previous|go\s+back|back)\b"),
     "vol_up": c(r"(?:turn|put|pump|crank)?\s*up.{0,12}volume|volume\s+up"
-                r"|(?:raise|increase)\s.{0,8}volume|turn\s+it\s+up|louder"),
+                r"|(?:raise|increase)\s.{0,8}volume"),
     "vol_down": c(r"(?:turn|put)?\s*down.{0,12}volume|volume\s+down"
-                  r"|(?:lower|decrease|reduce)\s.{0,8}volume|turn\s+it\s+down"
-                  r"|quieter|softer"),
+                  r"|(?:lower|decrease|reduce)\s.{0,8}volume"),
+    # Loose forms that name no control: gated on is_play in the router, so a
+    # title containing them still plays (see the Italian pack).
+    "vol_up_loose": c(r"turn\s+it\s+up|louder"),
+    "vol_down_loose": c(r"turn\s+it\s+down|quieter|softer"),
     # Sleep timer: the captured tail must parse as a duration (see DURATIONS),
     # otherwise the phrase falls through to pause/play.
-    "sleep": c(r"(?:sleep|stop|turn\s+off|switch\s+off|shut\s+(?:down|off))"
-               r"\b.{0,20}?\bin\s+(.+)$"),
+    # "pause" belongs here too: "pause in 30 minutes" used to pause now. The
+    # tail must still parse as a duration, so a title can't become a timer.
+    "sleep": c(r"(?:sleep|stop|pause|turn\s+off|switch\s+off"
+               r"|shut\s+(?:down|off))\b.{0,20}?\bin\s+(.+)$"),
     "sleep_cancel": c(r"^(?:cancel|clear|remove)\b.{0,15}(?:sleep|timer)"),
     # Loose on purpose (mirrors the Italian style) and gated by is_play in
     # handle(), so "play What Is This Feeling" stays a play command. Also
     # covers the apostrophe-less ASR form "whats playing".
     "nowplaying": c(r"\bwhat'?s?\b.{0,10}(?:playing|song|this\b)"
                     r"|now\s+playing|who\s+(?:is\s+this|sings)"),
+    # Queue management. Checked early in the router, ahead of the generic
+    # play verbs, so "to the queue"/"next" never gets swallowed as part of
+    # a title.
+    "queue_add": c(r"\b(?:add|queue)\s+(.+?)\s+to\s+(?:the\s+)?queue\s*$"),
+    "queue_insert": c(r"\bplay\s+(.+?)\s+next\s*$"),
+    "queue_clear": c(r"^(?:clear|empty)\s+the\s+queue\s*$"),
+    "queue_list": c(r"what'?s\s+(?:in|on)\s+the\s+queue|queue\s+list"),
+    # Vague requests — see it.py for the three conditions and why the anchor
+    # is one of them ("stop playing something sad" and "I don't want something
+    # sad" both used to start the music), and engine/moods.py for the lookup. "for" is deliberately never consumed: "for dinner" is the
+    # whole tail MOOD_WORDS is asked about, not "dinner" with a stray word.
+    "mood": c(r"^(?:(?:play|put\s+on|start"
+              r"|i\s+want\s+to\s+(?:hear|listen\s+to))\s+(?:me\s+)?)?"
+              r"(?:some|a\s+bit\s+of|a\s+little|something|anything"
+              r"|music|songs|tunes)"
+              r"(?:\s+(?:music|songs))?"
+              # A trailing "music"/"songs" is part of the phrasing, not of the
+              # mood: "some upbeat music" asks for `upbeat`. Lazy plus an
+              # optional tail-noun, so a multi-word mood ("for studying")
+              # still backtracks its way to the whole thing.
+              r"\s+(.+?)(?:\s+(?:music|songs|tunes))?\s*$"),
+    # The whole phrase, politeness aside — see it.py. As a prefix it caught
+    # "another song", which is skip-this-track. And no "next one": same
+    # reason, and it would have shadowed the transport pattern outright.
+    "mood_another": c(r"^(?:no[,\s]+)?(?:another(?:\s+one)?"
+                      r"|something\s+else|change\s+it|not\s+this\s+one"
+                      r")(?:\s+(?:please|thanks))?\s*$"),
+    # Favorites & radio (LMS core feature — see engine/actions.py).
+    "favorites": c(r"\b(?:play|put\s+on|start)\s+(?:my\s+)?favou?rites\b"),
+    "radio": c(r"\bplay\s+(?:the\s+)?radio\s+(.+)$"),
     "choose_number": c(r"(?:play|choose|pick|put\s+on)?\s*(?:the\s+)?number\s+([a-z0-9]+)\s*$"),
     # "the 2" and ordinals: "the second", "play the second one/song"
     "choose_article": c(r"(?:play|choose|pick|put\s+on)?\s*the\s+([a-z0-9]+)"
@@ -87,4 +122,85 @@ PATTERNS = {
     "block_remove": c(r"^unblock\s+(.+)$"),
     "block_list": c(r"^(?:(?:what|which)\s+(?:songs?|tracks?)\s+(?:are|is)\s+blocked|"
                     r"what'?s\s+blocked|list\s+(?:the\s+)?blocked)"),
+}
+
+# Spoken tail -> mood key. See it.py: keys are pre-normalized and matched
+# against the WHOLE tail, never a part of it.
+MOOD_WORDS = {
+    # relax
+    "relaxing": "relax", "relaxed": "relax", "calm": "relax",
+    "calming": "relax", "chill": "relax", "chilled": "relax",
+    "mellow": "relax", "quiet": "relax", "to relax": "relax",
+    "laid back": "relax", "soothing": "relax",
+    # sleep
+    "to sleep": "sleep", "for sleeping": "sleep", "to fall asleep": "sleep",
+    "for bedtime": "sleep", "for the night": "sleep", "sleepy": "sleep",
+    # dinner
+    "for dinner": "dinner", "for supper": "dinner", "dinner": "dinner",
+    "for lunch": "dinner", "while we eat": "dinner",
+    "for a dinner party": "dinner",
+    # party
+    "for a party": "party", "for the party": "party", "party": "party",
+    "to dance": "party", "for dancing": "party", "to dance to": "party",
+    # happy
+    "happy": "happy", "cheerful": "happy", "upbeat": "happy",
+    "feel good": "happy", "fun": "happy", "joyful": "happy",
+    # energetic
+    "energetic": "energetic", "for the gym": "energetic",
+    "for a workout": "energetic", "for working out": "energetic",
+    "for running": "energetic", "to run to": "energetic",
+    "pumped up": "energetic", "high energy": "energetic",
+    # focus
+    "for studying": "focus", "to study": "focus", "to study to": "focus",
+    "for working": "focus", "to work to": "focus", "for reading": "focus",
+    "to read to": "focus", "for concentration": "focus", "to focus": "focus",
+    # background
+    "in the background": "background", "for the background": "background",
+    "background": "background", "light": "background",
+    "easy listening": "background", "unobtrusive": "background",
+    # romantic
+    "romantic": "romantic", "for a date": "romantic",
+    "for date night": "romantic", "for lovers": "romantic",
+    "sensual": "romantic",
+    # melancholy
+    "sad": "melancholy", "melancholy": "melancholy",
+    "melancholic": "melancholy", "nostalgic": "melancholy",
+    "moody": "melancholy", "for a rainy day": "melancholy",
+    # morning
+    "for the morning": "morning", "for breakfast": "morning",
+    "to wake up to": "morning", "for waking up": "morning",
+    "morning": "morning",
+    # genre-shaped
+    "classical": "classical", "classical music": "classical",
+    "opera": "classical", "baroque": "classical",
+    "jazz": "jazz", "jazzy": "jazz",
+    "rock": "rock", "classic rock": "rock", "hard rock": "rock",
+    "blues": "blues", "bluesy": "blues",
+    # Metadata axes (T2.4-bis) — see it.py for why the bare noun is the thing
+    # to be careful with. Bare "christmas" is here despite naming real songs,
+    # on the same terms as "fun" already in this table, and it earns it: "put
+    # on some christmas music" is a phrase people say and nothing else covers
+    # it. Bare "summer" was here too and is deliberately gone — measured, it
+    # covered no corpus phrase that "summery" did not already cover, while it
+    # did break "play some Summer", which is how a person asks for a one-word
+    # title. An entry that costs a real request and buys nothing is not a
+    # trade, and the fall-through is a weaker net than it looks: the phrase
+    # handed back still carries its marker, so the search sees "some Summer".
+    "christmas": "christmas", "for christmas": "christmas",
+    "instrumental": "instrumental", "without words": "instrumental",
+    "with no words": "instrumental",
+    "summery": "summer",
+    # Decades.
+    "sixties": "sixties", "the sixties": "sixties",
+    "from the sixties": "sixties", "60s": "sixties",
+    "the 60s": "sixties", "from the 60s": "sixties",
+    "seventies": "seventies", "the seventies": "seventies",
+    "from the seventies": "seventies", "70s": "seventies",
+    "the 70s": "seventies", "from the 70s": "seventies",
+    "eighties": "eighties", "the eighties": "eighties",
+    "from the eighties": "eighties", "80s": "eighties",
+    "the 80s": "eighties", "from the 80s": "eighties",
+    "nineties": "nineties", "the nineties": "nineties",
+    "from the nineties": "nineties", "90s": "nineties",
+    "the 90s": "nineties", "from the 90s": "nineties",
 }

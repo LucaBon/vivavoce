@@ -95,6 +95,9 @@ a, a.hint { color: var(--accent-text); }
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 999px; padding: .28rem .32rem; box-shadow: var(--shadow); }
 .prolock { font-size: .8em; opacity: .85; }
+/* A Pro control that is locked rather than disabled: it looks unavailable but
+   still receives taps, so tapping it can explain itself (see settings.js). */
+select.locked { opacity: .55; }
 #probox, #kidsafebox { width: 100%; border-top: 1px solid var(--border);
           margin-top: .4rem; padding-top: .55rem; }
 #ksstatus { text-align: left; }
@@ -161,13 +164,33 @@ button.send:disabled { opacity: .55; cursor: default; }
 .sys.warn { border-color: var(--danger); background: var(--danger-soft); color: var(--text); }
 /* \26A0 without \FE0F = monochrome glyph, tinted to match the red lamp */
 .sys.warn::before { content: "\26A0  "; color: var(--danger); font-weight: 600; }
+/* The in-flow upgrade hint (chat.js): a note in the conversation, not a
+   reply — quieter than a system bubble, and visibly not the server talking. */
+.sys.upsell { background: transparent; box-shadow: none;
+              border-style: dashed; color: var(--text-muted);
+              font-size: .875rem; }
 .sys.pending { background: var(--amber-soft); }
 .sys.pending::after { content: " \00B7\00B7\00B7"; letter-spacing: .15em;
                       color: var(--amber-text);
                       animation: dots 1s steps(4) infinite; }
 @keyframes dots { 0%{ opacity:.2 } 50%{ opacity:1 } 100%{ opacity:.2 } }
+/* The certificate verdict (certsetup.js): the only one that is good news
+   gets the green treatment; the rest read as the warnings they are. */
+.certstate { margin: .4rem 0; text-align: left; }
+.certstate.untrusted b, .certstate.nocert b { color: var(--danger); }
+.certstate.ok b { color: var(--accent-text); }
 .hint { color: var(--text-muted); font-size: .875rem; text-align: center; max-width: 480px; }
 .warn { color: var(--danger); }
+/* Everything that configures continuous listening, shown only while it is on.
+   The rule that matters is the left border + indent: the engine choice used to
+   sit as a sibling of the switch that turns listening on, so it read as an
+   independent feature and nobody saw that BOTH had to be ticked. */
+.wakeopts { width: 100%; max-width: 480px;
+            border-left: 2px solid var(--border);
+            padding-left: .75rem; margin: .1rem 0 .3rem;
+            display: flex; flex-direction: column; gap: .35rem; }
+.wakeopts .hint { max-width: 100%; }
+.wakeopts #wakeword:disabled { opacity: .5; cursor: not-allowed; }
 .card { background: var(--surface); border: 1px solid var(--border);
         border-radius: var(--radius-m); box-shadow: var(--shadow);
         padding: .7rem 1rem; width: 100%; max-width: 480px; text-align: left; }

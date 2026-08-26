@@ -1,21 +1,43 @@
 """The HTTP surface of the local web app: ``make_handler`` and its routes.
 
 Moved verbatim from ``server.py`` (which keeps startup, discovery and the
-CLI): this module owns everything that happens after a request arrives —
-routing, the JSON contracts, and the "never a 5xx" guarantees the page
-relies on. Stdlib ``http.server`` only.
+CLI): this module owns what happens after a request arrives — routing, the
+JSON contracts, and the "never a 5xx" guarantees the page relies on. Stdlib
+``http.server`` only.
+
+Two families of routes live next door rather than here, both mixed into
+``Handler`` below:
+
+* the endpoints backed by the optional audio engines (``/asr``,
+  ``/transcribe``, ``/wakeword/*``), from ``audio_api.py``: they read binary
+  bodies and are Pro-gated server-side, which nothing else here does;
+* ``POST /api/v1/command``, from ``api_v1.py``: the one route with a
+  *versioned promise* attached to it (see ``docs/api.md``). Everything else
+  in this module is the web app talking to itself and may change with the
+  page it serves.
 """
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import threading
 
+import httpbase
 import staticfiles
+import webguard
+from api_v1 import api_v1_routes
+from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
-from messages import msg
 from router import Router
+
+# One Router per (client id, player) — see router_for. The map is keyed on a
+# client-chosen string, so it is bounded: without a cap, every page load with
+# a fresh id (a private window, a cleared storage, a scanner) added an entry
+# that never went away. Least-recently-used wins; an evicted client just gets
+# a fresh Router, i.e. loses its open "metti la N" list.
+MAX_ROUTERS = 64
 
 
 def _http_fetch(url: str, timeout: float = 5.0):
@@ -29,12 +51,13 @@ def _http_fetch(url: str, timeout: float = 5.0):
 def make_handler(lms, material_url: str, services, default_service: str,
                  ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
                  kidsafe=None, transcriber=None, multiroom=None,
-                 app_version: str = ""):
+                 app_version: str = "", wakeword_sessions=None,
+                 allowed_hosts=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
     # id; without one they share a single default router.
-    routers = {}
+    routers = collections.OrderedDict()
     lock = threading.Lock()
     services = list(services)
 
@@ -58,38 +81,20 @@ def make_handler(lms, material_url: str, services, default_service: str,
                            kidsafe=kidsafe, client_id=client_id,
                            multiroom=multiroom)
                 routers[key] = r
+                while len(routers) > MAX_ROUTERS:
+                    routers.popitem(last=False)  # drop the least recently used
+            else:
+                routers.move_to_end(key)
             return r
 
-    class Handler(BaseHTTPRequestHandler):
-        def _send(self, code, body, ctype="application/json"):
-            data = body.encode("utf-8") if isinstance(body, str) else body
-            self.send_response(code)
-            self.send_header("Content-Type", f"{ctype}; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
-        def _query_params(self) -> dict:
-            """The request's query string, parsed once (``?a=1&b=2`` ->
-            ``{"a": ["1"], "b": ["2"]}``)."""
-            from urllib.parse import parse_qs, urlparse
-            return parse_qs(urlparse(self.path).query)
-
-        def _read_json_object(self) -> dict:
-            """The POST body as a JSON object, or ``{}`` on anything else —
-            absent body, malformed JSON, *or* valid JSON that isn't an
-            object (``null``, a number, a list, a bare string). That last
-            case is not a ``ValueError``: ``json.loads`` happily returns it,
-            and a bare ``.get()`` on it would raise ``AttributeError`` —
-            uncaught, that drops the connection with no response, breaking
-            this module's own "never a 5xx" guarantee."""
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                return {}
-            return payload if isinstance(payload, dict) else {}
+    # The audio-engine endpoints (/asr, /transcribe, /wakeword/*) and the
+    # versioned command route (/api/v1/command) live in audio_api.py and
+    # api_v1.py; here is the only place the halves meet, and they call back
+    # into _send/_query_params/_read_json_object below.
+    class Handler(api_v1_routes(router_for),
+                  audio_routes(license_mgr, transcriber, wakeword_sessions),
+                  httpbase.RequestBase, BaseHTTPRequestHandler):
+        host_policy = webguard.HostPolicy(allowed_hosts)
 
         def do_GET(self):
             if self.path in ("/", "/index.html"):
@@ -120,6 +125,13 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._send_artwork()
             elif self.path.startswith("/players"):
                 self._send_players()
+            elif self.path == "/tls":
+                # Whether there is a local CA to install at all. The page can
+                # see its own protocol, but not this: a household using its
+                # own certificate (or none) must not be walked through
+                # installing a ca.pem that does not exist.
+                self._send(200, json.dumps(
+                    {"ca": bool(ca_path and os.path.exists(ca_path))}))
             elif self.path == "/license":
                 status = license_mgr.status() if license_mgr else {"pro": False}
                 self._send(200, json.dumps(status))
@@ -127,62 +139,10 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._asr_status()
             elif self.path.startswith("/kidsafe"):
                 self._kidsafe_status()
+            elif self.path.startswith("/wakeword"):
+                self._wakeword_status()
             else:
                 self._send(404, "not found", "text/plain")
-
-        def _asr_status(self):
-            # La pagina mostra l'interruttore «riconoscimento locale» solo se
-            # il motore c'è davvero (gruppo opzionale "asr" installato).
-            ok = transcriber is not None and transcriber.available()
-            payload = {"available": ok}
-            if ok:
-                payload["model"] = getattr(transcriber, "model_name", None)
-            self._send(200, json.dumps(payload))
-
-        # Un comando parlato dura pochi secondi: 15 MB coprono con margine
-        # anche un wav non compresso, e tolgono senso a un upload-bomba.
-        MAX_AUDIO_BYTES = 15 * 1024 * 1024
-
-        def _transcribe(self):
-            # Il corpo è il blob audio di MediaRecorder (webm/opus o wav),
-            # la lingua viaggia nella query string. Come gli altri endpoint:
-            # mai un 5xx — i casi degradati rispondono 200 con ok:false.
-            length = int(self.headers.get("Content-Length", 0) or 0)
-
-            def refuse(error):
-                if length:  # drena il corpo: keep-alive pulito anche su rifiuto
-                    self.rfile.read(length)
-                self._send(200, json.dumps({"ok": False, "error": error}))
-
-            if transcriber is None or not transcriber.available():
-                refuse("unavailable")
-                return
-            # Funzione Pro, applicata lato server come il kid-safe: il toggle
-            # nascosto nella UI non basta a proteggere la CPU del server.
-            if license_mgr and not license_mgr.is_pro():
-                refuse("pro_required")
-                return
-            if not length:
-                refuse("empty")
-                return
-            if length > self.MAX_AUDIO_BYTES:
-                refuse("too_large")
-                return
-            audio = self.rfile.read(length)
-            lang = (self._query_params().get("lang") or ["it"])[0]
-            try:
-                result = transcriber.transcribe(audio, lang)
-            except Exception as exc:
-                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
-                return
-            text = (result.get("text") or "").strip()
-            alternatives = [a for a in (result.get("alternatives") or [])
-                            if a and a.strip()]
-            if not alternatives and text:
-                alternatives = [text]
-            self._send(200, json.dumps(
-                {"ok": True, "text": text, "alternatives": alternatives},
-                ensure_ascii=False))
 
         def _kidsafe_state(self, client_id: str) -> dict:
             state = {
@@ -215,8 +175,13 @@ def make_handler(lms, material_url: str, services, default_service: str,
             pin = payload.get("pin") or ""
             term = payload.get("term") or ""
             if action == "unlock":
-                result = ({"ok": True} if kidsafe.unlock(client_id, pin)
-                          else {"ok": False, "error": "wrong_pin"})
+                if kidsafe.unlock(client_id, pin):
+                    result = {"ok": True}
+                else:
+                    wait = kidsafe.locked_out_for()
+                    result = ({"ok": False, "error": "locked_out",
+                               "retry_in": int(wait) + 1} if wait > 0
+                              else {"ok": False, "error": "wrong_pin"})
             elif action == "lock":
                 kidsafe.lock(client_id)
                 result = {"ok": True}
@@ -337,14 +302,24 @@ def make_handler(lms, material_url: str, services, default_service: str,
             except Exception:
                 self._send(404, "artwork unavailable", "text/plain")
                 return
+            # Only ever an image: the proxy forwarded whatever Content-Type
+            # the upstream announced, so anything the LMS (or something
+            # answering in its place) served came back under this origin with
+            # its own type. nosniff stops the browser guessing past it.
+            if not (ctype or "").lower().startswith("image/"):
+                self._send(404, "artwork unavailable", "text/plain")
+                return
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(data)
 
         def do_POST(self):
+            if self._reject_cross_site():
+                return
             if self.path == "/license":
                 self._activate_license()
                 return
@@ -357,32 +332,28 @@ def make_handler(lms, material_url: str, services, default_service: str,
             if self.path.startswith("/transcribe"):
                 self._transcribe()
                 return
-            if self.path != "/command":
-                self._send(404, '{"speech":"non trovato"}')
+            if self.path.startswith("/wakeword/chunk"):
+                self._wakeword_chunk()
                 return
-            payload = self._read_json_object()
-            text = payload.get("text", "")
-            client_id = payload.get("client") or "default"
-            # The UI player selector: commands go to that player's router.
-            player_id = payload.get("player") or ""
-            # Auto source (default): the router tries the local library first,
-            # then TIDAL. Explicit phrases ("dalla mia musica", "da tidal") and
-            # an explicit source still override.
-            source = payload.get("source") or "auto"
-            # The language the user is speaking (the page's mic-language
-            # selector): commands are parsed and answered in that language.
-            lang = payload.get("lang") or "it"
-            # Prefer the ASR alternatives when present (mic hands-free mode);
-            # the plain text box just sends one string.
-            alternatives = payload.get("alternatives") or ([text] if text else [])
-            try:
-                result = router_for(client_id, player_id).handle_many(
-                    alternatives, source, lang)
-            except Exception as exc:  # never 500 the client
-                result = {"speech": msg("internal_error", error=exc), "used": text,
-                          "ok": False, "error": str(exc), "terms": [],
-                          "unmatched": False}
-            self._send(200, json.dumps(result, ensure_ascii=False))
+            if self.path.startswith("/wakeword/stop"):
+                self._wakeword_stop()
+                return
+            # Both spellings of the same route: /api/v1/command is the
+            # contract external clients get to rely on, /command the original
+            # unversioned path the page and anything already integrated still
+            # use. One implementation, in api_v1.py, so they cannot drift.
+            #
+            # Match on the path without its query string, the way webguard
+            # does (httpbase strips it before the JSON_ROUTES lookup) and the
+            # way /transcribe and /wakeword/* already do with startswith. An
+            # exact match on self.path let a cache-buster or a stray trailing
+            # "?" pass the cross-site guard and then 404 — harmless, because
+            # it failed closed, but an unexplained 404 on the one route that
+            # now promises stability is exactly what a client author trips on.
+            if self.path.split("?", 1)[0] in ("/api/v1/command", "/command"):
+                self._command()
+                return
+            self._send(404, '{"speech":"non trovato"}')
 
         def log_message(self, *args):  # keep the console quiet
             pass

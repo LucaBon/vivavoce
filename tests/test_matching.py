@@ -389,3 +389,136 @@ def test_search_tracks_includes_artist_when_present(lms, transport, make_tidal):
         {"url": "tidal://1.flc", "title": "Time", "artist": "PF"},
         {"url": "tidal://2.flc", "title": "Money"},
     ]
+
+
+# -- normalisation: punctuation used to decide matches ------------------------
+def test_punctuation_does_not_defeat_a_title():
+    # Measured before the fix: 0.089 — «wall» could not find this song at all.
+    assert _score("wall", "Another Brick in the Wall, Pt. 1") >= 0.9
+
+
+def test_a_dropped_apostrophe_still_matches():
+    # Web Speech writes «dont», and Italian is full of l'/dell'. This scored
+    # 0.84 — below EXACT_SCORE, so it asked "which one?" instead of playing.
+    assert _score("dont stop me now", "Don't Stop Me Now") == 1.0
+    assert _score("Don’t Stop Me Now", "Don't Stop Me Now") == 1.0
+    assert _score("l'amore", "lamore") == 1.0
+
+
+def test_letters_without_a_combining_mark_are_folded_too():
+    assert actions._normalize("Straße") == "strasse"
+    assert actions._normalize("Sigur Rós") == "sigur ros"
+    assert actions._normalize("Motörhead") == "motorhead"
+
+
+def test_non_latin_titles_keep_their_characters():
+    assert actions._normalize("Полюшко Поле") == "полюшко поле"
+
+
+# -- the artist separator -----------------------------------------------------
+def test_the_last_connector_splits_title_from_artist():
+    # Split on the FIRST "by" and this searched for a song called "Stand".
+    assert actions.parse_song_query("Stand By Me by Ben E. King") == {
+        "title": "Stand By Me", "artist": "Ben E. King", "album": None}
+
+
+def test_a_connector_inside_a_title_is_not_an_artist():
+    assert actions.parse_song_query("Ti amo di più")["artist"] is None
+
+
+def test_a_leading_connector_left_by_the_filler_is_dropped():
+    assert actions.parse_song_query("la canzone di Marinella di De André") == {
+        "title": "Marinella", "artist": "De André", "album": None}
+
+
+# -- a named artist that isn't in the results ---------------------------------
+def test_a_named_artist_with_no_edition_is_not_silently_swapped(
+        lms, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Yesterday", "artist": "The Beatles"}]},
+    )
+    reply = actions.play_song(lms, "Yesterday di Vasco Rossi")
+    assert reply.ok is False
+    assert "Vasco Rossi" in reply
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+
+
+def test_the_named_artist_is_found_below_the_top_three(lms, transport,
+                                                       make_tidal):
+    # Only the top 3 were scanned; the right edition often sits lower.
+    items = [{"isaudio": 1, "url": f"tidal://{i}.flc", "name": "Yesterday",
+              "artist": "A Cover Band"} for i in range(1, 6)]
+    items.append({"isaudio": 1, "url": "tidal://real.flc",
+                  "name": "Yesterday", "artist": "The Beatles"})
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": items})
+    reply = actions.play_song(lms, "Yesterday dei Beatles")
+    assert reply.ok is True
+    assert ["playlist", "play", "tidal://real.flc"] in transport.commands()
+
+
+# -- the dry run the room gate needs (T2.7b) -----------------------------------
+#
+# Every resolver in actions.py answers by *playing* something, so there was no
+# way to ask "does the library know this phrase?" without music starting. The
+# room gate has to ask exactly that, twice, before it decides whether «in
+# america» is a room or the end of a title.
+
+def test_score_subset_floor_can_be_switched_off():
+    # With the floor on, every phrase that merely contains a title lands on the
+    # same 0.95 and two phrasings cannot be told apart. Off, they separate.
+    assert _score("breakfast", "Breakfast in America") == 0.95
+    assert _score("breakfast", "Breakfast in America", subset_floor=False) < 0.9
+    assert _score("breakfast in america", "Breakfast in America",
+                  subset_floor=False) == 1.0
+
+
+def test_library_candidates_never_plays_anything(lms, transport):
+    transport.responses["albums"] = {"albums_loop": [{"id": 10, "album": "Bollicine"}]}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    cands = actions.library_candidates(lms, "bollicine")
+    assert [c["title"] for c in cands] == ["Bollicine"]
+    assert all(cmd[0] in ("albums", "artists", "titles")
+               for cmd in transport.commands()), transport.commands()
+
+
+def test_library_candidates_costs_three_queries(lms, transport):
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    actions.library_candidates(lms, "bollicine")
+    assert len(transport.calls) == 3
+
+
+def test_library_candidates_on_lms_error_is_empty(lms, transport):
+    transport.raise_on.add("albums")
+    assert actions.library_candidates(lms, "bollicine") == []
+
+
+def test_library_candidates_of_nothing_asks_nothing(lms, transport):
+    assert actions.library_candidates(lms, "  ") == []
+    assert transport.calls == []
+
+
+def test_best_match_score_of_an_empty_pool_is_zero():
+    assert actions.best_match_score("bollicine", []) == 0.0
+    assert actions.best_match_score("bollicine", None) == 0.0
+
+
+def test_best_match_score_takes_the_best_row():
+    pool = [{"title": "Notte prima degli esami"}, {"title": "Bollicine"}]
+    assert actions.best_match_score("bollicine", pool) == 1.0
+
+
+def test_a_tagged_edition_still_clears_the_confidence_floor():
+    # The margin this fix actually runs on in a real library. It is real but
+    # not large: a longer tag drops the whole-phrase reading under the floor
+    # and the room quietly wins again — safely (no action), but silently.
+    tagged = [{"title": "Breakfast In America (2010 Remastered Deluxe Edition)"}]
+    whole = actions.best_match_score("breakfast in america", tagged, subset_floor=False)
+    room = actions.best_match_score("breakfast", tagged, subset_floor=False)
+    assert whole >= actions.LOCAL_CONFIDENT
+    assert whole > room

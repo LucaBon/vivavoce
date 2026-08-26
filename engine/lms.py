@@ -245,6 +245,7 @@ class LMSClient:
 
     def _http_transport(self, params: list) -> Dict[str, Any]:
         import base64
+        import http.client
         import json
         import urllib.error
         import urllib.request
@@ -265,7 +266,12 @@ class LMSClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except (urllib.error.URLError, OSError, ValueError,
+                http.client.HTTPException) as exc:
+            # http.client.HTTPException is NOT an OSError: an LMS restarted
+            # mid-response raised BadStatusLine/IncompleteRead straight past
+            # this handler, and the caller's `except LMSError` never saw it —
+            # the page got a traceback instead of the friendly message.
             raise LMSError(f"LMS request failed: {exc}") from exc
         if not isinstance(body, dict) or "result" not in body:
             raise LMSError(f"Unexpected LMS response: {body!r}")
@@ -503,6 +509,48 @@ class LMSClient:
         albums = [{"id": a["id"], "title": a.get("album")} for a in loop if a.get("id")]
         return {"artist": artist, "albums": albums}
 
+    # Genres are the one piece of library metadata a mood can be resolved
+    # against without asking anyone's taste (see engine/moods.py): LMS has
+    # tagged every track with one already, and the ids are stable like the
+    # rest of the local-library commands.
+    def local_genres(self, count: int = 200) -> List[Dict[str, Any]]:
+        loop = self.server_command(
+            "genres", "0", str(count)
+        ).get("genres_loop") or []
+        return [{"id": g["id"], "title": g.get("genre")}
+                for g in loop if g.get("id") is not None]
+
+    # The other axis LMS tags every track with, and the reason a decade is a
+    # mood at all (see engine/moods.py). Two things about `years` are not like
+    # `genres` and are easy to get wrong: the response loop is keyed by
+    # ``year``, not by ``id`` — the year is its own identifier — and
+    # ``hasAlbums:1`` is what keeps years that only stray singles live in out
+    # of the list. Nothing anywhere in the CLI accepts a range, so callers ask
+    # for one year at a time.
+    def local_years(self, count: int = 200) -> List[int]:
+        loop = self.server_command(
+            "years", "0", str(count), "hasAlbums:1"
+        ).get("years_loop") or []
+        years = []
+        for entry in loop:
+            try:
+                years.append(int(entry.get("year")))
+            except (AttributeError, TypeError, ValueError):
+                continue
+        return years
+
+    # ``sort:random`` is documented as relevant exactly when genre_id, artist_id
+    # or year is supplied, and it is scoped to this one call — unlike
+    # `playlist shuffle 1`, which is the player's standing preference. It sorts
+    # ALBUMS, not tracks, so it is not a true shuffle; see engine/moods.py.
+    def play_local_year(self, year: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:load", f"year:{year}",
+                            "sort:random")
+
+    def play_local_genre(self, genre_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:load",
+                            f"genre_id:{genre_id}", "sort:random")
+
     def play_local_artist(self, artist_id: Any) -> Dict[str, Any]:
         return self.command("playlistcontrol", "cmd:load", f"artist_id:{artist_id}")
 
@@ -512,13 +560,38 @@ class LMSClient:
     def play_local_track(self, track_id: Any) -> Dict[str, Any]:
         return self.command("playlistcontrol", "cmd:load", f"track_id:{track_id}")
 
+    def add_local_album(self, album_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:add", f"album_id:{album_id}")
+
+    def insert_local_album(self, album_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:insert", f"album_id:{album_id}")
+
+    def add_local_artist(self, artist_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:add", f"artist_id:{artist_id}")
+
+    def insert_local_artist(self, artist_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:insert", f"artist_id:{artist_id}")
+
+    def add_local_track(self, track_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:add", f"track_id:{track_id}")
+
+    def insert_local_track(self, track_id: Any) -> Dict[str, Any]:
+        return self.command("playlistcontrol", "cmd:insert", f"track_id:{track_id}")
+
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
+        """The queue head plus the transport ``mode`` (play/pause/stop).
+
+        The mode matters: ``status - 1`` returns the current queue entry
+        whatever the player is doing, so without it a stopped player answered
+        "now playing X" about a song nobody could hear.
+        """
         res = self.command("status", "-", "1", "tags:aAlN")
         loop = res.get("playlist_loop") or []
         if not loop:
             return None
         item = loop[0]
-        return {"title": item.get("title"), "artist": item.get("artist")}
+        return {"title": item.get("title"), "artist": item.get("artist"),
+                "mode": res.get("mode")}
 
     def status_info(self) -> Dict[str, Any]:
         """Player status for the web now-playing panel.
@@ -580,6 +653,18 @@ class LMSClient:
     def add_url(self, url: str) -> Dict[str, Any]:
         return self.command("playlist", "add", url)
 
+    def insert_url(self, url: str) -> Dict[str, Any]:
+        """Queue a track to play right after the current one ("play next")."""
+        return self.command("playlist", "insert", url)
+
+    def add_browse_item(self, item_id: str) -> Dict[str, Any]:
+        """Queue a browseable app-feed node (album/playlist) at the end."""
+        return self.command(self.service.tag, "playlist", "add", f"item_id:{item_id}")
+
+    def insert_browse_item(self, item_id: str) -> Dict[str, Any]:
+        """Queue a browseable app-feed node to play right after the current one."""
+        return self.command(self.service.tag, "playlist", "insert", f"item_id:{item_id}")
+
     def play_tracks(self, urls: List[str]) -> None:
         """Play the first URL (replacing the queue) then enqueue the rest."""
         if not urls:
@@ -615,3 +700,45 @@ class LMSClient:
     def seek(self, seconds: float) -> Dict[str, Any]:
         """Jump to an absolute position (seconds) in the current track."""
         return self.command("time", str(max(0, int(seconds))))
+
+    def clear_queue(self) -> Dict[str, Any]:
+        """Empty the play queue and stop playback."""
+        return self.command("playlist", "clear")
+
+    def queue_upcoming(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """Up to ``limit`` tracks queued after the currently playing one, in
+        play order.
+
+        ``status - N tags:a`` is documented to start the listing at the
+        current song (``playlist_loop[0]`` is the now-playing track, the LMS
+        convention already relied on by :meth:`now_playing_info`/
+        :meth:`status_info`); the rest of the loop is what plays next.
+        """
+        res = self.command("status", "-", str(max(0, limit) + 1), "tags:a")
+        loop = res.get("playlist_loop") or []
+        return [
+            {"title": t.get("title"), "artist": t.get("artist")}
+            for t in loop[1 : limit + 1] if t.get("title")
+        ]
+
+    # -- favorites (core LMS feature, not a plugin) ------------------------
+    # Same OPML shape as a streaming app feed (see the module docstring), but
+    # under the always-present "favorites" tag rather than a service's — and
+    # flat, not the search-node/category/items 3-level dance TIDAL/Qobuz need:
+    # ``search:`` filters the top-level list directly.
+    def favorites_items(self, count: int = 50,
+                        query: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The user's saved favorites (server-wide, not per-player), optionally
+        filtered by ``query``. Each item carries at least ``id`` and ``name``
+        when playable; folders (no ``id``... actually folders have an id too
+        but no ``isaudio``) are included as-is — callers filter for ``id``."""
+        params = ["0", str(count), "want_url:1"]
+        if query:
+            params.append(f"search:{query}")
+        res = self.server_command("favorites", "items", *params)
+        return res.get("loop_loop") or res.get("item_loop") or []
+
+    def favorites_playlist_play(self, item_id: str) -> Dict[str, Any]:
+        """Play a favorite by its (dotted) id. If it isn't itself playable but
+        contains playable sub-items (a folder), LMS plays those instead."""
+        return self.command("favorites", "playlist", "play", f"item_id:{item_id}")

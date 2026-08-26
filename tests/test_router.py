@@ -4,6 +4,7 @@ action + LMS command, via the fake transport."""
 
 import pytest
 
+import router as router_mod
 from router import Router
 
 
@@ -358,7 +359,7 @@ def test_handle_many_keeps_primary_when_all_miss(router, transport):
 def test_handle_many_empty(router):
     assert router.handle_many([]) == {
         "speech": "Non ho sentito niente.", "used": "", "ok": False,
-        "terms": [], "choices": [], "unmatched": False
+        "terms": [], "choices": [], "needs_choice": False, "unmatched": False
     }
 
 
@@ -569,3 +570,100 @@ def test_ordinal_without_list_is_not_a_pick_it(router, transport, make_feed):
     speech = router.handle("metti la quinta", source="auto")
     assert "Prima chiedimi un elenco" not in speech
     assert ["playlist", "play", "tidal://55.flc"] in transport.commands()
+
+
+# -- a read-out list does not live forever --------------------------------
+def test_an_old_list_stops_swallowing_one_word_commands(lms, transport):
+    """Without a clock on it, the list lived for the life of the process:
+    days later «Uno», «Sei» or «Prima» were read as a pick from a list nobody
+    remembered opening, instead of being searched — and because they
+    "matched", the web app never offered its report button either."""
+    now = {"t": 0.0}
+    r = Router(lms, now=lambda: now["t"])
+    transport.responses["artists"] = {"artists_loop": [{"id": 1, "artist": "Yes"}]}
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 10, "album": "Fragile"}, {"id": 11, "album": "90125"}]
+    }
+    r.handle("quali album ho di Yes")
+    assert r.candidates is not None
+
+    now["t"] += router_mod.CANDIDATES_TTL + 1
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    r.handle("metti Due")                       # a title, not a pick
+    assert r.candidates is None
+    assert not any(c[:2] == ["playlistcontrol", "cmd:load"]
+                   for c in transport.commands())
+
+
+def test_a_pick_still_works_within_the_window(lms, transport):
+    now = {"t": 0.0}
+    r = Router(lms, now=lambda: now["t"])
+    transport.responses["artists"] = {"artists_loop": [{"id": 1, "artist": "Yes"}]}
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 10, "album": "Fragile"}, {"id": 11, "album": "90125"}]
+    }
+    r.handle("quali album ho di Yes")
+    now["t"] += router_mod.CANDIDATES_TTL - 1
+    r.handle("metti la 2")
+    assert ["playlistcontrol", "cmd:load", "album_id:11"] in transport.commands()
+
+
+def test_a_used_list_ages_out_quickly(lms, transport):
+    now = {"t": 0.0}
+    r = Router(lms, now=lambda: now["t"])
+    transport.responses["artists"] = {"artists_loop": [{"id": 1, "artist": "Yes"}]}
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 10, "album": "Fragile"}, {"id": 11, "album": "90125"}]
+    }
+    r.handle("quali album ho di Yes")
+    r.handle("metti la 2")                      # acted on
+    now["t"] += router_mod.CANDIDATES_GRACE + 1
+    r.handle("pausa")
+    assert r.candidates is None
+
+
+# -- transport phrases that are also titles -------------------------------
+def test_a_title_that_sounds_like_a_volume_command_still_plays(router,
+                                                               transport,
+                                                               make_tidal):
+    # «più forte» names no control, so a play verb must win: "Più Forte di
+    # Sempre" raised the volume instead of playing.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Più Forte di Sempre"}]},
+    )
+    router.handle("metti Più Forte di Sempre")
+    assert not any(c[:2] == ["mixer", "volume"] for c in transport.commands())
+    assert ["playlist", "play", "tidal://1.flc"] in transport.commands()
+
+
+def test_an_explicit_volume_phrase_still_works(router, transport):
+    router.handle("più forte")
+    assert any(c[:2] == ["mixer", "volume"] for c in transport.commands())
+
+
+# -- the sleep timer ------------------------------------------------------
+def test_pause_in_thirty_minutes_arms_the_timer_instead_of_pausing(router,
+                                                                   transport):
+    reply = router.handle("metti in pausa tra 30 minuti")
+    assert reply == "Va bene, spengo tra 30 minuti."
+    assert ["sleep", "1800"] in transport.commands()
+    assert ["pause", "1"] not in transport.commands()
+
+
+def test_spoken_hours_are_understood(router, transport):
+    assert router.handle("spegni tra due ore") == "Va bene, spengo tra 120 minuti."
+    assert ["sleep", "7200"] in transport.commands()
+
+
+def test_an_absurd_sleep_is_refused(router, transport):
+    reply = router.handle("spegni tra 100000 minuti")
+    assert reply.ok is False
+    assert not any(c[0] == "sleep" for c in transport.commands())
+
+
+def test_one_minute_is_singular(router, transport):
+    assert router.handle("spegni tra 1 minuto") == "Va bene, spengo tra un minuto."

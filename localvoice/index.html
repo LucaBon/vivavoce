@@ -73,15 +73,35 @@
         <select id="source"></select></label>
       <label class="vrow hint" id="playerrow" style="width:100%; display:none"><span><span data-i18n="lbl_player">Dove suona la musica</span> <span class="prolock" id="playerlock" hidden>🔒</span></span>
         <select id="player"></select></label>
-      <label class="hint"><input type="checkbox" id="wakemode"> <span data-i18n="wakemode_lbl">attiva a voce con una parola chiave</span>
-        <input id="wakeword" type="text" value="vivavoce" autocomplete="off"></label>
-      <div id="wakehint" class="hint" style="display:none; text-align:left" data-i18n="wakehint">Ascolto continuo: il microfono
-        resta attivo e l'audio passa dal riconoscimento vocale del browser. Poi tocca il microfono una
-        volta e di' «<b><span id="wwlabel">vivavoce</span></b> …» seguito dal comando.
-        <span class="warn">Su Android il browser emette un suono a ogni riattivazione dell'ascolto
-        (ogni pochi secondi), e non si può togliere da qui: sul telefono conviene lasciare questa
-        opzione spenta e usare il microfono a tocco (un suono solo per comando). La parola chiave dà
-        il meglio su PC/tablet con Chrome.</span></div>
+      <label class="hint"><input type="checkbox" id="wakemode"> <span data-i18n="wakemode_lbl">attiva a voce con una parola chiave</span></label>
+      <!-- Tutto ciò che configura l'ascolto continuo vive qui dentro e compare
+           solo quando l'ascolto è acceso: la scelta del motore era una casella
+           a sé, allo stesso livello, e da sola non accendeva niente — servivano
+           due spunte e non si capiva perché. -->
+      <div id="wakeopts" class="wakeopts" style="display:none">
+        <label class="hint" id="serverwakerow" style="display:none; text-align:left"><input type="checkbox" id="serverwake"> <span data-i18n="serverwake_lbl">🔈 rileva la parola chiave sul server (niente beep su Android; frase fissa «Hey Jarvis», in inglese)</span></label>
+        <label class="hint" id="wakewordrow" style="text-align:left"><span data-i18n="wakeword_lbl">parola chiave da dire:</span>
+          <input id="wakeword" type="text" value="vivavoce" autocomplete="off"></label>
+        <div id="wakehint" class="hint" style="text-align:left" data-i18n="wakehint">Ascolto continuo: il microfono
+          resta attivo e l'audio passa dal riconoscimento vocale del browser. Poi tocca il microfono una
+          volta e di' «<b><span id="wwlabel">vivavoce</span></b> …» seguito dal comando.
+          Puoi dirlo <b>tutto in una frase sola</b>, oppure dire solo la parola chiave,
+          aspettare che ti chieda il comando, e poi dirlo.
+          <span class="warn">Su Android il browser emette un suono a ogni riattivazione dell'ascolto
+          (ogni pochi secondi), e non si può togliere da qui: sul telefono conviene lasciare questa
+          opzione spenta e usare il microfono a tocco (un suono solo per comando). La parola chiave dà
+          il meglio su PC/tablet con Chrome.</span></div>
+        <!-- Il motore server si parla in DUE tempi (openWakeWord riconosce solo
+             la frase di attivazione, non le parole dopo): un suggerimento solo
+             per entrambi i motori faceva dire «hey jarvis pausa» tutto attaccato,
+             e il comando andava perso ogni volta. -->
+        <div id="wakehint_server" class="hint" style="display:none; text-align:left" data-i18n="wakehint_server">Ascolto
+          continuo senza beep: la parola chiave la riconosce il server, e il browser prende il
+          microfono solo per il comando. Si parla in <b>due tempi</b>: di'
+          «<b><span id="wwlabel_srv">Hey Jarvis</span></b>», <b>aspetta il beep</b>, poi di' il comando.
+          La frase di attivazione è fissa e in inglese, decisa dal modello sul server: non è
+          personalizzabile. La parola chiave a testo libero torna scegliendo l'altro motore.</div>
+      </div>
       <label class="hint" id="localasrrow" style="display:none; text-align:left"><input type="checkbox" id="localasr"> <span data-i18n="localasr_lbl">🎙 riconoscimento vocale locale (Whisper sul server: l'audio non esce di casa)</span></label>
       <label class="hint"><input type="checkbox" id="readback"> <span data-i18n="readback_lbl">🔊 leggi la risposta ad alta voce</span></label>
       <div id="probox">
@@ -133,12 +153,24 @@
       <li>«dalla mia musica metti …» · «da tidal metti …» · «da qobuz metti …»</li>
       <li>«pausa» · «riprendi» · «prossima» · «alza il volume» · «cosa sta suonando»</li>
       <li>«spegni tra 30 minuti» · «annulla il timer» · «metti … in cucina»</li>
+      <li>«aggiungi … alla coda» · «metti … dopo questa» · «cosa c'è in coda» · «svuota la coda»</li>
+      <li>«riproduci i preferiti» · «metti la radio …»</li>
     </ul>
     <div data-i18n="tip_names">Suggerimento: se un <b>nome inglese</b> viene capito male (es. «Audioslave» →
       «audio slave»), correggilo nella casella e premi Invia.</div>
   </details>
   <details class="hint card" id="installpanel">
     <summary data-i18n="install_summary">Installa come app (senza avvisi del certificato)</summary>
+    <!-- Filled by certsetup.js: the verdict for THIS device, then the steps
+         for THIS platform. No data-i18n — applyUI() re-renders it through the
+         renderCertSetup hook instead, or it would wipe the live state. -->
+    <div id="certstate" class="certstate"></div>
+    <ol id="certsteps" style="text-align:left; padding-left:1.2rem; margin:.4rem 0"></ol>
+    <div id="certactions" class="choices">
+      <button class="choice" id="certverify" type="button"></button>
+      <button class="choice" id="certother" type="button"></button>
+    </div>
+    <div id="certallsteps" hidden>
     <ol style="text-align:left; padding-left:1.2rem; margin:.4rem 0" data-i18n="install_steps">
       <li>Scarica la CA locale: <a id="calink" href="/ca.pem">ca.pem</a> (una volta sola per dispositivo).</li>
       <li><b>Android</b>: Impostazioni → Sicurezza → Altro / Crittografia e credenziali →
@@ -151,6 +183,7 @@
         scegli <b>Installa app</b> / <b>Aggiungi a schermata Home</b>: si apre a tutto schermo
         come un'app vera.</li>
     </ol>
+    </div>
     <div data-i18n="install_ca_note">La CA è generata in casa tua e firma solo questo server: non dà a nessun altro
       la possibilità di intercettare il tuo traffico.</div>
   </details>

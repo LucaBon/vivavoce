@@ -45,10 +45,25 @@ unlocks the hands-free features and funds development:
 | Typed commands (the text box, works on every device over plain HTTP) | 🎙️ **Microphone** tap-to-talk |
 | All search & playback: local library, TIDAL, Qobuz, "did you mean" with tappable choices | 🪄 **Wake word** («vivavoce metti Time») |
 | Transport, volume slider, sleep timer, now-playing panel with artwork | 🌍 **Multilingual read-back voices** |
-| Docker / Home Assistant add-on / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side on every device |
+| Docker / Home Assistant app / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side for every device *asking Vivavoce*[^kidsafe] |
 | Updates | 🛋️ **Multi-room**: room selector + «metti X **in cucina**» voice targeting |
 | | 🏠 **Local speech recognition**: Whisper on *your* server — mic audio never leaves the LAN |
 | | Future Pro features — and priority on your feedback |
+
+[^kidsafe]: To be exact about what it covers, because a child-safety promise
+    deserves it: the blocklist is enforced on the server, so it holds for
+    every phone, tablet and PC that asks *Vivavoce* — no browser setting or
+    cleared storage gets around it. It is not a lock on the hi-fi: LMS's own
+    web UI, Material Skin and apps like Squeezer talk to LMS directly and
+    never pass through here, so they can still play anything. Kid-safe makes
+    the voice assistant safe to hand to a child; it does not make the whole
+    system child-proof.
+
+**Every install starts with 14 days of full Pro**, microphone included — no
+key, no card, no account. The window opens the first time the server starts
+and is stored next to the license, so it cannot be re-armed by clearing the
+browser. When it ends nothing breaks and nothing is deleted: you are back to
+the free column, which is the whole left-hand side of that table.
 
 Activation is once, online, from the page settings (sold via Lemon Squeezy,
 which handles VAT/invoices); after that the license is cached locally and
@@ -89,8 +104,9 @@ docker compose up -d
 # (accept the self-signed certificate warning once — the mic then works)
 ```
 
-**As a Home Assistant add-on**: add this repo's URL under *Settings → Add-ons →
-Add-on store → ⋮ → Repositories*, then install **Vivavoce** — see
+**As a Home Assistant app**: add this repo's URL under *Settings → Apps → App
+store → ⋮ → Repositories* (before Home Assistant 2026.2, when apps were called
+add-ons: *Settings → Add-ons → Add-on store*), then install **Vivavoce** — see
 [DEPLOY.md](DEPLOY.md).
 
 
@@ -134,6 +150,7 @@ There's a link to Material Skin right in the page for when you want to browse vi
 | `tools/probe_lms.py` | Validate search/playback against a real LMS |
 | `tests/` | pytest suite (simulated LMS transport, no network) |
 | `RELEASING.md` | How to cut a release (the version lives in two files + a tag) |
+| `docs/api.md` | The HTTP API: `POST /api/v1/command` for external clients, and what every other route is |
 | `tests/conftest.py` | Shared fakes + `live_server` (the real handler on a port) |
 
 ## Tests

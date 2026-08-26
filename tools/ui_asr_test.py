@@ -4,7 +4,7 @@ Serves localvoice/ statically (same harness as ui_shots) and stubs the backend
 with page.route: /asr says the engine is there, /license says Pro, /transcribe
 returns a canned transcript. Chromium runs with a fake microphone, so a real
 MediaRecorder capture happens: mic tap → record → tap → POST /transcribe →
-the transcript (and its alternatives) must land in POST /command untouched.
+the transcript (and its alternatives) must land in POST /api/v1/command untouched.
 
     uv run python tools/ui_asr_test.py
 """
@@ -79,7 +79,7 @@ def main():
     assert commands[0]["text"] == "metti la radio"
     assert commands[0]["alternatives"] == ["metti la radio", "metti la ratio"]
     assert commands[0]["lang"] == "it"
-    print("ok: mic tap/release -> /transcribe -> /command "
+    print("ok: mic tap/release -> /transcribe -> /api/v1/command "
           f"(audio {transcribes[0]['body_bytes']} bytes, "
           "alternatives passed through)")
 

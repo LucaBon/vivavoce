@@ -12,6 +12,32 @@ import { refreshNowPlaying } from "./nowplaying.js";
 // --- wake-word field (used by the mic recogniser) ---
 export const wakeWord = () => ($("wakeword").value || "vivavoce").trim();
 
+// The phrase continuous listening ACTUALLY answers to. Normally the field
+// above — but the server-side engine is fixed to its own English model
+// phrase ("hey jarvis", see pro/wakeword.py) and cannot hear the free-text
+// one at all, so showing "vivavoce" in the hint while that engine is
+// selected was simply false: testers read the hint, said "vivavoce", and got
+// nothing. mic.js pushes the override in whenever the engine choice changes.
+let wakeOverride = "";
+export const activeWakeWord = () => wakeOverride || wakeWord();
+export function setWakeWordOverride(phrase) {
+  wakeOverride = (phrase || "").trim();
+  syncWakeLabel();
+}
+export function syncWakeLabel() {
+  // One span per hint (only one hint is visible at a time, see syncWakePhrase
+  // in mic.js): the browser one quotes the field, the server one the model's
+  // own phrase. Duplicate ids aren't an option, hence two.
+  const label = $("wwlabel");
+  if (label) label.textContent = wakeWord();
+  const srvLabel = $("wwlabel_srv");
+  if (srvLabel && wakeOverride) srvLabel.textContent = wakeOverride;
+  // Greyed out while the override holds: the field configures nothing then,
+  // and an editable box next to a phrase it can't change invites the mistake.
+  const field = $("wakeword");
+  if (field) field.disabled = !!wakeOverride;
+}
+
 // --- music source selector (auto / local / streaming services) ---
 // The server substitutes __SERVICES__ with the streaming services actually
 // available on the LMS, so e.g. Qobuz only shows up when its plugin is there.
@@ -33,7 +59,7 @@ export const currentSource = () => $("source").value || "auto";
 // («metti … in cucina», both enforced server-side). Filled from /players;
 // hidden while the house has a single player; locked (padlock + upsell) on
 // the free tier. The choice is per-device (localStorage) and rides along on
-// /command, /player, /nowplaying — only when Pro, so a stale value is inert.
+// /api/v1/command, /player, /nowplaying — only when Pro, so a stale value is inert.
 export const currentPlayer = () => (isPro() ? localStorage.getItem("player") || "" : "");
 let PLAYERS = [], PLAYERS_CURRENT = "";
 export function renderPlayers() {
@@ -50,7 +76,13 @@ export function renderPlayers() {
   const cur = currentPlayer();
   sel.value = (cur && PLAYERS.some(p => p.id === cur)) ? cur
             : (PLAYERS_CURRENT || PLAYERS[0].id);
-  sel.disabled = !isPro();
+  // NOT `disabled`: a disabled control dispatches no events at all, so the
+  // padlock next to it was the one thing on this panel that did nothing when
+  // tapped — the gesture that most obviously means "tell me about this".
+  // aria-disabled says the same thing to assistive tech, and the handlers
+  // below both refuse the change and answer the question.
+  sel.setAttribute("aria-disabled", isPro() ? "false" : "true");
+  sel.classList.toggle("locked", !isPro());
   $("playerlock").hidden = isPro();
 }
 // The screenshot harness feeds the selector without a backend.
@@ -70,10 +102,10 @@ async function loadPlayers() {
 
 export function initSettings() {
   $("wakeword").value = localStorage.getItem("wakeword") || "vivavoce";
-  $("wwlabel").textContent = wakeWord();
+  syncWakeLabel();
   $("wakeword").oninput = () => {
     localStorage.setItem("wakeword", $("wakeword").value);
-    $("wwlabel").textContent = wakeWord();
+    syncWakeLabel();
   };
 
   buildSourceOptions();
@@ -82,6 +114,11 @@ export function initSettings() {
     if (!isPro() && PLAYERS.length > 1) { e.preventDefault(); showProUpsell(); }
   });
   $("player").onchange = () => {
+    if (!isPro()) {         // locked, not disabled: put the choice back
+      renderPlayers();
+      showProUpsell();
+      return;
+    }
     localStorage.setItem("player", $("player").value);
     refreshNowPlaying();  // the mini-player follows the room immediately
   };

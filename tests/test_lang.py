@@ -42,3 +42,11 @@ def test_pack_honors_the_contract(code):
 
 def test_compile_helper_is_case_insensitive():
     assert c(r"^pausa$").match("PAUSA")
+
+
+def test_message_catalogs_have_the_same_keys():
+    # Every message is referenced by key from language-agnostic code (actions.py,
+    # router.py); a key present in one catalog but not the other would KeyError
+    # only when that code path runs in the missing language.
+    import messages
+    assert set(messages.IT) == set(messages.EN)

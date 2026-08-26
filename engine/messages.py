@@ -29,6 +29,7 @@ IT = {
     # -- play (streaming) ----------------------------------------------------
     "ask_title": "Non ho capito il titolo. Puoi ripetere?",
     "no_track_found": "Non ho trovato nessun brano per {title}.",
+    "no_track_by": "Non ho trovato {title} di {artist}.",
     "playing": "Riproduco {name}.",
     "playing_by": "Riproduco {name} di {artist}.",
     "album_not_found": "Non ho trovato l'album {album}.",
@@ -45,6 +46,58 @@ IT = {
     "playlist_not_found": "Non ho trovato la playlist {name}.",
     "playing_playlist": "Riproduco la playlist {name}.",
 
+    # -- queue (add to end / play next) --------------------------------------
+    "queued": "Ho aggiunto {name} alla coda.",
+    "queued_by": "Ho aggiunto {name} di {artist} alla coda.",
+    "queued_next": "Metto {name} subito dopo questa.",
+    "queued_next_by": "Metto {name} di {artist} subito dopo questa.",
+    "playing_track_from_album_queued":
+        "Ho aggiunto {title} dall'album {album} alla coda.",
+    "playing_track_from_album_queued_next":
+        "Metto {title} dall'album {album} subito dopo questa.",
+    "track_not_in_album_queued":
+        "Non ho trovato {title} nell'album {album}; ho aggiunto l'album alla coda.",
+    "track_not_in_album_queued_next":
+        "Non ho trovato {title} nell'album {album}; metto l'album subito dopo questa.",
+    "playing_album_queued": "Ho aggiunto l'album {album} alla coda.",
+    "playing_album_queued_next": "Metto l'album {album} subito dopo questa.",
+    "playing_local_album_queued":
+        "Ho aggiunto l'album {title} alla coda dalla tua musica.",
+    "playing_local_album_queued_next":
+        "Metto l'album {title} dalla tua musica subito dopo questa.",
+    "playing_local_queued": "Ho aggiunto {title} alla coda dalla tua musica.",
+    "playing_local_queued_next": "Metto {title} dalla tua musica subito dopo questa.",
+    "queue_cleared": "Coda svuotata.",
+    "queue_empty": "La coda è vuota.",
+    "queue_list": "In coda: {listing}.",
+
+    # -- favorites & radio ----------------------------------------------------
+    "favorites_empty": "Non hai preferiti salvati.",
+    "playing_favorites": "Riproduco i preferiti.",
+    "ask_radio": "Quale radio?",
+    "radio_not_found":
+        "Non ho trovato una radio chiamata {name} tra i tuoi preferiti.",
+    "playing_radio": "Metto la radio {name}.",
+
+    # -- moods (vague requests — see engine/moods.py) -------------------------
+    # Nothing was named, so nothing can be betrayed by the choice — but the
+    # choice has to be said out loud, and taken back if it misses.
+    #
+    # The two misses deliberately do NOT quote the request back. The spoken
+    # tail is whatever the listener said, and half the vocabulary already
+    # carries its own preposition: "per cena" in a frame ending in "per"
+    # reads «Ho finito le idee per per cena». There is no frame that survives
+    # every tail, and echoing adds nothing they did not just say.
+    "playing_mood_genre": "Ho messo un po' di {genre}. Se non va, dimmi un'altra.",
+    "playing_mood_playlist":
+        "Ho messo la playlist {name}. Se non va, dimmi un'altra.",
+    # A decade resolves to ONE year, not to the decade: that is what actually
+    # started, so that is what gets said (see engine/moods.py).
+    "playing_mood_year":
+        "Ho messo qualcosa del {year}. Se non va, dimmi un'altra.",
+    "mood_not_found": "Non ho trovato niente che vada bene nella tua musica.",
+    "mood_exhausted": "Ho finito le idee. Prova a dirmi un genere.",
+
     # -- transport / info ----------------------------------------------------
     "paused": "In pausa.",
     "resumed": "Riprendo la riproduzione.",
@@ -54,10 +107,14 @@ IT = {
     "volume_down": "Volume abbassato.",
     "ask_sleep": "Non ho capito tra quanti minuti spegnere. Puoi ripetere?",
     "sleep_set": "Va bene, spengo tra {minutes} minuti.",
+    "sleep_set_one": "Va bene, spengo tra un minuto.",
+    "sleep_too_long": "\u00c8 troppo: posso spegnere al massimo tra {max} minuti.",
     "sleep_cancelled": "Timer di spegnimento annullato.",
     "nothing_playing": "Al momento non sta suonando niente.",
     "now_playing": "Sta suonando {title}.",
     "now_playing_by": "Sta suonando {title} di {artist}.",
+    "paused_on": "\u00c8 in pausa su {title}.",
+    "paused_on_by": "\u00c8 in pausa su {title} di {artist}.",
 
     # -- lists -> numbered choice -------------------------------------------
     "which_artist": "Di quale artista?",
@@ -98,6 +155,34 @@ IT = {
     # Room tag appended when a command targets another player («… in cucina»):
     # {room} is the player's LMS name, spoken as-is.
     "in_room": " in {room}",
+    # The room was heard and then overruled: the library says these words name
+    # a record, not a place. Only Pro ever gets this — without it the room
+    # would have been refused anyway, so there is nothing to explain. It has to
+    # be said out loud for the reason T2.7a exists: a room the listener spoke
+    # cannot just disappear from the answer, or a wrong guess is invisible
+    # exactly where it costs the most.
+    "read_as_title": " — l'ho preso come titolo, quindi suona qui",
+    # Same situation, no Pro. Its own key rather than the shared
+    # ``pro_required`` — which also answers kid-safe — because this reply has
+    # three jobs that a generic Pro wall cannot do.
+    #
+    # It NAMES THE ROOM, and that is the load-bearing part: a room name is
+    # only ever a guess about what the words meant, so saying it out loud is
+    # what makes a wrong guess visible. «metti breakfast in america» on a
+    # system with a player called «America» answers «per farlo in America
+    # serve Pro» — and the listener knows instantly what went wrong, where the
+    # generic string hid it completely.
+    #
+    # It offers the one-turn way out, which is what makes refusing cheap for
+    # whoever is talking: a dead end becomes a retry.
+    #
+    # «farlo»/«lo faccio», not «metterlo»: this fires BEFORE routing, so
+    # nobody knows yet whether the phrase was a play or a pause, and the
+    # sentence has to hold for both. Two short sentences on purpose — the
+    # reply is read aloud.
+    "room_needs_pro":
+        "Per farlo in {room} serve Pro. "
+        "Dillo senza la stanza e lo faccio qui.",
     "heard_nothing": "Non ho sentito niente.",
     "router_fallback":
         "Non ho capito. Prova con: riproduci, metti l'album, dalla mia musica, "
@@ -124,6 +209,7 @@ EN = {
     # -- play (streaming) ----------------------------------------------------
     "ask_title": "I didn't catch the title. Can you repeat?",
     "no_track_found": "I couldn't find any track for {title}.",
+    "no_track_by": "I couldn't find {title} by {artist}.",
     "playing": "Playing {name}.",
     "playing_by": "Playing {name} by {artist}.",
     "album_not_found": "I couldn't find the album {album}.",
@@ -140,6 +226,50 @@ EN = {
     "playlist_not_found": "I couldn't find the playlist {name}.",
     "playing_playlist": "Playing the playlist {name}.",
 
+    # -- queue (add to end / play next) --------------------------------------
+    "queued": "Added {name} to the queue.",
+    "queued_by": "Added {name} by {artist} to the queue.",
+    "queued_next": "I'll play {name} right after this one.",
+    "queued_next_by": "I'll play {name} by {artist} right after this one.",
+    "playing_track_from_album_queued":
+        "Added {title} from the album {album} to the queue.",
+    "playing_track_from_album_queued_next":
+        "I'll play {title} from the album {album} right after this one.",
+    "track_not_in_album_queued":
+        "I couldn't find {title} in the album {album}; added the album to the queue.",
+    "track_not_in_album_queued_next":
+        "I couldn't find {title} in the album {album}; I'll play the album right after this one.",
+    "playing_album_queued": "Added the album {album} to the queue.",
+    "playing_album_queued_next": "I'll play the album {album} right after this one.",
+    "playing_local_album_queued":
+        "Added the album {title} from your music to the queue.",
+    "playing_local_album_queued_next":
+        "I'll play the album {title} from your music right after this one.",
+    "playing_local_queued": "Added {title} from your music to the queue.",
+    "playing_local_queued_next":
+        "I'll play {title} from your music right after this one.",
+    "queue_cleared": "Queue cleared.",
+    "queue_empty": "The queue is empty.",
+    "queue_list": "Coming up: {listing}.",
+
+    # -- favorites & radio ----------------------------------------------------
+    "favorites_empty": "You don't have any saved favorites.",
+    "playing_favorites": "Playing your favorites.",
+    "ask_radio": "Which radio station?",
+    "radio_not_found":
+        "I couldn't find a radio station called {name} among your favorites.",
+    "playing_radio": "Playing the radio station {name}.",
+
+    # -- moods (vague requests — see engine/moods.py) -------------------------
+    "playing_mood_genre":
+        "I've put on some {genre}. Say another one if it doesn't fit.",
+    "playing_mood_playlist":
+        "I've put on the {name} playlist. Say another one if it doesn't fit.",
+    "playing_mood_year":
+        "I've put on something from {year}. Say another one if it doesn't fit.",
+    "mood_not_found": "I couldn't find anything that fits in your music.",
+    "mood_exhausted": "I'm out of ideas. Try naming a genre.",
+
     # -- transport / info ----------------------------------------------------
     "paused": "Paused.",
     "resumed": "Resuming playback.",
@@ -149,10 +279,14 @@ EN = {
     "volume_down": "Volume down.",
     "ask_sleep": "I didn't catch in how many minutes to stop. Can you repeat?",
     "sleep_set": "Okay, stopping in {minutes} minutes.",
+    "sleep_set_one": "Okay, stopping in one minute.",
+    "sleep_too_long": "That's too far off: I can stop in at most {max} minutes.",
     "sleep_cancelled": "Sleep timer cancelled.",
     "nothing_playing": "Nothing is playing right now.",
     "now_playing": "Now playing {title}.",
     "now_playing_by": "Now playing {title} by {artist}.",
+    "paused_on": "Paused on {title}.",
+    "paused_on_by": "Paused on {title} by {artist}.",
 
     # -- lists -> numbered choice -------------------------------------------
     "which_artist": "Which artist?",
@@ -193,6 +327,13 @@ EN = {
     # Room tag appended when a command targets another player ("… in the
     # kitchen"): {room} is the player's LMS name, spoken as-is.
     "in_room": " in {room}",
+    # See the Italian catalog for why an overruled room still gets said.
+    "read_as_title": " — I read that as a title, so it's playing here",
+    # See the Italian catalog for why this names the room and offers the way
+    # out instead of reusing the shared ``pro_required``.
+    "room_needs_pro":
+        "Doing that in {room} needs Pro. "
+        "Say it without the room and I'll do it here.",
     "heard_nothing": "I didn't hear anything.",
     "router_fallback":
         "I didn't understand. Try: play, play the album, from my music, "

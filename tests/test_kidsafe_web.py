@@ -49,7 +49,7 @@ def test_store_fails_loud_on_unwritable_path(tmp_path):
 # -- PIN / unlock window ---------------------------------------------------------
 
 def test_enable_first_run_sets_pin_and_unlocks(ks):
-    assert ks.enable("1234", "phoneA") == {"ok": True}
+    assert ks.enable("123456", "phoneA") == {"ok": True}
     assert ks.enabled()
     assert ks.has_pin()
     assert ks.is_unlocked("phoneA")
@@ -62,35 +62,74 @@ def test_enable_rejects_short_pin(ks):
 
 
 def test_enable_later_requires_the_pin(ks):
-    ks.enable("1234", "a")
+    ks.enable("123456", "a")
     ks.disable("a")
-    assert ks.enable("9999", "a")["error"] == "wrong_pin"
-    assert ks.enable("1234", "a")["ok"]
+    assert ks.enable("999999", "a")["error"] == "wrong_pin"
+    assert ks.enable("123456", "a")["ok"]
 
 
 def test_unlock_expires(ks, clock):
-    ks.enable("1234", "a")
+    ks.enable("123456", "a")
     ks.lock("a")
-    assert ks.unlock("a", "1234")
+    assert ks.unlock("a", "123456")
     clock.t += UNLOCK_SECONDS + 1
     assert not ks.is_unlocked("a")
 
 
 def test_wrong_pin_backoff(ks, clock):
-    ks.enable("1234", "a")
+    ks.enable("123456", "a")
     for _ in range(MAX_ATTEMPTS):
-        assert not ks.unlock("kid", "0000")
+        assert not ks.unlock("kid", "000000")
     # Even the RIGHT pin is refused during the lockout window.
-    assert not ks.unlock("kid", "1234")
+    assert not ks.unlock("kid", "123456")
     clock.t += LOCKOUT_SECONDS + 1
-    assert ks.unlock("kid", "1234")
+    assert ks.unlock("kid", "123456")
+
+
+def test_lockout_is_global_not_per_client(ks, clock):
+    """The client id comes from the request body, so a per-client counter is
+    no counter at all: rotating the string bought 5 fresh guesses each time."""
+    ks.enable("123456", "a")
+    for i in range(MAX_ATTEMPTS):
+        assert not ks.unlock(f"kid-{i}", "000000")
+    assert not ks.unlock("a-brand-new-id", "123456")
+    assert ks.locked_out_for() > 0
+
+
+def test_lockout_wait_doubles_and_survives_restart(ks, clock, tmp_path):
+    ks.enable("123456", "a")
+    for _ in range(MAX_ATTEMPTS):
+        ks.unlock("kid", "000000")
+    assert ks.locked_out_for() == pytest.approx(LOCKOUT_SECONDS)
+    clock.t += LOCKOUT_SECONDS + 1
+    ks.unlock("kid", "000000")            # sixth miss
+    assert ks.locked_out_for() == pytest.approx(2 * LOCKOUT_SECONDS)
+    # A restart must not hand the guesser a clean slate.
+    fresh = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
+    assert fresh.locked_out_for() == pytest.approx(2 * LOCKOUT_SECONDS)
+
+
+def test_right_pin_clears_the_lockout(ks, clock):
+    ks.enable("123456", "a")
+    for _ in range(MAX_ATTEMPTS - 1):
+        ks.unlock("kid", "000000")
+    assert ks.unlock("a", "123456")
+    assert ks.locked_out_for() == 0
+    for _ in range(MAX_ATTEMPTS - 1):     # the counter really restarted
+        ks.unlock("kid", "000000")
+    assert ks.locked_out_for() == 0
+
+
+def test_enable_requires_a_six_digit_pin(ks):
+    assert ks.enable("12345", "c")["error"] == "pin_too_short"
+    assert ks.enable("123456", "c")["ok"]
 
 
 def test_disable_requires_unlock(ks, clock):
-    ks.enable("1234", "a")
+    ks.enable("123456", "a")
     clock.t += UNLOCK_SECONDS + 1
     assert ks.disable("a")["error"] == "locked"
-    ks.unlock("a", "1234")
+    ks.unlock("a", "123456")
     assert ks.disable("a")["ok"]
     assert not ks.enabled()
 
@@ -100,16 +139,98 @@ def test_disable_requires_unlock(ks, clock):
 def test_revoked_license_keeps_enforcing_but_locks_changes(tmp_path, clock):
     lic = FakeLicense(pro=True)
     ks = KidSafe(str(tmp_path), lic, now=clock)
-    ks.enable("1234", "a")
+    ks.enable("123456", "a")
     ks.edit_terms("add", "Bad Song", "a")
     lic.pro = False  # refund/revoke after setup
     # Enforcement continues for a locked client...
     guard = ks.guard_for("kid")
     assert guard is not None and guard.blocks("Bad Song")
     # ...but configuration is refused.
-    ks.unlock("a", "1234")
+    ks.unlock("a", "123456")
     assert ks.edit_terms("add", "Other", "a")["error"] == "pro_required"
     assert ks.disable("a")["error"] == "pro_required"
+
+
+# -- the guard checks the whole item, not just the title -------------------------
+
+def test_a_blocked_artist_blocks_a_song_that_never_names_them():
+    """The hole: only the request TEXT was checked for the artist, and every
+    resolved track was then gated on its title alone. With ["Eminem"]
+    blocked, a child saying «metti Lose Yourself» never says the blocked
+    word — so it played, and the artist was read back aloud."""
+    guard = actions.Guard(restricted=True, blocklist=["Eminem"])
+    assert guard.blocks("Lose Yourself") is False        # the request text
+    assert guard.blocks_item({"title": "Lose Yourself",
+                              "artist": "Eminem"}) is True
+
+
+def test_the_item_gate_covers_album_and_name_too():
+    guard = actions.Guard(restricted=True, blocklist=["Antichrist Superstar"])
+    assert guard.blocks_item({"title": "Cryptorchid",
+                              "album": "Antichrist Superstar"}) is True
+    guard = actions.Guard(restricted=True, blocklist=["Bad Station"])
+    assert guard.blocks_item({"name": "Bad Station", "id": "fav.1"}) is True
+
+
+def test_an_unrestricted_guard_stays_transparent():
+    guard = actions.Guard(restricted=False, blocklist=["Eminem"])
+    assert guard.blocks_item({"title": "X", "artist": "Eminem"}) is False
+
+
+def test_a_blocked_artist_is_refused_through_play_song(lms, transport,
+                                                       make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Lose Yourself", "artist": "Eminem"}]},
+    )
+    guard = actions.Guard(restricted=True, blocklist=["Eminem"])
+    reply = actions.play_song(lms, "Lose Yourself", guard=guard)
+    assert reply.ok is False
+    assert reply == actions.BLOCKED_SPEECH
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+
+
+def test_a_blocked_artist_learned_late_stops_the_music(lms, transport,
+                                                       make_tidal):
+    """Some feeds carry no artist on the search item; the now-playing status
+    does. Learning it a moment late must still not leave the song playing —
+    nor read the blocked name aloud in the confirmation."""
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Lose Yourself"}]},
+    )
+    transport.responses["status"] = {
+        "playlist_loop": [{"title": "Lose Yourself", "artist": "Eminem"}]}
+    guard = actions.Guard(restricted=True, blocklist=["Eminem"])
+    reply = actions.play_song(lms, "Lose Yourself", guard=guard)
+    assert reply.ok is False
+    assert "Eminem" not in reply
+    assert ["playlist", "clear"] in transport.commands()
+
+
+def test_a_blocked_artist_is_refused_through_a_numbered_pick(lms, transport):
+    guard = actions.Guard(restricted=True, blocklist=["Eminem"])
+    candidates = [{"title": "Lose Yourself", "artist": "Eminem",
+                   "url": "tidal://1.flc"}]
+    assert actions.choose_from(lms, candidates, 1, guard=guard) == \
+        actions.BLOCKED_SPEECH
+    assert actions.choose_by_name(lms, candidates, "Lose Yourself",
+                                  guard=guard) == actions.BLOCKED_SPEECH
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+
+
+def test_a_blocked_artist_is_dropped_from_the_queue_read_out(lms, transport):
+    transport.responses["status"] = {"playlist_loop": [
+        {"title": "Now", "artist": "Someone"},
+        {"title": "Lose Yourself", "artist": "Eminem"},
+        {"title": "Clean", "artist": "Someone Else"},
+    ]}
+    guard = actions.Guard(restricted=True, blocklist=["Eminem"])
+    reply = actions.queue_list(lms, guard=guard)
+    assert "Lose Yourself" not in reply
+    assert "Clean" in reply
 
 
 # -- guard through the router -----------------------------------------------------
@@ -117,7 +238,7 @@ def test_revoked_license_keeps_enforcing_but_locks_changes(tmp_path, clock):
 @pytest.fixture
 def guarded_router(lms, tmp_path, clock):
     ks = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
-    ks.enable("1234", "parent")
+    ks.enable("123456", "parent")
     ks.edit_terms("add", "Bad Song", "parent")
     router = Router(lms, kidsafe=ks, client_id="kid")
     return router, ks
@@ -139,7 +260,7 @@ def test_blocked_term_refused_for_locked_client_en(guarded_router, transport):
 
 def test_unlocked_client_plays_blocked_term(guarded_router, transport, make_tidal):
     router, ks = guarded_router
-    ks.unlock("kid", "1234")
+    ks.unlock("kid", "123456")
     transport.responses["tidal"] = make_tidal(
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Bad Song"}]},
@@ -150,7 +271,7 @@ def test_unlocked_client_plays_blocked_term(guarded_router, transport, make_tida
 
 def test_unlock_expiry_relocks_the_router(guarded_router, transport, clock):
     router, ks = guarded_router
-    ks.unlock("kid", "1234")
+    ks.unlock("kid", "123456")
     clock.t += UNLOCK_SECONDS + 1
     reply = router.handle("metti Bad Song")
     assert str(reply) == actions.msg("blocked")
@@ -181,7 +302,7 @@ def test_voice_block_requires_unlock(guarded_router):
 
 def test_voice_block_add_remove_list(guarded_router):
     router, ks = guarded_router
-    ks.unlock("kid", "1234")
+    ks.unlock("kid", "123456")
     assert "Altro" in str(router.handle("blocca Altro"))
     assert "Altro" in ks.terms()
     listing = str(router.handle("quali brani sono bloccati"))
@@ -192,7 +313,7 @@ def test_voice_block_add_remove_list(guarded_router):
 
 def test_voice_block_en(guarded_router):
     router, ks = guarded_router
-    ks.unlock("kid", "1234")
+    ks.unlock("kid", "123456")
     assert "Thing" in str(router.handle("block Thing", lang="en"))
     listing = str(router.handle("what songs are blocked", lang="en"))
     assert "Thing" in listing
@@ -202,7 +323,7 @@ def test_voice_block_en(guarded_router):
 def test_block_titles_still_play(guarded_router, transport, make_tidal):
     # "metti Block Rockin' Beats" contains "block*" words but is a play.
     router, ks = guarded_router
-    ks.unlock("kid", "1234")
+    ks.unlock("kid", "123456")
     transport.responses["tidal"] = make_tidal(
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://7.flc",
@@ -227,15 +348,15 @@ def test_kidsafe_http_flow(live_server, tmp_path, clock):
     assert state == {"pro": True, "enabled": False, "haspin": False,
                      "locked": True}
     assert post({"client": "parent", "action": "enable",
-                 "pin": "1234"})["enabled"] is True
+                 "pin": "123456"})["enabled"] is True
     added = post({"client": "parent", "action": "add", "term": "Bad Song"})
     assert added["ok"] and added["terms"] == ["Bad Song"]
     # A locked client never sees the terms.
     assert "terms" not in srv.json_get("/kidsafe?client=kid")
     # Wrong pin -> still locked.
-    wrong = post({"client": "kid", "action": "unlock", "pin": "0000"})
+    wrong = post({"client": "kid", "action": "unlock", "pin": "000000"})
     assert wrong["ok"] is False and wrong["locked"] is True
-    ok = post({"client": "kid", "action": "unlock", "pin": "1234"})
+    ok = post({"client": "kid", "action": "unlock", "pin": "123456"})
     assert ok["ok"] is True and ok["terms"] == ["Bad Song"]
     # And the genuine server-side enforcement: a hand-crafted /command with a
     # blocked term is refused for a locked client.

@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
+import threading
 from typing import Any, Optional
 
 # Il namespace delle variabili d'ambiente. LEGACY_PREFIX (il nome pre-rebrand)
@@ -106,9 +108,55 @@ def read_json(path: str, default: Any = None) -> Any:
         return default
 
 
-def atomic_write_json(path: str, obj: Any) -> None:
-    """Write ``obj`` as JSON, atomically (same-volume tmp + ``os.replace``)."""
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+# One lock for every state file this process writes. The files are small and
+# written rarely (a PIN change, an activation, a blocklist edit), so a single
+# lock costs nothing and removes the interleaving two threads could otherwise
+# produce — the HTTP server is thread-per-request, and /kidsafe is reachable
+# from every phone in the house at once.
+_write_lock = threading.Lock()
+
+
+def atomic_write_json(path: str, obj: Any, *, mode: Optional[int] = None) -> None:
+    """Write ``obj`` as JSON, atomically and durably.
+
+    A unique same-directory temp file (not a fixed ``.tmp`` name, which two
+    concurrent writers would each open, truncate and rename — promoting a
+    half-written file or losing the race with ``FileNotFoundError``), flushed
+    and ``fsync``-ed before the rename so a power cut leaves either the old
+    file or the new one, never an empty one. That last case mattered: an
+    empty ``trial.json`` reads as "no window yet" and silently re-opens a
+    fresh 14 days.
+
+    ``mode`` sets the permissions of the finished file (``0o600`` for the
+    files that hold secrets); the default follows the process umask.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    with _write_lock:
+        fd, tmp = tempfile.mkstemp(dir=directory, prefix=".",
+                                   suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(obj, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, mode if mode is not None else 0o644)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        # The rename itself is only durable once the directory entry is: an
+        # fsync on the directory. Not available on Windows, where the rename
+        # is already atomic and there is nothing further to force.
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        except OSError:
+            pass
+        finally:
+            os.close(dir_fd)

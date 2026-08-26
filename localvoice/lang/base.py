@@ -23,13 +23,21 @@ state, kid-safe, multi-room); a pack owns nothing but data:
     Spoken durations for the sleep timer, beyond the list positions
     ("trenta"/"thirty"). Merged like the number tables.
 
+``MOOD_WORDS``
+    Spoken tail -> mood key for a vague request ("rilassante"/"relaxing" ->
+    ``relax``), resolved against the table in ``engine/moods.py``. Keys are
+    written already normalized — lowercase, no accents, no apostrophes — and
+    matched against the *whole* tail: a partial match is how a song title
+    would become a mood. The pack also owns the two patterns that reach here,
+    ``mood`` and ``mood_another``.
+
 ``DURATIONS``
     Tuple of ``(compiled_regex, spec)`` tried in order against the tail of a
     sleep command ("spegni tra <tail>"). ``spec`` is an int (fixed minutes),
     ``"hours"`` (group 1 is a number of hours) or ``"minutes"`` (group 1 is a
     number or a MINUTE_WORDS token).
 
-Adding a language is adding one module with these six names (plus its
+Adding a language is adding one module with these seven names (plus its
 message catalog in ``engine/messages.py`` and a test suite modeled on
 ``tests/test_english.py``); the registry in ``__init__.py`` finds it by
 itself.

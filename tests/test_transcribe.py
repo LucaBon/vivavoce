@@ -9,6 +9,9 @@ engine, and passes the alternatives through for the /command mechanism.
 """
 
 from conftest import FakeLicense
+import pytest
+
+import pro.asr as asr
 from pro.asr import MIN_RAM_GIB, default_model, total_ram_gib
 
 
@@ -118,6 +121,21 @@ def test_transcribe_empty_body_is_refused(live_server):
     assert fake.calls == []
 
 
+def test_transcribe_oversized_body_is_refused(live_server):
+    # The 15 MB cap: a spoken command is seconds long, so anything past it is
+    # a runaway or a bomb, and must be refused without ever reaching the
+    # engine. The wake-word endpoint's own cap has always been tested; this
+    # one shares its guard now, and an untested half of a shared guard is how
+    # a cap quietly stops being one.
+    fake = FakeTranscriber()
+    srv = live_server(transcriber=fake)
+    oversized = b"\x00" * (15 * 1024 * 1024 + 1)
+    resp = srv.post("/transcribe", oversized, AUDIO_TYPE)
+    assert resp.status == 200
+    assert resp.json() == {"ok": False, "error": "too_large"}
+    assert fake.calls == []
+
+
 def test_transcribe_garbage_audio_answers_200(live_server):
     # Whatever blows up inside the engine (corrupt container, decode error)
     # must come back as ok:false, never as a 5xx.
@@ -166,3 +184,80 @@ def test_default_model_is_ram_aware():
 def test_total_ram_probe_is_plausible():
     gib = total_ram_gib()
     assert 0.0 <= gib < 4096  # 0.0 = unknown is acceptable, garbage is not
+
+
+# -- the trial window, where it is actually enforced ---------------------------
+#
+# The one enforcement claim in T0.1 that is real rather than trust-based:
+# /transcribe spends the server's CPU, so it is gated server-side, and the
+# trial window has to open and close that gate for real. A real
+# LicenseManager, not the FakeLicense used above — the point is the window,
+# and a fake would only prove that a boolean works.
+
+def _trial_license(tmp_path, days_in=0.0):
+    """A real manager whose window opened ``days_in`` days ago."""
+    from licensing import LicenseManager
+    # After licensing.BUILD_EPOCH: the manager refuses to open a window while
+    # the clock reads earlier than this code existed (the pre-NTP Pi case).
+    opened = 1_800_000_000
+    mgr = LicenseManager(str(tmp_path), http_post=None, now=lambda: opened,
+                         environ={})
+    mgr.start_trial()
+    mgr.now = lambda: opened + days_in * 24 * 3600
+    return mgr
+
+
+def test_transcribe_works_inside_the_trial_window(live_server, tmp_path):
+    fake = FakeTranscriber()
+    srv = live_server(transcriber=fake,
+                      license_mgr=_trial_license(tmp_path, days_in=3))
+    data = srv.post("/transcribe", b"AUDIO", AUDIO_TYPE).json()
+    assert data["ok"] is True
+    assert data["text"] == "metti la radio"
+    assert fake.calls  # the engine really ran: no key, still Pro
+
+
+def test_transcribe_is_refused_once_the_trial_window_closes(live_server,
+                                                            tmp_path):
+    # The line the whole free tier rests on. Fourteen days in, with no key,
+    # a POST here must cost the server nothing.
+    fake = FakeTranscriber()
+    srv = live_server(transcriber=fake,
+                      license_mgr=_trial_license(tmp_path, days_in=14))
+    resp = srv.post("/transcribe", b"AUDIO", AUDIO_TYPE)
+    assert resp.status == 200
+    assert resp.json() == {"ok": False, "error": "pro_required"}
+    assert fake.calls == []
+
+
+# -- the RAM probe under a container limit ---------------------------------
+def test_the_ram_probe_reads_the_container_limit_not_the_host(tmp_path,
+                                                              monkeypatch):
+    """A NAS with 16 GB running this with `mem_limit: 1g` picked the "small"
+    model — ~1 GB at peak — and was OOM-killed on the first command."""
+    limit = tmp_path / "memory.max"
+    limit.write_text(str(1 * 1024 ** 3), encoding="ascii")
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", (str(limit),))
+    assert asr.total_ram_gib() == pytest.approx(1.0)
+    assert asr.default_model() is None       # stays off, rather than crashing
+
+
+def test_an_unlimited_cgroup_falls_back_to_the_machine(tmp_path, monkeypatch):
+    limit = tmp_path / "memory.max"
+    limit.write_text("max", encoding="ascii")
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", (str(limit),))
+    monkeypatch.setattr(asr, "_cgroup_limit_gib", asr._cgroup_limit_gib)
+    assert asr.total_ram_gib() > 0.0         # the real machine answered
+
+
+def test_a_v1_unlimited_sentinel_is_not_read_as_8_exabytes(tmp_path,
+                                                           monkeypatch):
+    limit = tmp_path / "memory.limit_in_bytes"
+    limit.write_text(str(2 ** 63 - 4096), encoding="ascii")
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", (str(limit),))
+    assert asr._cgroup_limit_gib() == 0.0
+
+
+def test_a_missing_cgroup_file_is_not_an_error(monkeypatch):
+    monkeypatch.setattr(asr, "_CGROUP_LIMITS", ("/nope/memory.max",))
+    assert asr._cgroup_limit_gib() == 0.0

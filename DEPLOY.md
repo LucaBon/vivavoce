@@ -9,17 +9,61 @@ the address at all.
 
 ### Docker — one command, HTTPS included (Linux / NAS / Raspberry Pi)
 
+No clone, no build. The image is published on GHCR for **amd64 and arm64** on
+every release:
+
 ```bash
-docker compose up -d
+docker run -d --name vivavoce --network host --restart unless-stopped \
+  -v vivavoce-data:/data ghcr.io/lucabon/vivavoce:latest
 # open https://<ip-of-this-host>:8730 and accept the certificate warning once
 ```
+
+Or the same thing as a compose file you can paste anywhere — you do not need
+this repository for it:
+
+```yaml
+services:
+  vivavoce:
+    image: ghcr.io/lucabon/vivavoce:latest
+    container_name: vivavoce
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - vivavoce-data:/data
+volumes:
+  vivavoce-data:
+```
+
+Pin a version (`:0.2.0`, or `:0.2` to follow patches) instead of `:latest` if
+you would rather choose when to move.
+
+> [!NOTE]
+> Working from a checkout? [docker-compose.yml](docker-compose.yml) in this
+> repo builds from source instead (`build: .`), which is what you want while
+> changing the code. Both produce the same container, and both use the
+> `vivavoce-data` volume, so you can move between them without losing the
+> certificate, the licence activation or the kid-safe list.
+
+> [!IMPORTANT]
+> Installed before 0.3 and have a `squeezesay-data` volume? Copy it across
+> once, then start as above:
+>
+> ```bash
+> docker run --rm -v squeezesay-data:/from -v vivavoce-data:/to \
+>   alpine sh -c "cp -a /from/. /to/"
+> ```
+>
+> Skipping this is not destructive — you just start from scratch: every phone
+> re-trusts the certificate, one of your five activations is spent, and an
+> enabled kid-safe blocklist comes back switched off.
 
 That's it: LMS is auto-discovered on the LAN, the TLS certificate is generated on
 first start into a persistent volume (so the browser warning is one-time), and the
 container restarts on boot (`restart: unless-stopped` — no systemd/autostart needed).
-Everything is configured via environment variables in
-[docker-compose.yml](docker-compose.yml), all optional (the pre-rename
-`SQUEEZESAY_*` names still work for one release, with a deprecation note):
+Everything is configured via environment variables (all optional; the pre-rename
+`SQUEEZESAY_*` names still work for one release, with a deprecation note) — in
+[docker-compose.yml](docker-compose.yml) if you use it, or `-e` flags on
+`docker run`:
 
 | Variable | Meaning | Default |
 |---|---|---|
@@ -40,18 +84,27 @@ Everything is configured via environment variables in
 > [docker-compose.yml](docker-compose.yml): map the port and put the host's LAN
 > IP in `VIVAVOCE_CERT_HOSTS`.
 
-### Home Assistant add-on
+> **Architecture.** The published image covers amd64 and arm64; the app itself
+> is stdlib-only, so building it from source runs anywhere Python does —
+> including a 32-bit Raspberry Pi, which has no published image and needs
+> `docker build` (or the no-Docker route below). The two *optional* Pro engines (local speech recognition, server-side
+> wake word) need a **64-bit** OS; see their sections below for why, and what
+> a 32-bit box gets instead.
 
-If you run Home Assistant OS/Supervised, Vivavoce installs as an add-on
+### Home Assistant app
+
+If you run Home Assistant OS/Supervised, Vivavoce installs as an app
 (same engine, wrapped for the Supervisor — see [ha-addon/](ha-addon/)):
 
-1. **Settings → Add-ons → Add-on store → ⋮ → Repositories** → add
-   `https://github.com/LucaBon/vivavoce`.
+1. **Settings → Apps → App store → ⋮ → Repositories** → add
+   `https://github.com/LucaBon/vivavoce`. Home Assistant renamed add-ons to
+   apps in 2026.2; on anything older the menu still says *Add-ons → Add-on
+   store*.
 2. Install **Vivavoce** and start it. LMS is auto-discovered; the options
    (all optional: `lms_url`, `player`, `port`, `https`, `cert_hosts`,
    `material_url`) mirror the Docker environment variables above.
 3. Open `https://<home-assistant-ip>:8730` and accept the certificate warning
-   once. Full details in the add-on's Documentation tab
+   once. Full details in the app's Documentation tab
    ([ha-addon/DOCS.md](ha-addon/DOCS.md)).
 
 ### Without Docker
@@ -80,15 +133,63 @@ uv run python localvoice/server.py --cert cert.pem --key key.pem
 and signs the server certificate with it. You can stop at the one-time browser
 warning — everything works as before — or go one step further:
 
-**Install the CA once per device → green lock + installable app.** The server
-offers the CA at **`/ca.pem`** (the page's *"📱 Installa come app"* panel has
-per-OS steps). Once trusted, the warning disappears **and** the service worker
-turns on, so *Install app / Add to Home Screen* gives a real fullscreen PWA
-with an offline shell. (Chrome refuses service workers on untrusted certificates,
-even after clicking through the warning — that's why the CA matters for the PWA.)
+**Install the CA once per device → green lock + installable app.** You do not
+have to follow this from here: open the page on the device itself and the
+*"📱 Installa come app"* panel walks you through it. It opens by itself when
+the certificate is not trusted, shows the steps for **that** device only
+(Android, iPhone/iPad, Windows, macOS, Linux), and — this is the part that
+used to be missing — **checks for you that it worked**. That check is not a
+guess: a browser refuses to register a service worker on an untrusted
+certificate even after you click through the warning, so if the service worker
+registers, the CA is genuinely installed. Which is also why the CA is what
+makes *Install app / Add to Home Screen* give a real fullscreen PWA with an
+offline shell.
+
 Re-issuing the server cert for new IPs reuses the CA, so devices stay trusted.
+The server offers the CA at **`/ca.pem`**; `GET /tls` says whether there is one
+to offer.
 
 The **text box works everywhere**, even over HTTP.
+
+#### Or skip the warning entirely: a real certificate
+
+Installing a CA is a per-device chore, and on some managed or work phones it is
+not permitted at all. If you already own a domain, ACME (Let's Encrypt) gives a
+certificate every browser trusts with nothing to install anywhere — including
+the ones where the CA route is blocked.
+
+The catch is that it cannot be done from inside this app, which is why it is
+documented rather than implemented: a LAN server has no public address, so the
+HTTP-01 challenge cannot reach it. The route that does work is **DNS-01**, and
+it needs three things this project deliberately does not have — a domain, API
+credentials for its DNS provider, and a renewal job. Vivavoce would also have
+to grow an ACME client (a runtime dependency, against the stdlib-only rule) or
+shell out to one.
+
+So it stays a documented recipe, with the ACME client outside the app:
+
+1. Own a domain and point a name at the server's **LAN** address —
+   `vivavoce.example.com → 192.168.1.20`. Public DNS pointing at a private IP
+   is fine and common; nothing outside your network can reach it.
+2. Get a certificate over **DNS-01** with your provider's plugin, e.g.
+   `certbot certonly --dns-cloudflare -d vivavoce.example.com`. No inbound
+   port, no port forwarding, nothing exposed.
+3. Start the server with it:
+   `--cert /etc/letsencrypt/live/vivavoce.example.com/fullchain.pem
+   --key .../privkey.pem`, and open the page at that **name** (not the IP —
+   the certificate is for the name).
+4. Renew on a timer (certbot installs one) and restart the server after.
+
+Trade-offs, honestly: 90-day certificates that must keep renewing, DNS API
+credentials on the machine, and a dependency on your domain and DNS provider
+staying put — against never touching a device again. The local CA has none of
+those and costs one install per device. Neither is wrong; households with a
+domain already will find the second obviously better, and everyone else the
+first.
+
+With a real certificate the page's panel simply reports the certificate as
+trusted and asks for nothing — there is no local CA to install, and it does not
+invent one to offer.
 
 ### Local speech recognition (Pro, optional)
 
@@ -106,6 +207,18 @@ uv sync --group asr                      # the core stays dependency-free withou
 uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
 ```
 
+- **Needs a 64-bit OS.** x86-64 and **aarch64** (a Raspberry Pi 4/5 running a
+  64-bit image) are fine. On a **32-bit** system — Raspberry Pi OS's 32-bit
+  image, still the default download for older Pis — this group **cannot be
+  installed at all**: faster-whisper rests on CTranslate2 and onnxruntime, and
+  neither has ever published a 32-bit wheel, on any release. Nor does
+  [piwheels](https://www.piwheels.org), the extra index Raspberry Pi OS
+  configures by default. `uv sync --group asr` fails outright rather than
+  degrading quietly, and the server says why at startup. Same hardware with a
+  64-bit image: everything works — CI installs this group and loads the
+  native libraries on a real aarch64 runner on every push. The core app is
+  stdlib-only either way, so a 32-bit box still runs Vivavoce — just with the
+  browser's speech engine.
 - **Model & RAM**: `--asr-model` or `VIVAVOCE_ASR_MODEL`. The default is
   **RAM-aware**: on machines with ~4 GB or more, `small`; on smaller boxes
   local recognition **stays off** unless you set a model explicitly. That's a
@@ -123,9 +236,9 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
   `docker build --build-arg ASR=1 -t vivavoce:asr .` (adds ~600 MB to the
   image), or add the build arg under `build:` in your compose file. The
   standard image ships without it and reports `/asr` as unavailable.
-- **Home Assistant add-on**: the published add-on image doesn't include the
+- **Home Assistant app**: the published app image doesn't include the
   engine (it would double its size for everyone). If you want it on HA, build
-  the add-on locally with the same `ASR=1` build arg, or run the ASR Docker
+  the app locally with the same `ASR=1` build arg, or run the ASR Docker
   image alongside HA.
 - **Hardware expectations**: with the default `small` model, a 3–5 s spoken
   command transcribes in roughly **2–4 s on an Intel N100 / Raspberry Pi 5**
@@ -133,6 +246,67 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
   the model loads lazily on first use, which also adds a one-time delay).
   `base` roughly halves latency and memory at some accuracy cost — a good
   fit for a Pi 4. Language follows the page's mic-language selector (it/en).
+
+### Server-side wake word (Pro, optional)
+
+The default "activate with a keyword" mode listens continuously through the
+browser's speech engine — which on Android plays an audible tone every few
+seconds when the recognizer restarts, the single most-cited complaint in
+launch feedback, and a browser limitation the default mode can't route
+around. Installing the optional **wakeword** group offers an alternative:
+the browser streams raw microphone audio to the server, which runs
+[openWakeWord](https://github.com/dscripka/openWakeWord) (CPU, a tiny ONNX
+model, no GPU) continuously — no restart cycle, no beep, and the audio never
+leaves the LAN either (an improvement over the default mode, which — like
+the browser mic elsewhere in the app — sends audio to Google/Apple). A new
+settings switch («🔈 parola chiave lato server») appears once the server
+reports the engine installed.
+
+```bash
+uv sync --group wakeword                 # deliberately its own group, not "asr" — see below
+uv run python localvoice/server.py       # "Parola chiave lato server attiva"
+```
+
+- **Needs a 64-bit OS.** x86-64 and **aarch64** (a Raspberry Pi 4/5 running a
+  64-bit image) are fine. On a **32-bit** system — Raspberry Pi OS's 32-bit
+  image, still the default download for older Pis — this group **cannot be
+  installed at all**: openWakeWord rests on onnxruntime, which has never
+  published a 32-bit wheel on any release. [piwheels](https://www.piwheels.org),
+  the extra index Raspberry Pi OS configures by default, doesn't save it
+  either: it carries armv7l builds of scipy and scikit-learn (openWakeWord's
+  other compiled dependencies) but none of onnxruntime. `uv sync --group
+  wakeword` fails outright rather than degrading quietly, and the server says
+  why at startup. Same hardware with a 64-bit image: everything works —
+  CI runs the real openWakeWord model against real audio frames on an aarch64
+  runner on every push — and a 32-bit box still gets the browser's own wake
+  word, beep and all.
+- **Fixed phrase, English only.** openWakeWord ships pretrained models for a
+  handful of English phrases; it has no support for an arbitrary typed
+  phrase like the default mode's free-text field, and training a custom
+  model (e.g. an Italian "vivavoce") needs a separate offline pipeline this
+  project doesn't provide today. The default and only currently supported
+  phrase is **"hey jarvis"** (`--wakeword-model` / `VIVAVOCE_WAKEWORD_MODEL`
+  if a future release ships another bundled model). This is offered as an
+  *additional* choice next to the free-text browser wake word, not a
+  replacement — pick whichever trade-off fits: your own phrase with the
+  Android beep, or a fixed English phrase without it.
+- **Why its own dependency group.** `openwakeword` is pinned to an exact,
+  deliberately old version (`0.4.0`): every release from 0.5.0 on requires
+  `tflite-runtime` on Linux, which has no published wheel past Python 3.11 —
+  bundling it into the `asr` group would have broken `uv sync --group asr`
+  (and the already-working local-ASR feature with it) for anyone on a
+  current Python. Kept separate, a failure here can't touch that.
+- **Docker**: build the variant with
+  `docker build --build-arg WAKEWORD=1 -t vivavoce:wakeword .`. The standard
+  image ships without it and reports `/wakeword` as unavailable; combine
+  with `--build-arg ASR=1` if you want both.
+- **Not available on the Home Assistant app**, for the same reason local
+  ASR isn't (see above).
+- **What this hasn't been tested against**: the browser-to-server audio
+  pipeline is covered by the test suite (including a real headless-browser
+  capture test), but real acoustic detection accuracy, the sub-second
+  wake-to-listening latency, and "truly no beep" can only be confirmed on
+  real Android hardware — try it and see how it holds up on yours.
 
 ### Autostart
 
@@ -149,14 +323,19 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
 1. Same Wi-Fi as the server PC.
 2. Open **Chrome/Edge** at `https://<this-pc-ip>:8730`.
 3. First time: "connection not private" (self-signed cert) → **Advanced → Proceed**, once.
-4. Tap the **mic**, allow the permission, speak in Italian — or use the text box. The
-   reply shows on screen (silent by default). Tip: install the **local CA** (page panel
-   *"📱 Installa come app"* → `/ca.pem`) and then **Install app**: green lock, no
-   warnings, fullscreen app icon. When the reply offers a numbered list, its choices
-   appear as **tappable buttons** — tap instead of saying "metti la 2".
-5. Optional, hands-free: tick **"attiva a voce con una parola chiave"** and start commands
+4. The page opens the *"📱 Installa come app"* panel by itself, because it can tell the
+   certificate is not trusted. Follow its two steps — they are the ones for **your**
+   phone, not a list of four platforms — then tap **"L'ho installata — ricontrolla"**:
+   the page reloads and tells you whether it worked. After that: green lock, no
+   warnings, and **Install app / Add to Home Screen** gives a fullscreen app icon.
+   (Prefer a certificate no device has to trust? See *"Or skip the warning entirely"*
+   above.)
+5. Tap the **mic**, allow the permission, speak in Italian — or use the text box. The
+   reply shows on screen (silent by default). When the reply offers a numbered list, its
+   choices appear as **tappable buttons** — tap instead of saying "metti la 2".
+6. Optional, hands-free: tick **"attiva a voce con una parola chiave"** and start commands
    with the wake word ("vivavoce" by default) — «vivavoce metti Time».
-6. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
+7. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
    **Voci & lingue** panel then lets you pick natural per-language voices.
 
 ### Streaming services (TIDAL / Qobuz)
@@ -185,8 +364,11 @@ always win over the selector. (Docker needs nothing: detection is the default.)
 ---
 
 ## Updating
-Edit files in `engine/`/`localvoice/` and restart the local server (Docker:
-`docker compose pull && docker compose up -d`; HA: update the add-on).
+Running the published image: `docker compose pull && docker compose up -d`, or
+`docker pull ghcr.io/lucabon/vivavoce:latest` and recreate the container. Your
+`/data` volume — certificate, licence, kid-safe list — is untouched by an
+update. Home Assistant: update the app. Working from a checkout: edit files
+in `engine/`/`localvoice/` and restart the server.
 
 ## Audio quality
 Vivavoce sends **only commands**: audio flows LMS → Squeezelite (Daphile) →

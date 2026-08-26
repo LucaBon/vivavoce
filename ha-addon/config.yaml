@@ -1,12 +1,14 @@
-# Add-on Home Assistant per la web app vocale locale di Vivavoce.
+# App Home Assistant per la web app vocale locale di Vivavoce.
+# (HA 2026.2 ha rinominato "Add-on" in "App" nell'interfaccia; i nomi dei file
+# e le chiavi dello schema, questo incluso, non sono cambiati.)
 #
 # host_network: serve sia all'auto-discovery UDP di LMS sia ad avere gli IP
 # LAN giusti nei SAN del certificato self-signed (il microfono del browser
 # richiede HTTPS da altri dispositivi).
 #
 # NOTA rebrand: lo slug è cambiato da "squeezesay" a "vivavoce", quindi per
-# il Supervisor questo è un add-on NUOVO — chi aveva il vecchio deve
-# disinstallarlo e installare questo (vedi CHANGELOG).
+# il Supervisor questa è un'app NUOVA — chi aveva la vecchia deve
+# disinstallarla e installare questa (vedi CHANGELOG.md qui accanto).
 name: Vivavoce
 version: "0.2.0"
 slug: vivavoce

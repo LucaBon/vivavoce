@@ -1,0 +1,130 @@
+# Publish the container image when a version tag is pushed.
+#
+# Why this exists: DEPLOY.md promised "Docker — one command", while
+# docker-compose.yml said `build: .` — so the actual one command was "clone the
+# repo and compile". This closes that gap, and gives the funnel a third number
+# to count (image pulls), which is why it ships before the launch rather than
+# after.
+#
+# No secrets beyond the GITHUB_TOKEN the workflow is handed automatically:
+# GHCR takes that token for a push to the repository's own namespace.
+#
+# Note that CI (ci.yml) runs on branches, not tags — so a tag push would
+# otherwise publish with nothing checked at all. The verify job below is that
+# check, and it is deliberately aimed at the failure this repo actually has:
+# a version bumped in one place and tagged as another.
+
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  # Lets the workflow itself be exercised without inventing a tag; it builds
+  # both architectures and pushes nothing.
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false  # never abandon a half-published manifest
+
+jobs:
+  verify:
+    name: the tag and the code agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # The one failure mode RELEASING.md is mostly about. pyproject.toml and
+      # ha-addon/config.yaml are hand-edited copies of one number, and the
+      # add-on Dockerfile installs refs/tags/v${BUILD_VERSION}: publishing an
+      # image tagged 0.3.0 from a tree that calls itself 0.2.0 would put a
+      # wrong number in front of users with nothing to catch it.
+      - name: The tag matches the version in the tree
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag v$tag does not match pyproject.toml version $version"
+            exit 1
+          fi
+          echo "v$tag matches pyproject.toml"
+
+      # Covers the other half: the two version files agreeing with each other,
+      # the add-on installing a tag rather than a branch, and every Dockerfile
+      # COPY source still existing.
+      - name: Check the release descriptors
+        run: uv run pytest tests/test_packaging.py
+
+  image:
+    name: ghcr image (amd64 + arm64)
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image is a file copy plus one wheel install (cryptography, which
+      # publishes aarch64 wheels), so emulating arm64 costs a minute and keeps
+      # this to a single job with a single manifest. If that ever stops being
+      # true — an optional group baked in, something compiled from source —
+      # the upgrade is native ubuntu-24.04-arm runners plus a manifest merge,
+      # not a longer QEMU build.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # GHCR requires a lowercase image path; the repository name may not be.
+      - name: Work out the image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # :X.Y.Z, :X.Y and :latest. No :X — pre-1.0, a bare major would mean
+      # "any 0.x", which is not a promise this project can keep.
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          # A manual run proves the build works without publishing anything.
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          # The default variant, as documented: the optional engines are an
+          # opt-in ~600 MB build arg, not something to put in everyone's pull.
+          build-args: |
+            ASR=0
+            WAKEWORD=0
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Say where it landed
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

@@ -34,9 +34,54 @@ from typing import Optional
 # veduta. (Soglia a 3.5 così una "4 GB" reale, che ne riporta ~3.8, passa.)
 MIN_RAM_GIB = 3.5
 
+# Un comando parlato dura pochi secondi. Il limite di 15 MB in audio_api.py
+# tiene lontano l'upload-bomba, ma 15 MB di wav sono ~8 minuti di audio: con
+# beam 5 su un Raspberry Pi sono minuti di CPU per UNA richiesta. Qui il
+# limite è sul contenuto, non sui byte.
+MAX_AUDIO_SECONDS = 30.0
+
+# Una sola trascrizione alla volta. Il modello non è rientrante in modo utile
+# e ogni istanza vuole ~1 GB: due telefoni che parlano insieme mandavano la
+# macchina in swap invece di far aspettare mezzo secondo il secondo comando.
+_transcribe_lock = threading.Lock()
+
+
+# Dove il kernel espone il limite di memoria del CONTAINER (cgroup v2, poi
+# v1). Senza guardarli, la sonda vede la RAM dell'HOST: un container con
+# `mem_limit: 1g` su un NAS da 16 GB sceglieva il modello "small", che al
+# picco ne vuole ~1 — e veniva ucciso dall'OOM killer al primo comando.
+_CGROUP_LIMITS = (
+    "/sys/fs/cgroup/memory.max",                   # v2
+    "/sys/fs/cgroup/memory/memory.limit_in_bytes",  # v1
+)
+
+
+def _cgroup_limit_gib() -> float:
+    """The container's memory limit in GiB, or 0.0 when there isn't one."""
+    for path in _CGROUP_LIMITS:
+        try:
+            with open(path, encoding="ascii") as f:
+                raw = f.read().strip()
+        except OSError:
+            continue
+        if raw in ("max", ""):
+            return 0.0            # cgroup present, no limit set
+        try:
+            value = int(raw) / (1024 ** 3)
+        except ValueError:
+            continue
+        # v1 writes a sentinel close to 2**63 when unlimited.
+        return 0.0 if value > 1024 else value
+    return 0.0
+
 
 def total_ram_gib() -> float:
-    """Total machine RAM in GiB — best-effort, stdlib only (0.0 = unknown)."""
+    """Memory this process may actually use, in GiB — the container's limit
+    when there is one, otherwise the machine's RAM. Best-effort, stdlib only
+    (0.0 = unknown)."""
+    limit = _cgroup_limit_gib()
+    if limit:
+        return limit
     try:
         if os.name == "nt":
             import ctypes
@@ -115,7 +160,16 @@ class WhisperTranscriber:
         mechanism downstream treats it exactly like the browser's list.
         """
         model = self._load()
-        segments, _info = model.transcribe(
-            io.BytesIO(audio), language=(lang or None), beam_size=5)
-        text = " ".join(seg.text.strip() for seg in segments).strip()
+        with _transcribe_lock:
+            segments, info = model.transcribe(
+                io.BytesIO(audio), language=(lang or None), beam_size=5,
+                vad_filter=True)
+            duration = getattr(info, "duration", 0.0) or 0.0
+            if duration > MAX_AUDIO_SECONDS:
+                raise ValueError(
+                    f"audio too long: {duration:.0f}s "
+                    f"(max {MAX_AUDIO_SECONDS:.0f}s)")
+            # `segments` is a generator: the decoding happens here, inside
+            # the lock, not at the call above.
+            text = " ".join(seg.text.strip() for seg in segments).strip()
         return {"text": text, "alternatives": [text] if text else []}

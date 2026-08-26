@@ -8,9 +8,11 @@ hands, not in a test run, so they are worth a cheap check on every push.
 Stdlib only, so this runs locally as well as in CI.
 """
 
+import ast
 import json
 import os
 import re
+import struct
 
 import pytest
 
@@ -73,6 +75,174 @@ def test_addon_dockerfile_copies_paths_that_exist():
     assert missing == []
 
 
+# -- CPU architecture ----------------------------------------------------------
+#
+# Both optional engines rest on onnxruntime (openWakeWord directly,
+# faster-whisper through CTranslate2), and neither has ever published a 32-bit
+# wheel — not on PyPI, not on piwheels. So "armv7 is supported" and "the image
+# installs an optional group" cannot both be true, and today they aren't: the
+# add-on image installs neither group, which is exactly why it can honestly
+# claim all three architectures. Adding one without dropping armv7 would ship
+# an add-on that fails to build for a third of the machines it advertises,
+# during a Supervisor build nothing in this repo would witness.
+
+# The dependency groups whose wheels are 64-bit only (see pyproject.toml).
+SIXTY_FOUR_BIT_ONLY_GROUPS = ("asr", "wakeword")
+THIRTY_TWO_BIT_ARCHES = ("armv7", "armhf", "i386")
+
+
+def _addon_arches():
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(_read("ha-addon", "config.yaml")).get("arch") or []
+
+
+def test_addon_declares_only_arches_it_can_actually_build_for():
+    dockerfile = _read("ha-addon", "Dockerfile")
+    installs = [g for g in SIXTY_FOUR_BIT_ONLY_GROUPS
+                if f"--group {g}" in dockerfile
+                or re.search(rf"\b{g}\b.*==|pip install.*{g}", dockerfile)]
+    declared_32bit = [a for a in _addon_arches() if a in THIRTY_TWO_BIT_ARCHES]
+    assert not (installs and declared_32bit), (
+        f"the add-on image installs {installs}, which has no 32-bit wheels, "
+        f"while config.yaml still advertises {declared_32bit}: drop those "
+        f"arches or drop the group")
+
+
+# Every runner label the workflow may use. An allowlist rather than a regex:
+# a typo'd label doesn't fail loudly, the job just never gets picked up, and a
+# green tick on a workflow that silently skipped a leg is the worst outcome
+# available here.
+KNOWN_RUNNERS = {"ubuntu-latest", "windows-latest", "ubuntu-24.04-arm"}
+
+
+def _workflow_jobs(name="ci.yml"):
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(_read(".github", "workflows", name))["jobs"]
+
+
+def _ci_jobs():
+    return _workflow_jobs("ci.yml")
+
+
+def _job_runners(job):
+    """Every runner label a job can land on, matrix legs included."""
+    matrix = job.get("strategy", {}).get("matrix", {})
+    labels = list(matrix.get("os") or [])
+    for leg in matrix.get("include", []):
+        label = leg.get("os") or leg.get("runner")
+        if label:
+            labels.append(label)
+    runs_on = job.get("runs-on", "")
+    if "${{" not in runs_on:  # a literal label, not a matrix reference
+        labels.append(runs_on)
+    return labels
+
+
+@pytest.mark.parametrize("workflow", ["ci.yml", "release.yml"])
+def test_runner_labels_are_all_known(workflow):
+    unknown = {label for job in _workflow_jobs(workflow).values()
+               for label in _job_runners(job) if label not in KNOWN_RUNNERS}
+    assert unknown == set(), f"unrecognised runner labels: {sorted(unknown)}"
+
+
+# -- the browser suite actually running ----------------------------------------
+#
+# The failure this guards is one that already happened, unnoticed, for as long
+# as nobody looked: `playwright install` exits 0 when it fails, so a broken
+# install leaves a green job in which all 24 browser tests skipped. Since that
+# directory is the only thing checking the page's JS wiring, the tick would
+# have meant nothing. VIVAVOCE_REQUIRE_BROWSER=1 turns those skips into
+# failures (see tests/e2e/conftest.py) — and this makes sure CI keeps setting
+# it, because a safety net nobody checks is how the first one was lost.
+
+def test_ci_requires_the_browser_suite_to_really_run():
+    steps = _ci_jobs()["e2e"]["steps"]
+    setting = [step for step in steps
+               if step.get("env", {}).get("VIVAVOCE_REQUIRE_BROWSER") == "1"]
+    assert setting, ("the e2e job does not set VIVAVOCE_REQUIRE_BROWSER=1: a "
+                     "missing browser would skip every test and still pass")
+    assert any("pytest" in str(step.get("run", "")) for step in setting), (
+        "VIVAVOCE_REQUIRE_BROWSER=1 is set on a step that does not run pytest")
+
+
+def test_ci_proves_the_browser_launches_rather_than_trusting_the_installer():
+    # `playwright install` returning 0 is not evidence. Launching one is.
+    runs = " ".join(str(step.get("run", "")) for step in _ci_jobs()["e2e"]["steps"])
+    assert "chromium.launch()" in runs, (
+        "nothing in the e2e job checks that a browser can actually start")
+
+
+def test_ci_has_a_fallback_for_platforms_playwright_does_not_know_yet():
+    # Ubuntu 26.04 already refuses; ubuntu-latest will get there.
+    runs = " ".join(str(step.get("run", "")) for step in _ci_jobs()["e2e"]["steps"])
+    assert "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE" in runs
+
+
+# -- the published image -------------------------------------------------------
+#
+# DEPLOY.md offers a pull-and-run path and recommends a Raspberry Pi, so an
+# image published for amd64 only would break the exact machine the docs push
+# people towards — quietly, on their machine, at `docker run`. And a release
+# workflow that publishes without checking would ship an image whose version
+# label the code does not agree with: CI runs on branches, not tags, so this
+# workflow is the only thing standing between a tag and a public artefact.
+
+def test_the_release_workflow_publishes_both_architectures():
+    build = _read(".github", "workflows", "release.yml")
+    for arch in ("linux/amd64", "linux/arm64"):
+        assert arch in build, f"the release image drops {arch}"
+
+
+def test_the_release_workflow_is_triggered_by_version_tags():
+    workflow = _read(".github", "workflows", "release.yml")
+    yaml = pytest.importorskip("yaml")
+    # PyYAML reads a bare `on:` key as the boolean True (the Norway problem).
+    triggers = yaml.safe_load(workflow)
+    on = triggers.get("on", triggers.get(True))
+    assert "tags" in on["push"], "nothing ties the release to a tag"
+
+
+def test_the_release_workflow_checks_the_tag_against_the_code():
+    # The failure RELEASING.md is mostly about: two hand-edited copies of one
+    # number, and a tag that has to match both.
+    workflow = _read(".github", "workflows", "release.yml")
+    assert "pyproject.toml" in workflow
+    assert "tests/test_packaging.py" in workflow
+
+
+def test_ci_proves_the_64_bit_claim_on_real_aarch64():
+    # DEPLOY.md tells a Raspberry Pi 4/5 on a 64-bit image that both optional
+    # engines work there. That started as an inference from wheels existing on
+    # PyPI — necessary but not sufficient, since a wheel installing is not the
+    # same as an ONNX model loading and scoring on that CPU. Each group now has
+    # a job that runs it for real on aarch64, and deleting one has to fail here
+    # rather than quietly turn a tested claim back into an assumed one.
+    jobs = _ci_jobs()
+    for group in SIXTY_FOUR_BIT_ONLY_GROUPS:
+        assert group in jobs, f"no CI job named {group!r} to prove it"
+        runners = _job_runners(jobs[group])
+        assert any("arm" in label for label in runners), (
+            f"the {group!r} job runs only on {runners}: nothing exercises the "
+            f"aarch64 support DEPLOY.md promises")
+
+
+def test_ci_runs_the_core_suite_on_aarch64():
+    # The core is stdlib-only, so this should be indifferent to architecture —
+    # which is exactly the kind of "should" worth one cheap job.
+    runners = _job_runners(_ci_jobs()["test"])
+    assert any("arm" in label for label in runners)
+
+
+def test_deploy_docs_state_the_64_bit_requirement():
+    # The gap that prompted all of this: every other constraint was documented
+    # with care (Python floor, why the groups are separate, what is untested)
+    # and the architecture one was not, while four places advertise Raspberry
+    # Pi. One marker per optional section, so a rewrite that drops the note
+    # fails here rather than in a user's hands.
+    deploy = _read("DEPLOY.md")
+    assert deploy.count("Needs a 64-bit OS") == len(SIXTY_FOUR_BIT_ONLY_GROUPS)
+
+
 # -- versions ------------------------------------------------------------------
 
 def _pyproject_version():
@@ -94,6 +264,65 @@ def test_addon_version_matches_pyproject():
     # against the installed one to decide whether an update exists, so a stale
     # add-on version ships an update nobody is offered.
     assert _addon_version() == _pyproject_version()
+
+
+# Every doc that tells someone which image tag to run. An explicit list, like
+# the price and descriptor checks below: analysis records under docs/ quote
+# versions as findings dated to the day they were written, and freezing those
+# would be wrong.
+VERSIONED_DOCS = [("DEPLOY.md",),
+                  ("README.md",),
+                  ("RELEASING.md",),
+                  ("ha-addon", "DOCS.md"),
+                  ("ha-addon", "README.md")]
+
+# `ghcr.io/lucabon/vivavoce:0.2.0` and the bare backticked pin DEPLOY.md
+# recommends (`` `:0.2.0` ``). Deliberately not a loose ":X.Y" — the release
+# instructions also quote Home Assistant's own base image tag, which is not
+# ours to keep in step, and neither is `amd64-base:3.21` in build.yaml.
+#
+# The backtick has to be the one that OPENS the span, not any closing one,
+# and the two are told apart by what precedes it rather than what follows:
+# in `` `:0.2.0` `` and in `` `python`:3.9 `` the backtick is followed by a
+# colon either way. A pin's backtick opens after a space or a bracket; a
+# closing one comes straight off a word. Nothing in the repo is written the
+# second way today, which is exactly when a regex is cheap to tighten.
+CITED_TAG = re.compile(r"(?:vivavoce:|(?<!\w)`:)(\d+\.\d+(?:\.\d+)?)\b")
+
+
+@pytest.mark.parametrize("parts", VERSIONED_DOCS,
+                         ids=[p[-1] if len(p) == 1 else "/".join(p)
+                              for p in VERSIONED_DOCS])
+def test_docs_quote_the_declared_version(parts):
+    # The third hand-edited copy of the number, and the one nothing watched:
+    # DEPLOY.md recommended pinning `:0.3.0` for months while both version
+    # files said 0.2.0 and no such tag had ever been pushed. That advice does
+    # not fail here, it fails at `docker pull` — with a manifest-unknown error
+    # — on the machine of someone following the install guide to the letter.
+    #
+    # Named for what it checks, which is narrower than "a version that
+    # exists": it pins the docs to the version DECLARED in pyproject.toml.
+    # Between step 1 of RELEASING.md (the bump) and step 5 (the image is
+    # published) that version is deliberately one nobody can pull yet, and
+    # this test wants the docs to move with the bump — so the two agree at
+    # the end of a release rather than at every instant during one.
+    version = _pyproject_version()
+    series = ".".join(version.split(".")[:2])
+    for cited in CITED_TAG.findall(_read(*parts)):
+        expected = series if cited.count(".") == 1 else version
+        assert cited == expected, (
+            f"{parts[-1]} recommends the image tag :{cited}, but the version "
+            f"is {version}: either the docs are ahead of a release that never "
+            f"happened, or a bump forgot them")
+
+
+def test_the_install_guide_quotes_a_tag_at_all():
+    # Guards the check above from going vacuous: it only fails on a citation
+    # it can find, so a reworded pin line it no longer matches would turn the
+    # whole thing green while saying nothing.
+    assert CITED_TAG.findall(_read("DEPLOY.md")), (
+        "DEPLOY.md quotes no image tag any more: either the pin advice went "
+        "away, or CITED_TAG stopped recognising how it is written")
 
 
 def test_changelog_documents_the_current_version():
@@ -146,3 +375,203 @@ def test_deploy_yaml_parses(parts):
     # design, and CI installs the dev group.
     yaml = pytest.importorskip("yaml")
     assert yaml.safe_load(_read(*parts)) is not None
+
+
+# -- the Home Assistant store page ---------------------------------------------
+#
+# The app is a declared distribution channel (decided 2026-08-26, see the
+# roadmap): the blueprint route into Home Assistant needs the Vivavoce server
+# running next to it, and this is the one-click way to get there. What the
+# Supervisor shows for it is three files beside config.yaml, none of which the
+# build would miss: without an icon the store draws a generic placeholder, and
+# nothing anywhere fails.
+
+def _png_size(*parts):
+    """(width, height) from a PNG's IHDR — stdlib, no Pillow, like the tool
+    that writes these files (tools/make_icons.py)."""
+    with open(os.path.join(ROOT, *parts), "rb") as f:
+        header = f.read(24)
+    assert header[:8] == b"\x89PNG\r\n\x1a\n", f"{parts[-1]} is not a PNG"
+    assert header[12:16] == b"IHDR", f"{parts[-1]} does not start with IHDR"
+    return struct.unpack(">II", header[16:24])
+
+
+def test_the_addon_ships_the_store_artwork():
+    # Home Assistant requires the PNG format and these exact filenames. Both
+    # halves are checked: existence caught a missing file, but a logo.png that
+    # was a text file or a GIF passed happily, and the format is the part the
+    # docs make a requirement rather than a recommendation.
+    for name in ("icon.png", "logo.png"):
+        path = os.path.join(ROOT, "ha-addon", name)
+        assert os.path.exists(path), (
+            f"ha-addon/{name} is missing: the store falls back to a generic "
+            f"placeholder and nothing else complains")
+        width, height = _png_size("ha-addon", name)
+        assert width > 0 and height > 0, f"ha-addon/{name} has no size"
+
+
+def test_the_addon_icon_is_square():
+    # A requirement, not a recommendation: the docs ask for a 1x1 aspect
+    # ratio (128x128 is the suggested size). Regenerate with
+    # `uv run python tools/make_icons.py`.
+    width, height = _png_size("ha-addon", "icon.png")
+    assert width == height, f"ha-addon/icon.png is {width}x{height}, not square"
+
+
+def test_the_addon_has_its_own_changelog():
+    # The root changelog is the project's, written for everyone; this one is
+    # for the person updating the app, and lives beside config.yaml because
+    # that is where the documentation says to put it.
+    changelog = _read("ha-addon", "CHANGELOG.md")
+    assert f"[{_addon_version()}]" in changelog, (
+        f"ha-addon/CHANGELOG.md has no entry for {_addon_version()}")
+
+
+# -- file size -----------------------------------------------------------------
+#
+# "No file over 400 lines" was the acceptance criterion of two separate tasks
+# (the index.html split, the server.py split), declared satisfied both times,
+# and then nobody looked again: mic.js drifted back to 470 lines and
+# http_api.py to 463 before anyone noticed. A rule no test checks is not a
+# rule, so it is checked here — this module exists precisely for what the rest
+# of the suite cannot see.
+#
+# Scope: the code that ships (engine/, localvoice/). Both original criteria
+# were about runtime files, and that is where an unreadable module costs
+# something. Tests and tools are deliberately out.
+
+MAX_LINES = 400
+SIZED_TREES = ("engine", "localvoice")
+SIZED_SUFFIXES = (".py", ".js", ".html", ".css")
+
+# Files already over the line when the rule got its test, each with the split
+# that would fix it. A ratchet, not an amnesty: entries may leave this list,
+# never join it — anything not named here has to be born under the limit.
+OVERSIZED_TODAY = {
+    "engine/lms.py",           # transport, search and queue in one client
+}
+
+
+def _sized_files():
+    for tree in SIZED_TREES:
+        for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, tree)):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for name in filenames:
+                if not name.endswith(SIZED_SUFFIXES):
+                    continue
+                full = os.path.join(dirpath, name)
+                yield os.path.relpath(full, ROOT).replace(os.sep, "/"), full
+
+
+def _line_count(path):
+    with open(path, encoding="utf-8") as f:
+        return sum(1 for _ in f)
+
+
+def test_no_source_file_is_oversized():
+    too_big = {rel: _line_count(full) for rel, full in _sized_files()
+               if rel not in OVERSIZED_TODAY and _line_count(full) > MAX_LINES}
+    assert too_big == {}, (
+        f"over {MAX_LINES} lines: {too_big} — split it, or (only with a reason) "
+        f"add it to OVERSIZED_TODAY")
+
+
+def test_the_oversized_list_only_shrinks():
+    # The ratchet's other half: once a listed file is split, its entry has to
+    # go, or the exemption outlives the problem and quietly permits a regrowth.
+    files = dict(_sized_files())
+    for rel in sorted(OVERSIZED_TODAY):
+        assert rel in files, f"{rel} no longer exists: drop it from OVERSIZED_TODAY"
+        assert _line_count(files[rel]) > MAX_LINES, (
+            f"{rel} is now under {MAX_LINES} lines: drop it from OVERSIZED_TODAY "
+            f"so it stays that way")
+
+
+# -- the launch material -------------------------------------------------------
+#
+# The price is quoted in three files written at different times, in two
+# languages, with two decimal separators. That is exactly the shape of thing
+# that drifts silently and then gets discovered by a customer quoting the old
+# number back at you — so the numbers live in the plan, and this checks that
+# every file agrees with them.
+
+LIST_PRICE = "11.90"
+LAUNCH_PRICE = "8.90"
+PRICED_FILES = [("README.md",),
+                ("docs", "launch", "lyrion-forum-post.md"),
+                ("docs", "launch", "reddit-r-squeezebox.md")]
+
+
+def _prices_in(text):
+    """Every euro amount, with the decimal comma normalised to a point."""
+    return set(re.findall(r"(\d+[.,]\d{2})\s*€", text.replace(",", ".")))
+
+
+@pytest.mark.parametrize("parts", PRICED_FILES,
+                         ids=[p[-1] for p in PRICED_FILES])
+def test_every_price_quoted_is_a_price_we_actually_charge(parts):
+    quoted = _prices_in(_read(*parts))
+    assert quoted, f"{parts[-1]} quotes no price at all"
+    assert quoted <= {LIST_PRICE, LAUNCH_PRICE}, (
+        f"{parts[-1]} quotes {sorted(quoted - {LIST_PRICE, LAUNCH_PRICE})}, "
+        f"which is not the list price ({LIST_PRICE}) or the launch price "
+        f"({LAUNCH_PRICE})")
+
+
+def test_the_launch_posts_link_the_repository():
+    # These were TODO placeholders long enough to be worth a check.
+    for parts in PRICED_FILES[1:]:
+        assert "github.com/LucaBon/vivavoce" in _read(*parts)
+
+
+def test_the_launch_posts_promise_the_trial_and_the_refund():
+    # Both are the offer, not decoration: the window is what makes the mic
+    # felt before it is sold, and the refund is what makes the price a small
+    # decision. A post that forgets either is selling something else.
+    for parts in PRICED_FILES[1:]:
+        text = _read(*parts).lower()
+        assert "14 days of full pro" in text, f"{parts[-1]} drops the trial"
+        assert "no questions asked" in text, f"{parts[-1]} drops the refund"
+
+
+# -- the engine's front door ---------------------------------------------------
+#
+# engine/actions.py was 1054 lines and is now five modules, with actions.py
+# re-exporting the other four. That re-export is load-bearing: the router, the
+# tools and a great many tests reach for actions.play_local, actions._score,
+# actions.Guard — private names included — and the split promised none of them
+# would notice. The promise is only kept while every name over there is still
+# reachable from here, and forgetting one is silent until something breaks at
+# runtime. So it is checked, the same way this module checks everything else
+# the test suite cannot see.
+
+ENGINE_PARTS = ("matching", "guard", "transport", "library")
+
+
+def _module_level_names(path):
+    """Every function, class and constant a module defines at the top level."""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return names
+
+
+def test_actions_re_exports_the_whole_engine():
+    import actions
+
+    missing = {}
+    for part in ENGINE_PARTS:
+        path = os.path.join(ROOT, "engine", f"{part}.py")
+        absent = sorted(n for n in _module_level_names(path)
+                        if not hasattr(actions, n))
+        if absent:
+            missing[part] = absent
+    assert missing == {}, (
+        f"engine/actions.py no longer re-exports {missing} — add them to the "
+        f"import block at the bottom, or every caller that reaches through "
+        f"actions breaks without warning")

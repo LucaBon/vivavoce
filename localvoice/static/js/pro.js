@@ -16,11 +16,20 @@ let PRO_INFO = null;
 
 export const isPro = () => PRO;
 
+// The trial block from /license ({active, expired, day, days_left, days}), or
+// null when the page has never reached the server. `day` keeps counting after
+// the window closes — chat.js times the in-flow prompt off it.
+export const trialInfo = () => (PRO_INFO && PRO_INFO.trial) || null;
+// Somebody actually paid. Distinct from isPro(), which an open window also
+// satisfies: the difference decides whether the panel offers to sell anything.
+export const isLicensed = () => !!(PRO_INFO && PRO_INFO.key);
+
 export function applyPro() {
   $("mic").classList.toggle("locked", !PRO);
   $("wakemode").disabled = !PRO;
   $("readback").disabled = !PRO;
   $("localasr").disabled = !PRO;
+  $("serverwake").disabled = !PRO;
   if (!PRO) {
     if ($("wakemode").checked) {
       $("wakemode").checked = false;
@@ -28,18 +37,33 @@ export function applyPro() {
     }
     if ($("readback").checked) { $("readback").checked = false; syncVoicePanel(); }
     $("localasr").checked = false;
+    $("serverwake").checked = false;
   }
   const st = $("prostatus");
   st.classList.remove("warn");
-  const showBuy = !PRO;
+  const trial = trialInfo();
+  // Pro because the first-install window is open, with nobody having paid.
+  // Saying "Pro active — license ****" here would be a lie the user finds out
+  // about on day 15, which is the worst possible day to find it out.
+  const onTrial = !!(trial && trial.active && !isLicensed());
+  // A page that never reached the server (offline, PWA cold open) keeps its
+  // localStorage hint and is treated as paid: it is what it was last told,
+  // and a paying household must not be shown a buy button on a flaky boot.
+  const showBuy = onTrial || !PRO;
   $("prorow").style.display = showBuy ? "" : "none";
   $("probuy").style.display = showBuy ? "inline-block" : "none";
   $("probuy").href = PRO_STORE_URL;
-  if (PRO) {
+  if (onTrial) {
+    // Emphasised only at the end, when the number has become news.
+    if (trial.days_left <= 3) st.classList.add("warn");
+    st.innerHTML = ui("pro_trial")(trial.days_left);
+  } else if (PRO) {
     st.textContent = ui("pro_active")((PRO_INFO && PRO_INFO.key) || "****");
   } else if (PRO_INFO && PRO_INFO.revoked) {
     st.classList.add("warn");
     st.innerHTML = ui("pro_revoked");
+  } else if (trial && trial.expired) {
+    st.innerHTML = ui("pro_trial_over");
   } else {
     st.innerHTML = ui("pro_pitch");
   }
@@ -127,6 +151,9 @@ async function ksAction(action, extra) {
       if (d.error === "pro_required") { showProUpsell(); }
       else if (d.error === "wrong_pin") {
         st.innerHTML += ' <span class="warn">' + ui("ks_wrong_pin") + "</span>";
+      } else if (d.error === "locked_out") {
+        st.innerHTML += ' <span class="warn">'
+          + ui("ks_locked_out")(d.retry_in || 0) + "</span>";
       } else if (d.error === "pin_too_short") {
         st.innerHTML += ' <span class="warn">' + ui("ks_pin_short") + "</span>";
       }

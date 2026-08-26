@@ -79,15 +79,39 @@ export function renderNowPlaying(d) {
               syncedAt: performance.now() };
   renderNpTime();
 }
+// The poll runs on a timer AND after every command, so two can overlap — and
+// with no ordering the slower, older answer landed last and painted a stale
+// track over the fresh one. A sequence number keeps the newest reply the one
+// that wins; a deadline keeps a hung request from blocking the next poll for
+// as long as the browser feels like waiting.
+const NOWPLAYING_TIMEOUT_MS = 8000;
+let npSeq = 0;
+let npRendered = 0;
+
 export async function refreshNowPlaying() {
+  const seq = ++npSeq;
+  const stale = () => seq < npRendered;
   try {
     const p = currentPlayer();
     const r = await fetch("/nowplaying"
-                          + (p ? "?player=" + encodeURIComponent(p) : ""));
+                          + (p ? "?player=" + encodeURIComponent(p) : ""),
+                          { signal: AbortSignal.timeout
+                              ? AbortSignal.timeout(NOWPLAYING_TIMEOUT_MS)
+                              : undefined });
     const d = await r.json();
+    if (stale()) return;
+    npRendered = seq;
     setLmsDown(d.mode === "unknown");
     renderNowPlaying(d);
-  } catch (e) { setLmsDown(true); renderNowPlaying(null); }
+  } catch (e) {
+    if (stale()) return;
+    npRendered = seq;
+    // Offline is not "the LMS is down": the phone left the Wi-Fi, or the
+    // screen slept. Saying the hi-fi is unreachable sends people to look at
+    // the wrong box entirely.
+    setLmsDown(true, navigator.onLine === false);
+    renderNowPlaying(null);
+  }
 }
 
 // --- Mini-player transport: POST /player, render the returned status so the

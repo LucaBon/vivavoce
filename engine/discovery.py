@@ -118,14 +118,39 @@ def _local_prefixes() -> List[str]:
     return prefixes
 
 
+def _sibling_prefixes(prefixes: List[str]) -> List[str]:
+    """Every /24 inside the /16 each local prefix sits in.
+
+    The sweep only ever looked at this host's own /24, which is the right
+    guess on the 192.168.x.y networks a home router hands out — and wrong on
+    the flat 10.0.0.0/16 or 172.16.0.0/16 a NAS or a managed switch sets up,
+    where the LMS is one hop away in a sibling /24 and was simply never
+    found. Bounded at 256 prefixes per interface, and only for the RFC1918
+    ranges wide enough for this to happen at all.
+    """
+    out = []
+    for prefix in prefixes:
+        octets = prefix.split(".")
+        if len(octets) != 3:
+            continue
+        first = octets[0]
+        if first != "10" and not (first == "172" and 16 <= int(octets[1]) <= 31):
+            continue          # 192.168/16 is already the "full" phase below
+        out.extend(f"{octets[0]}.{octets[1]}.{i}" for i in range(256))
+    return out
+
+
 def _candidate_phases() -> List[Tuple[str, List[str]]]:
     """Ordered sweep phases as ``(name, [/24 prefixes])``, no duplicates:
-    local interfaces first, then common home subnets, then all of 192.168/16."""
+    local interfaces first, then common home subnets, then the rest of a
+    wide local range (10.x/16, 172.16-31.x/16), then all of 192.168/16."""
     seen: set = set()
     phases: List[Tuple[str, List[str]]] = []
+    local = _local_prefixes()
     for name, prefixes in [
-        ("local", _local_prefixes()),
+        ("local", local),
         ("common", _COMMON_PREFIXES),
+        ("wide", _sibling_prefixes(local)),
         ("full", [f"192.168.{i}" for i in range(256)]),
     ]:
         fresh = [p for p in prefixes if p not in seen]
