@@ -21,3 +21,6 @@ config.py
 
 # Generated screenshots (tools/ui_shots.py)
 tools/shots/
+
+# Modelli scaricati dal banco di misura (tools/sherpa_bench.py)
+.sherpa-models/

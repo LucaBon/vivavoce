@@ -43,9 +43,12 @@ Nothing here touches the app. Models land in ``--models-dir`` (default
 from the sherpa-onnx GitHub releases — 18 MB for the KWS model, 487 MB for
 parakeet.
 
-Needs ``sherpa-onnx`` installed (``uv pip install sherpa-onnx``); config C
-additionally needs the existing ``asr`` group. A configuration whose engine
-is missing is reported as skipped, not as a failure.
+Needs ``sherpa-onnx`` installed (``uv pip install sherpa-onnx``). Config A
+also needs ``sentencepiece``, and not optionally: the phrase has to be spelled
+in the model's own BPE tokens, and a plausible-but-different spelling detects
+nothing while erroring nowhere (measured — see :func:`bpe_tokens`). Config C
+needs the existing ``asr`` group. A configuration whose engine is missing is
+reported as skipped, not as a failure.
 """
 
 from __future__ import annotations
@@ -201,8 +204,9 @@ def _download(url: str, dest: str) -> None:
             done += len(block)
             if total:
                 pct = 100 * done / total
-                print(f"\r    {done >> 20}/{total >> 20} MiB ({pct:.0f}%)",
-                      end="", flush=True)
+                unit, shift = ("MiB", 20) if total >> 20 else ("KiB", 10)
+                print(f"\r    {done >> shift}/{total >> shift} {unit} "
+                      f"({pct:.0f}%)", end="", flush=True)
         print()
 
 
@@ -250,52 +254,30 @@ def phrase_in(transcript: str, phrase: str, threshold: float) -> bool:
     return False
 
 
-def bpe_tokens(phrase: str, tokens_txt: str, bpe_model: str) -> str:
-    """The phrase as a KWS token string ("▁VI VA VO CE").
+def bpe_tokens(phrase: str, bpe_model: str) -> str:
+    """The phrase as a KWS token string ("▁VI V A VO CE").
 
-    Uses sentencepiece when it is installed (what ``sherpa-onnx-cli
-    text2token`` does, and the exact answer); otherwise falls back to greedy
-    longest-match over the model's ``tokens.txt``, which is an approximation —
-    good enough to find out whether path A is worth pursuing at all, and
-    reported as such."""
+    This has to be the model's *own* BPE segmentation, not a plausible one.
+    Measured here on the model's bundled sample: "LIGHT UP" tokenized as
+    "▁LI G H T ▁UP" (a greedy longest-match over ``tokens.txt``) detects
+    nothing at all, while the sentencepiece answer "▁ L IGHT ▁UP" — what the
+    model ships in its own ``keywords.txt`` — detects it every time. Wrong
+    tokens don't error, they just never fire, so there is no approximation
+    worth offering: without sentencepiece this refuses and says so."""
     text = normalize(phrase).upper()
     if not text:
         raise SystemExit(f"empty phrase after normalization: {phrase!r}")
     try:
         import sentencepiece as spm
     except ImportError:
-        pass
-    else:
-        sp = spm.SentencePieceProcessor()
-        sp.load(bpe_model)
-        return " ".join(sp.encode_as_pieces(text))
-
-    vocab = set()
-    with open(tokens_txt, encoding="utf-8") as fh:
-        for line in fh:
-            piece = line.split()
-            if piece:
-                vocab.add(piece[0])
-    out = []
-    # "▁" marks a word start, so each word is tokenized on its own: without
-    # this, a two-word phrase asks the vocabulary for a mid-word piece that
-    # only exists in its word-initial form.
-    for word in text.split():
-        rest, first = word, True
-        while rest:
-            for end in range(len(rest), 0, -1):
-                candidate = ("▁" if first else "") + rest[:end]
-                if candidate in vocab:
-                    out.append(candidate)
-                    rest = rest[end:]
-                    first = False
-                    break
-            else:
-                raise SystemExit(
-                    f"cannot spell {phrase!r} with this model's tokens "
-                    f"(stuck at {rest!r}) — pass --keyword-tokens explicitly, "
-                    f"or install sentencepiece for exact BPE encoding")
-    return " ".join(out)
+        raise SystemExit(
+            "config A needs sentencepiece to spell the phrase in the model's "
+            "own BPE tokens: uv pip install sentencepiece\n"
+            "(or pass the tokens yourself with --keyword-tokens, e.g. "
+            "--keyword-tokens '▁VI V A VO CE')")
+    sp = spm.SentencePieceProcessor()
+    sp.load(bpe_model)
+    return " ".join(sp.encode_as_pieces(text))
 
 
 # --------------------------------------------------------------------------
@@ -347,11 +329,21 @@ def run_kws(args, models_dir: str, positives: List[str],
     model_dir = ensure_model("kws", models_dir)
     tokens = os.path.join(model_dir, "tokens.txt")
     keyword = args.keyword_tokens or bpe_tokens(
-        args.phrase, tokens, os.path.join(model_dir, "bpe.model"))
+        args.phrase, os.path.join(model_dir, "bpe.model"))
     print(f"  frase «{args.phrase}» -> token: {keyword}")
+
+    # KeywordSpotter demands a keywords *file* at construction even though
+    # create_stream() also takes the phrase inline (checked against the real
+    # 1.13.6 API, not assumed). The file carries the same phrase with its
+    # boost (":") and per-keyword threshold ("#"), the two knobs this bench
+    # exists to sweep.
+    keywords_file = os.path.join(models_dir, "bench-keywords.txt")
+    with open(keywords_file, "w", encoding="utf-8") as fh:
+        fh.write(f"{keyword} :{args.boost} #{args.threshold}\n")
 
     spotter = sherpa_onnx.KeywordSpotter(
         tokens=tokens,
+        keywords_file=keywords_file,
         encoder=find(model_dir, "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
                      "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"),
         decoder=find(model_dir, "decoder-epoch-12-avg-2-chunk-16-left-64.onnx"),
