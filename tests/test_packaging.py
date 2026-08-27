@@ -12,7 +12,10 @@ import ast
 import json
 import os
 import re
+import shutil
 import struct
+import subprocess
+import sys
 
 import pytest
 
@@ -416,6 +419,84 @@ def test_the_addon_icon_is_square():
     # `uv run python tools/make_icons.py`.
     width, height = _png_size("ha-addon", "icon.png")
     assert width == height, f"ha-addon/icon.png is {width}x{height}, not square"
+
+
+# -- the add-on's option reader ------------------------------------------------
+#
+# run.sh translates /data/options.json into the VIVAVOCE_* variables the shared
+# entrypoint reads. It is shell, so nothing else in this suite can see it, and
+# the one bug it had was invisible by inspection: jq's `//` treats a JSON false
+# exactly like a missing key, so the only boolean option we expose was read as
+# "unset" and silently ignored.
+
+_RUN_SH_NEEDS = pytest.mark.skipif(
+    sys.platform == "win32" or not shutil.which("jq") or not shutil.which("sh"),
+    reason="needs a POSIX sh and jq, as the add-on image has")
+
+
+def _run_addon_script(tmp_path, options):
+    """Run the real ha-addon/run.sh against ``options``, return its exported env.
+
+    The script is copied with two lines rewritten: the hard-coded options path,
+    and the exec of the entrypoint (which would start a server) swapped for a
+    dump of the environment. Everything between them — the part under test —
+    is the shipped file.
+    """
+    opts = tmp_path / "options.json"
+    opts.write_text(json.dumps(options), encoding="utf-8")
+    script = _read("ha-addon", "run.sh")
+    script = script.replace("OPTS=/data/options.json", f'OPTS="{opts}"')
+    script = script.replace("exec /app/deploy/docker/entrypoint.sh", "exec env")
+    assert 'OPTS="' in script and "exec env" in script, "run.sh shape changed"
+    runner = tmp_path / "run.sh"
+    runner.write_text(script, encoding="utf-8")
+    out = subprocess.run(["sh", str(runner)], capture_output=True, text=True,
+                         timeout=30, check=True).stdout
+    return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+
+
+@_RUN_SH_NEEDS
+def test_https_false_is_honoured_not_swallowed(tmp_path):
+    # `https: false` is documented in DOCS.md as "solo HTTP". It reached the
+    # entrypoint as nothing at all, which falls back to HTTPS=1: the add-on
+    # served TLS whatever the user chose, and an ingress or reverse proxy in
+    # front of it speaking plain HTTP got a protocol error for its trouble.
+    env = _run_addon_script(tmp_path, {"https": False, "port": 8730})
+    assert env.get("VIVAVOCE_HTTPS") == "0"
+    assert env.get("VIVAVOCE_PORT") == "8730"
+
+
+@_RUN_SH_NEEDS
+@pytest.mark.parametrize("options", [{"https": True}, {}, {"port": 8730}])
+def test_https_is_left_alone_unless_it_is_false(options, tmp_path):
+    # Only an explicit false turns TLS off; absent or true keep the default,
+    # which the entrypoint supplies rather than this script.
+    assert "VIVAVOCE_HTTPS" not in _run_addon_script(tmp_path, options)
+
+
+@_RUN_SH_NEEDS
+def test_the_string_options_still_reach_the_entrypoint(tmp_path):
+    # The same helper reads every other option; changing how it handles false
+    # must not change how it handles the strings around it.
+    env = _run_addon_script(tmp_path, {
+        "port": 9000, "lms_url": "http://lms.local:9000", "player": "Cucina",
+        "cert_hosts": "vivavoce.local", "material_url": "http://m.local",
+    })
+    assert env["VIVAVOCE_PORT"] == "9000"
+    assert env["VIVAVOCE_LMS"] == "http://lms.local:9000"
+    assert env["VIVAVOCE_PLAYER"] == "Cucina"
+    assert env["VIVAVOCE_CERT_HOSTS"] == "vivavoce.local"
+    assert env["VIVAVOCE_MATERIAL_URL"] == "http://m.local"
+    assert env["VIVAVOCE_DATA_DIR"] == "/data"
+
+
+@_RUN_SH_NEEDS
+def test_an_empty_string_option_is_not_exported(tmp_path):
+    # An option left blank in the add-on UI must not become an empty setting
+    # the app then tries to use as a URL.
+    env = _run_addon_script(tmp_path, {"lms_url": "", "player": ""})
+    assert "VIVAVOCE_LMS" not in env
+    assert "VIVAVOCE_PLAYER" not in env
 
 
 def test_the_addon_has_its_own_changelog():
