@@ -155,3 +155,64 @@ def test_a_failed_command_is_not_an_upgrade_pitch(page, web, tmp_path):
     page.wait_for_selector("#mic:not(.locked)")
     command(page, "sgrunf blarg zorp")
     assert page.query_selector("#log .bubble.upsell") is None
+
+
+def test_expiry_puts_the_whole_wake_block_away(page, web, tmp_path):
+    # applyPro() unticks wake mode and hid #wakehint — which the index.html
+    # split left as just the inner paragraph. The container it moved to is
+    # #wakeopts, so everything that configures continuous listening (engine
+    # choice, keyword field) stayed on screen under a disabled checkbox.
+    page.add_init_script("localStorage.setItem('wakemode', '1');")
+    page.goto(web(license_mgr=trial_at(tmp_path, day=15)).url)
+    page.wait_for_function(
+        "() => /prova|trial/i.test("
+        "document.getElementById('prostatus').textContent)", timeout=5000)
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+
+    assert page.eval_on_selector("#wakemode", "el => el.checked") is False
+    assert page.eval_on_selector(
+        "#wakeopts", "el => getComputedStyle(el).display") == "none", (
+        "the continuous-listening block outlived the trial that unlocked it")
+
+
+class _WakeSessions:
+    """Enough of pro.wakeword.ServerWakeWordSessions for /wakeword to say the
+    server-side engine exists, so the panel can be in its state."""
+
+    model = "hey_jarvis"
+
+    def available(self):
+        return True
+
+
+def test_expiry_hands_the_wake_panel_back_to_the_browser_engine(
+        page, web, tmp_path):
+    # applyPro() unticks #serverwake directly, without the reconciler that
+    # owns what the panel says about the engine — so the panel kept the
+    # server engine's two-step hint and its "the phrase is fixed" hidden
+    # keyword field, while the browser engine was what would actually run.
+    page.add_init_script("localStorage.setItem('wakemode', '1');"
+                         "localStorage.setItem('serverwake', '1');")
+    srv = web(license_mgr=trial_at(tmp_path, day=15),
+              wakeword_sessions=_WakeSessions())
+    page.goto(srv.url)
+    page.wait_for_function(
+        "() => /prova|trial/i.test("
+        "document.getElementById('prostatus').textContent)", timeout=5000)
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+
+    # The panel as a Pro household left it: server engine selected.
+    page.evaluate("document.getElementById('serverwake').checked = true")
+    page.evaluate("window.vivavoce.refreshServerWake()")
+    page.wait_for_function(
+        "() => document.getElementById('wakewordrow').style.display === 'none'",
+        timeout=5000)
+
+    page.evaluate("window.vivavoce.refreshLicense()")
+    page.wait_for_function(
+        "() => !document.getElementById('serverwake').checked", timeout=5000)
+    assert page.eval_on_selector(
+        "#wakewordrow", "el => el.style.display") != "none", (
+        "the keyword field stayed hidden for an engine no longer selected")
+    assert page.eval_on_selector(
+        "#wakehint_server", "el => el.style.display") == "none"

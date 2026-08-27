@@ -8,6 +8,7 @@
 import { $, clientId } from "./util.js";
 import { ui } from "./i18n.js";
 import { syncVoicePanel } from "./tts.js";
+import { syncWakePhrase } from "./miccapture.js";
 import { renderPlayers } from "./settings.js";
 
 const PRO_STORE_URL = "https://vivavoce.lemonsqueezy.com";  // checkout link, set at launch
@@ -33,11 +34,21 @@ export function applyPro() {
   if (!PRO) {
     if ($("wakemode").checked) {
       $("wakemode").checked = false;
-      $("wakehint").style.display = "none";
+      // #wakeopts, not #wakehint: the index.html split moved the container
+      // out from under that id (which is now just the inner hint text), and
+      // this kept hiding the paragraph while the block around it — engine
+      // choice, wake-word field, the lot — stayed on screen under a disabled
+      // checkbox. It is what mic.js toggles, so it is what belongs here.
+      $("wakeopts").style.display = "none";
     }
     if ($("readback").checked) { $("readback").checked = false; syncVoicePanel(); }
     $("localasr").checked = false;
     $("serverwake").checked = false;
+    // The engine choice has a reconciler and this is a change to it: without
+    // asking it to run, the panel keeps the server engine's hint and its
+    // disabled wake-word field while the browser engine is what would
+    // actually run.
+    syncWakePhrase();
   }
   const st = $("prostatus");
   st.classList.remove("warn");
