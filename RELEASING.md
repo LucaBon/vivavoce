@@ -103,8 +103,8 @@ docker run --rm --entrypoint sh vivavoce-addon-check -c "ls /app"
 docker rmi vivavoce-addon-check
 ```
 
-Expect `deploy engine localvoice tools`. A 404 here means the tag is missing or
-misnamed — the directory inside the tarball drops the leading `v`
+Expect `deploy engine localvoice pyproject.toml tools`. A 404 here means the tag
+is missing or misnamed — the directory inside the tarball drops the leading `v`
 (`v0.2.0` → `vivavoce-0.2.0/`), which the Dockerfile already accounts for.
 
 ## Notes
