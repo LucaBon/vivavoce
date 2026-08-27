@@ -174,3 +174,34 @@ def test_responses_are_keep_alive(srv):
     # protocol_version = HTTP/1.1: the wake word posts ~12 chunks a second per
     # phone, and each one used to be a fresh TCP+TLS handshake.
     assert srv.get("/tls").headers.get("Connection", "").lower() != "close"
+
+
+# -- reads, and the one attack that can read them -------------------------------
+
+def test_a_rebound_host_cannot_read_the_household_state(srv):
+    # Checks 1 and 2 rest on "cross-site, the answer can't be read". DNS
+    # rebinding is exactly the case where it can: the attacker's own name
+    # resolves to this LAN address, so their page is same-origin with us.
+    # do_GET never consulted the allow-list that check exists for, so every
+    # readable route answered it — the license and its key, the players in
+    # the house, the kid-safe state, what is playing right now.
+    for path in ("/license", "/players", "/kidsafe?client=x", "/nowplaying",
+                 "/tls", "/"):
+        r = srv.try_get(path, headers={"Host": "evil.example"})
+        assert r.status == 403, f"{path} answered a rebound host"
+        assert r.json()["error"] == "bad_host"
+
+
+def test_ordinary_reads_still_work(srv):
+    # The allow-list admits IP literals and LAN names; nothing here may make
+    # the app harder to open than it was.
+    assert srv.get("/").status == 200                      # Host: 127.0.0.1:port
+    assert srv.try_get("/tls", headers={"Host": "vivavoce.local"}).status == 200
+    assert srv.try_get("/license",
+                       headers={"Host": "localhost:8730"}).status == 200
+
+
+def test_an_allowed_name_can_read_too(live_server):
+    srv = live_server(allowed_hosts=["hifi.example.com"])
+    assert srv.try_get("/tls",
+                       headers={"Host": "hifi.example.com"}).status == 200

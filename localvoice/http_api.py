@@ -97,6 +97,13 @@ def make_handler(lms, material_url: str, services, default_service: str,
         host_policy = webguard.HostPolicy(allowed_hosts)
 
         def do_GET(self):
+            # Reads are guarded too: /license, /players, /kidsafe and
+            # /nowplaying all describe this household, and the Host allow-list
+            # is the only check that sees a rebound name for what it is (see
+            # _reject_bad_host). A Host that cannot POST could never have used
+            # the app anyway — do_POST has always required the same list.
+            if self._reject_bad_host():
+                return
             if self.path in ("/", "/index.html"):
                 page = staticfiles.index_html().replace("__MATERIAL_URL__",
                                                         material_url)

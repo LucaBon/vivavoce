@@ -118,6 +118,25 @@ class RequestBase:
     # "enable" with a PIN of its own choosing — locking the parent out of
     # the feature meant to protect their child. Three cheap checks close
     # it; see webguard.py for what each one is for.
+    def _reject_bad_host(self) -> bool:
+        """True (and a 403 already sent) when this is not a Host we answer to.
+
+        The Host allow-list alone, which is the half of the guard that reads
+        matter. The other two checks are about a request being *sent* from
+        somewhere else and cannot apply here: a top-level navigation carries
+        no Origin and reports Sec-Fetch-Site: cross-site whenever it came
+        from a link, so refusing on those would refuse ordinary browsing.
+
+        DNS rebinding is different, and it is the reason this exists: the
+        attacker's own name resolves to this LAN address, so their page is
+        same-origin with us and CAN read what it asks for. Nothing but the
+        Host tells the two apart.
+        """
+        if self.host_policy.allows(self.headers.get("Host") or ""):
+            return False
+        self._send(403, json.dumps({"ok": False, "error": "bad_host"}))
+        return True
+
     def _reject_cross_site(self) -> bool:
         """True (and a 403 already sent) when this request must not act."""
         reason = webguard.cross_site_reason(
