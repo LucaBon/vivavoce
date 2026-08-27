@@ -278,3 +278,30 @@ def test_a_dead_sessions_error_does_not_overwrite_the_current_message(page, web)
     page.wait_for_timeout(300)
     assert page.eval_on_selector("#status", "el => el.textContent") == settled, (
         "an error from the session we killed replaced the current message")
+
+
+def test_tap_to_talk_with_autosend_off_keeps_the_prompt(page, web):
+    # Wake mode solved this with isAwaitingReview(); tap-to-talk never had the
+    # equivalent, so handleManualFinal() wrote "check the text and press Send"
+    # and the end of the capture immediately answered it with "tap the
+    # microphone" — over a box silently waiting for Send.
+    srv = web(license_mgr=_ProLicense())
+    page.add_init_script(FAKE_CONTINUOUS_SPEECH)
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+    assert _autosend(page) is False  # wake mode is off, so this follows it
+
+    page.click("#mic")  # one tap-to-talk shot
+    page.wait_for_function("() => window.__sr.live", timeout=5000)
+    _say(page, "pausa")
+    page.wait_for_function(
+        "() => document.getElementById('text').value === 'pausa'", timeout=5000)
+
+    # The session then ends the way Chrome ends one, which is where the
+    # prompt used to be overwritten.
+    page.wait_for_function("() => !window.__sr.live._on", timeout=5000)
+    page.wait_for_timeout(200)
+    status = page.eval_on_selector("#status", "el => el.textContent")
+    assert "Controlla il testo" in status, f"prompt was clobbered: {status!r}"
+    assert _bubbles(page) == []
