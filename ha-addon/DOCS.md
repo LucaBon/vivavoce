@@ -63,4 +63,14 @@ dell'app, quindi l'avviso del browser va accettato una sola volta. Se cambi
   microfono usa quindi il riconoscimento del browser. Per averli, usa
   l'immagine Docker con `--build-arg ASR=1` / `--build-arg WAKEWORD=1`
   (vedi DEPLOY.md).
+- **Cos'è IA qui e cosa no.** IA è la parte che trasforma la voce in testo: su
+  Home Assistant è il riconoscimento del browser (quindi Google su
+  Chrome/Android, Apple su Safari/iOS — vedi
+  [PRIVACY.md](https://github.com/LucaBon/vivavoce/blob/main/PRIVACY.md)).
+  Tutto ciò che decide *cosa hai chiesto* non lo è: sono regole scritte a mano,
+  nessun LLM, nessun modello che impara da te, nessun profilo di chi parla.
+  Poiché riconosce il parlato, Vivavoce è un sistema di IA ai sensi dell'AI Act
+  e te lo dice a schermo; la valutazione completa è in
+  [docs/ai-act.md](https://github.com/LucaBon/vivavoce/blob/main/docs/ai-act.md).
+  Chi la usa in casa non ha obblighi propri.
 - Problemi o idee: https://github.com/LucaBon/vivavoce/issues

@@ -1,5 +1,162 @@
 # Changelog
 
+## 0.4.0 — August 2026
+
+### New
+
+- **Vivavoce now says it is a machine.** A line under the microphone —
+  «Assistente automatico: stai parlando con un software, non con una persona» —
+  and, when the read-back voice or continuous listening is on, one sentence
+  spoken at the start of a session. This is Article 50(1) of the EU AI Act,
+  applicable since 2 August 2026 to any system that interacts directly with
+  people, and it binds software already on the market. The Commission's
+  guidelines open their list of examples with "AI-enabled voice assistants",
+  and speech reaches this app through a neural model in every configuration —
+  the browser's by default, Whisper on your own server with the Pro install —
+  so the obligation is ours. The notice sits with the controls rather than in
+  a menu, and nothing can switch it off: a disclosure reachable only from the
+  settings is not one.
+
+- **[`docs/ai-act.md`](docs/ai-act.md) — where the app stands under the AI Act,
+  article by article.** The guidelines put the burden of that assessment on
+  the provider, and the interesting half is the negatives: transcription is
+  not synthetic content, so nothing needs marking; `engine/moods.py`
+  classifies music and not the mood of the listener; nothing anywhere
+  recognises *who* is speaking; and the regex-and-`difflib` router is not an
+  AI system at all under the Commission's own definition. Households running
+  Vivavoce at home carry no obligations of their own (art. 2(10)).
+
+- **[`licenses/MODELS.md`](licenses/MODELS.md)** records which speech models
+  the optional installs pull in, from where, and under which licence.
+  Vivavoce ships no weights of its own.
+
+### Changed
+
+- **Kid-safe says why a song is refused, not how old you are.** «Questa canzone
+  c'è, ma non è adatta alla tua età» claimed to know something the gate cannot
+  know: nothing here recognises who is speaking. The decision is three facts —
+  kid-safe is on, *this browser* has not typed the PIN in the last fifteen
+  minutes, a blocklist term matched — and every one of them is about a device
+  and a list. It now names the real reason, which is also the actionable one.
+
+- **GET routes are now held to the Host allow-list.** Only `do_POST` consulted
+  it, so the check added against DNS rebinding was protecting no readable
+  route: under rebinding the attacker's page is same-origin with us and could
+  read `/license`, `/players`, `/kidsafe` and `/nowplaying`. **If you reach
+  Vivavoce through a DNS name of your own, put it in
+  `VIVAVOCE_ALLOWED_HOSTS`** — such a setup now gets a 403 on the page itself
+  where before the page loaded and only the commands failed. Nothing that
+  worked stops working (POST always required the same list, so those installs
+  could never issue a command), but the failure is louder and looks worse.
+
+- **The container renews its TLS certificate on every boot** instead of
+  generating one only when the files are missing. The server leaf now runs 800
+  days rather than to a fixed date — Apple refuses any server certificate
+  valid for longer — which turned "generate if absent" into a time bomb with
+  nothing to defuse it. Only certificates our own CA signed are reissued, and
+  the CA itself is reused, so nobody reinstalls anything on their phones. It
+  does mean the container writes to your data directory on every start.
+
+- **The README's privacy section matches the code again.** "Everything else
+  never leaves your LAN" did not cover the artwork proxy, which for TIDAL and
+  Qobuz fetches whatever CDN URL the plugin reports, nor the one-time Whisper
+  model download, nor the machine's hostname, which rides along with a licence
+  activation as its `instance_name`. `PRIVACY.md` said "nothing else is sent"
+  about that same activation. All three are now stated where the claim is.
+
+### Fixed
+
+- **The five-attempt PIN gate allowed a great many more than five.**
+  `verify_pin` read the counter, spent ~100 ms in PBKDF2, and only then
+  incremented it, with no lock held across the two — so every request that
+  arrived before the first write saw zero attempts. The server runs one thread
+  per connection and allows 128 of them.
+
+- **A room command no longer aims everybody else's music.** «metti Time in
+  cucina» retargeted the turn by swapping `self.lms` and restoring it in a
+  `finally` — correct for one turn at a time, and this `Router` is not one turn
+  at a time: `http_api` caches one per conversation and the server is threaded.
+
+- **`kidsafe.json` had two writers and no shared lock.** The PIN half and the
+  blocklist half each read the whole file and wrote the whole file back, so
+  whichever read first wrote last and silently dropped the other's changes. A
+  save that fails is now reported instead of swallowed.
+
+- **Switching continuous listening off takes the command capture with it.**
+  Only the wake stream was stopped; the capture it had opened ran to its
+  30-second cap, transcribed, and — with auto-send on, which wake mode implies
+  — answered whatever the room happened to be saying, long after the panel had
+  gone dark and said "tap the microphone".
+
+- **The whole continuous-listening block is put away when the trial ends**, not
+  just its hint paragraph: engine choice, keyword field and both hints used to
+  stay on screen under a checkbox that had just been disabled.
+
+- **The wake word picks the entry that contains it**, rather than any entry
+  merely longer than the stray interim result the fallback was holding — and a
+  stray is routinely longer than the command it interrupts.
+
+- **A server-side wake word that cannot resolve its model no longer reports
+  itself as available.** `--wakeword-model hey_vivavoce` printed "attiva" and
+  then detected nothing, because the check only asked whether `openwakeword`
+  imports.
+
+- **An expired install is no longer told at every boot that it has fourteen
+  fresh trial days.**
+
+- **`https: false` is honoured in the Home Assistant app.** The add-on reads
+  its options with `jq -r '.[$k] // empty'`, and `//` falls through on `false`
+  as readily as on a missing key — `https` being the only boolean option we
+  expose.
+
+- **The Docker healthcheck reads the same variable names the entrypoint still
+  answers to.** A container still setting `SQUEEZESAY_HTTPS=0` served plain
+  HTTP correctly and was reported unhealthy for it.
+
+- **The service worker no longer caches an error page as a version of the
+  app.** A 403, 404 or 500 could land under `/` or under a module's key and
+  replace what the install had put there.
+
+- **The seek bar survives losing the track under a finger.** The five-second
+  poll, a `visibilitychange` or a failed fetch could drop the now-playing state
+  mid-drag, and the next pointer event threw.
+
+- **A blank alternative is not an alternative.** `alternatives: [""]` on
+  `/api/v1/command` is a `str`, passed the type check, and became a one-item
+  list that replaced the text instead of refining it.
+
+- **A decade is no longer read out in a foreign voice.** The year went into the
+  list of foreign names in the sentence, and the language guesser has nothing
+  to go on in "1985", so «Ho messo qualcosa del 1985» broke mid-sentence into
+  an English voice.
+
+- **The systemd unit's startup lines reach `journalctl`.** No `-u`, so under
+  systemd — where stdout is a pipe — Python buffered the server's ~700 bytes of
+  startup diagnostics in 4 KiB blocks and showed none of it. **Existing
+  installs need to re-copy `deploy/vivavoce.service` and `daemon-reload`** for
+  this to take effect.
+
+### Internal
+
+- **`mic.js` outgrew the repo's own 400-line ceiling** during the wake-mode
+  work; the local-recognition engine now lives in
+  `localvoice/static/js/localasr.js`, which is in the service worker's shell.
+  `VERSION` went to `vivavoce-v11`, so installed PWAs pick the new module up on
+  activation.
+
+- **`tests/test_ai_act_disclosure.py`** pins what a refactor could quietly
+  undo: that the notice exists, sits in the interaction area, cannot be
+  switched off by markup, stylesheet or script, exists in both languages, and
+  is still wired to the start of listening. The wording is deliberately not
+  asserted — it should stay free to improve.
+
+- **A review pass over this release's own commits** closed five findings, four
+  of them regressions the work had introduced itself — among them
+  `tools/make_cert.py` truncating `key.pem` in place.
+
+- **`RELEASING.md` step 6 expected four entries from `ls /app`** where the
+  add-on Dockerfile copies five.
+
 ## 0.3.0 — August 2026
 
 ### Fixed

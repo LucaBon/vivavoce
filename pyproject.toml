@@ -1,6 +1,6 @@
 [project]
 name = "vivavoce"
-version = "0.3.0"
+version = "0.4.0"
 description = "Vivavoce — hands-free voice control for a Daphile/LMS hi-fi (TIDAL and Qobuz included), in Italian and English."
 readme = "README.md"
 # Open-core: tutto AGPL-3.0 tranne localvoice/pro/ (vedi licenses/README.md).
