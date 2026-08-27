@@ -131,6 +131,19 @@ def _score(query: Optional[str], text: Optional[str], *,
     return score
 
 
+def _covers(query: Optional[str], text: Optional[str]) -> bool:
+    """True when every word of ``query`` appears in ``text`` (normalized).
+
+    Directional on purpose, unlike the subset floor in :func:`_score`, which
+    fires either way round and so cannot tell "the title contains the whole
+    request" from "the request contains the whole title" — the difference
+    between a mis-split title and a request that really did name an artist.
+    """
+    q = set(_normalize(query).split())
+    t = set(_normalize(text).split())
+    return bool(q) and q <= t
+
+
 def _rank(query: Optional[str], items: List[Dict], key: str = "title") -> List:
     """Return ``[(score, item), ...]`` sorted by descending match score against
     ``query``, keeping the original (TIDAL relevance) order as the tiebreaker."""
@@ -281,7 +294,9 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
     "Time dall'album Dark Side" -> title='Time', album='Dark Side'.
     "Comfortably Numb dei Pink Floyd" -> title='Comfortably Numb', artist='Pink Floyd'.
     "Comfortably Numb Pink Floyd" (no connector) stays title-only."""
-    text = _strip_lead_filler(text)
+    raw = (text or "").strip()
+    text = _strip_lead_filler(raw)
+    filler_stripped = text != raw
     album = None
     match = _ALBUM_SEP.search(text)
     if match:
@@ -291,10 +306,14 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
         pre = text
     # Stripping the lead filler can leave the connector in front («la canzone
     # di Marinella di De André» -> "di Marinella di De André"): drop it, or it
-    # becomes part of the title and drags every score down.
-    lead = _ARTIST_SEP.match(pre)
-    if lead and pre[lead.end():].strip():
-        pre = pre[lead.end():].strip()
+    # becomes part of the title and drags every score down. ONLY then — an
+    # unconditional strip ate the first word of every title that legitimately
+    # opens with a connector, so «By the Way» searched for "the Way" and
+    # «Della vita» for "vita".
+    if filler_stripped:
+        lead = _ARTIST_SEP.match(pre)
+        if lead and pre[lead.end():].strip():
+            pre = pre[lead.end():].strip()
     title, artist = pre, None
     # The LAST connector, not the first: "Stand By Me by Ben E. King" split on
     # its own "By" and searched for a song called "Stand". Scanned right to
