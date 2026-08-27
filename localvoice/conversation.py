@@ -15,6 +15,8 @@ behaves differently afterwards.
 
 from __future__ import annotations
 
+import contextlib
+
 import actions
 import moods
 from messages import msg
@@ -40,6 +42,37 @@ MOOD_TTL = 300.0
 
 class ConversationState:
     """The open-list and open-mood half of the router."""
+
+    # -- which player this turn acts on ---------------------------------------
+    #
+    # A room command («metti Time in cucina») aims the turn at another player,
+    # and the Router it does that on is shared: http_api.router_for caches one
+    # per conversation, and the server runs a thread per connection. Saving
+    # self.lms, overwriting it and restoring it in a finally was correct for
+    # one turn at a time and wrong for two — A saves the default and aims at
+    # Cucina, B saves *Cucina* and aims at Studio, A restores the default, B
+    # restores Cucina, and the router is left on Cucina for good. Every later
+    # turn on that conversation then acted in a room nobody had asked for.
+    # Two automations, or two browser tabs sharing a client id, were enough.
+
+    @property
+    def lms(self):
+        """The player this turn acts on: where it was aimed, or the default."""
+        return getattr(self._aim, "lms", None) or self._base_lms
+
+    @lms.setter
+    def lms(self, client):
+        self._base_lms = client
+
+    @contextlib.contextmanager
+    def _aimed_at(self, player_id):
+        """Aim ``self.lms`` at ``player_id`` for this thread, for one turn."""
+        previous = getattr(self._aim, "lms", None)
+        self._aim.lms = self._base_lms.for_player(player_id)
+        try:
+            yield
+        finally:
+            self._aim.lms = previous
 
     def _expire_candidates(self) -> None:
         """Forget a list nobody picked from in time (see CANDIDATES_TTL)."""
@@ -80,8 +113,8 @@ class ConversationState:
         res = moods.play_mood(lms, state["key"], stream=stream,
                               exclude=state["used"], guard=self._guard)
         if getattr(res, "ok", False):
-            if res.terms:
-                state["used"].append(res.terms[0])
+            if res.label:
+                state["used"].append(res.label)
             self.mood_until = self.now() + MOOD_TTL
         else:
             self.mood = None

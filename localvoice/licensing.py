@@ -159,15 +159,25 @@ class LicenseManager:
                           poll: float = 5.0, tries: int = 120):
         """Open the window as soon as the clock is worth trusting.
 
+        ``opened`` means *this call opened it*, never "one exists": the
+        banner it drives promises fourteen days with everything on, and an
+        install whose window closed a month ago must not be told that.
+
         Opens it right away on any machine whose time is already right —
-        every one with an RTC — and returns ``(opened, None)``. On a board
+        every one with an RTC — and returns ``(True, None)``. On a board
         that boots pre-NTP it returns ``(False, thread)``: a daemon thread
         that keeps looking for up to ten minutes and opens the window the
         moment the time arrives, so a Pi is not left without a trial because
         it happened to start before its clock did.
         """
-        if self.start_trial() or self._trial() is not None:
+        if self.start_trial():
             return True, None
+        if self._trial() is not None:
+            # A window already exists. Whether it is still running or long
+            # expired, this call did not open it and there is nothing to wait
+            # for — saying otherwise told every expired install, at every
+            # boot, that it had just been given fourteen fresh days.
+            return False, None
         if self.clock_is_plausible():
             return False, None      # refused for another reason; nothing to wait for
 

@@ -158,10 +158,19 @@ export function createWakeHandler(rec) {
     // interim can arrive after a fuller snapshot. When the last entry carries
     // no wake word and none was expected, fall back to the fullest that does.
     if (best && !armed && commandAfterWake(textOf(best)) === null) {
+      // The fullest entry that DOES carry the wake word — not merely one
+      // longer than the entry that doesn't. Seeding the comparison with that
+      // entry made its length the bar to clear, and a stray is routinely
+      // longer than the command it arrived after (a television, someone else
+      // in the room): the command lost to it and was dropped in silence.
+      let withWake = null;
       for (const r of entries) {
         if (commandAfterWake(textOf(r)) !== null
-            && textOf(r).length > textOf(best).length) best = r;
+            && (!withWake || textOf(r).length > textOf(withWake).length)) {
+          withWake = r;
+        }
       }
+      if (withWake) best = withWake;
     }
     const txt = textOf(best);
     const alts = best && best.isFinal ? Array.from(best, (a) => a.transcript) : null;

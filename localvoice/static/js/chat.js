@@ -213,8 +213,20 @@ export function autosendFollowWakeMode(wakeOn) {
   if (!autosendChosen()) $("autosend").checked = wakeOn;
 }
 
+// Is the last transcript sitting in the box waiting for Send, rather than
+// having been sent? Whoever closes a capture has to ask: "check the text and
+// press Send" is a question, and answering it with "tap the microphone" — as
+// the end of the capture used to, immediately — describes a box silently
+// waiting for Send as if nothing were waiting at all. The wake path has the
+// same rule, in its own handler (wakeword.js).
+let awaitingReview = false;
+export const isAwaitingReview = () => awaitingReview;
+/** A capture has started: whatever is in the box is no longer the answer. */
+export function clearAwaitingReview() { awaitingReview = false; }
+
 export function handleManualFinal(txt, alts) {
   $("text").value = txt;
+  awaitingReview = !$("autosend").checked;
   if ($("autosend").checked) { runCommand(txt, alts); }
   else { $("status").textContent = ui("check_text"); $("text").focus(); }
 }

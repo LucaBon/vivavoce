@@ -17,7 +17,8 @@ IT = {
     "err_unreachable":
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.",
     "blocked":
-        "Questa canzone c'è, ma non è adatta alla tua età, quindi non posso metterla.",
+        "Questa canzone c'è, ma è nella lista dei brani bloccati, quindi non "
+        "posso metterla.",
     "not_owner": "Solo il genitore può cambiare la lista dei brani bloccati.",
 
     # -- labels / list read-outs -------------------------------------------
@@ -197,7 +198,8 @@ EN = {
     "err_unreachable":
         "I can't reach the system right now. Please try again in a moment.",
     "blocked":
-        "That song exists, but it's not suitable for your age, so I can't play it.",
+        "That song exists, but it's on the blocked-songs list, so I can't "
+        "play it.",
     "not_owner": "Only the parent can change the blocked-songs list.",
 
     # -- labels / list read-outs -------------------------------------------

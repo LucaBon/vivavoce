@@ -55,7 +55,14 @@ class KidSafe:
     def __init__(self, data_dir: str, license_mgr=None,
                  now=time.time) -> None:
         self.path = os.path.join(data_dir, STATE_FILE)
-        self.store = JsonBlocklistStore(self.path)
+        # Held across every read-modify-write of the state file: the counter
+        # below is incremented from whatever the incrementing thread last read,
+        # and the server runs one thread per connection.
+        self._lock = appdata.lock_for(self.path)
+        # The same lock, not one of its own: the store rewrites this very file
+        # — terms live in it next to the PIN hash and the lockout — so the two
+        # have to take turns or each drops what the other just wrote.
+        self.store = JsonBlocklistStore(self.path, lock=self._lock)
         self.license = license_mgr
         self.now = now
         self._unlocked: Dict[str, float] = {}   # client_id -> unlocked_until
@@ -80,10 +87,11 @@ class KidSafe:
     # -- PIN -------------------------------------------------------------------
 
     def _save(self, **changes: Any) -> None:
-        state = self._state()
-        state.update(changes)
-        # 0600: this file holds the PIN hash and the lockout counter.
-        appdata.atomic_write_json(self.path, state, mode=0o600)
+        with self._lock:
+            state = self._state()
+            state.update(changes)
+            # 0600: this file holds the PIN hash and the lockout counter.
+            appdata.atomic_write_json(self.path, state, mode=0o600)
 
     def _set_pin(self, pin: str) -> None:
         salt = secrets.token_bytes(16)
@@ -125,26 +133,35 @@ class KidSafe:
         try is a fine way to occupy a server otherwise). ``client_id`` is
         accepted and ignored: it is client-chosen, so it can never bound
         anything — see the note on MAX_ATTEMPTS.
+
+        The whole of it happens under the state file's lock: reading the gate,
+        hashing, and writing the counter back. Checking the gate and then
+        incrementing from a separately-read value is a promise of five
+        attempts that concurrency collects on — every request that got in
+        before the first write saw count 0, and every one of them wrote 1.
+        Serialising also means the wasted hashing stops at MAX_ATTEMPTS
+        instead of running once per waiting thread.
         """
-        if self.locked_out_for() > 0:
-            return False
-        stored = self._state().get("pin") or {}
-        try:
-            expected = stored["hash"]
-            salt = bytes.fromhex(stored["salt"])
-        except (KeyError, ValueError):
-            return False
-        ok = secrets.compare_digest(_hash_pin(pin or "", salt), expected)
-        lock = self._lockout()
-        if ok:
-            if lock["count"]:
-                self._save(lockout={"count": 0, "retry_at": 0.0})
-        else:
-            count = lock["count"] + 1
-            self._save(lockout={"count": count,
-                                "retry_at": self.now()
-                                + self._backoff_seconds(count)})
-        return ok
+        with self._lock:
+            if self.locked_out_for() > 0:
+                return False
+            stored = self._state().get("pin") or {}
+            try:
+                expected = stored["hash"]
+                salt = bytes.fromhex(stored["salt"])
+            except (KeyError, ValueError):
+                return False
+            ok = secrets.compare_digest(_hash_pin(pin or "", salt), expected)
+            lock = self._lockout()
+            if ok:
+                if lock["count"]:
+                    self._save(lockout={"count": 0, "retry_at": 0.0})
+            else:
+                count = lock["count"] + 1
+                self._save(lockout={"count": count,
+                                    "retry_at": self.now()
+                                    + self._backoff_seconds(count)})
+            return ok
 
     # -- unlock window ---------------------------------------------------------
 
@@ -203,9 +220,15 @@ class KidSafe:
             return {"ok": False, "error": "pro_required"}
         if not self.is_unlocked(client_id):
             return {"ok": False, "error": "locked"}
-        speech = (actions.add_block if op == "add" else actions.remove_block)(
+        result = (actions.add_block if op == "add" else actions.remove_block)(
             self.store, term, is_owner=True)
-        return {"ok": True, "speech": str(speech)}
+        # add_block/remove_block already say no — an empty term, or a store
+        # that cannot be written (a read-only data dir) — and this used to
+        # answer "ok" over the top of them, so the panel cleared the input and
+        # showed nothing: a term that was never saved looked saved.
+        if not result.ok:
+            return {"ok": False, "error": "save_failed", "speech": str(result)}
+        return {"ok": True, "speech": str(result)}
 
     # -- enforcement (never Pro-gated: see the fail-safe note above) -----------
 

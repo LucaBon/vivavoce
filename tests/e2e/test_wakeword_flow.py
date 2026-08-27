@@ -429,3 +429,138 @@ def test_a_never_started_sessions_end_does_not_erase_the_new_engines_error(
     assert "denied by test" in status.inner_text(), (
         f"the torn-down session's onend erased it; status shows "
         f"{status.inner_text()!r}")
+
+
+# --- switching listening off has to take the capture with it ------------------
+#
+# The wake stream and the command capture it opens are two different holders of
+# the microphone, and only the first one was ever stopped. What the second one
+# does when nobody is listening any more is not "nothing": it runs to its own
+# timeout and then transcribes and (auto-send being what wake mode implies)
+# sends whatever the room happened to be saying, into a UI that went dark
+# thirty seconds earlier and said "tap the microphone".
+
+def test_stopping_wake_listening_also_stops_the_open_capture(
+        page_with_fake_mic, web):
+    page = page_with_fake_mic
+    page.add_init_script(FAKE_SPEECH_RECOGNITION)
+    sessions = TriggeringSessions(trigger_after=2)
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
+    _start_server_wake(page, srv)
+
+    page.wait_for_function("() => window.__sr.captureStarts === 1", timeout=8000)
+    page.click("#mic")  # "stop listening"
+
+    page.wait_for_function("() => window.__sr.captureStops === 1", timeout=5000)
+    assert not page.eval_on_selector(
+        "#mic", "el => el.classList.contains('listening')")
+
+    # And what that session still delivers on its way out belongs to nobody:
+    # acting on it would answer the room after the panel said it had stopped.
+    page.evaluate("window.__sr.live.finish('pausa')")
+    page.wait_for_timeout(300)
+    assert page.evaluate(
+        "[...document.querySelectorAll('#log .bubble')].length") == 0, (
+        "a cancelled capture still sent its command")
+
+
+SLOW_MICROPHONE = """
+    // getUserMedia with a real delay in it: the window between asking for the
+    // microphone and getting it is where the permission prompt lives, and it
+    // is the window every cancel/duplicate guard in mic.js and miccapture.js
+    // exists for. Headless Chromium answers instantly, so nothing about that
+    // window is reproducible without this.
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    window.__mic = { calls: 0 };
+    navigator.mediaDevices.getUserMedia = (constraints) => {
+      window.__mic.calls++;
+      return new Promise((resolve, reject) => {
+        setTimeout(() => real(constraints).then(resolve, reject), 600);
+      });
+    };
+"""
+
+
+def test_stopping_while_the_stream_is_opening_really_stops(
+        page_with_fake_mic, web):
+    # Tearing the session down while startWakeStream() was still pending used
+    # to no-op — serverWakeStream is null in that window, so there was nothing
+    # to stop — and the pending start then landed anyway: the page went on
+    # posting chunks with continuous listening switched off.
+    page = page_with_fake_mic
+    page.add_init_script(SLOW_MICROPHONE)
+    sessions = FakeSessions()
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
+    _start_server_wake(page, srv)
+
+    page.click("#mic")  # inside the 600 ms opening window
+    page.wait_for_timeout(1500)  # well past it
+
+    assert sessions.chunk_calls == 0, (
+        f"the cancelled stream started anyway and posted "
+        f"{sessions.chunk_calls} chunks")
+    assert not page.eval_on_selector(
+        "#mic", "el => el.classList.contains('listening')")
+
+
+class _FakeTranscriber:
+    """Enough of the Whisper wrapper for /asr to say the engine is installed;
+    the double-tap below never gets as far as transcribing anything."""
+
+    model_name = "tiny"
+
+    def available(self):
+        return True
+
+    def transcribe(self, audio, lang):
+        return {"text": "pausa", "alternatives": []}
+
+
+def test_a_second_tap_during_the_permission_prompt_opens_one_stream(
+        page_with_fake_mic, web):
+    # startLocalRec() guards on `localRec`, which is only assigned AFTER
+    # getUserMedia resolves. Two taps while the prompt is up — the normal
+    # first-run case on a phone — both passed that guard and opened two
+    # streams; the second overwrote the first, whose recorder was then never
+    # stopped, whose tracks were never released, and whose recording
+    # indicator stayed lit for the life of the page.
+    page = page_with_fake_mic
+    page.add_init_script(SLOW_MICROPHONE)
+    srv = web(license_mgr=_ProLicense(), transcriber=_FakeTranscriber())
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    _wait_visible(page, "#localasrrow")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+    page.check("#localasr")
+
+    page.click("#mic")
+    page.click("#mic")  # still inside the 600 ms window
+    page.wait_for_timeout(1200)
+
+    assert page.evaluate("window.__mic.calls") == 1, (
+        "the second tap opened a second microphone stream")
+
+
+def test_switching_engine_while_the_stream_is_opening_still_ends_up_listening(
+        page_with_fake_mic, web):
+    # A restart asked for while a start is still in flight cannot join it, so
+    # it cancels it — and used to start nothing in its place: the box stayed
+    # ticked over a page that had quietly stopped listening, and only a fresh
+    # tap on the microphone recovered.
+    page = page_with_fake_mic
+    page.add_init_script(SLOW_MICROPHONE)
+    sessions = FakeSessions()
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
+    _start_server_wake(page, srv)
+
+    # Inside the 600 ms opening window: off and on again.
+    page.uncheck("#wakemode")
+    page.check("#wakemode")
+
+    for _ in range(60):
+        if sessions.chunk_calls > 0:
+            break
+        page.wait_for_timeout(100)
+    assert sessions.chunk_calls > 0, (
+        "the restart cancelled the pending start and began nothing")
+    assert page.eval_on_selector("#mic", "el => el.classList.contains('listening')")

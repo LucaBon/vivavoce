@@ -25,6 +25,7 @@ State (the last read-out list) is kept in-instance for the "metti la N" /
 from __future__ import annotations
 
 import re
+import threading
 import time
 
 import actions
@@ -60,6 +61,10 @@ class Router(ConversationState, IntentTable):
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
                  kidsafe=None, client_id="default", multiroom=None,
                  now=time.monotonic):
+        # ``lms`` is a property on ConversationState: a room turn aims it per
+        # thread, because this Router is shared by every request on the
+        # conversation. See _aimed_at there.
+        self._aim = threading.local()
         self.lms = lms
         # Multi-room (Pro): an injected feature object (pro/multiroom.py) with
         # a narrow contract — extract_room(text, lang) and pro_ok(). Like
@@ -178,7 +183,8 @@ class Router(ConversationState, IntentTable):
             head = head[:-1]
         speech = head + suffix + "." + ((" " + rest) if sep else "")
         return actions.ActionResult(speech, ok=True, candidates=res.candidates,
-                                    kind=res.kind, terms=res.terms)
+                                    kind=res.kind, terms=res.terms,
+                                    label=getattr(res, "label", None))
 
     def _resolve(self, arg: str, stream_fn, source: str):
         guard = self._guard
@@ -380,12 +386,8 @@ class Router(ConversationState, IntentTable):
             if overruled:  # _tag itself skips misses and questions
                 result = self._tag(result, msg("read_as_title"))
             return result
-        saved = self.lms
-        self.lms = saved.for_player(target["playerid"])
-        try:
+        with self._aimed_at(target["playerid"]):
             result = self._route(t, source, P)
-        finally:
-            self.lms = saved
         room = target.get("name") or ""
         if self._opened:
             # «metti la 2» after a room-opened list keeps playing in that room.

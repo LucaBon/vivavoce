@@ -106,3 +106,12 @@ def test_process_is_thread_safe_under_concurrent_chunks():
         t.join(timeout=30)
     assert not any(t.is_alive() for t in threads), "a thread hung"
     assert errors == [], errors
+
+
+def test_sessions_with_an_unknown_model_are_unavailable():
+    # The registry only probed that the package imports, so a model name with
+    # nothing bundled behind it announced itself as working — at startup, and
+    # to the page over /wakeword — and then failed on every chunk.
+    sessions = ServerWakeWordSessions("not-a-real-model")
+    assert sessions.available() is False
+    assert ServerWakeWordSessions(DEFAULT_MODEL).available() is True

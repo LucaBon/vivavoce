@@ -187,8 +187,10 @@ class LiveServer:
         self.url = url
 
     # -- raw ------------------------------------------------------------------
-    def get(self, path="/", timeout=5):
-        return self._open(urllib.request.Request(self.url + path), timeout)
+    def get(self, path="/", timeout=5, headers=None):
+        return self._open(
+            urllib.request.Request(self.url + path, headers=headers or {}),
+            timeout)
 
     def post(self, path, data=b"", content_type="application/json", timeout=5,
              headers=None):
@@ -209,9 +211,9 @@ class LiveServer:
         return self.post_json(path, payload, timeout).json()
 
     # -- non-raising variants -------------------------------------------------
-    def try_get(self, path="/", timeout=5):
+    def try_get(self, path="/", timeout=5, headers=None):
         try:
-            return self.get(path, timeout)
+            return self.get(path, timeout, headers)
         except urllib.error.HTTPError as exc:
             return Response(exc.code, dict(exc.headers), exc.read())
 

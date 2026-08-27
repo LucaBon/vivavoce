@@ -17,7 +17,15 @@ Wants=network-online.target time-sync.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/vivavoce
-ExecStart=/opt/vivavoce/.venv/bin/python localvoice/server.py \
+# Unbuffered, like both sibling deploy paths (Dockerfile, entrypoint.sh).
+# Under systemd stdout is a pipe, not a terminal, so Python buffers it in 4 KiB
+# blocks — and the server's whole startup diagnostic is well under that. The
+# `systemctl enable --now && journalctl -u vivavoce` sequence in DEPLOY.md
+# therefore showed nothing at all for a server that had started perfectly, for
+# as long as it kept running. Both spellings on purpose: the flag survives an
+# ExecStart edited to call a wrapper, the variable survives one that drops it.
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/vivavoce/.venv/bin/python -u localvoice/server.py \
     --cert /opt/vivavoce/cert.pem --key /opt/vivavoce/key.pem \
     --data-dir /opt/vivavoce/data
 Restart=on-failure

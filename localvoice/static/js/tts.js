@@ -3,7 +3,7 @@
 // foreign terms (title/artist) each by their own language's voice.
 
 import { $ } from "./util.js";
-import { LANGS, ui, recLang, foreignDefault, detectLang, applyUI } from "./i18n.js";
+import { LANGS, ui, uiLang, recLang, foreignDefault, detectLang, applyUI } from "./i18n.js";
 
 const NATURAL = /natural|neural|online|google|siri|premium|enhanced/i;
 let VOICES = [];
@@ -60,6 +60,30 @@ export function speak(text, terms) {
       if (seg.text.trim()) utter(seg.text, seg.lang);
     }
   } catch (e) { /* TTS optional */ }
+}
+
+// --- Art. 50(1) AI Act: the spoken half of the disclosure -------------------
+//
+// The standing notice lives on the page, under the microphone. Hands-free
+// listening is the case that notice cannot reach: somebody talks to the room
+// and never looks at the screen. Commission guidelines C(2026) 5054 §37 name
+// exactly this — "explicit spoken statements at the beginning of the
+// interaction" — and §143 asks for it "at least once at the start of an
+// interactive session".
+//
+// Once per page load, then, not once per tap: §39 warns that a disclosure
+// repeated past the point of being heard stops being one. The flag remembers
+// the language it was said in, so switching the mic language says it again in
+// the language the household is actually speaking. Reloading the page starts
+// a new session and says it again.
+let noticeSaidIn = "";  // "" = not said yet in this page session
+
+export function speakAiNotice() {
+  if (!("speechSynthesis" in window)) return;
+  const lang = uiLang();
+  if (noticeSaidIn === lang) return;
+  noticeSaidIn = lang;
+  try { utter(ui("ai_notice_spoken"), lang); } catch (e) { /* TTS optional */ }
 }
 
 // --- voice settings UI ---

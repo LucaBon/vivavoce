@@ -35,6 +35,7 @@ import datetime as _dt
 import ipaddress
 import os
 import socket
+import tempfile
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -146,6 +147,102 @@ def _load_or_create_ca(out_dir: str):
     return ca_cert, ca_key, True
 
 
+def _write_atomically(path: str, data: bytes, mode: int) -> str:
+    """Write ``data`` to a temp file next to ``path``; return the temp path.
+
+    Nothing is published here — the caller renames, so that a whole set of
+    files becomes visible in two adjacent `os.replace` calls rather than over
+    the course of writing them. This matters now that the container renews on
+    every boot: the old code opened key.pem O_TRUNC and rewrote it in place,
+    so a process killed mid-write (a full volume, a `docker stop` on the boot
+    that happened to renew) left a truncated key beside a cert that no longer
+    matched it — and the entrypoint, seeing both files present, started the
+    server on the wreckage.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return tmp
+
+
+def _key_matches(cert, key_path: str) -> bool:
+    """Does ``key_path`` hold the private half of ``cert``'s public key?"""
+    try:
+        with open(key_path, "rb") as f:
+            key = serialization.load_pem_private_key(f.read(), password=None)
+    except (OSError, ValueError, TypeError):
+        return False
+    return (key.public_key().public_bytes(
+                serialization.Encoding.DER,
+                serialization.PublicFormat.SubjectPublicKeyInfo)
+            == cert.public_key().public_bytes(
+                serialization.Encoding.DER,
+                serialization.PublicFormat.SubjectPublicKeyInfo))
+
+
+def _renewal_verdict(out_dir: str, within_days: int):
+    """Whether the certificate in ``out_dir`` still has to be reissued.
+
+    ``(False, reason)`` to leave it alone, ``(True, reason)`` to reissue.
+    Called only with ``--renew-within``, i.e. from an unattended start, where
+    "do nothing" has to be the answer for anything this tool did not write.
+    """
+    cert_path = os.path.join(out_dir, "cert.pem")
+    key_path = os.path.join(out_dir, "key.pem")
+    if not (os.path.exists(cert_path) and os.path.exists(key_path)):
+        return True, "non c'è ancora un certificato"
+    try:
+        with open(cert_path, "rb") as f:
+            cert = x509.load_pem_x509_certificate(f.read())
+    except (OSError, ValueError):
+        # Unreadable is not the same as ours-and-broken, and there is no way
+        # to tell them apart without parsing it: a third-party cert.pem this
+        # container cannot open (root-owned 0600, a DER file, a symlink out of
+        # the mount) reads exactly like a corrupt one. Overwriting what we
+        # cannot identify is the one outcome worth avoiding, so say so and
+        # stop — deleting the file is the operator's way of asking for a new
+        # one.
+        return False, "il certificato presente non è leggibile: non lo tocco"
+
+    # Somebody else's certificate — a real one from a public CA, mounted into
+    # this directory — must not be replaced by a self-signed one just because
+    # it is close to its own renewal. Ours is the one our CA signed.
+    ca_path = os.path.join(out_dir, "ca.pem")
+    try:
+        with open(ca_path, "rb") as f:
+            ca_cert = x509.load_pem_x509_certificate(f.read())
+    except (OSError, ValueError):
+        return False, "non c'è la CA locale: il certificato non è nostro"
+    if cert.issuer != ca_cert.subject:
+        return False, "il certificato presente non è firmato dalla CA locale"
+
+    # Ours, so it is safe to repair: a key that does not belong to this
+    # certificate is what a renewal interrupted between its two renames
+    # leaves behind, and the server cannot start on it.
+    if not _key_matches(cert, key_path):
+        return True, "la chiave non corrisponde al certificato"
+
+    try:
+        expires = cert.not_valid_after_utc
+    except AttributeError:  # cryptography < 42
+        expires = cert.not_valid_after.replace(tzinfo=_dt.timezone.utc)
+    left = (expires - _dt.datetime.now(_dt.timezone.utc)).days
+    if left > within_days:
+        return False, f"valido ancora {left} giorni"
+    return True, f"scade fra {left} giorni"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Genera la CA locale (riusata) e il certificato del server "
@@ -156,11 +253,23 @@ def main() -> int:
     ap.add_argument("--hosts", default="", metavar="H1,H2,...",
                     help="SAN aggiuntivi, separati da virgola: IP o nomi DNS "
                          "(es. l'IP LAN dell'host quando si genera in un container)")
+    ap.add_argument("--renew-within", type=int, default=None, metavar="GIORNI",
+                    help="non fare niente se il certificato esistente è nostro "
+                         "e scade fra più di GIORNI giorni; serve agli avvii "
+                         "automatici (container), che altrimenti non "
+                         "rinnoverebbero mai niente")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
     cert_path = os.path.join(args.out, "cert.pem")
     key_path = os.path.join(args.out, "key.pem")
+
+    if args.renew_within is not None:
+        renew, why = _renewal_verdict(args.out, args.renew_within)
+        if not renew:
+            print(f"Certificato del server invariato: {why}.")
+            return 0
+        print(f"Rinnovo il certificato del server: {why}.")
 
     ca_cert, ca_key, ca_created = _load_or_create_ca(args.out)
 
@@ -215,17 +324,27 @@ def main() -> int:
         .sign(ca_key, hashes.SHA256())
     )
 
-    with open(os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-                      0o600), "wb") as f:
-        f.write(
-            key.private_bytes(
-                serialization.Encoding.PEM,
-                serialization.PrivateFormat.TraditionalOpenSSL,
-                serialization.NoEncryption(),
-            )
-        )
-    with open(cert_path, "wb") as f:
-        f.write(cert.public_bytes(serialization.Encoding.PEM))
+    # Both written aside in full, then published with two adjacent renames:
+    # the pair is only ever swapped, never rewritten in place. A crash can
+    # still land between the two renames, leaving a new key beside the old
+    # certificate — which is why _renewal_verdict checks that they match and
+    # reissues when they don't, so the next boot repairs it by itself.
+    tmp_key = _write_atomically(key_path, key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ), 0o600)
+    try:
+        tmp_cert = _write_atomically(
+            cert_path, cert.public_bytes(serialization.Encoding.PEM), 0o644)
+    except BaseException:
+        try:
+            os.unlink(tmp_key)
+        except OSError:
+            pass
+        raise
+    os.replace(tmp_key, key_path)
+    os.replace(tmp_cert, cert_path)
 
     print(f"CA locale: {os.path.join(args.out, 'ca.pem')}"
           + ("  (creata ora)" if ca_created else "  (riusata)"))

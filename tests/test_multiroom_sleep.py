@@ -922,3 +922,78 @@ def test_free_tier_players_endpoint_reports_pro_false(http_server_free, transpor
     data = http_server_free.json_get("/players")
     assert data["ok"] is True
     assert data["pro"] is False
+
+
+# -- one Router, two overlapping turns ------------------------------------------
+#
+# http_api.router_for caches one Router per (conversation_id, player) and the
+# server runs a thread per connection, so two requests carrying the same
+# conversation id run handle() on the same object. Aiming a room turn used to
+# mean saving self.lms, overwriting it and restoring it in a finally — correct
+# for one turn at a time, and for two it interleaves: A saves the default and
+# aims at Cucina, B saves *Cucina* and aims at Studio, A restores the default,
+# B restores Cucina. The router is left pointing at Cucina permanently, and
+# every later turn on that conversation plays in a room nobody asked for.
+
+def test_a_room_turn_does_not_retarget_the_router_for_good(room_router,
+                                                           transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://42.flc", "name": "Time"}]},
+    )
+    before = room_router.lms
+    room_router.handle("metti Time in cucina", source="tidal")
+    assert room_router.lms is before, "the aim outlived the turn that set it"
+
+
+def test_a_room_turn_is_invisible_to_another_thread(room_router, transport,
+                                                    make_tidal):
+    """Two room turns held open at once, and an observer that is in neither.
+
+    Timing alone will not show this: with a fake transport a turn is over in
+    microseconds, so the window between overwriting self.lms and restoring it
+    is almost never open when the second thread reads it. So both turns are
+    parked *inside* the routed action, and a third party looks at the router
+    while they are. The aim belongs to the turn that set it; anyone not in a
+    room turn must still see the default player.
+    """
+    import threading
+
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://42.flc", "name": "Time"}]},
+    )
+    default = room_router.lms
+    both_inside = threading.Barrier(3)      # two turns + this thread
+    real_play_song = actions.play_song
+    failures = []
+
+    def parked(*args, **kwargs):
+        both_inside.wait(timeout=10)        # hold the turn open
+        return real_play_song(*args, **kwargs)
+
+    def turn(phrase):
+        try:
+            room_router.handle(phrase, source="tidal")
+        except Exception as exc:            # pragma: no cover - reported below
+            failures.append(exc)
+
+    actions.play_song = parked
+    try:
+        threads = [threading.Thread(target=turn, args=(p,)) for p in
+                   ("metti Time in cucina", "metti Time in salotto")]
+        for t in threads:
+            t.start()
+        both_inside.wait(timeout=10)
+        # Both turns are aimed at a room right now. This thread asked for
+        # nothing, so it must still be looking at the default player.
+        observed = room_router.lms
+        for t in threads:
+            t.join(timeout=30)
+    finally:
+        actions.play_song = real_play_song
+
+    assert not failures, failures
+    assert observed is default, (
+        "a room turn in another thread changed which player this one sees")
+    assert room_router.lms is default, "the aim outlived the turns that set it"

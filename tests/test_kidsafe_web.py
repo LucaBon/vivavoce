@@ -3,6 +3,7 @@ plumbing, voice management intents, and the fail-safe policy (a revoked
 license keeps ENFORCING an enabled blocklist; it only locks changes)."""
 
 import json
+import threading
 
 import pytest
 
@@ -254,7 +255,7 @@ def test_blocked_term_refused_for_locked_client_it(guarded_router, transport):
 def test_blocked_term_refused_for_locked_client_en(guarded_router, transport):
     router, _ks = guarded_router
     reply = router.handle("play Bad Song", lang="en")
-    assert "not suitable" in str(reply)
+    assert "blocked-songs list" in str(reply)
     assert all(cmd[0] != "playlist" for cmd in transport.commands())
 
 
@@ -364,3 +365,200 @@ def test_kidsafe_http_flow(live_server, tmp_path, clock):
                                        "client": "other-kid"})
     assert reply["ok"] is False
     assert reply["speech"] == actions.msg("blocked")
+
+
+# -- the wrong-PIN counter under concurrency -----------------------------------
+#
+# The gate was read, ~100ms of PBKDF2 ran, and only then was the counter
+# re-read and incremented. Every request that arrived before the first write
+# saw count 0 — so all of them passed a five-attempt gate, all of them were
+# actually tested, and each wrote back "one more than the zero I read". The
+# file settled on 1 or 2 instead of the real number, the backoff never
+# engaged, and the next batch started from an untriggered gate again.
+#
+# Real time here, not the frozen `clock` fixture: the backoff is what closes
+# the gate, and it closes it by comparing retry_at against now().
+
+def _pro_kidsafe(tmp_path):
+    return KidSafe(str(tmp_path), FakeLicense(pro=True))
+
+
+def _hammer(ks, pin, threads):
+    """Fire ``threads`` concurrent verify_pin calls, all released together."""
+    start = threading.Barrier(threads)
+    results = []
+    guard = threading.Lock()
+
+    def attempt():
+        start.wait(timeout=10)
+        got = ks.verify_pin(pin)
+        with guard:
+            results.append(got)
+
+    workers = [threading.Thread(target=attempt) for _ in range(threads)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join(timeout=60)
+    assert not any(w.is_alive() for w in workers), "verify_pin deadlocked"
+    return results
+
+
+def test_concurrent_wrong_pins_cannot_outrun_the_gate(tmp_path):
+    ks = _pro_kidsafe(tmp_path)
+    ks.enable("123456", "owner")
+
+    results = _hammer(ks, "000000", 20)
+
+    assert not any(results), "a wrong PIN was accepted"
+    # Exactly MAX_ATTEMPTS got through and were counted; the rest met a closed
+    # gate. The bug showed up here as a count of 1 or 2 — every thread writing
+    # back an increment of the same stale zero.
+    assert ks._lockout()["count"] == MAX_ATTEMPTS
+    assert ks.locked_out_for() > 0, "the backoff never engaged"
+
+
+def test_a_flood_is_not_twenty_password_hashes(tmp_path):
+    # The gate exists so a hammering client costs nothing. Consulted outside
+    # the critical section, it cost one PBKDF2 per waiting thread instead —
+    # 200k iterations each, which is a fine way to occupy a server.
+    from pro import kidsafe as kidsafe_module
+    ks = _pro_kidsafe(tmp_path)
+    ks.enable("123456", "owner")
+    hashed = []
+    real_hash = kidsafe_module._hash_pin
+
+    def counting(pin, salt):
+        hashed.append(pin)
+        return real_hash(pin, salt)
+
+    kidsafe_module._hash_pin = counting
+    try:
+        _hammer(ks, "000000", 20)
+    finally:
+        kidsafe_module._hash_pin = real_hash
+
+    assert len(hashed) == MAX_ATTEMPTS, (
+        f"{len(hashed)} PINs hashed behind a {MAX_ATTEMPTS}-attempt gate")
+
+
+def test_a_correct_pin_still_clears_the_counter(tmp_path):
+    ks = _pro_kidsafe(tmp_path)
+    ks.enable("123456", "owner")
+    assert ks.verify_pin("000000") is False
+    assert ks._lockout()["count"] == 1
+    assert ks.verify_pin("123456") is True
+    assert ks._lockout()["count"] == 0
+
+
+# -- one file, two writers -----------------------------------------------------
+
+def test_a_pin_write_does_not_drop_a_concurrent_blocklist_edit(tmp_path,
+                                                               monkeypatch):
+    """kidsafe.json is read-modify-written from two places: KidSafe._save
+    (PIN, enabled flag, lockout counter) and JsonBlocklistStore.put (terms).
+    Atomic writes keep the file well-formed and do nothing about this: each
+    reads the whole state and writes the whole state back, so whoever reads
+    first writes last and silently drops the other's change. The server is
+    thread-per-connection and both are reachable from the same panel.
+    """
+    import appdata
+
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    ks.store.put(["Old"])  # something to lose
+
+    reading = threading.Event()
+    release = threading.Event()
+    real_read = appdata.read_json
+
+    def slow_read(path, default=None):
+        state = real_read(path, default)
+        if not reading.is_set():
+            reading.set()
+            release.wait(5)  # hold the read-modify-write open
+        return state
+
+    monkeypatch.setattr(appdata, "read_json", slow_read)
+
+    saver = threading.Thread(target=ks._save, kwargs={"enabled": True})
+    saver.start()
+    assert reading.wait(5), "the PIN write never reached its read"
+
+    editor = threading.Thread(target=ks.store.put, args=(["Old", "New"],))
+    editor.start()
+    editor.join(1.0)
+    assert editor.is_alive(), (
+        "the blocklist edit sailed straight through a state file already "
+        "being rewritten")
+
+    release.set()
+    saver.join(5)
+    editor.join(5)
+
+    assert ks.terms() == ["Old", "New"]
+    assert ks.enabled() is True, "the blocklist edit dropped the enabled flag"
+
+
+def test_a_term_that_cannot_be_saved_is_not_reported_as_saved(ks):
+    """edit_terms answered ok=True over add_block/remove_block's own refusal,
+    so a read-only data dir cleared the input and looked like success."""
+    ks.enable("123456", "a")
+
+    class _ReadOnlyStore:
+        def get(self):
+            return []
+
+        def put(self, terms):
+            raise BlocklistStoreError("read-only data dir")
+
+    ks.store = _ReadOnlyStore()
+    result = ks.edit_terms("add", "Bad Song", "a")
+    assert result["ok"] is False
+    assert result["error"] == "save_failed"
+    assert result["speech"]  # what to tell the parent, in their language
+
+
+def test_an_empty_term_is_not_reported_as_added(ks):
+    ks.enable("123456", "a")
+    assert ks.edit_terms("add", "   ", "a")["ok"] is False
+    assert ks.terms() == []
+
+
+def test_two_terms_added_at_once_do_not_erase_each_other(tmp_path, monkeypatch):
+    """add_block reads the list, appends and writes the whole list back. An
+    atomic write does nothing about that: two edits that both start from the
+    same list end with only the second one's term — and both answered
+    "added". Every unlocked device in the house can reach /kidsafe, and the
+    server is thread-per-connection."""
+    import blocklist_store
+
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    ks.enable("123456", "parent")
+
+    reading = threading.Event()
+    release = threading.Event()
+    real_get = blocklist_store.JsonBlocklistStore.get
+
+    def slow_get(self):
+        terms = real_get(self)
+        if not reading.is_set():
+            reading.set()
+            release.wait(5)  # hold the read-modify-write open
+        return terms
+
+    monkeypatch.setattr(blocklist_store.JsonBlocklistStore, "get", slow_get)
+
+    first = threading.Thread(target=ks.edit_terms, args=("add", "Alpha", "parent"))
+    first.start()
+    assert reading.wait(5), "the first edit never reached its read"
+
+    second = threading.Thread(target=ks.edit_terms, args=("add", "Beta", "parent"))
+    second.start()
+    second.join(1.0)
+    assert second.is_alive(), "the second edit read a list already being changed"
+
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    assert sorted(ks.terms()) == ["Alpha", "Beta"]

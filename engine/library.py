@@ -198,8 +198,9 @@ def library_candidates(lms, query: Optional[str], *,
 
     ``guard`` drops what kid-safe blocks. Not belt-and-braces — the resolvers
     downstream do refuse a blocked item, but by then it has already decided the
-    routing, and the refusal («c'è, ma non è adatta alla tua età») confirms the
-    record is in the house where the answer it replaced leaked nothing.
+    routing, and the refusal («c'è, ma è nella lista dei brani bloccati»)
+    confirms the record is in the house where the answer it replaced leaked
+    nothing.
     """
     query = _strip_lead_filler(query)
     if not query:

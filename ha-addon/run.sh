@@ -11,9 +11,14 @@ set -eu
 
 OPTS=/data/options.json
 
+# `select(. != null)` e non `// empty`: l'operatore alternativo di jq scatta
+# anche su `false`, non solo su una chiave assente, quindi `https: false` —
+# l'unica opzione booleana che abbiamo — usciva da qui come stringa vuota e
+# non veniva mai riconosciuta. L'add-on serviva TLS qualunque cosa avesse
+# scelto l'utente, e il reverse proxy davanti parlava HTTP nel vuoto.
 opt() {
     if [ -f "$OPTS" ]; then
-        jq -r --arg k "$1" '.[$k] // empty' "$OPTS"
+        jq -r --arg k "$1" '.[$k] | select(. != null)' "$OPTS"
     fi
 }
 

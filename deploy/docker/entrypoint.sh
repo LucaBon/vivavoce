@@ -25,14 +25,30 @@ set -- --host 0.0.0.0 --port "$PORT" --data-dir "$DATA_DIR"
 # HTTPS attivo di default: senza, il microfono del browser funziona solo su
 # localhost e il container non servirebbe a molto. VIVAVOCE_HTTPS=0 per HTTP.
 if [ "$HTTPS" != "0" ]; then
+    # --renew-within: non solo la PRIMA generazione. Il certificato del server
+    # dura 800 giorni (iOS e macOS rifiutano di più — vedi tools/make_cert.py,
+    # dove la scadenza era fissa al 2034 fino a questo rilascio), quindi una
+    # condizione "i file non ci sono" significava che un'installazione in
+    # container smetteva di funzionare da sola dopo poco più di due anni, senza
+    # niente che la rinnovasse. La CA locale viene riusata, quindi il rinnovo
+    # non chiede di reinstallare niente sui telefoni; e il tool lascia stare
+    # qualunque certificato non abbia firmato lui (chi monta il proprio).
+    #
+    # Non fatale: un rinnovo fallito non deve impedire l'avvio con il
+    # certificato che c'è già, che fino alla scadenza va benissimo.
+    if [ -n "$CERT_HOSTS" ]; then
+        python /app/tools/make_cert.py --out "$DATA_DIR" --renew-within 30 \
+            --hosts "$CERT_HOSTS" || CERT_RENEW_FAILED=1
+    else
+        python /app/tools/make_cert.py --out "$DATA_DIR" --renew-within 30 \
+            || CERT_RENEW_FAILED=1
+    fi
+    if [ -n "${CERT_RENEW_FAILED:-}" ]; then
+        echo "Certificato: rinnovo non riuscito, proseguo con quello presente."
+    fi
     if [ ! -f "$DATA_DIR/cert.pem" ] || [ ! -f "$DATA_DIR/key.pem" ]; then
-        echo "Genero il certificato TLS self-signed in $DATA_DIR ..."
-        if [ -n "$CERT_HOSTS" ]; then
-            python /app/tools/make_cert.py --out "$DATA_DIR" \
-                --hosts "$CERT_HOSTS"
-        else
-            python /app/tools/make_cert.py --out "$DATA_DIR"
-        fi
+        echo "Nessun certificato in $DATA_DIR e non sono riuscito a generarlo."
+        exit 1
     fi
     set -- "$@" --cert "$DATA_DIR/cert.pem" --key "$DATA_DIR/key.pem"
 fi

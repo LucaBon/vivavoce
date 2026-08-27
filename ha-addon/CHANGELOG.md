@@ -11,6 +11,100 @@ versioni [SemVer](https://semver.org/lang/it/). La versione dell'app coincide
 sempre con quella del progetto: l'immagine viene compilata dal tag
 `v<versione>`, non da un branch.
 
+## [0.4.0] - 2026-08-27
+
+### Aggiunto
+
+- **Vivavoce dice di essere una macchina.** Sotto il microfono c'è ora una
+  riga — «Assistente automatico: stai parlando con un software, non con una
+  persona» — e, se hai acceso la lettura ad alta voce o l'ascolto continuo,
+  una frase detta una volta a inizio sessione. È l'articolo 50(1) del
+  Regolamento (UE) 2024/1689 (AI Act), applicabile dal 2 agosto 2026 a
+  qualunque sistema che interagisce direttamente con delle persone, e vale
+  anche per il software già distribuito. La voce che diventa testo passa
+  sempre da un modello neurale — quello del browser, o Whisper sul tuo server
+  con l'installazione Pro — quindi l'obbligo è nostro. L'avviso sta accanto ai
+  comandi e non nelle impostazioni, e non si può spegnere: un avviso che si
+  raggiunge solo da un menu non è un avviso.
+  La valutazione completa, articolo per articolo, è in
+  [docs/ai-act.md](https://github.com/LucaBon/vivavoce/blob/main/docs/ai-act.md).
+  Chi usa Vivavoce in casa non ha obblighi propri.
+
+### Modificato
+
+- **Kid-safe dice perché una canzone è rifiutata, non quanti anni hai.**
+  «Questa canzone c'è, ma non è adatta alla tua età» dichiarava di sapere una
+  cosa che il filtro non può sapere: qui dentro niente riconosce chi parla. La
+  decisione sono tre fatti — kid-safe è acceso, *questo dispositivo* non ha
+  digitato il PIN negli ultimi quindici minuti, un termine della lista
+  corrisponde — e riguardano un apparecchio e un elenco, non una persona. Ora
+  il messaggio dice il motivo vero, che è anche quello su cui puoi agire.
+
+- **Il certificato TLS viene rinnovato a ogni avvio**, non più generato solo
+  quando manca. Il certificato del server dura 800 giorni (iOS e macOS
+  rifiutano di più), il che trasformava «genera se assente» in una scadenza
+  senza nessuno che la rinnovasse. Vengono riemessi solo i certificati firmati
+  dalla nostra CA, e la CA viene riusata: **non devi reinstallare niente sui
+  telefoni**. In cambio l'app scrive nella sua cartella dati a ogni avvio.
+
+- **Il controllo dell'host vale ora anche in lettura.** Prima lo faceva solo
+  la scrittura, quindi la protezione contro il DNS rebinding non copriva
+  nessuna pagina leggibile. **Se raggiungi Vivavoce con un nome DNS tuo,
+  mettilo in `VIVAVOCE_ALLOWED_HOSTS`**: una configurazione così ora riceve un
+  403 sulla pagina stessa, mentre prima la pagina si apriva e fallivano solo i
+  comandi. Non smette di funzionare nulla che funzionasse — la scrittura ha
+  sempre richiesto la stessa lista — ma il guasto è più rumoroso.
+
+### Corretto
+
+- **`https: false` viene finalmente rispettato.** L'app legge le sue opzioni
+  con `jq -r '.[$k] // empty'`, e `//` scarta `false` esattamente come una
+  chiave assente: `https` è l'unica opzione booleana che esponiamo, quindi era
+  l'unica a farne le spese.
+
+- **Il blocco a cinque tentativi del PIN ne permetteva molti di più.** La
+  verifica leggeva il contatore, passava ~100 ms in PBKDF2 e solo dopo lo
+  incrementava, senza niente che tenesse insieme le due cose: ogni richiesta
+  arrivata prima della prima scrittura vedeva zero tentativi.
+
+- **`kidsafe.json` aveva due scrittori e nessun lucchetto in comune**: la parte
+  PIN e la parte lista leggevano e riscrivevano tutto il file, e chi leggeva
+  per primo scriveva per ultimo, perdendo in silenzio le modifiche dell'altro.
+  Un salvataggio che fallisce ora lo dice, invece di sparire.
+
+- **«metti X in cucina» non sposta più la musica di tutti gli altri.**
+
+- **Spegnere l'ascolto continuo chiude anche la registrazione che aveva
+  aperto.** Prima quella arrivava fino al suo limite di trenta secondi,
+  trascriveva e — con l'invio automatico, che l'ascolto continuo implica —
+  rispondeva a quel che si stava dicendo in stanza, molto dopo che il pannello
+  si era spento dicendo «tocca il microfono».
+
+- **A trial scaduto sparisce tutto il blocco dell'ascolto continuo**, non solo
+  il paragrafo di spiegazione: scelta del motore, campo della parola chiave e
+  suggerimenti restavano a schermo sotto una casella appena disattivata.
+
+- **La parola chiave sceglie la frase che la contiene**, non una qualsiasi più
+  lunga del frammento spurio che il riconoscitore aveva lasciato in mano.
+
+- **Una parola chiave lato server che non trova il suo modello non si dichiara
+  più attiva** e poi non riconosce niente.
+
+- **Un'installazione scaduta non si sente più dire a ogni avvio che ha quattordici
+  giorni di prova freschi.**
+
+- **Il service worker non conserva più una pagina di errore come se fosse
+  l'app**: un 403, un 404 o un 500 potevano prendere il posto di quel che
+  l'installazione aveva messo da parte.
+
+- **La barra di avanzamento sopravvive a perdere il brano sotto il dito**: il
+  controllo ogni cinque secondi, un cambio di scheda o una richiesta fallita
+  potevano azzerarne lo stato a trascinamento iniziato.
+
+- **Un decennio non viene più letto con la voce sbagliata**: l'anno finiva fra
+  i nomi stranieri della frase, e in «1985» non c'è niente su cui indovinare
+  una lingua, così «Ho messo qualcosa del 1985» si spezzava a metà in inglese.
+
 ## [0.3.0] - 2026-08-26
 
 ### Aggiunto
