@@ -81,7 +81,8 @@ class ActionResult(str):
     from. ``handle_many`` uses ``.ok`` instead of sniffing the ``"Non "`` prefix.
     """
 
-    def __new__(cls, speech, *, ok=True, candidates=None, kind=None, terms=None):
+    def __new__(cls, speech, *, ok=True, candidates=None, kind=None, terms=None,
+                label=None):
         obj = super().__new__(cls, speech)
         obj.ok = ok
         obj.candidates = list(candidates or [])
@@ -90,6 +91,14 @@ class ActionResult(str):
         # speech, so the web client can read those parts in their own language
         # while the Italian frame is read by an Italian voice.
         obj.terms = [t for t in (terms or []) if t]
+        # What this result CHOSE, for a caller that must not choose it again —
+        # «un'altra» (see engine/moods.py). Almost always the same string as
+        # the foreign name, so it defaults to it; not always, and the
+        # difference matters. A year is a choice and not a name in any
+        # language, and carrying it in `terms` to keep the ledger fed had the
+        # web client hand "1985" to a foreign voice mid-sentence.
+        obj.label = label if label is not None else (
+            obj.terms[0] if obj.terms else None)
         return obj
 
 

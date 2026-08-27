@@ -280,8 +280,10 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
     service the request came from. ``exclude`` holds the normalized labels
     «un'altra» has already been given, so a second ask gets a second answer.
 
-    Returns a spoken read-back whose ``terms[0]`` is the chosen label — which
-    is what the caller adds to ``exclude`` for the next round.
+    Returns a spoken read-back whose ``label`` is what was chosen — which is
+    what the caller adds to ``exclude`` for the next round. Usually that is
+    also the foreign name in ``terms``; on the year axis it deliberately is
+    not, because a year is not a name to be read out in another language.
     """
     mood = MOODS.get(key)
     if mood is None:
@@ -317,8 +319,14 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
                 lms.play_local_year(year)
             except LMSError:
                 return ActionResult(msg("err_unreachable"), ok=False)
+            # `label`, not `terms`: the re-roll has to remember this year,
+            # and `terms` are the FOREIGN names in the sentence, which the web
+            # client gives to a foreign-language voice (static/js/tts.js).
+            # detectLang() finds nothing to go on in "1985" and falls through
+            # to the foreign default, so the Italian frame broke into three
+            # utterances around an English voice reading nineteen eighty-five.
             return ActionResult(msg("playing_mood_year", year=year), ok=True,
-                                terms=[str(year)])
+                                label=str(year))
     else:
         try:
             genres = lms.local_genres(GENRE_LIMIT)

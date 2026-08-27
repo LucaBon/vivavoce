@@ -113,8 +113,8 @@ class ConversationState:
         res = moods.play_mood(lms, state["key"], stream=stream,
                               exclude=state["used"], guard=self._guard)
         if getattr(res, "ok", False):
-            if res.terms:
-                state["used"].append(res.terms[0])
+            if res.label:
+                state["used"].append(res.label)
             self.mood_until = self.now() + MOOD_TTL
         else:
             self.mood = None

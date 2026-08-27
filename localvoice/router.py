@@ -183,7 +183,8 @@ class Router(ConversationState, IntentTable):
             head = head[:-1]
         speech = head + suffix + "." + ((" " + rest) if sep else "")
         return actions.ActionResult(speech, ok=True, candidates=res.candidates,
-                                    kind=res.kind, terms=res.terms)
+                                    kind=res.kind, terms=res.terms,
+                                    label=getattr(res, "label", None))
 
     def _resolve(self, arg: str, stream_fn, source: str):
         guard = self._guard

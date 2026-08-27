@@ -262,6 +262,27 @@ def test_a_decade_plays_one_year_of_it(router, decades):
     assert played_year(decades) == "1985"
 
 
+def test_a_year_is_not_handed_to_a_foreign_voice(router, decades):
+    # `terms` is the list of foreign names in the reply, and the web client
+    # gives each one to a foreign-language voice (static/js/tts.js). A year is
+    # not a name: detectLang() finds nothing to go on in "1985" and falls
+    # through to the foreign default, so the Italian sentence broke into three
+    # utterances around an English voice reading nineteen eighty-five. The
+    # re-roll still has to remember the year, which is what `label` is for.
+    reply = router.handle("metti musica anni ottanta")
+    assert reply.ok is True
+    assert reply.terms == []
+    assert reply.label == "1985"
+
+
+def test_a_genre_is_still_named_for_the_voice(router, library):
+    # The control: on the genre axis the choice IS a name, and it must keep
+    # reaching the voice that can pronounce it.
+    reply = router.handle("metti qualcosa di rilassante")
+    assert reply.ok is True
+    assert reply.terms == ["Ambient"] and reply.label == "Ambient"
+
+
 def test_a_decade_load_is_a_single_year_and_a_random_order(router, decades):
     # `year:` never takes a range anywhere in the CLI, and loading the whole
     # decade would be cmd:load plus nine cmd:add - and would leave the re-roll
