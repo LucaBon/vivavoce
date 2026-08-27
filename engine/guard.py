@@ -13,7 +13,8 @@ import re
 from typing import Dict, List, Optional
 
 from blocklist_store import BlocklistStoreError
-from matching import BLOCKLIST, GATE, ActionResult, _normalize
+from matching import (BLOCKLIST, GATE, ActionResult, _normalize,
+                      _normalize_apart)
 from messages import msg
 
 # Spoken when a restricted (non-owner) speaker asks for a blocked song/singer.
@@ -47,13 +48,21 @@ def is_blocked(text: Optional[str], blocklist: Optional[List[str]]) -> bool:
 
     Word-boundary matching avoids false positives like a blocked 'ass' hitting
     'bass', while still catching multi-word terms and inflections around them."""
-    norm = _normalize(text)
-    if not norm:
+    # Two normalizations, because one boundary rule cannot serve both spellings:
+    # _normalize deletes the apostrophe, so it catches the recogniser's «dont
+    # stop me now»; _normalize_apart keeps it as a separator, so a blocked term
+    # still stands alone in "L'Estasi dell'Oro" and "Eminem's Greatest Hits".
+    # A term is blocked if it stands as a whole word in EITHER reading.
+    haystacks = [(_normalize(text), _normalize),
+                 (_normalize_apart(text), _normalize_apart)]
+    haystacks = [(hay, norm_fn) for hay, norm_fn in haystacks if hay]
+    if not haystacks:
         return False
     for term in blocklist or []:
-        term_norm = _normalize(term)
-        if term_norm and re.search(rf"\b{re.escape(term_norm)}\b", norm):
-            return True
+        for hay, norm_fn in haystacks:
+            term_norm = norm_fn(term)
+            if term_norm and re.search(rf"\b{re.escape(term_norm)}\b", hay):
+                return True
     return False
 
 

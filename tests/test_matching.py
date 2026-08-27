@@ -5,6 +5,8 @@ gating with a 'did you mean' fallback, the structured ActionResult (.ok /
 These cover behaviour that the older first-hit-wins tests did not: multi-candidate
 ranking and the disambiguation prompt."""
 
+import pytest
+
 import actions
 from actions import ActionResult, _score
 
@@ -429,6 +431,58 @@ def test_a_connector_inside_a_title_is_not_an_artist():
 def test_a_leading_connector_left_by_the_filler_is_dropped():
     assert actions.parse_song_query("la canzone di Marinella di De André") == {
         "title": "Marinella", "artist": "De André", "album": None}
+
+
+def test_a_title_that_opens_with_a_connector_keeps_its_first_word():
+    # The strip above used to run unconditionally, so any request that merely
+    # STARTED with a connector lost its first word: «By the Way» searched TIDAL
+    # for "the Way" and «Della vita» for "vita". It may only fire when the lead
+    # filler actually removed something.
+    assert actions.parse_song_query("By the Way")["title"] == "By the Way"
+    assert actions.parse_song_query("Della vita")["title"] == "Della vita"
+    assert actions.parse_song_query("Di Nuovo Insieme")["title"] == "Di Nuovo Insieme"
+    assert actions.parse_song_query("By the Way")["artist"] is None
+
+
+@pytest.mark.parametrize("query, title", [
+    ("Cuore di Vetro", "Cuore di Vetro"),
+    ("Nel Blu Dipinto di Blu", "Nel Blu Dipinto di Blu"),
+    ("Il Ragazzo della Via Gluck", "Il Ragazzo della Via Gluck"),
+    ("Notte Prima degli Esami", "Notte Prima degli Esami"),
+    ("Fiume di Fango", "Fiume di Fango"),
+    ("Killed by Death", "Killed by Death"),
+    ("Blinded by the Light", "Blinded by the Light"),
+    ("Stand By Your Man", "Stand By Your Man"),
+])
+def test_a_title_containing_a_connector_still_plays(query, title, lms,
+                                                    transport, make_tidal):
+    # The split on the LAST connector invents an artist for any title that
+    # merely contains one («Cuore di Vetro» -> 'Cuore' by 'Vetro'). That used to
+    # degrade gracefully; once the "nobody in the results is them" refusal
+    # existed it turned into a hard "non ho trovato" with the exact track
+    # sitting first in the results — and ok=False made handle_many burn the
+    # next ASR alternative on top.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://ok.flc", "name": title,
+                      "artist": "Un Artista"}]},
+    )
+    reply = actions.play_song(lms, query)
+    assert reply.ok is True
+    assert ["playlist", "play", "tidal://ok.flc"] in transport.commands()
+
+
+def test_a_connector_title_matches_a_padded_edition(lms, transport, make_tidal):
+    # The un-split must survive the suffixes TIDAL actually ships.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://r.flc",
+                      "name": "Cuore di Vetro (Remastered 2012)",
+                      "artist": "Matia Bazar"}]},
+    )
+    reply = actions.play_song(lms, "Cuore di Vetro")
+    assert reply.ok is True
+    assert ["playlist", "play", "tidal://r.flc"] in transport.commands()
 
 
 # -- a named artist that isn't in the results ---------------------------------

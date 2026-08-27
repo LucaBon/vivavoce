@@ -17,7 +17,8 @@ from lms import LMSError
 from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
                       ActionResult, _MODE_KEY, _MODE_KEY_BY, _MODE_SUFFIX,
                       _dedup_by_title_artist, _did_you_mean, _ndistinct_titles,
-                      _normalize, _rank, _score, parse_song_query)
+                      _covers, _normalize, _rank, _score,
+                      parse_song_query)
 from messages import msg
 
 
@@ -76,15 +77,27 @@ def play_song(lms, query: Optional[str], *, mode: str = "play",
         tracks = lms.search_tracks(search_text)
         if not tracks:
             return ActionResult(msg("no_track_found", title=title), ok=False)
-        return _resolve_song(lms, tracks, title, artist, mode=mode, guard=guard)
+        return _resolve_song(lms, tracks, title, artist, mode=mode, guard=guard,
+                             whole=_strip_lead_filler(query))
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
 
 
-def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None) -> ActionResult:
+def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None,
+                  whole: Optional[str] = None) -> ActionResult:
     """Pick a track, disambiguate, or ask — from the TIDAL results and the parsed
     title/artist. Candidates stay in TIDAL's own relevance order, so padded-junk
-    titles ranked low never reach the shortlist."""
+    titles ranked low never reach the shortlist. ``whole`` is the unsplit request,
+    used to notice that the title/artist split was spurious."""
+    # A title that merely CONTAINS a connector splits into a bogus artist:
+    # «Cuore di Vetro» parses as 'Cuore' by 'Vetro', «Killed by Death» as
+    # 'Killed' by 'Death'. That used to degrade gracefully; with the refusal
+    # below it turns into "non ho trovato" while the exact track sits first in
+    # the results. If the WHOLE request matches a candidate title, the split
+    # was wrong: resolve on the whole request and forget the artist.
+    if artist and whole and not _covers(whole, title):
+        if any(_covers(whole, t.get("title")) for t in tracks):
+            title, artist = whole, None
     exacts = [t for t in tracks if _score(title, t.get("title")) >= EXACT_SCORE]
     strong = [t for t in tracks if _score(title, t.get("title")) >= CONFIDENT_SCORE]
     # 1) An artist was named -> play the matching edition (search_tracks carries the
@@ -302,7 +315,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 from matching import (BLOCKLIST, ERR_UNREACHABLE, LIST_LIMIT, _LEAD_FILLER,
                       _strip_lead_filler, LOCAL_CONFIDENT, _label,
                       _APOSTROPHES, _FOLD_MAP, _ALBUM_SEP, _ARTIST_SEP,
-                      _NOT_AN_ARTIST)
+                      _NOT_AN_ARTIST, _fold, _normalize_apart)
 from guard import (BLOCKED_SPEECH, NOT_OWNER_SPEECH, parse_blocklist,
                    is_blocked, ITEM_NAME_FIELDS, add_block, remove_block,
                    list_blocks)

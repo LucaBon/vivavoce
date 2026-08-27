@@ -131,6 +131,19 @@ def _score(query: Optional[str], text: Optional[str], *,
     return score
 
 
+def _covers(query: Optional[str], text: Optional[str]) -> bool:
+    """True when every word of ``query`` appears in ``text`` (normalized).
+
+    Directional on purpose, unlike the subset floor in :func:`_score`, which
+    fires either way round and so cannot tell "the title contains the whole
+    request" from "the request contains the whole title" — the difference
+    between a mis-split title and a request that really did name an artist.
+    """
+    q = set(_normalize(query).split())
+    t = set(_normalize(text).split())
+    return bool(q) and q <= t
+
+
 def _rank(query: Optional[str], items: List[Dict], key: str = "title") -> List:
     """Return ``[(score, item), ...]`` sorted by descending match score against
     ``query``, keeping the original (TIDAL relevance) order as the tiebreaker."""
@@ -215,6 +228,13 @@ _FOLD_MAP = {
 }
 
 
+def _fold(text: Optional[str]) -> str:
+    """Lowercase and strip every accent/ligature, leaving punctuation alone."""
+    lowered = "".join(_FOLD_MAP.get(c, c) for c in (text or "").lower())
+    decomposed = unicodedata.normalize("NFKD", lowered)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
 def _normalize(text: Optional[str]) -> str:
     """Lowercase, fold accents and punctuation, collapse spaces.
 
@@ -226,11 +246,22 @@ def _normalize(text: Optional[str]) -> str:
     digit is a separator now (``isalnum`` rather than an ASCII class, so
     Cyrillic/Greek/CJK titles keep their characters), and apostrophes vanish.
     """
-    lowered = "".join(_FOLD_MAP.get(c, c) for c in (text or "").lower())
-    decomposed = unicodedata.normalize("NFKD", lowered)
-    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    stripped = "".join(c for c in stripped if c not in _APOSTROPHES)
+    stripped = "".join(c for c in _fold(text) if c not in _APOSTROPHES)
     spaced = "".join(c if c.isalnum() else " " for c in stripped)
+    return re.sub(r"\s+", " ", spaced).strip()
+
+
+def _normalize_apart(text: Optional[str]) -> str:
+    """:func:`_normalize`, but the apostrophe separates instead of vanishing.
+
+    Deleting it is right for *scoring* — it is what lets «dont stop me now»
+    reach "Don't Stop Me Now" — and wrong for anything that needs a word
+    boundary, because it welds the term to its neighbour: ``\bestasi\b`` stops
+    matching "L'Estasi dell'Oro" and ``\beminem\b`` stops matching "Eminem's
+    Greatest Hits". Elision makes that the common case in Italian, not the
+    exotic one. Callers that match on word boundaries check this form too.
+    """
+    spaced = "".join(c if c.isalnum() else " " for c in _fold(text))
     return re.sub(r"\s+", " ", spaced).strip()
 
 
@@ -263,7 +294,9 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
     "Time dall'album Dark Side" -> title='Time', album='Dark Side'.
     "Comfortably Numb dei Pink Floyd" -> title='Comfortably Numb', artist='Pink Floyd'.
     "Comfortably Numb Pink Floyd" (no connector) stays title-only."""
-    text = _strip_lead_filler(text)
+    raw = (text or "").strip()
+    text = _strip_lead_filler(raw)
+    filler_stripped = text != raw
     album = None
     match = _ALBUM_SEP.search(text)
     if match:
@@ -273,10 +306,14 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
         pre = text
     # Stripping the lead filler can leave the connector in front («la canzone
     # di Marinella di De André» -> "di Marinella di De André"): drop it, or it
-    # becomes part of the title and drags every score down.
-    lead = _ARTIST_SEP.match(pre)
-    if lead and pre[lead.end():].strip():
-        pre = pre[lead.end():].strip()
+    # becomes part of the title and drags every score down. ONLY then — an
+    # unconditional strip ate the first word of every title that legitimately
+    # opens with a connector, so «By the Way» searched for "the Way" and
+    # «Della vita» for "vita".
+    if filler_stripped:
+        lead = _ARTIST_SEP.match(pre)
+        if lead and pre[lead.end():].strip():
+            pre = pre[lead.end():].strip()
     title, artist = pre, None
     # The LAST connector, not the first: "Stand By Me by Ben E. King" split on
     # its own "By" and searched for a song called "Stand". Scanned right to
