@@ -92,7 +92,13 @@ def api_v1_routes(router_for):
             # a silent wrong answer is the one failure this contract must not
             # have.
             alts = payload.get("alternatives")
-            alternatives = ([a for a in alts if isinstance(a, str)]
+            # ``a.strip()`` and not just ``isinstance``: a blank string is a
+            # str, so ``alternatives: [""]`` passed the filter, survived as a
+            # one-element list, and defeated the fallback below — handle_many
+            # then dropped the blank and answered "non ho sentito niente" to a
+            # caller who plainly said something. A Home Assistant blueprint
+            # rendering an empty template variable sends exactly that.
+            alternatives = ([a for a in alts if isinstance(a, str) and a.strip()]
                             if isinstance(alts, list) else [])
             # Alternatives refine ``text``; they do not replace it with
             # nothing. If none of them survived — the wrong type, or a list of
