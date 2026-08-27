@@ -291,6 +291,32 @@ def test_alternatives_that_survive_nothing_fall_back_to_the_text(live_server):
     assert "error" not in body
 
 
+@pytest.mark.parametrize("alts", [[""], ["   "], ["", "  "], []])
+def test_blank_alternatives_fall_back_to_the_text_too(alts, live_server):
+    """A blank string is a str, which is how it defeated the fallback.
+
+    ``alternatives: [""]`` passed the isinstance filter, made a non-empty
+    list, and so was used instead of ``text``; handle_many then dropped the
+    blank and answered "non ho sentito niente" while the command sat unread in
+    ``text``. A Home Assistant blueprint rendering an empty template variable
+    sends exactly this body, and the pause it asked for never happened."""
+    client = live_server()
+    body = client.json_post("/api/v1/command",
+                            {"text": "pausa", "alternatives": alts})
+    assert body["used"] == "pausa"
+    assert body["ok"] is True
+    assert "error" not in body
+
+
+def test_a_blank_alternative_does_not_hide_a_real_one(live_server):
+    # Filtering the blanks must not throw away the alternatives beside them.
+    body = live_server().json_post("/api/v1/command",
+                                   {"text": "qualcosa che non esiste",
+                                    "alternatives": ["", "pausa", "  "]})
+    assert body["used"] == "pausa"
+    assert body["ok"] is True
+
+
 def test_the_route_tolerates_a_query_string(live_server):
     """A cache-buster is not a different route.
 
