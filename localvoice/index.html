@@ -18,6 +18,16 @@
             aria-pressed="false" aria-label="Tieni premuto o clicca e parla"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/></svg></button>
     <div id="micstate" class="hint" aria-hidden="true" data-i18n="micstate_idle">tocca e parla</div>
     <div id="status" class="hint" role="status" aria-live="polite">Tocca il microfono e parla, oppure scrivi qui sotto.</div>
+    <!-- Art. 50(1) AI Act (applicabile dal 2 agosto 2026): chi parla con
+         Vivavoce dev'essere informato che l'interlocutore e' un software.
+         Sta qui, accanto al microfono e alla casella di testo, e non dentro
+         le impostazioni, perche' le Linee guida della Commissione
+         C(2026) 5054 §38 escludono le disclosure raggiungibili solo da un
+         menu o dalla documentazione. Frase corta e piana: kid-safe dice che
+         fra chi ascolta ci sono bambini, e la nota 40 delle stesse Linee
+         guida chiede allora un testo che un bambino capisca.
+         Non nascondere, non collassare, non rendere condizionale. -->
+    <p id="ainotice" data-i18n="ai_notice">Assistente automatico: stai parlando con un software, non con una persona.</p>
     <div id="kschip" style="display:none" data-i18n="ks_chip">🧒 kid-safe attivo</div>
     <div class="row">
       <label for="text" class="sr-only" data-i18n="lbl_text">Comando testuale</label>

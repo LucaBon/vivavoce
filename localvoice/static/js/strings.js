@@ -83,6 +83,11 @@ export const UI_EN = {
   mic_title: "Tap and speak",
   title_page: "Vivavoce — local voice",
   status_tap_write: "Tap the microphone and speak, or type below.",
+  // Art. 50(1) AI Act. `ai_notice` is the English side of the label that lives
+  // in the markup; `ai_notice_spoken` is said out loud once per voice session,
+  // for the hands-free case where nobody ever looks at the screen.
+  ai_notice: "Automated assistant: you are talking to software, not to a person.",
+  ai_notice_spoken: "Vivavoce, automated voice assistant.",
   src_auto: "Automatic: library, then streaming",
   src_local: "My library only",
   src_only: "Only ",
@@ -220,6 +225,8 @@ export const UI_IT = {
   mic_title: "Tieni premuto o clicca e parla",
   title_page: "Vivavoce — voce locale",
   status_tap_write: "Tocca il microfono e parla, oppure scrivi qui sotto.",
+  // Only the spoken half: the on-screen line is Italian markup already.
+  ai_notice_spoken: "Vivavoce, assistente vocale automatico.",
   src_auto: "Automatica: libreria, poi streaming",
   src_local: "Solo la mia libreria",
   src_only: "Solo ",
