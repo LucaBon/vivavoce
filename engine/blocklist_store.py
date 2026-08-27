@@ -23,7 +23,11 @@ from typing import List
 # The file holds the kid-safe PIN hash and the wrong-PIN lockout alongside the
 # terms, so it is written from two places (here and pro/kidsafe.py) and read
 # by every request. One process-wide lock keeps those writes from interleaving.
-_write_lock = threading.Lock()
+#
+# Reentrant, because it is also the default lock a store holds across its whole
+# read-modify-write (see JsonBlocklistStore) and _write_json_durably then takes
+# it again on the way out.
+_write_lock = threading.RLock()
 
 
 class BlocklistStoreError(Exception):
@@ -63,12 +67,21 @@ class JsonBlocklistStore:
     The file may carry other state alongside (the web kid-safe feature keeps
     its PIN and enabled flag there): reads and writes touch only ``terms``,
     preserving everything else. Writes are atomic (tmp + ``os.replace``).
+
+    ``lock`` is the lock held across the read-modify-write in :meth:`put`.
+    Atomic writing is not enough when two objects share one file: the *other*
+    writer of kidsafe.json is ``KidSafe._save``, which reads the whole state,
+    changes the PIN or the lockout counter in it and writes it back. Each
+    holding its own lock, they serialise against nobody, and whichever reads
+    first writes last — dropping the other's change entirely. Pass the lock
+    that guards the file (``appdata.lock_for(path)``) and they take turns.
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, lock=None) -> None:
         if not path:
             raise ValueError("path is required")
         self.path = path
+        self._lock = lock if lock is not None else _write_lock
 
     def _read_state(self) -> dict:
         try:
@@ -84,14 +97,22 @@ class JsonBlocklistStore:
         return [str(t).strip() for t in terms if str(t).strip()]
 
     def put(self, terms: List[str]) -> None:
-        """Overwrite the stored terms. Raises on failure so callers can report it."""
+        """Overwrite the stored terms. Raises on failure so callers can report it.
+
+        Read, change and write under one lock: everything this file holds that
+        is *not* ``terms`` survives only by being read here and written back,
+        so an interleaving writer's change lives exactly as long as it takes
+        the next reader to overwrite it.
+        """
         clean = [str(t).strip() for t in (terms or []) if str(t).strip()]
-        state = self._read_state()
-        state["terms"] = clean
-        try:
-            _write_json_durably(self.path, state)
-        except OSError as exc:
-            raise BlocklistStoreError(f"blocklist write failed: {exc}") from exc
+        with self._lock:
+            state = self._read_state()
+            state["terms"] = clean
+            try:
+                _write_json_durably(self.path, state)
+            except OSError as exc:
+                raise BlocklistStoreError(
+                    f"blocklist write failed: {exc}") from exc
 
 
 class NoOpBlocklistStore:

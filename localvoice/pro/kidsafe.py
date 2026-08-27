@@ -55,11 +55,14 @@ class KidSafe:
     def __init__(self, data_dir: str, license_mgr=None,
                  now=time.time) -> None:
         self.path = os.path.join(data_dir, STATE_FILE)
-        self.store = JsonBlocklistStore(self.path)
         # Held across every read-modify-write of the state file: the counter
         # below is incremented from whatever the incrementing thread last read,
         # and the server runs one thread per connection.
         self._lock = appdata.lock_for(self.path)
+        # The same lock, not one of its own: the store rewrites this very file
+        # — terms live in it next to the PIN hash and the lockout — so the two
+        # have to take turns or each drops what the other just wrote.
+        self.store = JsonBlocklistStore(self.path, lock=self._lock)
         self.license = license_mgr
         self.now = now
         self._unlocked: Dict[str, float] = {}   # client_id -> unlocked_until
@@ -217,9 +220,15 @@ class KidSafe:
             return {"ok": False, "error": "pro_required"}
         if not self.is_unlocked(client_id):
             return {"ok": False, "error": "locked"}
-        speech = (actions.add_block if op == "add" else actions.remove_block)(
+        result = (actions.add_block if op == "add" else actions.remove_block)(
             self.store, term, is_owner=True)
-        return {"ok": True, "speech": str(speech)}
+        # add_block/remove_block already say no — an empty term, or a store
+        # that cannot be written (a read-only data dir) — and this used to
+        # answer "ok" over the top of them, so the panel cleared the input and
+        # showed nothing: a term that was never saved looked saved.
+        if not result.ok:
+            return {"ok": False, "error": "save_failed", "speech": str(result)}
+        return {"ok": True, "speech": str(result)}
 
     # -- enforcement (never Pro-gated: see the fail-safe note above) -----------
 

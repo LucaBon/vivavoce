@@ -167,6 +167,13 @@ async function ksAction(action, extra) {
           + ui("ks_locked_out")(d.retry_in || 0) + "</span>";
       } else if (d.error === "pin_too_short") {
         st.innerHTML += ' <span class="warn">' + ui("ks_pin_short") + "</span>";
+      } else if (d.error === "save_failed" && d.speech) {
+        // The server already phrased this one, in the user's language, and it
+        // carries the term they typed — so it goes in as text, never markup.
+        const warn = document.createElement("span");
+        warn.className = "warn";
+        warn.textContent = " " + d.speech;
+        st.appendChild(warn);
       }
     }
     return d;
