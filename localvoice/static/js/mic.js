@@ -2,9 +2,10 @@
 //
 // * Web Speech (the browser's recognition, default) — tap-to-talk and the
 //   continuous wake-word mode (see wakeword.js).
-// * Local speech recognition (Pro): record with MediaRecorder and let the
-//   server's Whisper transcribe (/transcribe) — the audio never leaves the
-//   LAN, unlike Web Speech which ships it to Google/Apple.
+// * Local speech recognition (Pro), in localasr.js — recorded here, sent to
+//   the server's Whisper. This module chooses between the two and owns the
+//   mic button, the wake-mode checkbox and the engine choice; it does not
+//   own either engine's insides.
 //
 // Who *holds* the microphone is miccapture.js's business: it runs the
 // server-side wake word and owns the start/end of a command capture. This
@@ -12,77 +13,20 @@
 // over; it never reaches into that state itself.
 
 import { $ } from "./util.js";
-import { LANGS, ui, recLang, getStatusBase, setStatusBase, refreshStatus } from "./i18n.js";
+import { LANGS, ui, recLang, setStatusBase, refreshStatus } from "./i18n.js";
 import { isPro, showProUpsell } from "./pro.js";
-import { handleManualFinal, autosendFollowWakeMode, autosendOn } from "./chat.js";
+import { handleManualFinal, autosendFollowWakeMode,
+         isAwaitingReview, clearAwaitingReview } from "./chat.js";
 import { wakeWord } from "./settings.js";
 import { createWakeHandler } from "./wakeword.js";
-import { micUI, LOCALREC_MAX_MS, serverWakeOn, syncWakePhrase,
+import { micUI, serverWakeOn, syncWakePhrase,
          serverWakeRunning, serverWakeStartPending, startServerWake,
          stopServerWake, endCommandCapture } from "./miccapture.js";
+import { localAsrOn, startLocalRec, cancelLocalRec } from "./localasr.js";
 
 export { refreshServerWake } from "./miccapture.js";
+export { refreshAsr } from "./localasr.js";
 
-// --- Local speech recognition (Pro): the toggle appears only when GET /asr
-// says the engine is installed; Web Speech stays the default and takes back
-// over for the session on any /transcribe failure.
-let ASR = { available: false };
-let asrFailed = false;   // one failure = fall back to Web Speech until reload
-let localRec = null;     // the active MediaRecorder while capturing
-let localRecTimer = null;
-// The getUserMedia/MediaRecorder equivalents of miccapture.js's
-// serverWakeStarting / serverWakeCancelled, and for the same two reasons:
-// `localRec` is only assigned once the permission prompt has been answered,
-// so everything between the tap and that answer is a window in which the
-// guards below see "nothing is recording".
-let localRecStarting = false;   // getUserMedia pending: one is already opening
-let localRecCancelled = false;  // torn down on purpose: throw the audio away
-
-// The manual path's copy of wakeword.js's isAwaitingReview(): raised when a
-// transcript went into the box instead of being sent, so whoever closes the
-// capture leaves "check the text and press Send" standing. Cleared by the
-// next capture — it describes the one that just ended, not the app.
-let awaitingReview = false;
-function finishManualCapture(txt, alts) {
-  awaitingReview = !autosendOn();
-  handleManualFinal(txt, alts);
-}
-
-const canRecord = () => !!(navigator.mediaDevices && window.MediaRecorder);
-const localAsrOn = () =>
-  ASR.available && !asrFailed && canRecord() && $("localasr").checked;
-
-function renderAsrRow() {
-  $("localasrrow").style.display = (ASR.available && canRecord()) ? "" : "none";
-  // A browser without Web Speech (e.g. Firefox) showed "no mic support":
-  // with the server engine there IS a working mic — clear the warning.
-  if (ASR.available && canRecord() && getStatusBase() === "nomic") {
-    setStatusBase("default");
-    refreshStatus();
-  }
-}
-export async function refreshAsr() {
-  try {
-    const r = await fetch("/asr");
-    ASR = await r.json();
-  } catch (e) { ASR = { available: false }; }
-  renderAsrRow();
-}
-
-function stopLocalRec() {
-  clearTimeout(localRecTimer);
-  if (localRec && localRec.state !== "inactive") localRec.stop();
-}
-// Stop a capture and discard what it recorded, for when listening is called
-// off rather than finished. A plain stopLocalRec() transcribes and — with
-// auto-send on — SENDS whatever the room happened to be saying, which is
-// what tapping the mic to switch listening off used to do: the UI went dark
-// and thirty seconds later the house was answered anyway.
-function cancelLocalRec() {
-  if (!localRec && !localRecStarting) return;
-  localRecCancelled = true;
-  stopLocalRec();
-}
 // Switching continuous listening off — by tap, by engine switch, or because
 // the recogniser gave up — has to end the command capture the wake word
 // opened, not just the stream that opened it. The capture outlives that
@@ -96,67 +40,6 @@ function stopWakeListening(stopWebSpeech) {
   cancelLocalRec();
   if (stopWebSpeech) stopWebSpeech();
   stopServerWake();
-}
-
-async function startLocalRec() {
-  if (localRec) { stopLocalRec(); return; }  // second tap stops, like Web Speech
-  if (localRecStarting) return;              // one is opening; see the flags above
-  localRecStarting = true;
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    $("status").textContent = ui("mic_error") + (e.name || e);
-    return;
-  } finally {
-    localRecStarting = false;
-  }
-  if (localRecCancelled) {  // cancelled while the permission prompt was up
-    localRecCancelled = false;
-    stream.getTracks().forEach(t => t.stop());
-    return;
-  }
-  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
-    .find(t => MediaRecorder.isTypeSupported(t)) || "";
-  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-  const chunks = [];
-  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  rec.onstop = () => {
-    stream.getTracks().forEach(t => t.stop());
-    localRec = null;
-    clearTimeout(localRecTimer);
-    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-    // Cancelled: still give the microphone back (the wake stream may still
-    // want it), but the audio goes nowhere.
-    if (localRecCancelled) { localRecCancelled = false; endCommandCapture(); return; }
-    endCommandCapture();
-    transcribeBlob(blob);
-  };
-  localRec = rec;
-  awaitingReview = false;
-  rec.start();
-  micUI(true);
-  $("status").textContent = ui("listening");
-  localRecTimer = setTimeout(stopLocalRec, LOCALREC_MAX_MS);
-}
-async function transcribeBlob(blob) {
-  $("status").textContent = ui("asr_working");
-  try {
-    const r = await fetch("/transcribe?lang=" + encodeURIComponent(recLang()), {
-      method: "POST",
-      headers: { "Content-Type": blob.type || "application/octet-stream" },
-      body: blob
-    });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || "transcribe failed");
-    const text = (d.text || "").trim();
-    if (!text) { $("status").textContent = ui("tap_mic"); return; }  // silence
-    const alts = (d.alternatives || []).filter(a => a && a.trim());
-    finishManualCapture(text, alts.length ? alts : [text]);
-  } catch (e) {
-    asrFailed = true;  // Web Speech takes over for the rest of the session
-    $("status").textContent = ui("asr_failed");
-  }
 }
 
 // "(re)start continuous listening with whichever engine is selected now",
@@ -271,6 +154,7 @@ export function initMic() {
     function startManual() {
       if (active) { rec.stop(); return; }  // second tap stops
       mode = "manual"; configure(false); tornDown = false;
+      clearAwaitingReview();  // a new capture: whatever is in the box is moot
       try { rec.start(); } catch (e) {}
     }
     function startWake() {
@@ -350,7 +234,7 @@ export function initMic() {
         // server-wake trigger (mode "manual" via captureCommand) instead
         // falls back to "still listening for hey jarvis" when that's true.
         mode = "off";
-        endCommandCapture(awaitingReview);
+        endCommandCapture(isAwaitingReview());
       }
     };
     function leaveWakeMode() {
@@ -401,7 +285,7 @@ export function initMic() {
         else interim += r[0].transcript;
       }
       if (interim && !finalTxt) { $("text").value = interim; return; }  // live feedback
-      if (finalTxt) finishManualCapture(finalTxt, finalAlts);
+      if (finalTxt) handleManualFinal(finalTxt, finalAlts);
     };
 
     // Stop whichever engine is running before starting the selected one:

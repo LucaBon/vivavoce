@@ -293,7 +293,12 @@ def test_tap_to_talk_with_autosend_off_keeps_the_prompt(page, web):
     assert _autosend(page) is False  # wake mode is off, so this follows it
 
     page.click("#mic")  # one tap-to-talk shot
-    page.wait_for_function("() => window.__sr.live", timeout=5000)
+    # Wait for onstart, not merely for the session object: it writes the
+    # status line itself, and a fake that answers before it lands is testing
+    # an order the real recogniser never produces.
+    page.wait_for_function(
+        "() => document.getElementById('mic').classList.contains('listening')",
+        timeout=5000)
     _say(page, "pausa")
     page.wait_for_function(
         "() => document.getElementById('text').value === 'pausa'", timeout=5000)
