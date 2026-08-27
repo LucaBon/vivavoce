@@ -138,9 +138,16 @@ def test_the_seek_bar_survives_the_track_ending_mid_drag(page, web, transport):
     page.goto(web().url)
     page.wait_for_selector("#np:not([hidden])")
 
-    box = page.locator("#npseek").bounding_box()
-    mid_y = box["y"] + box["height"] / 2
-    page.mouse.move(box["x"] + box["width"] * 0.2, mid_y)
+    # The bar only takes a pointer once it knows the duration (.nodur is how
+    # renderNpTime says it doesn't), and hover() rather than mouse.move() to
+    # raw coordinates: this page grows after its first paint — artwork, the
+    # licence panel, the certificate box — and a box measured before that
+    # settles can point somewhere else entirely by the time the press lands.
+    # hover() waits for the element to be stable and re-resolves it.
+    seek = page.locator("#npseek")
+    page.wait_for_selector("#npseek:not(.nodur)")
+    box = seek.bounding_box()
+    seek.hover(position={"x": box["width"] * 0.2, "y": box["height"] / 2})
     page.mouse.down()
     page.wait_for_selector("#npseek.drag")
 

@@ -159,6 +159,21 @@ def test_the_pair_is_swapped_not_rewritten_in_place(own_copy):
     assert proc.returncode == 0, proc.stderr[-500:]
     assert os.stat(own_copy / "key.pem").st_ino != before, (
         "key.pem was rewritten in place instead of replaced")
+
+
+@pytest.mark.skipif(os.name == "nt",
+                    reason="POSIX permission bits; Windows os.chmod only "
+                           "toggles read-only, so 0600 is not representable "
+                           "and st_mode comes back 0666")
+def test_the_renewed_key_is_still_unreadable_by_others(own_copy):
+    # The renewal writes the key through a temp file now, and a temp file is
+    # created 0600 by mkstemp but published by rename — so the mode has to be
+    # set on it deliberately, and this is what says so.
+    proc = subprocess.run(
+        [sys.executable, "tools/make_cert.py", "--out", str(own_copy),
+         "--renew-within", "10000"],
+        cwd=ROOT, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-500:]
     assert oct(os.stat(own_copy / "key.pem").st_mode)[-3:] == "600"
 
 
