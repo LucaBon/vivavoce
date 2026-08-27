@@ -15,7 +15,7 @@
 // Nota: Chrome registra il service worker solo su HTTPS *fidato* — quindi con
 // la CA locale installata (vedi /ca.pem), non con il certificato "accettato
 // nonostante l'avviso".
-const VERSION = "vivavoce-v10";
+const VERSION = "vivavoce-v11";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png",
                "/static/css/app.css",
                "/static/js/app.js", "/static/js/certsetup.js",
@@ -58,11 +58,31 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(
       fetch(e.request)
         .then((resp) => {
-          const copy = resp.clone();
-          caches.open(VERSION).then((c) => c.put(key, copy));
+          // Solo una risposta BUONA sostituisce quella installata. Senza
+          // questo controllo un 403 (host rifiutato da webguard), un 404 o un
+          // 500 finivano in cache sotto "/" o sotto la chiave di un modulo:
+          // l'app installata, riaperta offline, mostrava la pagina d'errore —
+          // o un modulo il cui corpo è HTML servito come text/javascript,
+          // cioè un'app bianca. Un errore è una risposta di adesso, non lo
+          // stato dell'app da conservare.
+          if (resp.ok) {
+            const copy = resp.clone();
+            // La put è asincrona e può fallire per conto suo (quota piena,
+            // storage negato in navigazione privata): non deve trascinare
+            // giù la risposta che stiamo già restituendo.
+            caches.open(VERSION).then((c) => c.put(key, copy)).catch(() => {});
+          }
           return resp;
         })
+        // Offline: la copia in cache, se c'è.
         .catch(() => caches.match(key))
+        // ...e se non c'è, un errore di rete. `caches.match` risolve a
+        // `undefined` quando non trova nulla, e respondWith(undefined)
+        // RIFIUTA con un TypeError invece di lasciar fallire la richiesta
+        // come farebbe la rete: la pagina riceveva un errore che non
+        // assomigliava a "sei offline" da nessuna parte.
+        .then((resp) => resp || Response.error())
+        .catch(() => Response.error())
     );
     return;
   }
