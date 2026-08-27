@@ -4,6 +4,37 @@
 
 ### Fixed
 
+- **An apostrophe no longer hides a blocked name from kid-safe.** Text is
+  normalised before the blocklist is checked, and that normalisation deletes
+  apostrophes — deliberately, because the recogniser writes «dont stop me now»
+  and the title is *Don't Stop Me Now*. Deleting also welds the character's
+  neighbours into a single word, and a blocked term then has no boundary left
+  to match on: a list holding *Eminem* stopped seeing "Eminem's Greatest Hits",
+  one holding *Estasi* stopped seeing "L'Estasi dell'Oro". Italian elision —
+  l', dell', un', sull' — put a blocked name one article away from being
+  unreachable, and albums were the worst of it, because the title is the only
+  field a streaming result carries a name in. Both spellings are now checked,
+  so the recogniser's version and the elided one both match, and a blocked
+  «ass» still does not match «bassista».
+
+- **A song whose title contains «di», «della» or «by» plays again.** The parser
+  reads the last connector in a request as the boundary between title and
+  artist, which is what makes «Stand By Me by Ben E. King» find the right song
+  — and it invented an artist for every title that merely contains one:
+  «Cuore di Vetro» became *Cuore* by *Vetro*, «Notte Prima degli Esami» became
+  *Notte Prima* by *Esami*. That used to cost nothing, until the app learned to
+  say so when a named artist is nowhere in the results; the two together turned
+  «metti Cuore di Vetro» into «Non ho trovato Cuore di Vetro» with the right
+  track sitting first in the list, and spent the recogniser's next
+  transcription on it too. Nine of nineteen real titles tried failed this way,
+  most of them Italian. A request that matches a title whole, connector
+  included, is now taken as the title it is. «Yesterday di Vasco Rossi» still
+  refuses when only The Beatles are in the results, and still finds Vasco's
+  edition when it is there.
+
+  Titles that *open* with a connector were losing their first word for a
+  related reason — «By the Way» searched for "the Way" — and no longer do.
+
 - **A refusal no longer reports itself as a success — and no longer gets
   retried past.** Every reply carries a flag saying whether it acted on your
   request; for some replies that flag was not set but *guessed*, from whether

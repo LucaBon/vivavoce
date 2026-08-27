@@ -53,6 +53,31 @@ sempre con quella del progetto: l'immagine viene compilata dal tag
 
 ### Corretto
 
+- **Un apostrofo non nasconde più un nome bloccato al filtro bambini.** Prima
+  di controllare la lista, il testo viene normalizzato e gli apostrofi vengono
+  tolti — di proposito, perché il riconoscitore scrive «dont stop me now» e il
+  titolo è *Don't Stop Me Now*. Togliendoli, però, le parole vicine si saldano
+  e il termine bloccato non ha più un confine su cui corrispondere: una lista
+  con *Eminem* non vedeva più "Eminem's Greatest Hits", una con *Estasi* non
+  vedeva più "L'Estasi dell'Oro". Con l'elisione — l', dell', un', sull' — in
+  italiano bastava un articolo per rendere irraggiungibile un nome bloccato, e
+  gli album erano il caso peggiore, perché il titolo è l'unico campo in cui un
+  risultato in streaming porta un nome. Ora vengono controllate entrambe le
+  grafie, e un «ass» bloccato continua a non corrispondere a «bassista».
+
+- **Le canzoni con «di», «della» o «by» nel titolo si riproducono di nuovo.**
+  L'ultimo connettore di una richiesta viene letto come confine fra titolo e
+  artista, ed è quello che fa trovare «Stand By Me by Ben E. King» — ma
+  inventava un artista per ogni titolo che ne contenesse uno: «Cuore di Vetro»
+  diventava *Cuore* di *Vetro*, «Notte Prima degli Esami» diventava *Notte
+  Prima* di *Esami*. Da quando l'app dice che l'artista chiesto non è fra i
+  risultati, le due cose insieme trasformavano «metti Cuore di Vetro» in «Non
+  ho trovato Cuore di Vetro», con il brano giusto in cima all'elenco. Una
+  richiesta che corrisponde per intero a un titolo, connettore compreso, ora
+  viene presa per il titolo che è. Anche i titoli che *iniziano* con un
+  connettore perdevano la prima parola — «By the Way» cercava "the Way" — e non
+  succede più.
+
 - `/command`, `/kidsafe`, `/player` e `/license` non chiudono più la
   connessione quando ricevono un corpo JSON che non è un oggetto (`null`, un
   numero, una stringa, una lista).
