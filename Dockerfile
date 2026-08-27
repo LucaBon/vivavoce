@@ -54,10 +54,16 @@ USER vivavoce
 # Un container "su" ma con l'LMS irraggiungibile, o bloccato in attesa, non è
 # un container sano: /tls è l'endpoint più economico che esiste qui e non
 # tocca l'LMS, quindi risponde esattamente quando il server HTTP serve.
+# I ripieghi SQUEEZESAY_* vanno letti anche qui, con la stessa precedenza
+# dell'entrypoint: la sonda leggeva solo i nomi nuovi, quindi un container
+# aggiornato con SQUEEZESAY_HTTPS=0 serviva HTTP mentre la sonda continuava a
+# chiedere HTTPS, falliva ogni 30 secondi e restava unhealthy per sempre —
+# fatale per chi lo tiene dietro a un depends_on: service_healthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD python -c "import os,urllib.request,ssl; \
-port=os.environ.get('VIVAVOCE_PORT','8730'); \
-scheme='http' if os.environ.get('VIVAVOCE_HTTPS')=='0' else 'https'; \
+env=lambda *n: next((v for v in (os.environ.get(k) for k in n) if v), None); \
+port=env('VIVAVOCE_PORT','SQUEEZESAY_PORT') or '8730'; \
+scheme='http' if env('VIVAVOCE_HTTPS','SQUEEZESAY_HTTPS')=='0' else 'https'; \
 ctx=ssl._create_unverified_context(); \
 urllib.request.urlopen(f'{scheme}://127.0.0.1:{port}/tls', timeout=4, \
 context=ctx if scheme=='https' else None)"

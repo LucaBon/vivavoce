@@ -421,6 +421,74 @@ def test_the_addon_icon_is_square():
     assert width == height, f"ha-addon/icon.png is {width}x{height}, not square"
 
 
+# -- the container healthcheck -------------------------------------------------
+#
+# The probe is a one-liner inside the Dockerfile, so nothing imports it and no
+# test could see it. It has to agree with deploy/docker/entrypoint.sh about
+# which variables name the port and the scheme — and it did not: it read only
+# the VIVAVOCE_* names while the entrypoint still falls back to SQUEEZESAY_*,
+# so an upgraded container could serve HTTP while the probe demanded HTTPS.
+
+
+def _healthcheck_probe():
+    """The python source of the HEALTHCHECK CMD, lifted from the Dockerfile."""
+    text = _read("Dockerfile").replace("\\\n", "")
+    match = re.search(r'HEALTHCHECK[^\n]*?CMD python -c "(.*?)"\n', text, re.S)
+    assert match, "HEALTHCHECK shape changed — this test cannot find the probe"
+    return match.group(1)
+
+
+def _probe_decides(env):
+    """Run the probe's decision half under ``env``; return (port, scheme).
+
+    The real os.environ, swapped and restored: the probe opens with its own
+    ``import os``, so a stand-in object passed through the namespace would be
+    replaced by the genuine module on the first statement.
+    """
+    source = _healthcheck_probe()
+    # Everything up to the urlopen: the request itself needs a live server,
+    # the choice of what to request is what has to be right.
+    decision = source.split("ctx=")[0]
+    saved = dict(os.environ)
+    try:
+        os.environ.clear()
+        os.environ.update(env)
+        namespace = {}
+        exec(decision, namespace)      # noqa: S102 - our own Dockerfile
+        return namespace["port"], namespace["scheme"]
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+@pytest.mark.parametrize("env, expected", [
+    ({}, ("8730", "https")),
+    ({"VIVAVOCE_HTTPS": "0"}, ("8730", "http")),
+    ({"VIVAVOCE_PORT": "9000"}, ("9000", "https")),
+    # The names one release of docker-compose.yml still advertises.
+    ({"SQUEEZESAY_HTTPS": "0"}, ("8730", "http")),
+    ({"SQUEEZESAY_PORT": "9000"}, ("9000", "https")),
+    # And the new name wins where both are set, as in the entrypoint.
+    ({"SQUEEZESAY_HTTPS": "0", "VIVAVOCE_HTTPS": "1"}, ("8730", "https")),
+    ({"SQUEEZESAY_PORT": "9000", "VIVAVOCE_PORT": "9001"}, ("9001", "https")),
+])
+def test_the_healthcheck_reads_the_same_variables_as_the_entrypoint(env, expected):
+    assert _probe_decides(env) == expected
+
+
+def test_the_healthcheck_knows_every_name_the_entrypoint_falls_back_to():
+    # If the entrypoint grows another legacy fallback for the port or the
+    # scheme, the probe has to learn it in the same commit.
+    entrypoint = _read("deploy", "docker", "entrypoint.sh")
+    probe = _healthcheck_probe()
+    for line in entrypoint.splitlines():
+        if line.startswith(("PORT=", "HTTPS=")):
+            for name in re.findall(r"[A-Z][A-Z0-9_]*(?=[:}])", line):
+                assert name in probe, (
+                    f"{name} is read by the entrypoint but not by the "
+                    f"HEALTHCHECK, so the probe can disagree with the server")
+
+
 # -- the add-on's option reader ------------------------------------------------
 #
 # run.sh translates /data/options.json into the VIVAVOCE_* variables the shared
