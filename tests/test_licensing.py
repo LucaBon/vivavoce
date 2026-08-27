@@ -404,7 +404,33 @@ def test_an_open_window_is_never_re_examined_for_the_clock(tmp_path, post):
     m = mgr(tmp_path, post)
     m.start_trial()
     opened, thread = m.start_trial_async()
-    assert opened is True and thread is None   # already open: nothing to wait for
+    # Nothing to wait for — that is what this test is about. `opened` is False
+    # because this call did not open anything; it used to say True, which is
+    # the bug the two tests below pin.
+    assert thread is None
+    assert opened is False
+
+
+def test_a_second_start_does_not_report_a_window_it_did_not_open(tmp_path, post):
+    m = mgr(tmp_path, post)
+    assert m.start_trial_async()[0] is True     # this call really did open it
+    assert m.start_trial_async()[0] is False    # every one after it did not
+    assert m.trial_status()["active"] is True   # and the window is untouched
+
+
+def test_an_expired_window_is_not_reported_as_freshly_opened(tmp_path, post):
+    # The banner driven by `opened` promises 14 days with the microphone on.
+    # An install whose window closed weeks ago was being told exactly that,
+    # at every single boot, because "one exists" was read as "I opened one".
+    clock = {"t": NOW}
+    m = mgr(tmp_path, post, now=lambda: clock["t"])
+    assert m.start_trial_async()[0] is True
+    clock["t"] = NOW + 30 * 86400              # a month later
+    assert m.trial_status()["expired"] is True
+
+    opened, thread = m.start_trial_async()
+    assert opened is False
+    assert thread is None                       # and no thread waiting on a clock
 
 
 def test_corrupt_trial_file_is_ignored_not_fatal(tmp_path, post):
