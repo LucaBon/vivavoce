@@ -13,6 +13,9 @@
 # otherwise publish with nothing checked at all. The verify job below is that
 # check, and it is deliberately aimed at the failure this repo actually has:
 # a version bumped in one place and tagged as another.
+#
+# setup-uv is pinned to the full version, not `@v10`: from v8 its releases are
+# immutable and the moving tags no longer exist. ci.yml explains the rest.
 
 name: Release
 
@@ -32,10 +35,10 @@ jobs:
     name: the tag and the code agree
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -69,7 +72,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The image is a file copy plus one wheel install (cryptography, which
       # publishes aarch64 wheels), so emulating arm64 costs a minute and keeps

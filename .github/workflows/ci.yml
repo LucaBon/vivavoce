@@ -4,6 +4,18 @@
 # stdlib, quindi ogni job è veloce e senza segreti. VIVAVOCE_NO_REVALIDATE
 # spegne per sicurezza la ri-validazione della licenza: i test iniettano già
 # un http_post finto, questa è la cintura oltre alle bretelle.
+#
+# Le action girano su Node 24: dal 16 giugno 2026 i runner ci forzano sopra
+# tutto comunque, e finché le pin restano indietro ogni job stampa
+# l'annotazione «Node.js 20 is deprecated».
+#
+# setup-uv è pinnata alla versione PIENA, non a `@v10`: dalla v8 le release
+# sono immutabili e i tag mobili (`@v10`, `@v10.0`) non esistono più, quindi
+# `@v10` non risolve affatto — alzarla richiede di scrivere il numero intero.
+# Leggendo le note di rilascio per il salto dalla v5: la v6 ha rimosso gli
+# input `pyproject-file` e `uv-file` (qui non usati) e non attiva più il venv
+# da sola, cosa che non ci tocca perché ogni step passa da `uv run`; la v9 ha
+# spento `prune-cache` di default, quindi la cache cresce più di prima.
 
 name: CI
 
@@ -48,10 +60,10 @@ jobs:
           - os: ubuntu-24.04-arm
             python: "3.13"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -65,10 +77,10 @@ jobs:
     name: e2e (chromium)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -137,10 +149,10 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: aarch64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -166,10 +178,10 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: aarch64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -209,10 +221,10 @@ jobs:
     name: sanity checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -249,7 +261,7 @@ jobs:
               ASR=0
               WAKEWORD=1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
