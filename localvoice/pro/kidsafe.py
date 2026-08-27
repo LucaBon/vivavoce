@@ -56,6 +56,10 @@ class KidSafe:
                  now=time.time) -> None:
         self.path = os.path.join(data_dir, STATE_FILE)
         self.store = JsonBlocklistStore(self.path)
+        # Held across every read-modify-write of the state file: the counter
+        # below is incremented from whatever the incrementing thread last read,
+        # and the server runs one thread per connection.
+        self._lock = appdata.lock_for(self.path)
         self.license = license_mgr
         self.now = now
         self._unlocked: Dict[str, float] = {}   # client_id -> unlocked_until
@@ -80,10 +84,11 @@ class KidSafe:
     # -- PIN -------------------------------------------------------------------
 
     def _save(self, **changes: Any) -> None:
-        state = self._state()
-        state.update(changes)
-        # 0600: this file holds the PIN hash and the lockout counter.
-        appdata.atomic_write_json(self.path, state, mode=0o600)
+        with self._lock:
+            state = self._state()
+            state.update(changes)
+            # 0600: this file holds the PIN hash and the lockout counter.
+            appdata.atomic_write_json(self.path, state, mode=0o600)
 
     def _set_pin(self, pin: str) -> None:
         salt = secrets.token_bytes(16)
@@ -125,26 +130,35 @@ class KidSafe:
         try is a fine way to occupy a server otherwise). ``client_id`` is
         accepted and ignored: it is client-chosen, so it can never bound
         anything — see the note on MAX_ATTEMPTS.
+
+        The whole of it happens under the state file's lock: reading the gate,
+        hashing, and writing the counter back. Checking the gate and then
+        incrementing from a separately-read value is a promise of five
+        attempts that concurrency collects on — every request that got in
+        before the first write saw count 0, and every one of them wrote 1.
+        Serialising also means the wasted hashing stops at MAX_ATTEMPTS
+        instead of running once per waiting thread.
         """
-        if self.locked_out_for() > 0:
-            return False
-        stored = self._state().get("pin") or {}
-        try:
-            expected = stored["hash"]
-            salt = bytes.fromhex(stored["salt"])
-        except (KeyError, ValueError):
-            return False
-        ok = secrets.compare_digest(_hash_pin(pin or "", salt), expected)
-        lock = self._lockout()
-        if ok:
-            if lock["count"]:
-                self._save(lockout={"count": 0, "retry_at": 0.0})
-        else:
-            count = lock["count"] + 1
-            self._save(lockout={"count": count,
-                                "retry_at": self.now()
-                                + self._backoff_seconds(count)})
-        return ok
+        with self._lock:
+            if self.locked_out_for() > 0:
+                return False
+            stored = self._state().get("pin") or {}
+            try:
+                expected = stored["hash"]
+                salt = bytes.fromhex(stored["salt"])
+            except (KeyError, ValueError):
+                return False
+            ok = secrets.compare_digest(_hash_pin(pin or "", salt), expected)
+            lock = self._lockout()
+            if ok:
+                if lock["count"]:
+                    self._save(lockout={"count": 0, "retry_at": 0.0})
+            else:
+                count = lock["count"] + 1
+                self._save(lockout={"count": count,
+                                    "retry_at": self.now()
+                                    + self._backoff_seconds(count)})
+            return ok
 
     # -- unlock window ---------------------------------------------------------
 
