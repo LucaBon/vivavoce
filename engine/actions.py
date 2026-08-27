@@ -302,7 +302,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 from matching import (BLOCKLIST, ERR_UNREACHABLE, LIST_LIMIT, _LEAD_FILLER,
                       _strip_lead_filler, LOCAL_CONFIDENT, _label,
                       _APOSTROPHES, _FOLD_MAP, _ALBUM_SEP, _ARTIST_SEP,
-                      _NOT_AN_ARTIST)
+                      _NOT_AN_ARTIST, _fold, _normalize_apart)
 from guard import (BLOCKED_SPEECH, NOT_OWNER_SPEECH, parse_blocklist,
                    is_blocked, ITEM_NAME_FIELDS, add_block, remove_block,
                    list_blocks)

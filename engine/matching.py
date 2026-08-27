@@ -215,6 +215,13 @@ _FOLD_MAP = {
 }
 
 
+def _fold(text: Optional[str]) -> str:
+    """Lowercase and strip every accent/ligature, leaving punctuation alone."""
+    lowered = "".join(_FOLD_MAP.get(c, c) for c in (text or "").lower())
+    decomposed = unicodedata.normalize("NFKD", lowered)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
 def _normalize(text: Optional[str]) -> str:
     """Lowercase, fold accents and punctuation, collapse spaces.
 
@@ -226,11 +233,22 @@ def _normalize(text: Optional[str]) -> str:
     digit is a separator now (``isalnum`` rather than an ASCII class, so
     Cyrillic/Greek/CJK titles keep their characters), and apostrophes vanish.
     """
-    lowered = "".join(_FOLD_MAP.get(c, c) for c in (text or "").lower())
-    decomposed = unicodedata.normalize("NFKD", lowered)
-    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    stripped = "".join(c for c in stripped if c not in _APOSTROPHES)
+    stripped = "".join(c for c in _fold(text) if c not in _APOSTROPHES)
     spaced = "".join(c if c.isalnum() else " " for c in stripped)
+    return re.sub(r"\s+", " ", spaced).strip()
+
+
+def _normalize_apart(text: Optional[str]) -> str:
+    """:func:`_normalize`, but the apostrophe separates instead of vanishing.
+
+    Deleting it is right for *scoring* — it is what lets «dont stop me now»
+    reach "Don't Stop Me Now" — and wrong for anything that needs a word
+    boundary, because it welds the term to its neighbour: ``\bestasi\b`` stops
+    matching "L'Estasi dell'Oro" and ``\beminem\b`` stops matching "Eminem's
+    Greatest Hits". Elision makes that the common case in Italian, not the
+    exotic one. Callers that match on word boundaries check this form too.
+    """
+    spaced = "".join(c if c.isalnum() else " " for c in _fold(text))
     return re.sub(r"\s+", " ", spaced).strip()
 
 

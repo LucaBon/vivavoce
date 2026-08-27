@@ -426,6 +426,67 @@ def test_is_blocked_accent_insensitive_multiword():
     assert actions.is_blocked("perche", ["perché"]) is True
 
 
+# -- an apostrophe next to a blocked term -------------------------------------
+#
+# _normalize DELETES apostrophes, which is what lets the recogniser's «dont stop
+# me now» reach "Don't Stop Me Now" — and it welded the blocked term to its
+# neighbour, so \bterm\b stopped matching and the blocklist silently let the
+# request through. Elision makes that the common case in Italian, not the exotic
+# one: every L'/dell'/un'/sull' in a title is a place a blocked name can hide.
+
+@pytest.mark.parametrize("text, term", [
+    ("metti L'Estasi dell'Oro", "Estasi"),          # elision, term after L'
+    ("metti L'Estasi dell'Oro", "Oro"),             # elision, term after dell'
+    ("metti l'album Eminem's Greatest Hits", "Eminem"),   # English possessive
+    ("metti un'Altra Storia", "Altra"),             # elision after un'
+    ("metti Sull'Onda", "Onda"),                    # elision after sull'
+    ("metti L’Estasi dell’Oro", "Estasi"),          # curly apostrophe (U+2019)
+])
+def test_is_blocked_sees_through_an_apostrophe(text, term):
+    assert actions.is_blocked(text, [term]) is True
+
+
+def test_a_blocked_term_written_with_the_apostrophe_still_matches():
+    # The term itself carries the apostrophe, the request does not (or vice
+    # versa): both readings have to agree, or the blocklist depends on how the
+    # owner happened to type it.
+    assert actions.is_blocked("metti lestasi", ["L'Estasi"]) is True
+    assert actions.is_blocked("metti L'Estasi", ["lestasi"]) is True
+
+
+def test_the_dropped_apostrophe_still_blocks():
+    # The reason deletion exists in the first place: Web Speech writes «dont».
+    assert actions.is_blocked("metti dont stop me now", ["Don't Stop"]) is True
+    assert actions.is_blocked("metti Don't Stop Me Now", ["dont stop"]) is True
+
+
+def test_an_apostrophe_does_not_create_a_false_positive():
+    # Splitting on the apostrophe must not hand a blocked single letter a word
+    # of its own, nor break the boundary rule the 'bass'/'ass' test pins.
+    assert actions.is_blocked("metti l'amore", ["more"]) is False
+    assert actions.is_blocked("metti L'Estasi dell'Oro", ["Estate"]) is False
+    assert actions.is_blocked("metti il bassista", ["ass"]) is False
+
+
+def test_blocks_item_sees_through_an_apostrophe():
+    g = _restricted(["Eminem"])
+    assert g.blocks_item({"id": "a1", "title": "Eminem's Greatest Hits"}) is True
+    # The hole this closes: TIDAL album rows carry {id, title} and no artist,
+    # so the title is the only field that can catch the name at all.
+    assert g.blocks_item({"id": "a2", "title": "L'Eminem Show"}) is True
+
+
+def test_play_song_blocked_by_an_elided_resolved_title(lms, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://e.flc",
+                      "name": "L'Estasi dell'Oro"}]},
+    )
+    msg = actions.play_song(lms, "qualcosa", guard=_restricted(["Estasi"]))
+    assert msg == BLOCK
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+
+
 # -- Guard ----------------------------------------------------------------
 def test_guard_transparent_when_not_restricted():
     g = actions.Guard(restricted=False, blocklist=["x"])
