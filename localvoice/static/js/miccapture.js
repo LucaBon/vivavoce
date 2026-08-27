@@ -17,7 +17,6 @@ import { $, clientId } from "./util.js";
 import { ui } from "./i18n.js";
 import { setWakeWordOverride } from "./settings.js";
 import { beep } from "./wakeword.js";
-import { readbackOn, speakAiNotice } from "./tts.js";
 import { startWakeStream } from "./serverwake.js";
 
 // --- Screen wake lock -------------------------------------------------------
@@ -54,14 +53,6 @@ document.addEventListener("visibilitychange", () => {
 
 export function micUI(listening) {
   if (listening) acquireWakeLock(); else releaseWakeLock();
-  // Art. 50(1) AI Act. Every engine — tap-to-talk, Web Speech wake word,
-  // server-side wake word — comes through here to say "I am listening now",
-  // which makes this the one place a voice session demonstrably begins.
-  // Spoken only when the app has a voice at all (read-back on) or is
-  // listening continuously: a silent tap-to-talk in front of the screen is
-  // already covered by the notice printed under the microphone, and an app
-  // that is mute by design should not start talking to say so.
-  if (listening && (readbackOn() || $("wakemode").checked)) speakAiNotice();
   $("mic").classList.toggle("listening", listening);
   $("mic").setAttribute("aria-pressed", listening ? "true" : "false");
   $("micstate").textContent = listening ? ui("micstate_listening") : ui("micstate_idle");
