@@ -198,13 +198,41 @@ uv run python tools/probe_lms.py --service qobuz --query "Pink Floyd"
   means Chrome/Android sends the audio to **Google** and Safari/iOS to
   **Apple** for transcription. That is the browser's doing, not ours, and we
   say it plainly. If that bothers you, the **text box** is 100% local.
-- Everything else never leaves your LAN: commands go straight to your LMS,
-  there is no telemetry, no account, no analytics.
-- The only outbound calls the app ever makes: the **user-initiated** Pro
-  license activation, and an at-most-**weekly** license re-check (opt out with
-  `VIVAVOCE_NO_REVALIDATE=1`; going offline never disables a paid license).
+- Commands go straight to your LMS. No telemetry, no account, no analytics —
+  and nothing is logged: the server keeps no access log and writes no audio and
+  no transcript to disk, ever.
+- Four things do reach the internet, and only these four: the
+  **user-initiated** Pro license activation and an at-most-**weekly** license
+  re-check (opt out with `VIVAVOCE_NO_REVALIDATE=1`; going offline never
+  disables a paid license — the machine's hostname goes along as the
+  activation's `instance_name`); album **artwork**, which for TIDAL/Qobuz is
+  whatever CDN URL the streaming plugin reports; and, if you turn on local
+  speech recognition, the **one-time Whisper model download** from Hugging
+  Face.
 
 Full details in [PRIVACY.md](PRIVACY.md).
+
+## What is AI in Vivavoce, and what isn't
+
+Worth being precise about, and the AI Act now expects it (art. 4). The line
+falls in an unexpected place:
+
+- **AI:** turning your voice into text. That is a neural speech model — the
+  browser's by default (Google's or Apple's, see above), or Whisper on your own
+  server with the Pro local-recognition install. The optional server-side wake
+  word is a small ONNX classifier listening for one fixed phrase. Reading the
+  reply aloud uses your device's own voice synthesis.
+- **Not AI:** everything that decides *what you meant*. Once the words are
+  text, Vivavoce is rules a person wrote — ordered regexes per language, string
+  similarity scoring with fixed thresholds, and a hand-written table of moods
+  to music genres. No LLM, no model that learns from you, no profile of you or
+  of anyone in your house. It never tries to work out **who** is speaking: the
+  kid-safe gate knows only whether *this device* has typed the PIN.
+
+Because it does recognise speech, Vivavoce is an AI system under the EU AI Act
+and says so on screen. The full assessment — which articles apply, which don't,
+and why — is in [docs/ai-act.md](docs/ai-act.md). Households using it at home
+have no obligations of their own under the Act (art. 2(10)).
 
 ## Support
 

@@ -48,9 +48,11 @@ installs for separate parts of the pipeline.
 ## The only outbound connections
 
 1. **Pro license activation** — when *you* enter a key, one HTTPS request to
-   `api.lemonsqueezy.com` (the merchant of record). The response is cached in
-   `license.json` in the data directory: the key (shown masked in the UI),
-   an instance id, and timestamps. Nothing else is sent.
+   `api.lemonsqueezy.com` (the merchant of record). It carries the key and, as
+   the activation's `instance_name`, this machine's **hostname** — so you can
+   tell your five activations apart. Nothing else: no command, no transcript,
+   no usage data. The response is cached in `license.json` in the data
+   directory (the key, shown masked in the UI, an instance id, and timestamps).
 2. **License re-validation** — at most **once a week**, at server startup, the
    cached key is re-checked. A network failure changes nothing (an offline
    household keeps Pro forever); only a definitive "disabled/refunded" answer
@@ -67,6 +69,13 @@ Purchases happen on **Lemon Squeezy** (merchant of record): they process the
 payment, handle EU VAT and invoices, and store your payment data under
 [their privacy policy](https://www.lemonsqueezy.com/privacy). Vivavoce never
 sees your payment details — only the license key works locally.
+
+## What the models are
+
+Vivavoce ships no model weights of its own. Which speech models the optional
+installs use, where they come from and under which licence:
+[licenses/MODELS.md](licenses/MODELS.md). Which parts of the app are AI at all
+and what that means under the EU AI Act: [docs/ai-act.md](docs/ai-act.md).
 
 ## Questions
 
