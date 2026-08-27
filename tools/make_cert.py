@@ -146,6 +146,45 @@ def _load_or_create_ca(out_dir: str):
     return ca_cert, ca_key, True
 
 
+def _renewal_verdict(out_dir: str, within_days: int):
+    """Whether the certificate in ``out_dir`` still has to be reissued.
+
+    ``(False, reason)`` to leave it alone, ``(True, reason)`` to reissue.
+    Called only with ``--renew-within``, i.e. from an unattended start, where
+    "do nothing" has to be the answer for anything this tool did not write.
+    """
+    cert_path = os.path.join(out_dir, "cert.pem")
+    key_path = os.path.join(out_dir, "key.pem")
+    if not (os.path.exists(cert_path) and os.path.exists(key_path)):
+        return True, "non c'è ancora un certificato"
+    try:
+        with open(cert_path, "rb") as f:
+            cert = x509.load_pem_x509_certificate(f.read())
+    except (OSError, ValueError):
+        return True, "il certificato presente non è leggibile"
+
+    # Somebody else's certificate — a real one from a public CA, mounted into
+    # this directory — must not be replaced by a self-signed one just because
+    # it is close to its own renewal. Ours is the one our CA signed.
+    ca_path = os.path.join(out_dir, "ca.pem")
+    try:
+        with open(ca_path, "rb") as f:
+            ca_cert = x509.load_pem_x509_certificate(f.read())
+    except (OSError, ValueError):
+        return False, "non c'è la CA locale: il certificato non è nostro"
+    if cert.issuer != ca_cert.subject:
+        return False, "il certificato presente non è firmato dalla CA locale"
+
+    try:
+        expires = cert.not_valid_after_utc
+    except AttributeError:  # cryptography < 42
+        expires = cert.not_valid_after.replace(tzinfo=_dt.timezone.utc)
+    left = (expires - _dt.datetime.now(_dt.timezone.utc)).days
+    if left > within_days:
+        return False, f"valido ancora {left} giorni"
+    return True, f"scade fra {left} giorni"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Genera la CA locale (riusata) e il certificato del server "
@@ -156,11 +195,23 @@ def main() -> int:
     ap.add_argument("--hosts", default="", metavar="H1,H2,...",
                     help="SAN aggiuntivi, separati da virgola: IP o nomi DNS "
                          "(es. l'IP LAN dell'host quando si genera in un container)")
+    ap.add_argument("--renew-within", type=int, default=None, metavar="GIORNI",
+                    help="non fare niente se il certificato esistente è nostro "
+                         "e scade fra più di GIORNI giorni; serve agli avvii "
+                         "automatici (container), che altrimenti non "
+                         "rinnoverebbero mai niente")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
     cert_path = os.path.join(args.out, "cert.pem")
     key_path = os.path.join(args.out, "key.pem")
+
+    if args.renew_within is not None:
+        renew, why = _renewal_verdict(args.out, args.renew_within)
+        if not renew:
+            print(f"Certificato del server invariato: {why}.")
+            return 0
+        print(f"Rinnovo il certificato del server: {why}.")
 
     ca_cert, ca_key, ca_created = _load_or_create_ca(args.out)
 
