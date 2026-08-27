@@ -68,10 +68,22 @@ export async function startLocalRec() {
   if (localRec) { stopLocalRec(); return; }  // second tap stops, like Web Speech
   if (localRecStarting) return;              // one is opening; see the flags above
   localRecStarting = true;
+  // Cleared HERE, not only where it is consumed: a cancel that arrives while
+  // nothing is open (the tap that stops listening, landing before the
+  // permission prompt is answered) raises it with no capture to spend it on,
+  // and it would then swallow the NEXT capture instead — silently, since
+  // that branch throws the audio away by design.
+  localRecCancelled = false;
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
+    localRecCancelled = false;
+    // Give the microphone back before saying anything: a wake trigger lent
+    // it to this capture, and without this the stream stays paused — alive
+    // but deaf — until the capture watchdog fires half a minute later.
+    // endCommandCapture() rewrites the status line, so the error goes last.
+    endCommandCapture();
     $("status").textContent = ui("mic_error") + (e.name || e);
     return;
   } finally {

@@ -81,7 +81,9 @@ class JsonBlocklistStore:
         if not path:
             raise ValueError("path is required")
         self.path = path
-        self._lock = lock if lock is not None else _write_lock
+        # Public, because a get()/put() PAIR is a read-modify-write too and
+        # only its caller knows where it begins: see guard.editing().
+        self.lock = lock if lock is not None else _write_lock
 
     def _read_state(self) -> dict:
         try:
@@ -105,7 +107,7 @@ class JsonBlocklistStore:
         the next reader to overwrite it.
         """
         clean = [str(t).strip() for t in (terms or []) if str(t).strip()]
-        with self._lock:
+        with self.lock:
             state = self._read_state()
             state["terms"] = clean
             try:

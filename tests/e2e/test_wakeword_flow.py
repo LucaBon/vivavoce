@@ -539,3 +539,28 @@ def test_a_second_tap_during_the_permission_prompt_opens_one_stream(
 
     assert page.evaluate("window.__mic.calls") == 1, (
         "the second tap opened a second microphone stream")
+
+
+def test_switching_engine_while_the_stream_is_opening_still_ends_up_listening(
+        page_with_fake_mic, web):
+    # A restart asked for while a start is still in flight cannot join it, so
+    # it cancels it — and used to start nothing in its place: the box stayed
+    # ticked over a page that had quietly stopped listening, and only a fresh
+    # tap on the microphone recovered.
+    page = page_with_fake_mic
+    page.add_init_script(SLOW_MICROPHONE)
+    sessions = FakeSessions()
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions)
+    _start_server_wake(page, srv)
+
+    # Inside the 600 ms opening window: off and on again.
+    page.uncheck("#wakemode")
+    page.check("#wakemode")
+
+    for _ in range(60):
+        if sessions.chunk_calls > 0:
+            break
+        page.wait_for_timeout(100)
+    assert sessions.chunk_calls > 0, (
+        "the restart cancelled the pending start and began nothing")
+    assert page.eval_on_selector("#mic", "el => el.classList.contains('listening')")

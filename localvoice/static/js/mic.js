@@ -21,7 +21,8 @@ import { wakeWord } from "./settings.js";
 import { createWakeHandler } from "./wakeword.js";
 import { micUI, serverWakeOn, syncWakePhrase,
          serverWakeRunning, serverWakeStartPending, startServerWake,
-         stopServerWake, endCommandCapture } from "./miccapture.js";
+         restartServerWake, stopServerWake,
+         endCommandCapture } from "./miccapture.js";
 import { localAsrOn, startLocalRec, cancelLocalRec } from "./localasr.js";
 
 export { refreshServerWake } from "./miccapture.js";
@@ -107,10 +108,12 @@ export function initMic() {
     // No Web Speech here, so continuous listening only exists via the
     // server-side engine; without it selected, there is nothing to start.
     restartWakeListening = () => {
-      stopWakeListening();
-      if ($("wakemode").checked && serverWakeOn() && !serverWakeStartPending()) {
-        startServerWake(captureCommandNoSR);
+      cancelLocalRec();
+      if ($("wakemode").checked && serverWakeOn()) {
+        restartServerWake(captureCommandNoSR);  // stops first; queues if opening
+        return;
       }
+      stopServerWake();
     };
     wireWakeModeToggle();
   } else if (!window.isSecureContext && location.hostname !== "localhost"
@@ -295,10 +298,14 @@ export function initMic() {
     // but rec.onend then restarts it 350 ms later — the same self-healing
     // cycle continuous mode already relies on.
     restartWakeListening = () => {
-      stopWakeListening(stopAll);
-      if (!$("wakemode").checked) return;
-      if (serverWakeOn()) { if (!serverWakeStartPending()) startServerWake(captureCommand); }
-      else startWake();
+      cancelLocalRec();
+      stopAll();
+      if ($("wakemode").checked && serverWakeOn()) {
+        restartServerWake(captureCommand);  // stops first; queues if opening
+        return;
+      }
+      stopServerWake();
+      if ($("wakemode").checked) startWake();
     };
     wireWakeModeToggle();
   }

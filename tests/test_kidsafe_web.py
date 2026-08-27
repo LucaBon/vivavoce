@@ -522,3 +522,43 @@ def test_an_empty_term_is_not_reported_as_added(ks):
     ks.enable("123456", "a")
     assert ks.edit_terms("add", "   ", "a")["ok"] is False
     assert ks.terms() == []
+
+
+def test_two_terms_added_at_once_do_not_erase_each_other(tmp_path, monkeypatch):
+    """add_block reads the list, appends and writes the whole list back. An
+    atomic write does nothing about that: two edits that both start from the
+    same list end with only the second one's term — and both answered
+    "added". Every unlocked device in the house can reach /kidsafe, and the
+    server is thread-per-connection."""
+    import blocklist_store
+
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    ks.enable("123456", "parent")
+
+    reading = threading.Event()
+    release = threading.Event()
+    real_get = blocklist_store.JsonBlocklistStore.get
+
+    def slow_get(self):
+        terms = real_get(self)
+        if not reading.is_set():
+            reading.set()
+            release.wait(5)  # hold the read-modify-write open
+        return terms
+
+    monkeypatch.setattr(blocklist_store.JsonBlocklistStore, "get", slow_get)
+
+    first = threading.Thread(target=ks.edit_terms, args=("add", "Alpha", "parent"))
+    first.start()
+    assert reading.wait(5), "the first edit never reached its read"
+
+    second = threading.Thread(target=ks.edit_terms, args=("add", "Beta", "parent"))
+    second.start()
+    second.join(1.0)
+    assert second.is_alive(), "the second edit read a list already being changed"
+
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    assert sorted(ks.terms()) == ["Alpha", "Beta"]

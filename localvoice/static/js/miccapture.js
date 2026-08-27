@@ -127,6 +127,15 @@ let serverWakeStarting = false;
 // the stream was assigned, micUI(true) ran, and the page went on POSTing
 // 320 ms chunks to /wakeword/chunk with continuous listening switched off.
 let serverWakeCancelled = false;
+// The onCommand of a restart asked for while a start was still in flight.
+// The two cannot be merged — getUserMedia is already open, and opening a
+// second one is the leak serverWakeStarting exists to prevent — so the
+// pending start is cancelled and this takes its place when it settles.
+// Without the hand-off, switching engine (or unticking and re-ticking
+// continuous listening) inside that window cancelled the start and began
+// nothing: the box stayed ticked over a page that had stopped listening,
+// and only a fresh tap on the microphone brought it back.
+let serverWakeQueued = null;
 
 /** Is a server-side wake stream listening right now? */
 export const serverWakeRunning = () => serverWakeStream !== null;
@@ -153,7 +162,7 @@ export async function startServerWake(onCommand) {
   const statusEl = $("status");
   serverWakeStarting = true;
   serverWakeCancelled = false;
-  let stream;
+  let stream, failed = false;
   try {
     stream = await startWakeStream({
       clientId: clientId(),
@@ -179,15 +188,19 @@ export async function startServerWake(onCommand) {
       },
     });
   } catch (e) {
-    return;  // onError above already reported it; getUserMedia denied, etc.
+    failed = true;  // onError above already reported it; getUserMedia denied, etc.
   } finally {
+    // Before draining the queue below, or the start it hands off to would
+    // have this one's `finally` clear the flag out from under it.
     serverWakeStarting = false;
   }
+  if (failed) { drainQueuedStart(); return; }
   if (serverWakeCancelled) {
     // Stopped while this was opening: the stop already told the UI listening
     // is over, so hand the microphone back and leave that message standing.
     serverWakeCancelled = false;
     stream.stop();
+    drainQueuedStart();
     return;
   }
   serverWakeStream = stream;
@@ -195,8 +208,22 @@ export async function startServerWake(onCommand) {
   statusEl.textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
 }
 
+function drainQueuedStart() {
+  const queued = serverWakeQueued;
+  serverWakeQueued = null;
+  if (queued) startServerWake(queued);
+}
+
+/** Stop whatever is listening and start again with the engine selected now. */
+export function restartServerWake(onCommand) {
+  stopServerWake();
+  if (serverWakeStarting) { serverWakeQueued = onCommand; return; }
+  startServerWake(onCommand);
+}
+
 export function stopServerWake() {
   capturing = false;
+  serverWakeQueued = null;  // a plain stop is not a restart
   clearTimeout(captureWatchdog);
   if (serverWakeStarting) serverWakeCancelled = true;
   if (serverWakeStream) {

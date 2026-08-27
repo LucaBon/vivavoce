@@ -140,3 +140,52 @@ def test_the_issued_certificate_stays_under_the_apple_limit(make_cert, issued):
     assert (expires - starts).days <= 825, (
         "iOS 13+/macOS 10.15+ refuse a server certificate valid this long, "
         "trusted CA or not")
+
+
+# -- the renewal must not be able to destroy what it is renewing ---------------
+
+def test_the_pair_is_swapped_not_rewritten_in_place(own_copy):
+    # The renewal runs on every container boot now. The old code opened
+    # key.pem O_TRUNC and rewrote it where it lay, so a process killed
+    # mid-write left a truncated key next to a certificate that no longer
+    # matched — and the entrypoint, seeing both files present, started the
+    # server on it. Nothing is written in place any more: both files are
+    # built aside and published by rename.
+    before = os.stat(own_copy / "key.pem").st_ino
+    proc = subprocess.run(
+        [sys.executable, "tools/make_cert.py", "--out", str(own_copy),
+         "--renew-within", "10000"],
+        cwd=ROOT, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-500:]
+    assert os.stat(own_copy / "key.pem").st_ino != before, (
+        "key.pem was rewritten in place instead of replaced")
+    assert oct(os.stat(own_copy / "key.pem").st_mode)[-3:] == "600"
+
+
+def test_a_key_left_over_from_an_interrupted_renewal_is_repaired(make_cert,
+                                                                 own_copy):
+    # A crash between the two renames leaves a new key beside the old
+    # certificate. The server cannot start on that pair, and no boot would
+    # ever fix it while the only question asked was "has it expired?".
+    other = own_copy.parent / "other"
+    proc = subprocess.run(
+        [sys.executable, "tools/make_cert.py", "--out", str(other)],
+        cwd=ROOT, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-500:]
+    (own_copy / "key.pem").write_bytes((other / "key.pem").read_bytes())
+
+    renew, why = make_cert._renewal_verdict(str(own_copy), 30)
+    assert renew is True
+    assert "non corrisponde" in why
+
+
+def test_an_unreadable_certificate_is_left_where_it_is(make_cert, tmp_path):
+    # Unreadable and ours-but-corrupt look identical from here, and a
+    # third-party cert.pem this container simply cannot open (root-owned
+    # 0600, DER, a symlink out of the mount) is the case that must not be
+    # overwritten with a self-signed one.
+    (tmp_path / "cert.pem").write_bytes(b"not a certificate")
+    (tmp_path / "key.pem").write_bytes(b"nor is this")
+    renew, why = make_cert._renewal_verdict(str(tmp_path), 30)
+    assert renew is False
+    assert "non lo tocco" in why
