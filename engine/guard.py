@@ -17,7 +17,7 @@ from matching import (BLOCKLIST, GATE, ActionResult, _normalize,
                       _normalize_apart)
 from messages import msg
 
-# Spoken when a restricted (non-owner) speaker asks for a blocked song/singer.
+# Spoken when a restricted (non-unlocked) client asks for a blocked song/singer.
 BLOCKED_SPEECH = msg("blocked")
 # Spoken when a non-owner tries to change the blocklist by voice.
 NOT_OWNER_SPEECH = msg("not_owner")
@@ -81,9 +81,16 @@ def is_blocked_item(item: Optional[Dict], blocklist: Optional[List[str]]) -> boo
 
 
 class Guard:
-    """Speaker-based access gate. When ``restricted`` is True, any request text
+    """Device-state access gate. When ``restricted`` is True, any request text
     matching ``blocklist`` is refused with :data:`BLOCKED_SPEECH`. When it's
-    False the guard is transparent, so passing ``guard=None`` is also a no-op."""
+    False the guard is transparent, so passing ``guard=None`` is also a no-op.
+
+    "Device-state", not "speaker": nothing here knows *who* is talking. The
+    only input to ``restricted`` is whether the calling client id has entered
+    the parent's PIN recently (``pro/kidsafe.py``), which is a fact about a
+    browser, not about a person. There is no voice recognition anywhere in
+    Vivavoce, and this docstring used to say "speaker-based", which invited
+    exactly the opposite reading — see ``docs/ai-act.md``."""
 
     def __init__(self, restricted: bool = False, blocklist: Optional[List[str]] = None):
         self.restricted = restricted
