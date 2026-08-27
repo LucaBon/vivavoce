@@ -3,6 +3,7 @@ plumbing, voice management intents, and the fail-safe policy (a revoked
 license keeps ENFORCING an enabled blocklist; it only locks changes)."""
 
 import json
+import threading
 
 import pytest
 
@@ -364,3 +365,87 @@ def test_kidsafe_http_flow(live_server, tmp_path, clock):
                                        "client": "other-kid"})
     assert reply["ok"] is False
     assert reply["speech"] == actions.msg("blocked")
+
+
+# -- the wrong-PIN counter under concurrency -----------------------------------
+#
+# The gate was read, ~100ms of PBKDF2 ran, and only then was the counter
+# re-read and incremented. Every request that arrived before the first write
+# saw count 0 — so all of them passed a five-attempt gate, all of them were
+# actually tested, and each wrote back "one more than the zero I read". The
+# file settled on 1 or 2 instead of the real number, the backoff never
+# engaged, and the next batch started from an untriggered gate again.
+#
+# Real time here, not the frozen `clock` fixture: the backoff is what closes
+# the gate, and it closes it by comparing retry_at against now().
+
+def _pro_kidsafe(tmp_path):
+    return KidSafe(str(tmp_path), FakeLicense(pro=True))
+
+
+def _hammer(ks, pin, threads):
+    """Fire ``threads`` concurrent verify_pin calls, all released together."""
+    start = threading.Barrier(threads)
+    results = []
+    guard = threading.Lock()
+
+    def attempt():
+        start.wait(timeout=10)
+        got = ks.verify_pin(pin)
+        with guard:
+            results.append(got)
+
+    workers = [threading.Thread(target=attempt) for _ in range(threads)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join(timeout=60)
+    assert not any(w.is_alive() for w in workers), "verify_pin deadlocked"
+    return results
+
+
+def test_concurrent_wrong_pins_cannot_outrun_the_gate(tmp_path):
+    ks = _pro_kidsafe(tmp_path)
+    ks.enable("123456", "owner")
+
+    results = _hammer(ks, "000000", 20)
+
+    assert not any(results), "a wrong PIN was accepted"
+    # Exactly MAX_ATTEMPTS got through and were counted; the rest met a closed
+    # gate. The bug showed up here as a count of 1 or 2 — every thread writing
+    # back an increment of the same stale zero.
+    assert ks._lockout()["count"] == MAX_ATTEMPTS
+    assert ks.locked_out_for() > 0, "the backoff never engaged"
+
+
+def test_a_flood_is_not_twenty_password_hashes(tmp_path):
+    # The gate exists so a hammering client costs nothing. Consulted outside
+    # the critical section, it cost one PBKDF2 per waiting thread instead —
+    # 200k iterations each, which is a fine way to occupy a server.
+    from pro import kidsafe as kidsafe_module
+    ks = _pro_kidsafe(tmp_path)
+    ks.enable("123456", "owner")
+    hashed = []
+    real_hash = kidsafe_module._hash_pin
+
+    def counting(pin, salt):
+        hashed.append(pin)
+        return real_hash(pin, salt)
+
+    kidsafe_module._hash_pin = counting
+    try:
+        _hammer(ks, "000000", 20)
+    finally:
+        kidsafe_module._hash_pin = real_hash
+
+    assert len(hashed) == MAX_ATTEMPTS, (
+        f"{len(hashed)} PINs hashed behind a {MAX_ATTEMPTS}-attempt gate")
+
+
+def test_a_correct_pin_still_clears_the_counter(tmp_path):
+    ks = _pro_kidsafe(tmp_path)
+    ks.enable("123456", "owner")
+    assert ks.verify_pin("000000") is False
+    assert ks._lockout()["count"] == 1
+    assert ks.verify_pin("123456") is True
+    assert ks._lockout()["count"] == 0

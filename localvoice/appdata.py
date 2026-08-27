@@ -18,7 +18,7 @@ import os
 import re
 import tempfile
 import threading
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 # Il namespace delle variabili d'ambiente. LEGACY_PREFIX (il nome pre-rebrand)
 # viene letto come ripiego per un rilascio, poi sparisce: chi ha ancora i
@@ -113,6 +113,32 @@ def read_json(path: str, default: Any = None) -> Any:
 # lock costs nothing and removes the interleaving two threads could otherwise
 # produce — the HTTP server is thread-per-request, and /kidsafe is reachable
 # from every phone in the house at once.
+# One reentrant lock per file, so a read-modify-write of a JSON state file can
+# be made atomic against other threads touching the same file. _write_lock
+# below guards the write alone, which is enough to keep a file from being
+# corrupted and not nearly enough to keep two threads from each reading the
+# same counter and each writing back "one more than what I read".
+_path_locks_guard = threading.Lock()
+_path_locks: Dict[str, "threading.RLock"] = {}
+
+
+def lock_for(path: str) -> "threading.RLock":
+    """The lock guarding read-modify-write cycles on ``path``.
+
+    Keyed on the absolute path, so two objects pointing at one file — and
+    kid-safe has exactly that, a KidSafe and a JsonBlocklistStore on the same
+    kidsafe.json — serialise against each other rather than each holding a
+    private lock and neither noticing the other.
+    """
+    key = os.path.abspath(path)
+    with _path_locks_guard:
+        lock = _path_locks.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _path_locks[key] = lock
+        return lock
+
+
 _write_lock = threading.Lock()
 
 
