@@ -121,6 +121,21 @@ export async function refreshServerWake() {
 // the permission prompt is up) sees serverWakeStream still null and starts a
 // SECOND concurrent stream, leaking the first one's mic/AudioContext forever.
 let serverWakeStarting = false;
+// Raised when the session is torn down while that start is still pending.
+// stopServerWake() had nothing to stop in that window — serverWakeStream is
+// still null — so it no-opped and the pending start then landed anyway:
+// the stream was assigned, micUI(true) ran, and the page went on POSTing
+// 320 ms chunks to /wakeword/chunk with continuous listening switched off.
+let serverWakeCancelled = false;
+// The onCommand of a restart asked for while a start was still in flight.
+// The two cannot be merged — getUserMedia is already open, and opening a
+// second one is the leak serverWakeStarting exists to prevent — so the
+// pending start is cancelled and this takes its place when it settles.
+// Without the hand-off, switching engine (or unticking and re-ticking
+// continuous listening) inside that window cancelled the start and began
+// nothing: the box stayed ticked over a page that had stopped listening,
+// and only a fresh tap on the microphone brought it back.
+let serverWakeQueued = null;
 
 /** Is a server-side wake stream listening right now? */
 export const serverWakeRunning = () => serverWakeStream !== null;
@@ -146,8 +161,10 @@ const CAPTURE_MAX_MS = LOCALREC_MAX_MS + 5000;
 export async function startServerWake(onCommand) {
   const statusEl = $("status");
   serverWakeStarting = true;
+  serverWakeCancelled = false;
+  let stream, failed = false;
   try {
-    serverWakeStream = await startWakeStream({
+    stream = await startWakeStream({
       clientId: clientId(),
       onTriggered: () => {
         if (capturing) return;  // a duplicate trigger for the same phrase
@@ -171,17 +188,44 @@ export async function startServerWake(onCommand) {
       },
     });
   } catch (e) {
-    return;  // onError above already reported it; getUserMedia denied, etc.
+    failed = true;  // onError above already reported it; getUserMedia denied, etc.
   } finally {
+    // Before draining the queue below, or the start it hands off to would
+    // have this one's `finally` clear the flag out from under it.
     serverWakeStarting = false;
   }
+  if (failed) { drainQueuedStart(); return; }
+  if (serverWakeCancelled) {
+    // Stopped while this was opening: the stop already told the UI listening
+    // is over, so hand the microphone back and leave that message standing.
+    serverWakeCancelled = false;
+    stream.stop();
+    drainQueuedStart();
+    return;
+  }
+  serverWakeStream = stream;
   micUI(true);
   statusEl.textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
 }
 
+function drainQueuedStart() {
+  const queued = serverWakeQueued;
+  serverWakeQueued = null;
+  if (queued) startServerWake(queued);
+}
+
+/** Stop whatever is listening and start again with the engine selected now. */
+export function restartServerWake(onCommand) {
+  stopServerWake();
+  if (serverWakeStarting) { serverWakeQueued = onCommand; return; }
+  startServerWake(onCommand);
+}
+
 export function stopServerWake() {
   capturing = false;
+  serverWakeQueued = null;  // a plain stop is not a restart
   clearTimeout(captureWatchdog);
+  if (serverWakeStarting) serverWakeCancelled = true;
   if (serverWakeStream) {
     const s = serverWakeStream;
     serverWakeStream = null;
@@ -204,15 +248,23 @@ export function stopServerWake() {
 //
 // Called on plain tap-to-talk too, where there is no wake stream and both
 // steps degrade to the idle UI: resume() is a no-op unless paused.
-export function endCommandCapture() {
+//
+// `keepStatus` leaves the status line alone: with auto-send off the capture
+// ends over "check the text and press Send", and answering that question
+// with "tap the microphone" (or "listening for hey jarvis") describes a box
+// silently waiting for Send as if nothing were waiting at all. The caller
+// knows — it is the one that just put the transcript there.
+export function endCommandCapture(keepStatus) {
   capturing = false;
   clearTimeout(captureWatchdog);
   if (serverWakeStream) {
     serverWakeStream.resume();
     micUI(true);
-    $("status").textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+    if (!keepStatus) {
+      $("status").textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+    }
   } else {
     micUI(false);
-    $("status").textContent = ui("tap_mic");
+    if (!keepStatus) $("status").textContent = ui("tap_mic");
   }
 }

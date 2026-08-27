@@ -136,6 +136,25 @@ class RequestBase:
         self._send(403, json.dumps({"ok": False, "error": reason}))
         return True
 
+    def _reject_bad_host(self) -> bool:
+        """True (and a 403 already sent) when this is not a Host we answer to.
+
+        The Host allow-list on its own — the one check above that applies
+        to reading rather than acting. The other two are about where a request
+        was *sent from*, and cannot apply here: a top-level navigation carries
+        no Origin and reports Sec-Fetch-Site: cross-site whenever it came from
+        a link, so refusing on those would refuse ordinary browsing.
+
+        DNS rebinding is different, and it is the reason this exists: the
+        attacker's own name resolves to this LAN address, so their page is
+        same-origin with us and CAN read what it asks for. Nothing but the
+        Host tells the two apart.
+        """
+        if self.host_policy.allows(self.headers.get("Host") or ""):
+            return False
+        self._send(403, json.dumps({"ok": False, "error": "bad_host"}))
+        return True
+
 
 # How many connections may be open at once. ThreadingHTTPServer spawns one
 # thread per connection with no ceiling: a client opening connections and

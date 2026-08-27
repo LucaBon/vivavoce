@@ -10,6 +10,7 @@ as good as the agreement between what goes *in* it and what is checked
 from __future__ import annotations
 
 import re
+import contextlib
 from typing import Dict, List, Optional
 
 from blocklist_store import BlocklistStoreError
@@ -17,7 +18,7 @@ from matching import (BLOCKLIST, GATE, ActionResult, _normalize,
                       _normalize_apart)
 from messages import msg
 
-# Spoken when a restricted (non-owner) speaker asks for a blocked song/singer.
+# Spoken when a restricted (non-unlocked) client asks for a blocked song/singer.
 BLOCKED_SPEECH = msg("blocked")
 # Spoken when a non-owner tries to change the blocklist by voice.
 NOT_OWNER_SPEECH = msg("not_owner")
@@ -81,9 +82,16 @@ def is_blocked_item(item: Optional[Dict], blocklist: Optional[List[str]]) -> boo
 
 
 class Guard:
-    """Speaker-based access gate. When ``restricted`` is True, any request text
+    """Device-state access gate. When ``restricted`` is True, any request text
     matching ``blocklist`` is refused with :data:`BLOCKED_SPEECH`. When it's
-    False the guard is transparent, so passing ``guard=None`` is also a no-op."""
+    False the guard is transparent, so passing ``guard=None`` is also a no-op.
+
+    "Device-state", not "speaker": nothing here knows *who* is talking. The
+    only input to ``restricted`` is whether the calling client id has entered
+    the parent's PIN recently (``pro/kidsafe.py``), which is a fact about a
+    browser, not about a person. There is no voice recognition anywhere in
+    Vivavoce, and this docstring used to say "speaker-based", which invited
+    exactly the opposite reading — see ``docs/ai-act.md``."""
 
     def __init__(self, restricted: bool = False, blocklist: Optional[List[str]] = None):
         self.restricted = restricted
@@ -114,6 +122,28 @@ class Guard:
 # blocked" a miss would go on to block whatever the second-best transcription
 # heard. The request is satisfied either way — the term is in the list, or it
 # is not — so the honest answer is also the safe one.
+@contextlib.contextmanager
+def editing(store):
+    """Hold ``store``'s lock, if it has one, for a whole read-modify-write.
+
+    Making the write atomic is not enough: the edits below READ the list,
+    change it and write the whole list back, so two of them running at once
+    each start from the same list and the second one's write erases the
+    first's term — while both answer "added". The server is thread-per-
+    connection and every unlocked device in the house can reach /kidsafe, so
+    "at once" is two taps, not a thought experiment.
+
+    Optional by design: the store is duck-typed (NoOpBlocklistStore, the test
+    doubles), and one without a lock is one nothing else can be writing.
+    """
+    lock = getattr(store, "lock", None)
+    if lock is None:
+        yield
+        return
+    with lock:
+        yield
+
+
 def add_block(store, term: Optional[str], *, is_owner: bool) -> ActionResult:
     """Add a song/singer term to the blocklist. Owner-gated."""
     if not is_owner:
@@ -122,10 +152,12 @@ def add_block(store, term: Optional[str], *, is_owner: bool) -> ActionResult:
     if not term:
         return ActionResult(msg("ask_block"), ok=False, kind=BLOCKLIST)
     try:
-        terms = store.get()
-        if any(_normalize(t) == _normalize(term) for t in terms):
-            return ActionResult(msg("already_blocked", term=term), ok=True, kind=BLOCKLIST)
-        store.put(terms + [term])
+        with editing(store):
+            terms = store.get()
+            if any(_normalize(t) == _normalize(term) for t in terms):
+                return ActionResult(msg("already_blocked", term=term), ok=True,
+                                    kind=BLOCKLIST)
+            store.put(terms + [term])
     except BlocklistStoreError:
         return ActionResult(msg("blocklist_save_error"), ok=False, kind=BLOCKLIST)
     return ActionResult(msg("block_added", term=term), ok=True, kind=BLOCKLIST)
@@ -139,11 +171,13 @@ def remove_block(store, term: Optional[str], *, is_owner: bool) -> ActionResult:
     if not term:
         return ActionResult(msg("ask_unblock"), ok=False, kind=BLOCKLIST)
     try:
-        terms = store.get()
-        kept = [t for t in terms if _normalize(t) != _normalize(term)]
-        if len(kept) == len(terms):
-            return ActionResult(msg("not_in_blocklist", term=term), ok=True, kind=BLOCKLIST)
-        store.put(kept)
+        with editing(store):
+            terms = store.get()
+            kept = [t for t in terms if _normalize(t) != _normalize(term)]
+            if len(kept) == len(terms):
+                return ActionResult(msg("not_in_blocklist", term=term), ok=True,
+                                    kind=BLOCKLIST)
+            store.put(kept)
     except BlocklistStoreError:
         return ActionResult(msg("blocklist_update_error"), ok=False, kind=BLOCKLIST)
     return ActionResult(msg("block_removed", term=term), ok=True, kind=BLOCKLIST)

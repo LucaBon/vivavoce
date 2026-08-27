@@ -32,7 +32,11 @@ import socket
 from typing import Optional, Sequence
 
 # The routes that take a JSON body and change something. GET routes are not
-# listed: they are safe to trigger cross-site because the answer can't be read.
+# listed: cross-site, they are safe to *trigger*, because the answer cannot be
+# read. That reasoning covers checks 1 and 2 and not check 3 — under DNS
+# rebinding the attacker's page is same-origin with us and reads everything it
+# asks for, which is why reads are held to the Host allow-list as well (see
+# httpbase._reject_bad_host).
 JSON_ROUTES = frozenset({"/api/v1/command", "/command", "/kidsafe",
                          "/license", "/player"})
 

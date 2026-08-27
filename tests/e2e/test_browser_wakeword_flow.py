@@ -47,9 +47,13 @@ FAKE_CONTINUOUS_SPEECH = """
         }, delayMs);
       }
       // Test hook: one more heard phrase, delivered the cumulative way.
-      say(text) {
+      say(text) { return this.sayAll([text]); }
+      // Test hook: several entries in ONE result event, which is what Chrome
+      // does when snapshots arrive faster than the page is scheduled to
+      // handle them — the case where the last entry is not the command.
+      sayAll(texts) {
         if (!this._on) return "SESSION_CLOSED";
-        this._acc.push(text);
+        texts.forEach((t) => this._acc.push(t));
         const results = this._acc.map((t, i) => {
           const alt = { transcript: t };
           return Object.assign([alt], { isFinal: i === this._acc.length - 1,
@@ -278,3 +282,54 @@ def test_a_dead_sessions_error_does_not_overwrite_the_current_message(page, web)
     page.wait_for_timeout(300)
     assert page.eval_on_selector("#status", "el => el.textContent") == settled, (
         "an error from the session we killed replaced the current message")
+
+
+def test_tap_to_talk_with_autosend_off_keeps_the_prompt(page, web):
+    # Wake mode solved this with isAwaitingReview(); tap-to-talk never had the
+    # equivalent, so handleManualFinal() wrote "check the text and press Send"
+    # and the end of the capture immediately answered it with "tap the
+    # microphone" — over a box silently waiting for Send.
+    srv = web(license_mgr=_ProLicense())
+    page.add_init_script(FAKE_CONTINUOUS_SPEECH)
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+    assert _autosend(page) is False  # wake mode is off, so this follows it
+
+    page.click("#mic")  # one tap-to-talk shot
+    # Wait for onstart, not merely for the session object: it writes the
+    # status line itself, and a fake that answers before it lands is testing
+    # an order the real recogniser never produces.
+    page.wait_for_function(
+        "() => document.getElementById('mic').classList.contains('listening')",
+        timeout=5000)
+    _say(page, "pausa")
+    page.wait_for_function(
+        "() => document.getElementById('text').value === 'pausa'", timeout=5000)
+
+    # The session then ends the way Chrome ends one, which is where the
+    # prompt used to be overwritten.
+    page.wait_for_function("() => !window.__sr.live._on", timeout=5000)
+    page.wait_for_timeout(200)
+    status = page.eval_on_selector("#status", "el => el.textContent")
+    assert "Controlla il testo" in status, f"prompt was clobbered: {status!r}"
+    assert _bubbles(page) == []
+
+
+def test_a_longer_stray_after_the_command_does_not_swallow_it(page, web):
+    # The stray-interim fallback compared candidates against the entry it had
+    # already picked — the last one, which by construction has no wake word.
+    # Its length became the bar to clear, and a stray is routinely longer than
+    # the command it lands after (a television, a second person in the room),
+    # so the command lost to it and was dropped without a word.
+    srv = web(license_mgr=_ProLicense())
+    _start_browser_wake(page, srv)
+
+    page.evaluate("""window.__sr.live.sayAll([
+        'vivavoce pausa',
+        'e adesso le previsioni del tempo per tutto il nord ovest'])""")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#log .bubble.you').length > 0",
+        timeout=8000)
+    assert "pausa" in _bubbles(page)
+    assert "vivavoce pausa" not in _bubbles(page)

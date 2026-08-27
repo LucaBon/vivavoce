@@ -318,7 +318,7 @@ from matching import (BLOCKLIST, ERR_UNREACHABLE, LIST_LIMIT, _LEAD_FILLER,
                       _NOT_AN_ARTIST, _fold, _normalize_apart)
 from guard import (BLOCKED_SPEECH, NOT_OWNER_SPEECH, parse_blocklist,
                    is_blocked, ITEM_NAME_FIELDS, add_block, remove_block,
-                   list_blocks)
+                   list_blocks, editing)
 from transport import (VOLUME_STEP, pause, resume, next_track, previous_track,
                        change_volume, MAX_SLEEP_MINUTES, set_sleep,
                        cancel_sleep, now_playing, clear_queue, queue_list)

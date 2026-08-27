@@ -12,6 +12,7 @@ let npLastArt = null;
 // between polls so the time/bar move smoothly instead of jumping every 5 s.
 let npState = null;
 let npSeeking = false;  // finger on the bar: nothing may overwrite the UI
+let npSeekPointer = null;  // the captured pointer, so a cancel can release it
 let npVolDrag = false;  // finger on the volume slider: polls keep hands off
 
 function fmtTime(s) {
@@ -26,6 +27,23 @@ function npNow() {
   if (npState.mode === "play") e += (performance.now() - npState.syncedAt) / 1000;
   return npState.duration ? Math.min(e, npState.duration) : e;
 }
+// The drag reads npState on every pointer event, and the poll can drop it
+// from under one: a track that ends, a visibilitychange, or a failed fetch
+// (which renders null). The next pointermove then threw TypeError — and so
+// did pointerup, before it could put the bar and the pointer capture back,
+// leaving a captured pointer and a half-painted bar behind. Whoever takes
+// the state away ends the drag.
+function cancelSeek() {
+  if (!npSeeking) return;
+  npSeeking = false;
+  const seek = $("npseek");
+  seek.classList.remove("drag");
+  if (npSeekPointer != null) {
+    try { seek.releasePointerCapture(npSeekPointer); } catch (e) {}
+    npSeekPointer = null;
+  }
+}
+
 function renderNpTime() {
   if (!npState || npSeeking) return;
   const dur = npState.duration || 0, cur = npNow();
@@ -43,6 +61,7 @@ function renderNpTime() {
 export function renderNowPlaying(d) {
   const el = $("np");
   if (!d || !d.title || (d.mode !== "play" && d.mode !== "pause")) {
+    cancelSeek();  // nothing to seek in any more; see above
     el.hidden = true;
     npLastArt = null;
     npState = null;
@@ -176,6 +195,7 @@ export function initNowPlaying() {
   seekEl.addEventListener("pointerdown", (ev) => {
     if (!npState || !npState.duration) return;
     npSeeking = true;
+    npSeekPointer = ev.pointerId;
     seekEl.classList.add("drag");
     seekEl.setPointerCapture(ev.pointerId);
     seekPreview(seekTime(ev));
@@ -187,6 +207,7 @@ export function initNowPlaying() {
   seekEl.addEventListener("pointerup", (ev) => {
     if (!npSeeking) return;
     npSeeking = false;
+    npSeekPointer = null;
     seekEl.classList.remove("drag");
     const t = seekTime(ev);
     npState.elapsed = t;
@@ -196,6 +217,7 @@ export function initNowPlaying() {
   });
   seekEl.addEventListener("pointercancel", () => {
     npSeeking = false;
+    npSeekPointer = null;
     seekEl.classList.remove("drag");
     renderNpTime();
   });

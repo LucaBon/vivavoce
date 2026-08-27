@@ -121,3 +121,41 @@ def test_settings_persist_across_reload(page, web):
     page.wait_for_function("document.documentElement.lang === 'en'")
     assert page.input_value("#source") == "local"
     assert page.input_value("#reclang") == "en"
+
+
+def test_the_seek_bar_survives_the_track_ending_mid_drag(page, web, transport):
+    # The drag reads npState on every pointer event and the poll can drop it
+    # from under one — a track that ends, a failed fetch (which renders null),
+    # a visibilitychange. The next pointermove threw TypeError, and so did
+    # pointerup, aborting before it could put the bar and the captured
+    # pointer back. The `page` fixture fails the test on any uncaught error;
+    # the class assertion below covers what was left behind.
+    transport.responses["status"] = {
+        "mode": "play", "time": 42.5,
+        "playlist_loop": [{"title": "Time", "artist": "Pink Floyd",
+                           "duration": 421}],
+    }
+    page.goto(web().url)
+    page.wait_for_selector("#np:not([hidden])")
+
+    box = page.locator("#npseek").bounding_box()
+    mid_y = box["y"] + box["height"] / 2
+    page.mouse.move(box["x"] + box["width"] * 0.2, mid_y)
+    page.mouse.down()
+    page.wait_for_selector("#npseek.drag")
+
+    page.evaluate("window.vivavoce.renderNowPlaying(null)")
+    # Straight at the element: once the card is hidden, hit-testing would
+    # send a real mouse move somewhere else entirely, and the listener under
+    # test is the one on the bar.
+    page.eval_on_selector("#npseek", """el => {
+        const r = el.getBoundingClientRect();
+        el.dispatchEvent(new PointerEvent('pointermove', {
+          bubbles: true, pointerId: 1,
+          clientX: r.left + r.width * 0.6, clientY: r.top + r.height / 2 }));
+    }""")
+    page.mouse.up()
+
+    assert page.eval_on_selector(
+        "#npseek", "el => el.classList.contains('drag')") is False, (
+        "the bar stayed stuck in its dragging state")

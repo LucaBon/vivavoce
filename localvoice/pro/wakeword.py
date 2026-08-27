@@ -180,7 +180,16 @@ class ServerWakeWordSessions:
         self._lock = threading.Lock()
 
     def available(self) -> bool:
-        return available()
+        """Whether this registry can actually detect anything.
+
+        The configured model has to resolve to a bundled ``.onnx``, not just
+        the package has to import. ``--wakeword-model hey_vivavoce`` (no such
+        bundled model) used to print "attiva" at startup and answer
+        ``{"available": true}``, and then every streamed chunk raised inside
+        _load(), several times a second, for the whole session — the one
+        engine that reports its own state was the one not checking it.
+        """
+        return available() and _model_path(self.model) is not None
 
     def _sweep(self) -> None:
         """Drop sessions nobody has fed for a while. Called under the lock
