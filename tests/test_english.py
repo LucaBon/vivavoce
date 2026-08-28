@@ -33,10 +33,12 @@ def test_msg_lang_selection():
 
 
 def test_unsupported_lang_falls_back_to_italian():
-    # French: the page offers fr-FR as a mic language, so it is a code the
+    # Spanish: the page offers es-ES as a mic language, so it is a code the
     # client really sends, and there is no pack behind it. (This test used to
-    # say "de", which stopped being unsupported the day German shipped.)
-    set_lang("fr")
+    # say "de", and then "fr"; each stopped being unsupported the day that
+    # language shipped. Spanish is the last mic language without a catalog,
+    # so the next one to ship has to delete this test rather than repoint it.)
+    set_lang("es")
     assert msg("paused") == "In pausa."
 
 

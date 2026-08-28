@@ -165,6 +165,30 @@ NEW_PHRASES_DE = [
 ]
 
 
+NEW_PHRASES_FR = [
+    ("mets quelque chose de relaxant", "relax"),
+    ("mets de la musique douce", "relax"),
+    ("mets de la musique pour dormir", "sleep"),
+    ("mets de la musique pour la fête", "party"),
+    ("mets quelque chose de joyeux", "happy"),
+    ("mets de la musique pour travailler", "focus"),
+    ("mets quelque chose d'instrumental", "instrumental"),
+    ("mets de la musique sans paroles", "instrumental"),
+    ("mets quelque chose de triste", "melancholy"),
+    ("mets de la musique pour les fêtes", "christmas"),
+    ("mets quelque chose de classique", "classical"),
+    ("mets un peu de jazz", "jazz"),
+    ("mets de la musique des années 80", "eighties"),
+    ("mets des chansons des années quatre vingt dix", "nineties"),
+    ("mets quelque chose d'estival", "summer"),
+    # The politeness tail, which no other language has to survive here: it
+    # lands after the mood word, so «douce s'il te plaît» is what the table
+    # would have been asked about.
+    ("mets de la musique douce s'il te plaît", "relax"),
+    ("mets quelque chose de relaxant stp", "relax"),
+]
+
+
 def resolved(phrase, code):
     """The mood key a spoken phrase really produces - both filters, in the
     order the router runs them."""
@@ -202,6 +226,33 @@ def test_the_new_german_phrases_reach_their_mood(phrase, key):
 )
 def test_a_german_phrase_that_is_not_a_request_to_play(phrase):
     assert resolved(phrase, "de") is None
+
+
+@pytest.mark.parametrize("phrase,key", NEW_PHRASES_FR)
+def test_the_new_french_phrases_reach_their_mood(phrase, key):
+    assert resolved(phrase, "fr") == key
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    # The anchor and the marker noun, in French. Each of these carries a mood
+    # word and asks for something else entirely.
+    ["coupe la musique",
+     "arrête la musique classique",
+     "je ne veux pas de musique triste",
+     "bloque la musique triste"],
+)
+def test_a_french_phrase_that_is_not_a_request_to_play(phrase):
+    assert resolved(phrase, "fr") is None
+
+
+def test_a_french_christmas_request_needs_pour_not_de():
+    """The mood pattern eats the «de», so «de la musique de Noël» arrives at
+    the table as the bare "noel" — which is the one entry the table must not
+    have, because «Petit Papa Noël» is a title. moods_it.py records the same
+    shape for «di natale». «pour Noël» is the form that works."""
+    assert resolved("mets de la musique de Noël", "fr") is None
+    assert resolved("mets de la musique pour Noël", "fr") == "christmas"
 
 
 @pytest.mark.parametrize("code", sorted(PACKS))
