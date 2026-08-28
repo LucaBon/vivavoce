@@ -1,0 +1,313 @@
+# Vivavoce for Home Assistant Assist.
+#
+# What this is: an automation blueprint that hands a spoken sentence to a
+# Vivavoce server and speaks back what Vivavoce *actually started playing* —
+# title and artist — instead of what it thought it heard.
+#
+# Why it works, and why it does not fight anything you already have: sentence
+# triggers are matched BEFORE Home Assistant's built-in intents. A sentence
+# listed below never reaches "Search and Play"; every other sentence — lights,
+# timers, the weather, other languages — carries on untouched. Uninstalling is
+# deleting one automation.
+#
+# The whole sentence is forwarded verbatim: the title/artist/album parsing
+# lives in the Vivavoce engine, so the triggers here only have to be wide
+# enough to catch the phrasing. That is the entire point of this shape.
+#
+# Requires a `rest_command: vivavoce_command:` block in configuration.yaml,
+# which a blueprint cannot ship. It is in DEPLOY.md, under "Home Assistant
+# voice", and only there on purpose: a second copy here would be one more
+# thing to keep in step, and the copy people paste from is the one in the
+# docs. `tests/test_packaging.py` cross-checks that block against the calls
+# below, field by field.
+#
+# Known limit, stated here rather than discovered later: a conversation started
+# by a sentence trigger cannot hold the turn open — Home Assistant's trigger
+# result has no `continue_conversation`. So "which one did you mean?" is a real
+# back-and-forth only on an assist_satellite, which has `ask_question`.
+# Everywhere else (the app, the dashboard) Vivavoce reads the numbered list and
+# closes the turn; you answer by starting a new one — "la 2" is a sentence
+# below for exactly that reason.
+
+blueprint:
+  name: Vivavoce — voice control for LMS / Daphile
+  description: >-
+    Send music sentences to a Vivavoce server and answer with what really
+    started playing. Italian and English. Everything Vivavoce does not claim
+    keeps working exactly as before.
+  domain: automation
+  homeassistant:
+    min_version: "2025.7.0"
+  source_url: https://github.com/LucaBon/vivavoce/blob/main/blueprints/vivavoce_assist.yaml
+  input:
+    server:
+      name: Vivavoce server
+      description: >-
+        Where Vivavoce answers. The Home Assistant app serves HTTPS on 8730
+        with a self-signed certificate, which is why the rest_command in
+        DEPLOY.md sets `verify_ssl: false`. Use http:// only if you started the
+        server with VIVAVOCE_HTTPS=0.
+      default: https://localhost:8730
+      selector:
+        text:
+    player:
+      name: LMS player
+      description: >-
+        Optional. The LMS player id (its MAC) to command instead of the
+        server's default one. Multi-room is a Pro feature; without it this is
+        ignored. Leave empty unless you have more than one player and want this
+        automation pinned to one of them.
+      default: ""
+      selector:
+        text:
+
+# Parallel, not queued. Two runs share nothing — the conversation key is per
+# device — so queueing buys no safety and costs real time: one slow LMS would
+# make every other room wait behind it, each holding its own Assist pipeline
+# open, and on the satellite branch a run blocks until somebody answers out
+# loud.
+mode: parallel
+max: 10
+max_exceeded: silent
+
+# Two trigger groups, and the group is the language. The id is not decoration:
+# it is how `lang` is decided further down. The sentence that matched is direct
+# evidence of the language the user spoke, which the pipeline's configured
+# language is not — a pipeline set to English still hears Italian from someone
+# who speaks it.
+#
+# What is deliberately NOT here: transport. No "pausa", no "stop", no "next",
+# no "alza il volume". Vivavoce understands all of them, but Home Assistant
+# already covers them in both languages — HassMediaPause, HassMediaUnpause,
+# HassMediaNext, HassMediaPrevious, HassSetVolume, HassSetVolumeRelative,
+# checked in the intent packs of 2026.8.3 — and it covers them *better*, because
+# its version is area-aware and ours would always hit one configured player.
+# Stealing "pause" would also stop the television. Search is the opposite case,
+# and it is the whole reason this file exists: HassMediaSearchAndPlay is in the
+# English pack and **absent from the Italian one**, so in Italian there is no
+# built-in music search at all, and in English there is one that starts the
+# first result without asking.
+triggers:
+  # -- Italian -----------------------------------------------------------------
+  - trigger: conversation
+    id: it
+    command:
+      # play: title, artist, album, playlist, radio, favourites, moods
+      - "(metti|rimetti|riproduci|suona|fai partire) {query}"
+      # «vorrei ascoltare X» is not here: is_play knows «voglio ascoltare»
+      # and not «vorrei», so only the mood form of it parses.
+      - "voglio ascoltare {query}"
+      # Source prefixes: the router reads them, so they must survive intact.
+      # Only the services the engine actually has — `engine/lms.py` SERVICES.
+      # Naming one it does not have would be the worst kind of wrong: «da
+      # spotify metti X» would fall through to a plain play and start the song
+      # on TIDAL without saying so.
+      - "(da|su|con) (tidal|qobuz) [metti|riproduci] {query}"
+      - "(dalla mia musica|dal disco|in locale|dalla libreria) [metti|riproduci] {query}"
+      # Picking from a numbered list, and re-rolling a vague request. Spelled
+      # out rather than left to a wildcard, because "(la|il) {anything}" would
+      # have claimed «la luce» too. Five, not three: "did you mean" reads three
+      # (DIDYOUMEAN_LIMIT) but «quali album ho di X» and «quali brani di X» open
+      # a list of five (LIST_LIMIT), and the engine plays «la 4» and «la 5»
+      # perfectly well — stopping at three would have made the last two items of
+      # every album list unpickable.
+      - "(la|il) (1|2|3|4|5|uno|due|tre|quattro|cinque)"
+      - "(la|il) (prima|seconda|terza|quarta|quinta)"
+      - "(metti|scegli|voglio) (la|il|numero) (1|2|3|4|5|uno|due|tre|quattro|cinque)"
+      - "(metti|scegli|voglio) la (prima|seconda|terza|quarta|quinta)"
+      - "(un'altra|un altra|un altro|qualcos altro|prova un'altra|prova un altra)"
+      - "(cambia|cambia musica|cambia genere)"
+      # queue
+      - "(aggiungi|metti) {query} (alla|in) coda"
+      - "(svuota|pulisci|cancella) la coda"
+      - "(cosa|che) (c'è|ce) in coda"
+      # What is on. Every phrasing below was run against the compiled patterns
+      # in localvoice/lang/it.py: a sentence the trigger claims but the router
+      # does not parse is worse than one it never claimed, because the trigger
+      # wins over Home Assistant's own intent and the phrase then dies as a
+      # failed library search. «che brano è questo», «quali album hai di X» and
+      # «che canzoni di X» are all in that category today; they are not here.
+      # Not «cosa suona»: "suona" is itself a play verb, and nowplaying is
+      # gated on not-a-play so that «metti Suona Chitarra» still plays.
+      - "(cosa|che) (sta suonando|stiamo ascoltando|canzone è questa)"
+      - "(quali|che) album ho di {artist}"
+      - "quali brani di {artist}"
+      # Sleep timer. This one overlaps HassStartTimer on purpose: HA's generic
+      # timer would, half an hour later, run "spegni" as a conversation command
+      # with nothing to switch off. A music sleep timer is a different thing,
+      # and it is a thing Vivavoce has.
+      - "(spegni|spegniti|ferma la musica|fermati) (tra|fra) {when}"
+      - "(annulla|cancella|togli) (lo spegnimento|il timer della musica|lo sleep)"
+      # kid-safe blocklist
+      - "(blocca|sblocca) {query}"
+      - "(quali|che) (brani|canzoni) sono bloccati"
+  # -- English -----------------------------------------------------------------
+  - trigger: conversation
+    id: en
+    command:
+      # No bare "start": Home Assistant's English pack spends it on
+      # HassVacuumStart ("start the vacuum"), HassVacuumCleanArea and
+      # HassLawnMowerStartMowing, and "play"/"put on" already cover music.
+      - "(play|put on) {query}"
+      - "i want to (hear|listen to) {query}"
+      - "(from|on|with) (tidal|qobuz) [play|put on] {query}"
+      - "(from my music|from my library|from the library|locally) [play|put on] {query}"
+      - "the (1|2|3|4|5|one|two|three|four|five)"
+      - "the (first|second|third|fourth|fifth)"
+      - "(play|choose|pick|put on) (the|number) (1|2|3|4|5|one|two|three|four|five)"
+      - "(play|choose|pick|put on) the (first|second|third|fourth|fifth)"
+      - "(another|another one|something else|change it|not this one)"
+      - "(add|queue) {query} to [the] queue"
+      - "(clear|empty) the queue"
+      - "what's (in|on) the queue"
+      - "(what's|whats) (playing|this song|this)"
+      # Same rule as the Italian block: only phrasings en.py actually parses.
+      # "what songs by X" and "which tracks by X" are not among them — toptracks
+      # alternates on the literal "which songs".
+      - "(which|what) albums (do i have|are there) (by|of|from) {artist}"
+      - "which songs (by|of|from) {artist}"
+      # Music sleep timer — see the Italian block for why this overlap is wanted.
+      # Qualified with "the music" so it cannot swallow a plain kitchen timer.
+      - "(stop|pause|turn off) the music in {when}"
+      - "(cancel|clear|remove) the (music timer|sleep timer)"
+      - "(block|unblock) {query}"
+      - "(which|what) (songs|tracks) are blocked"
+
+conditions: []
+
+actions:
+  - variables:
+      # The sentence exactly as it was heard. The engine does the parsing; the
+      # triggers above only had to be wide enough to catch the phrasing.
+      spoken: "{{ trigger.sentence }}"
+      lang: "{{ trigger.id }}"
+      # The conversation key. NOT Home Assistant's own conversation_id, which is
+      # minted fresh for most turns: Vivavoce keeps the open "which one did you
+      # mean?" list per conversation, with a shared cap of 64 (docs/api.md), and
+      # a client that mints an id per turn evicts other people's open lists —
+      # the phone in the kitchen included. The device is stable across turns and
+      # gives every satellite its own list, which is what we actually want.
+      # `satellite_id` already resolves to its device in `device_id`.
+      convo: "{{ trigger.device_id or 'ha-default' }}"
+      # Sentences that pick item N, for assist_satellite.ask_question. Digits
+      # and words both, because what a satellite transcribes is not up to us:
+      # speech-to-text writes «due» at least as often as «2», which is why
+      # localvoice/lang/it.py keeps a NUM_WORDS table at all. Offering only
+      # digits here would have made the spoken branch strictly weaker than the
+      # typed one, which is the wrong way round.
+      picks:
+        it: ["la", "numero"]
+        en: ["the", "number"]
+      words:
+        it: { "1": "uno", "2": "due", "3": "tre", "4": "quattro", "5": "cinque" }
+        en: { "1": "one", "2": "two", "3": "three", "4": "four", "5": "five" }
+      ordinals:
+        it: { "1": "la prima", "2": "la seconda", "3": "la terza",
+              "4": "la quarta", "5": "la quinta" }
+        en: { "1": "the first", "2": "the second", "3": "the third",
+              "4": "the fourth", "5": "the fifth" }
+
+  - action: rest_command.vivavoce_command
+    data:
+      base_url: !input server
+      player: !input player
+      text: "{{ spoken }}"
+      lang: "{{ lang }}"
+      conversation_id: "{{ convo }}"
+    response_variable: answer
+    # Not optional, and not defensive habit. Without it an unreachable server
+    # (wrong URL, app stopped, certificate refused) aborts the script *before*
+    # set_conversation_response, and Assist falls back to its own reply —
+    # "Done". A confident "Done" for a song that never started is the exact
+    # failure this product exists to avoid, and it is the one that a blueprint
+    # can produce without a single line of its own running. Continue instead,
+    # and say what actually happened.
+    continue_on_error: true
+
+  - variables:
+      # `content` is the parsed JSON when the server said application/json,
+      # which Vivavoce always does. Both defaults are load-bearing: after a
+      # continue_on_error `answer` is not defined at all, and `answer.content`
+      # on a missing key is Undefined — either one would abort the script here
+      # and hand the turn back to "Done".
+      body: "{{ (answer | default({}, true)).content | default({}, true) }}"
+      speech: >-
+        {{ body.speech
+           | default('Non riesco a contattare Vivavoce.' if lang == 'it'
+                     else 'I cannot reach Vivavoce.', true) }}
+
+  - choose:
+      # The only place the turn can really stay open: a voice satellite, which
+      # has ask_question. Anywhere else there is nothing to ask with.
+      - conditions:
+          - condition: template
+            # `is defined` before `is not none`, and not belt-and-braces: on a
+            # Home Assistant old enough not to set the key, `Undefined is not
+            # none` is *true* in Jinja, and we would call ask_question with an
+            # undefined entity_id. That raises vol.Invalid, which
+            # `continue_on_error` does not suppress — so the script would abort
+            # before answering, which is the "Done" failure again by another
+            # road.
+            value_template: >-
+              {{ body.needs_choice | default(false)
+                 and trigger.satellite_id is defined
+                 and trigger.satellite_id is not none
+                 and (body.choices | default([]) | count) > 0 }}
+        sequence:
+          - action: assist_satellite.ask_question
+            data:
+              entity_id: "{{ trigger.satellite_id }}"
+              question: "{{ speech }}"
+              # Jinja has no list comprehensions, hence the inner namespace.
+              answers: >-
+                {% set ns = namespace(out=[]) %}
+                {% for c in body.choices %}
+                  {% set n = c.n | string %}
+                  {% set said = [n] + ([words[lang][n]] if n in words[lang] else []) %}
+                  {% set one = namespace(all=said) %}
+                  {% for w in said %}
+                    {% set one.all = one.all + [picks[lang][0] ~ ' ' ~ w,
+                                                picks[lang][1] ~ ' ' ~ w] %}
+                  {% endfor %}
+                  {% if n in ordinals[lang] %}
+                    {% set one.all = one.all + [ordinals[lang][n]] %}
+                  {% endif %}
+                  {% set ns.out = ns.out + [{'id': n, 'sentences': one.all}] %}
+                {% endfor %}
+                {{ ns.out }}
+            response_variable: picked
+            # The satellite raises when nobody answers in time. That is a
+            # silence, not a failure: fall through and let the list stand.
+            continue_on_error: true
+          - if:
+              # Three different nothings, and only one of them raises. The
+              # satellite raises when nobody spoke at all (caught above), but
+              # when somebody spoke and matched no answer it returns normally
+              # with `id: None` — the dataclass declares `id: str | None`. A
+              # test for "is defined" passes on None, and would have sent the
+              # server «la None».
+              - condition: template
+                value_template: >-
+                  {{ picked is defined and picked.id is not none
+                     and picked.id | string | trim != '' }}
+            then:
+              # Same conversation key, so the list this picks from is the one
+              # just read out.
+              - action: rest_command.vivavoce_command
+                data:
+                  base_url: !input server
+                  player: !input player
+                  text: "{{ picks[lang][0] }} {{ picked.id }}"
+                  lang: "{{ lang }}"
+                  conversation_id: "{{ convo }}"
+                response_variable: after_pick
+                continue_on_error: true
+              - set_conversation_response: >-
+                  {{ ((after_pick | default({}, true)).content
+                      | default({}, true)).speech | default(speech, true) }}
+            else:
+              - set_conversation_response: "{{ speech }}"
+    default:
+      # The ordinary answer, and the reason this blueprint exists: it names what
+      # is playing now, not what the microphone thought it heard.
+      - set_conversation_response: "{{ speech }}"

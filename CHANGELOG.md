@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **Vivavoce answers Home Assistant's voice assistant.** One blueprint,
+  [`blueprints/vivavoce_assist.yaml`](blueprints/vivavoce_assist.yaml), and one
+  `rest_command` block: say «metti Comfortably Numb dei Pink Floyd» to Assist —
+  a voice satellite, the phone app, the dashboard — and the reply names the song
+  that *actually started*, not the words the microphone thought it heard. The
+  "which one did you mean?" list works too — «la 2» through «la 5», and the
+  ordinals — and on a voice satellite it is meant to be asked out loud and
+  waited for, which is the one branch no one here could test without a
+  satellite to test it on. Setup is in
+  [DEPLOY.md](DEPLOY.md#home-assistant-voice--talking-to-vivavoce-through-assist).
+
+  It coexists by construction: Home Assistant tries sentence triggers before its
+  own intents, so the blueprint only ever sees the music sentences it lists, and
+  uninstalling is deleting one automation. Transport — pause, resume, next,
+  volume — is deliberately **left to Home Assistant**, which already covers it
+  in both languages and does it room-aware. Search is the opposite case:
+  `HassMediaSearchAndPlay` starts the first result without asking, cannot filter
+  by artist, and is missing from the Italian intent pack entirely.
+
 ## 0.4.0 — August 2026
 
 ### New
