@@ -16,7 +16,7 @@ import re
 import unicodedata
 from typing import Dict, List, Optional
 
-from connectors import SHARED, for_lang
+from connectors import DEFAULT, for_lang
 from messages import get_lang, msg
 
 # Legacy alias, frozen in the default language at import: kept for external
@@ -164,15 +164,16 @@ def _rank(query: Optional[str], items: List[Dict], key: str = "title") -> List:
 
 # Leading filler the ASR/user often prepends ("metti la canzone X") that would
 # pollute the search. Stripped before matching so "la canzone love" -> "love".
-# The four connector tables live in ``engine/connectors/`` — the shared core
-# in ``shared.py``, what one language adds beside it. These names are the
-# shared set: they are what a caller reaching through ``actions`` has always
-# got, and what a language that adds nothing still gets. The live paths below
-# go through ``for_lang`` instead, because French's «de» cannot be shared.
-_LEAD_FILLER = SHARED.lead_filler
-_ALBUM_SEP = SHARED.album_sep
-_ARTIST_SEP = SHARED.artist_sep
-_NOT_AN_ARTIST = SHARED.not_an_artist
+# The four connector tables live in ``engine/connectors/``, one module per
+# language and nothing shared between them. These names are the DEFAULT
+# language's set — Italian's — kept for callers that reach them through
+# ``actions`` without a language to hand. The live paths below go through
+# ``for_lang`` instead, which is the whole point of that package: «by» is
+# English's, «von» German's, «de» French's, and none of them is everyone's.
+_LEAD_FILLER = DEFAULT.lead_filler
+_ALBUM_SEP = DEFAULT.album_sep
+_ARTIST_SEP = DEFAULT.artist_sep
+_NOT_AN_ARTIST = DEFAULT.not_an_artist
 
 
 def _strip_lead_filler(text: Optional[str], *, lang: Optional[str] = None) -> str:

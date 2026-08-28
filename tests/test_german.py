@@ -37,6 +37,7 @@ def test_msg_lang_selection():
 
 # -- parsing (actions) --------------------------------------------------------
 def test_parse_song_query_german_von_and_album():
+    set_lang("de")
     q = actions.parse_song_query("Comfortably Numb von Pink Floyd")
     assert q == {"title": "Comfortably Numb", "artist": "Pink Floyd", "album": None}
     q = actions.parse_song_query("Time aus dem Album The Dark Side of the Moon")
@@ -47,12 +48,14 @@ def test_parse_song_query_german_von_and_album():
 def test_von_a_pronoun_is_not_an_artist():
     # «Ein Teil von mir» is a title; there is no singer called "mir". Without
     # the guard the split searches for one and drags every score down.
+    set_lang("de")
     q = actions.parse_song_query("Ein Teil von mir")
     assert q["artist"] is None
     assert q["title"] == "Ein Teil von mir"
 
 
 def test_german_lead_filler_is_stripped():
+    set_lang("de")
     assert actions.parse_song_query("das Lied Time")["title"] == "Time"
 
 

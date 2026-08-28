@@ -44,6 +44,7 @@ def test_unsupported_lang_falls_back_to_italian():
 
 # -- parsing (actions) --------------------------------------------------------
 def test_parse_song_query_english_by_and_album():
+    set_lang("en")
     q = actions.parse_song_query("Comfortably Numb by Pink Floyd")
     assert q == {"title": "Comfortably Numb", "artist": "Pink Floyd", "album": None}
     q = actions.parse_song_query("Time from the album The Dark Side of the Moon")
