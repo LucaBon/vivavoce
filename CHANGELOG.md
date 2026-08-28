@@ -4,6 +4,42 @@
 
 ### New
 
+- **German, the third language.** Pick *Deutsch* as the mic language and
+  Vivavoce parses and answers in German: «spiel Time von Pink Floyd», «mach die
+  Musik aus», «schalt in 30 Minuten aus», «spiel etwas Entspannendes», «spiel
+  Time im Wohnzimmer». One pattern pack (`localvoice/lang/de.py`), one message
+  catalog, and a test suite of its own — no other module learned a word of
+  German.
+
+  Three things German does that neither Italian nor English does, and each one
+  decided a pattern rather than being translated into it:
+
+  * **The verb comes in two pieces.** «leg Time auf», «mach die Musik an» and
+    «ich möchte Time hören» wrap the title in a verb and its particle, so the
+    plain-verb pattern would have searched for "die Musik an". The split forms
+    have their own pattern — the one English already uses for "put Dark Side
+    on" — and the plain verbs deliberately do not list «leg»/«mach», which is
+    what lets «spiel Wach Auf» keep its "auf".
+  * **«mach» heads three different commands.** «mach lauter» is volume, «mach
+    aus» is stop, «mach die Musik an» is play. The play reading is recognised
+    only *with* its particle, so the other two stay reachable.
+  * **The adjective changes sides.** «etwas Entspannendes» puts the mood after
+    the marker noun, «etwas entspannende Musik» before it. Both reach the mood
+    table; both still require the marker, so «stopp die entspannende Musik»
+    keeps stopping the music.
+
+  Not included: the page chrome, which is Italian or English only — a German
+  session gets German answers inside an English page. The phrasings have not
+  yet been reviewed by a native speaker.
+
+### Changed
+
+- **The message catalogs moved to `engine/catalogs/`**, one module per
+  language, discovered the way `localvoice/lang/` discovers its packs.
+  `messages.py` is now the twenty lines that *select* a catalog rather than the
+  five hundred that *are* one; `messages.IT`/`.EN`/`.DE` and `msg()` are
+  unchanged for every caller.
+
 - **Spotify, through the LMS Spotty plugin.** «da spotify metti Comfortably
   Numb» now works the way «da tidal …» and «da qobuz …» do, the source selector
   lists it when the plugin is installed, and the Home Assistant blueprint

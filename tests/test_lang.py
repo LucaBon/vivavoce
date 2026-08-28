@@ -14,7 +14,7 @@ from lang.base import c
 
 
 def test_registry_finds_the_shipped_languages():
-    assert set(lang.PACKS) >= {"it", "en"}
+    assert set(lang.PACKS) >= {"it", "en", "de"}
 
 
 def test_helpers_are_not_mistaken_for_packs():
@@ -46,7 +46,17 @@ def test_compile_helper_is_case_insensitive():
 
 def test_message_catalogs_have_the_same_keys():
     # Every message is referenced by key from language-agnostic code (actions.py,
-    # router.py); a key present in one catalog but not the other would KeyError
+    # router.py); a key present in one catalog but not another would KeyError
     # only when that code path runs in the missing language.
     import messages
-    assert set(messages.IT) == set(messages.EN)
+    keys = set(messages.IT)
+    for code, catalog in messages.CATALOGS.items():
+        assert set(catalog) == keys, f"{code} differs"
+
+
+def test_every_language_pack_has_a_message_catalog():
+    # The two halves of a language: a pack answers "what did they say", a
+    # catalog "what do we say back". A pack without a catalog routes a
+    # command and then KeyErrors on the reply.
+    import messages
+    assert set(lang.PACKS) == set(messages.CATALOGS)

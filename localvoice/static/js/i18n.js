@@ -3,6 +3,11 @@
 // language follows the mic-language selector: Italian stays Italian, every
 // other speech language gets English.
 //
+// German is the case that shows what this means: the router understands and
+// answers in German (localvoice/lang/de.py), while the page chrome around it
+// is English. The two are separate on purpose — a UI catalog is a third set
+// of strings to keep in step, and the voice is what the product is.
+//
 // applyUI() re-renders panels owned by other modules (source selector, voice
 // pickers, Pro panel, kid-safe). Those are injected once via setUIHooks() from
 // app.js instead of imported, so this module sits at the bottom of the import
