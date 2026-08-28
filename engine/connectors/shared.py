@@ -41,7 +41,13 @@ ALBUM_SEP = (r"dall['’]?\s*album|dell['’]?\s*album|dal\s+disco"
 # Splits "titolo di/dei/degli X" / "title by X" into title + artist. Used only
 # to *rank* results (the search still runs on the full text), so a mis-split —
 # a title that itself contains "di" — degrades gracefully instead of breaking.
-ARTIST_SEP = (r"dei\s+|degli\s+|delle\s+|della\s+|dell['’]\s*|del\s+|di\s+"
+# ``dell'`` keeps a MANDATORY space, which is not a detail: before this
+# table was split the whitespace lived outside the group and applied to every
+# alternative alike. Written ``\s*`` here it silently started splitting elided
+# Italian titles — «Il canto dell'amore» went looking for a singer called
+# «amore». Only French elides without a space, and it says so in its own
+# module.
+ARTIST_SEP = (r"dei\s+|degli\s+|delle\s+|della\s+|dell['’]\s+|del\s+|di\s+"
               r"|by\s+|von\s+")
 
 # Tails that are never an artist name — the phrase just happens to contain a

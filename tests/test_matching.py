@@ -433,6 +433,18 @@ def test_a_leading_connector_left_by_the_filler_is_dropped():
         "title": "Marinella", "artist": "De André", "album": None}
 
 
+def test_an_elided_connector_still_needs_its_space():
+    # «dell'» is a connector only with a space after it. The tables were one
+    # shared pile until French needed its own; moving each alternative's
+    # whitespace inside it turned this into `dell['’]\s*`, and every elided
+    # Italian title started splitting — «Il canto dell'amore» went looking for
+    # a singer called «amore». Pinned here because no other test spells an
+    # elided title out.
+    for title in ("Il canto dell'amore", "Storia dell'arte", "La donna dell'est"):
+        assert actions.parse_song_query(title) == {
+            "title": title, "artist": None, "album": None}
+
+
 def test_a_title_that_opens_with_a_connector_keeps_its_first_word():
     # The strip above used to run unconditionally, so any request that merely
     # STARTED with a connector lost its first word: «By the Way» searched TIDAL
