@@ -460,9 +460,18 @@ def test_languages_do_not_leak_between_requests(router, transport):
 # decides what happens can sit on either side of the object — «monte le son»
 # in front, «mets la musique plus fort» behind.
 
+# Every verb in _V_ON ∪ _V_OFF ∪ _V_UP ∪ _V_DOWN — and, just as importantly,
+# every verb in _PLAY, which is the set the ``radio`` guard declines on. The
+# first version of this list held only the catchers' verbs, and so asserted
+# nothing about the twelve the guard knew and they did not: «passe la
+# musique», «écoute la musique» and «fais jouer la radio» all fell past every
+# catcher and started a stream, with the cross product green.
 _DEV_VERBS = ["mets", "met", "remets", "allume", "lance", "démarre",
               "coupe", "arrête", "arrete", "éteins", "stoppe",
-              "monte", "augmente", "baisse", "diminue", "réduis"]
+              "monte", "augmente", "baisse", "diminue", "réduis",
+              "joue", "jouer", "jouez", "lancer", "lancez", "relance",
+              "écoute", "écouter", "ecoute", "balance", "passe",
+              "fais jouer", "je veux écouter", "j'aimerais écouter"]
 # «son» and «volume» are missing from the article-free row on purpose: bare,
 # «son» is the possessive, and «mets son dernier album» is a request to play.
 _DEV_FREE_NOUNS = ["musique", "radio", "zique"]
@@ -571,3 +580,176 @@ def test_a_station_shaped_title_is_a_known_limit_not_a_transport_command():
     playback; it is here so the absence is deliberate and not an oversight."""
     assert PACKS["fr"].PATTERNS["radio"].search("mets la radio Nostalgie")
     assert PACKS["it"].PATTERNS["radio"].search("metti radio Ga Ga")
+
+
+def test_every_verb_the_radio_guard_declines_is_caught_by_a_later_step():
+    """The guard and its catchers have to read one list.
+
+    ``radio`` declines «mets la radio» and friends with a lookahead built from
+    ``_PLAY``; the steps that must then catch the phrase — resume, vol_up,
+    vol_down — are built from ``_V_ON``. While those were two lists, the
+    twelve verbs in the first and not the second fell past every catcher to
+    the play step: «passe la musique» searched the library for a record called
+    "la musique" and found one. ``_V_ON`` is ``_PLAY`` plus «allume» now, and
+    this asserts the containment directly rather than through the phrases the
+    cross product happens to enumerate.
+    """
+    import re
+    from lang import words_fr as w
+    v_on = re.compile(w._V_ON + r"$", re.I)
+    for verb in ("mets", "met", "remets", "joue", "jouer", "jouez", "lance",
+                 "lancer", "relance", "démarre", "balance", "fais jouer",
+                 "écoute", "écouter", "je veux écouter", "passe", "allume"):
+        assert v_on.match(verb), f"{verb!r} sets is_play but no DEV() step catches it"
+
+
+@pytest.mark.parametrize("phrase, expected_cmd", [
+    # One row per verb the guard knows. Each of these started a stream.
+    ("passe la radio", ["pause", "0"]),
+    ("passe la musique", ["pause", "0"]),
+    ("écoute la musique", ["pause", "0"]),
+    ("balance la musique", ["pause", "0"]),
+    ("fais jouer la radio", ["pause", "0"]),
+    ("je veux écouter la musique", ["pause", "0"]),
+    ("passe la musique plus fort", ["mixer", "volume", "+5"]),
+])
+def test_a_play_verb_aimed_at_the_device_is_still_a_device_command(
+        lms, transport, phrase, expected_cmd):
+    Router(lms).handle(phrase, lang="fr")
+    assert transport.last_call()[1] == expected_cmd
+
+
+@pytest.mark.parametrize("phrase", [
+    "ajoute Time à la file d'attente",
+    "ajoute Time dans la file d'attente",
+    "mets Time à la file d'attente",
+    "rajoute Time à la liste d'attente",
+])
+def test_adding_to_the_queue_is_not_reading_it_out(
+        lms, transport, make_tidal, phrase):
+    """``queue_list`` ran two steps earlier with the bare noun «file
+    d'attente» as one of its alternatives, so it matched inside every add
+    request and answered by reading the queue. Every sibling pack requires a
+    listing marker — «coda di riproduzione», «warteschlange anzeigen»,
+    "queue list" — and French now does too."""
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
+    )
+    speech = Router(lms).handle(phrase, source="tidal", lang="fr")
+    assert "ajouté" in speech, speech
+
+
+def test_the_queue_can_still_be_read_out(lms, transport):
+    assert Router(lms).handle("montre-moi la file d'attente", lang="fr") == (
+        "La file d'attente est vide.")
+    assert Router(lms).handle("c'est quoi la file d'attente", lang="fr") == (
+        "La file d'attente est vide.")
+
+
+@pytest.mark.parametrize("phrase", [
+    "passe la suivante", "passe cette chanson", "passe celle-là",
+    "passe à la suivante", "passe au suivant",
+])
+def test_passe_is_a_skip_in_every_shape_that_names_no_title(
+        lms, transport, phrase):
+    """«passe» is a play verb and half of two things that are not. Guarded on
+    «à/au/aux» alone, «passe la suivante» set is_play — which gates the whole
+    transport block off — and reached the library instead."""
+    Router(lms).handle(phrase, lang="fr")
+    assert transport.last_call()[1] == ["playlist", "index", "+1"], phrase
+
+
+def test_passe_moi_is_still_a_play(lms, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
+    )
+    Router(lms).handle("passe-moi Time", source="tidal", lang="fr")
+    assert ["playlist", "play", "tidal://9.flc"] in transport.commands()
+
+
+@pytest.mark.parametrize("phrase", [
+    "n'arrête pas la musique",
+    "n’arrête pas la musique",
+    "ne coupe pas la musique",
+    # The two the fixed-width lookbehind alone could not see: a clitic between
+    # «ne» and the verb, and the dropped «ne» — which is the ordinary spoken
+    # form, and therefore the one that matters most in a voice app.
+    "ne l'arrête pas",
+    "arrête pas la musique",
+    "coupe pas la musique",
+    "éteins pas la musique",
+])
+def test_a_negated_stop_does_not_stop(lms, transport, phrase):
+    Router(lms).handle(phrase, lang="fr")
+    assert ["pause", "1"] not in transport.commands(), phrase
+
+
+@pytest.mark.parametrize("phrase", [
+    "qu'est-ce qui passe", "qu’est-ce qui passe", "ça joue quoi",
+    "j'écoute quoi", "j'écoute quoi là", "on écoute quoi",
+    "qu'est-ce qu'on écoute", "c'est quoi cette chanson", "qui chante",
+    "c'est quel morceau", "quel est ce titre",
+])
+def test_every_way_of_asking_what_is_playing(lms, transport, phrase):
+    """Anchoring is_play made these harmless; it did not make them answered.
+    «j'écoute quoi» fell through to the fallback message until nowplaying
+    learned the shape its own module docstring cites."""
+    transport.responses["status"] = {
+        "playlist_loop": [{"title": "Time", "artist": "PF"}]}
+    assert Router(lms).handle(phrase, lang="fr") == "En ce moment : Time de PF.", phrase
+
+
+@pytest.mark.parametrize("phrase", [
+    "et mets la chanson Stop",
+    "alors mets l'album Stop",
+    "bon, mets Stop",
+    "dis-moi, mets Stop",
+])
+def test_a_discourse_particle_in_front_does_not_turn_a_play_into_a_pause(
+        lms, transport, make_tidal, phrase):
+    """The anchored is_play was documented as costing «alors, mets Time» —
+    harmless, because it falls back. The cost was understated: the transport
+    steps are unanchored searches, so with is_play false «et mets la chanson
+    Stop» did not fall back, it paused. A closed lead-in list rather than "any
+    two words", because the words this must not admit are «ça», «on» and
+    «qui» — the whole reason is_play is anchored."""
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://8.flc", "name": "Stop"}]},
+    )
+    Router(lms).handle(phrase, source="tidal", lang="fr")
+    assert ["pause", "1"] not in transport.commands(), phrase
+
+
+def test_a_lead_in_does_not_reopen_the_question_hole(lms, transport):
+    """The lead-in list is closed for a reason — «ça» and «on» must never be
+    read as one, or asking what is playing switches off the ability to ask."""
+    transport.responses["status"] = {
+        "playlist_loop": [{"title": "Time", "artist": "PF"}]}
+    assert Router(lms).handle("alors ça joue quoi", lang="fr") == (
+        "En ce moment : Time de PF.")
+
+
+def test_a_control_word_is_not_part_of_a_station_name(lms, transport):
+    """«mets la radio Nostalgie plus fort» asked for a station called
+    "Nostalgie plus fort". The station is «Nostalgie»; the volume request is
+    dropped, because the radio step runs ahead of vol_up — the step order's
+    limit, and a smaller one than a station nobody has."""
+    speech = Router(lms).handle("mets la radio Nostalgie plus fort", lang="fr")
+    assert "Nostalgie" in speech and "plus fort" not in speech, speech
+
+
+def test_en_boucle_is_phrasing_and_not_part_of_the_title(
+        lms, transport, make_tidal):
+    """There is no repeat mode, so «en boucle» is a word this router acts on
+    exactly as much as it acts on «maintenant». The pack used to carry a
+    generic_play_suffix for it, which generic_play won every time — dead code
+    for a job _ADV does properly."""
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
+    )
+    speech = Router(lms).handle("mets Time en boucle", source="tidal", lang="fr")
+    assert speech.startswith("Je mets Time")

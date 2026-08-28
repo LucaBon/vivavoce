@@ -12,8 +12,13 @@ switched off the ability to ask. So ``is_play`` here is anchored to imperative
 position, and ``generic_play`` is anchored the same way: whatever one play
 branch accepts as a verb the other must accept too, or the block stays open and
 a title gets stolen. That is the German lesson about particles, transposed to
-verbs. It costs «alors, mets Time» and «dis-moi, mets Time», which the fallback
-message names the working forms for.
+verbs. The anchor admits a closed list of discourse particles in front
+(:data:`~lang.words_fr._LEAD`) and nothing else — not «any two words», because
+the words it must never admit are «ça», «on» and «qui», which are the reason
+it is anchored. It was written without that list first, and «alors, mets Time»
+looked like the whole cost because it falls back harmlessly. It was not: the
+transport steps are unanchored searches, so «et mets la chanson Stop» did not
+fall back, it paused.
 
 **The control word arrives last, and on either side of the object.** «monte le
 son» puts it in front, «mets la musique plus fort» puts it behind a verb that
@@ -46,8 +51,9 @@ CODE = "fr"
 # The closed word lists these patterns are built from, and the two builders
 # composed out of them.
 from .words_fr import (  # noqa: F401
-    AP, DEV, _A, _ACCLASS, _ADV, _C_DOWN, _C_UP, _DE, _END, _L, _LOCAL, _MOI,
-    _NEG, _PLAY, _POLITE, _TAIL, _V_DOWN, _V_OFF, _V_ON, _V_UP, acc)
+    AP, DEV, _A, _ACCLASS, _ADV, _C_DOWN, _C_UP, _DE, _END, _L, _LEAD, _LOCAL,
+    _MOI, _NEG, _PAS, _PLAY, _POLITE, _TAIL, _V_DOWN, _V_OFF, _V_ON, _V_UP,
+    acc)
 
 # An explicit source in front of the verb («sur Tidal mets Time», «de Qobuz
 # joue Time»), so the anchor above does not cost the one phrase shape that
@@ -59,7 +65,7 @@ _SRC = r"(?:(?:sur|depuis|avec|via|de|dans)\s+\w+\s+)?"
 PATTERNS = {
     # Anchored — see the module docstring. This is the French decision of the
     # file, and the one to re-read before widening anything below.
-    "is_play": c(rf"^(?:{_POLITE}[,\s]+)?{_SRC}(?:{_LOCAL}\s+)?(?:{_PLAY})\b"),
+    "is_play": c(rf"^(?:{_LEAD}[,\s]+)*{_SRC}(?:{_LOCAL}\s+)?(?:{_PLAY})\b"),
 
     # -- transport -----------------------------------------------------------
     # «mets la musique en pause» carries a play verb, so the `pause` step —
@@ -70,7 +76,7 @@ PATTERNS = {
     # stop verb and stopped. Italian escapes this by accident («ferma» does
     # not match "fermare"), French does not.
     "pause": c(rf"\b(?:pause|stop|{_NEG}{acc('stoppe')}|{_NEG}{acc('arrête')}s?"
-               rf"|{_NEG}{acc('éteins')}|{_NEG}coupe)\b"),
+               rf"|{_NEG}{acc('éteins')}|{_NEG}coupe)\b{_PAS}"),
     # Bare ▶, and the device form: «mets la musique» / «allume la radio» name
     # nothing to play — they are the French for pressing play, and read as a
     # request they searched the library for the word «musique». It costs the
@@ -88,8 +94,12 @@ PATTERNS = {
     # Prefix matching, like it.py. «retour» is deliberately absent: *Le Retour
     # de l'Enfant Prodigue* is a record, and this step is only gated on
     # ¬is_play, which does not protect a bare title picked from an open list.
+    # «passe cette chanson» and «passe celle-là» are skips, and words_fr's
+    # _PASSE declines them as play verbs so they can get here — which only
+    # helps if this step actually accepts them. Guard and catcher again.
     "next": c(rf"\b(?:suivant|prochain|saute|zappe|avance|skip"
-              rf"|{acc('morceau')}\s+d{AP}?\s*{acc('après')})"),
+              rf"|{acc('morceau')}\s+d{AP}?\s*{acc('après')}"
+              rf"|(?:passe|saute)\s+(?:cette|celui|celle))"),
     "prev": c(rf"\b(?:{acc('précédent')}|d{AP}\s*avant|en\s+{acc('arrière')}"
               rf"|reviens|retourne)"),
 
@@ -103,10 +113,10 @@ PATTERNS = {
     # only branch here that is not gated on ¬is_play, and unanchored it read
     # a title as a command: «mets le titre Monte le son» turned the volume up
     # and played nothing. DEV() carries its own ^ for the same reason.
-    "vol_up": c(rf"^(?:{_POLITE}[,\s]+)?(?:{_V_UP})\b.{{0,12}}"
+    "vol_up": c(rf"^(?:{_LEAD}[,\s]+)*(?:{_V_UP})\b.{{0,12}}"
                 rf"\b(?:{_L}|du\s+)?(?:son|volume)\b"
                 rf"|{DEV(_V_UP)}|{DEV(_V_ON, _C_UP)}"),
-    "vol_down": c(rf"^(?:{_POLITE}[,\s]+)?(?:{_V_DOWN})\b.{{0,12}}"
+    "vol_down": c(rf"^(?:{_LEAD}[,\s]+)*(?:{_V_DOWN})\b.{{0,12}}"
                   rf"\b(?:{_L}|du\s+)?(?:son|volume)\b"
                   rf"|{DEV(_V_DOWN)}|{DEV(_V_ON, _C_DOWN)}"),
     # Loose forms that name no control — gated on is_play in the router, so
@@ -137,7 +147,14 @@ PATTERNS = {
                     rf"|\bc{AP}?\s*est\s+quoi\b.{{0,20}}"
                     rf"\b(?:{acc('chanson')}|{acc('morceau')}|titre|{_A})\b"
                     rf"|\bqui\s+(?:chante|c{AP}?\s*est)\b"
-                    rf"|\b{acc('ça')}\s+(?:joue|passe)\s+quoi\b"
+                    # «ça joue quoi», «on écoute quoi», «j'écoute quoi» —
+                    # the shape the module docstring cites as the reason
+                    # is_play is anchored, which the anchor alone only made
+                    # harmless rather than answerable.
+                    rf"|\b(?:{acc('ça')}\s+|on\s+|j{AP}\s*|tu\s+)"
+                    rf"(?:joue|passe|{acc('écoute')})s?\s+quoi\b"
+                    rf"|\bc{AP}?\s*est\s+quel\s+"
+                    rf"(?:{acc('morceau')}|titre|{acc('chanson')})\b"
                     rf"|\bquel\s+est\s+ce\s+(?:{acc('morceau')}|titre)\b"
                     rf"|\ben\s+train\s+de\s+jouer\b"),
 
@@ -159,7 +176,14 @@ PATTERNS = {
     "queue_list": c(rf"\b(?:qu{AP}?\s*est[\s-]?ce\s+qu{AP}?\s*il\s+y\s+a"
                     rf"|c{AP}?\s*est\s+quoi)\b.{{0,20}}"
                     rf"\b(?:file|queue|suite|attente)\b"
-                    rf"|\bfile\s+d{AP}?\s*attente\b"
+                    # A listing marker is required, and every sibling pack
+                    # says so — «coda di riproduzione», «warteschlange
+                    # anzeigen», "queue list". Written as the bare noun it
+                    # matched inside every add request and, running two steps
+                    # earlier, answered «ajoute Time à la file d'attente» by
+                    # reading the queue out.
+                    rf"|\b(?:montre|affiche|liste|lis)[\s-]?(?:moi\s+)?"
+                    rf"(?:la\s+)?(?:file|liste)\s+d{AP}?\s*attente\b"
                     rf"|\bqu{AP}?\s*est[\s-]?ce\s+qui\s+(?:vient|suit)\b"),
 
     # -- vague requests ------------------------------------------------------
@@ -214,7 +238,14 @@ PATTERNS = {
     # guard sits BEFORE the whitespace it guards, or a typed double space
     # steps around it (de.py records that one).
     "radio": c(rf"\b(?:{_PLAY})\s*{_MOI}\s+(?:la\s+|une\s+)?"
-               rf"radio(?!{_TAIL})\s+(.+?){_END}"),
+               # The capture ends at _TAIL, not _END: the guard above
+               # declines a bare control word, and once a station IS named the
+               # same words must not be welded into its name — «mets la radio
+               # Nostalgie plus fort» asked for a station called "Nostalgie
+               # plus fort". The volume request is still dropped, because this
+               # step runs ahead of vol_up; that is the step order's limit,
+               # and it is a smaller one than a station nobody has.
+               rf"radio(?!{_TAIL})\s+(.+?){_TAIL}"),
 
     # -- picks ---------------------------------------------------------------
     # The character classes carry the accents, or «la première» never reaches
@@ -260,12 +291,14 @@ PATTERNS = {
                 rf"(?:{acc('chansons')}|{acc('morceaux')}|titres)\s+{_DE}"
                 rf"|(?:{_L})?artiste\s+|(?:{_L})?groupe\s+)(.+?){_END}"),
     # Anchored like is_play, and for the same reason — see the docstring.
-    "generic_play": c(rf"^(?:{_POLITE}[,\s]+)?(?:{_PLAY})\s*{_MOI}\s+"
+    "generic_play": c(rf"^(?:{_LEAD}[,\s]+)*(?:{_PLAY})\s*{_MOI}\s+"
                       rf"(.+?){_END}"),
-    # Suffix form, for the shape that puts the object before the instruction.
-    # Optional key: the router reads it with ``in P``.
-    "generic_play_suffix": c(rf"^(?:{_PLAY})\s*{_MOI}\s+(.+?)\s+"
-                             rf"(?:en\s+boucle|en\s+entier){_END}"),
+    # No ``generic_play_suffix``. English has one because "put Dark Side on"
+    # is a shape its generic_play cannot read; French has no such shape, and
+    # the one written here — «mets Time en boucle» — was dead code, because
+    # generic_play matches it first and always will. What it was reaching for
+    # is handled where it belongs: _ADV absorbs «en boucle», so the title
+    # captured is «Time».
 
     # -- kid-safe ------------------------------------------------------------
     # Anchored on the verb at string start, so a title containing the word

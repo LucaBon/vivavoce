@@ -101,9 +101,9 @@ _DE = rf"(?:de\s+la\s+|de\s+l{AP}\s*|du\s+|des\s+|d{AP}\s*|de\s+)"
 # pattern and rides along inside every greedy capture. «mets la radio s'il te
 # plaît» asked LMS for a station called "s'il te plaît", which is German's
 # «mach das Radio bitte aus» bug with a longer tail.
-_POLITE = (rf"(?:s{AP}?\s*(?:il\s+)?(?:te|vous|t{AP}\s*)\s*{acc('plait')}"
-           rf"|{acc('steuplait')}|stp|svp|{acc('merci')}"
-           rf"|{acc('sil')}\s+te\s+{acc('plait')})")
+_POLITE = (rf"(?:s{AP}?\s*(?:il\s+)?(?:te|vous|t{AP}\s*)\s*{acc('plaît')}"
+           rf"|{acc('steuplaît')}|stp|svp|{acc('merci')}"
+           rf"|{acc('sil')}\s+te\s+{acc('plaît')})")
 
 # Words that may stand between a command and its end, and that a router acts
 # on none of. words_de.py's ``_ADV``, transposed — and repeated (``*``) rather
@@ -111,7 +111,22 @@ _POLITE = (rf"(?:s{AP}?\s*(?:il\s+)?(?:te|vous|t{AP}\s*)\s*{acc('plait')}"
 # te plaît» is ordinary French, and one slot let the second one step around
 # the guard.
 _ADV = (rf"(?:un\s+peu|maintenant|tout\s+de\s+suite|vite|donc|enfin|encore"
-        rf"|{_A}\s+nouveau|de\s+nouveau|allez|quand\s+{acc('meme')})")
+        rf"|{_A}\s+nouveau|de\s+nouveau|allez|quand\s+{acc('même')}"
+        # Nothing repeats a track, so «en boucle» is a word the router acts on
+        # exactly as much as it acts on «maintenant»: it belongs to the
+        # phrasing, not to the title. Absorbing it here is what keeps «mets
+        # Time en boucle» a request for *Time*.
+        rf"|en\s+boucle|en\s+entier)")
+
+# What a person may put in FRONT of an imperative without changing it. The
+# anchored is_play was documented as costing «alors, mets Time» — harmless,
+# since it falls back — but the cost was understated: with is_play false and
+# the transport steps unanchored, «et mets la chanson Stop» did not fall back,
+# it PAUSED. A closed list rather than «any two words», because the words this
+# must not admit are «ça», «on» and «qui», which is the whole reason is_play
+# is anchored in the first place.
+_LEAD = (rf"(?:alors|bon|donc|et|puis|ensuite|allez|dis[\s-]?moi|ok"
+         rf"|{_POLITE})")
 
 # The real end of a command, politeness and filler aside. Read by every
 # $-anchored pattern and by every lazy capture that has to stop somewhere.
@@ -136,6 +151,12 @@ _TAIL = rf"(?:\s+(?:{_POLITE}|{_ADV}|{_CTRL}))*\s*$"
 # its negation are the same word, so the guard has to be explicit. Both forms
 # are fixed-width, which is what a lookbehind requires.
 _NEG = rf"(?<!n{AP})(?<!ne\s)"
+# …and forward, because the lookbehind is fixed-width and spoken French drops
+# the «ne» altogether. «arrête pas la musique» is the ordinary spoken form and
+# stopped the music; «ne l'arrête pas» slipped a clitic between the two words
+# the lookbehind can see. The «pas» is the half of the negation that survives
+# both, so it is the half worth guarding on.
+_PAS = r"(?!\s+pas\b)"
 
 # «mets-moi», «passe-nous». \b already holds before the hyphen.
 _MOI = r"(?:\s*-\s*(?:moi|nous))?"
@@ -146,7 +167,13 @@ _MOI = r"(?:\s*-\s*(?:moi|nous))?"
 # WHOLE transport block: nowplaying, next, prev, pause. This is de.py's «mach»
 # problem — a verb that heads three different commands — solved the same way,
 # by recognising the reading only with the words that identify it.
-_PASSE = rf"(?<!qui\s)(?<!que\s)passe(?!\s+(?:{_A}|au|aux)\b)"
+# The lookahead has to name every shape of skip, not just the one with a
+# preposition: «passe la suivante», «passe cette chanson» and «passe celle-là»
+# are all "skip this", and read as play verbs they set is_play — which gates
+# the transport block off and sends the phrase to the library instead.
+_PASSE = (rf"(?<!qui\s)(?<!que\s)passe"
+          rf"(?!\s+(?:{_A}|au|aux|cette|celui|celle|(?:la\s+|le\s+)?suivante?"
+          rf"|(?:la\s+|le\s+)?prochaine?)\b)")
 
 # The play verbs. ONE list, read by ten patterns, and the reason is the German
 # lesson rather than tidiness: whatever any play branch accepts as a verb,
@@ -159,13 +186,13 @@ _PASSE = rf"(?<!qui\s)(?<!que\s)passe(?!\s+(?:{_A}|au|aux)\b)"
 # next, prev and nowplaying — on any sentence that happened to contain it.
 # Not understanding «mais Time» is the smaller cost by a wide margin.
 _PLAY = (rf"(?:m(?:ets|et)|remets?|joue[rz]?|lance[rz]?|relance"
-         rf"|{acc('demarre')}|balance|fais\s+jouer|{acc('ecoute')}[rz]?"
+         rf"|{acc('démarre')}|balance|fais\s+jouer|{acc('ecoute')}[rz]?"
          rf"|je\s+(?:veux|voudrais)\s+{acc('ecouter')}"
          rf"|j{AP}\s*aimerais\s+{acc('ecouter')}"
          rf"|{_PASSE})")
 
-_LOCAL = (rf"(?:de\s+ma\s+(?:musique|{acc('bibliotheque')}|collection)"
-          rf"|dans\s+ma\s+(?:musique|{acc('bibliotheque')})"
+_LOCAL = (rf"(?:de\s+ma\s+(?:musique|{acc('bibliothèque')}|collection)"
+          rf"|dans\s+ma\s+(?:musique|{acc('bibliothèque')})"
           rf"|sur\s+(?:le\s+)?disque|en\s+local)")
 
 # The playback itself, split by whether the noun can stand without an article.
@@ -174,16 +201,26 @@ _LOCAL = (rf"(?:de\s+ma\s+(?:musique|{acc('bibliotheque')}|collection)"
 # also the possessive. «mets son dernier album», «joue son premier disque»,
 # «mets son album préféré» are ordinary requests, and a device pattern that
 # accepted a bare «son» would answer all three with a volume command.
-_DEV_FREE = rf"(?:musique|radio|zique|{acc('chaine')})"
+_DEV_FREE = rf"(?:musique|radio|zique|{acc('chaîne')})"
 _DEV_HELD = r"(?:son|volume)"
 _ART = rf"(?:{_L}|du\s+|de\s+la\s+)"
 
 # The device verbs, split by what they do to the device.
-_V_ON = rf"(?:m(?:ets|et)|remets?|allume|lance|relance|{acc('demarre')}|joue)"
-_V_OFF = (rf"(?:coupe|{acc('eteins')}|{acc('arrete')}s?|{acc('arreter')}"
+#
+# _V_ON is _PLAY plus «allume», and that is the point rather than a shorthand.
+# The ``radio`` guard declines a phrase using _PLAY, and every step that must
+# catch what it declines is built from this list. Written as a second, shorter
+# list — which is how it started — the twelve verbs in _PLAY and not in it fell
+# past every catcher to the play step and started a stream: «passe la musique»
+# searched the library for a record called "la musique" and found one. That is
+# words_de.py's defect one seam over, and the cure is the same — the guard and
+# the catcher read one name. A catcher may be WIDER than the guard, never
+# narrower, which is why «allume» is added here rather than to _PLAY.
+_V_ON = rf"(?:{_PLAY}|allume)"
+_V_OFF = (rf"(?:coupe|{acc('éteins')}|{acc('arrête')}s?|{acc('arrêter')}"
           rf"|stoppe|stop)")
 _V_UP = rf"(?:monte|augmente|remonte)"
-_V_DOWN = rf"(?:baisse|diminue|{acc('reduis')})"
+_V_DOWN = rf"(?:baisse|diminue|{acc('réduis')})"
 
 
 def DEV(verbs: str, ctrl: str = None, end: str = None) -> str:
