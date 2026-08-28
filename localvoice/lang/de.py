@@ -119,11 +119,18 @@ PATTERNS = {
                  # Zukunft an» is 32, so is_play went False, the transport
                  # block opened, and «zurück» skipped to the previous track.
                  #
-                 # All four particles ``generic_play_suffix`` accepts, not
-                 # just «an»: «mach Zurück auf» left is_play False and «prev»
+                 # The particles ``generic_play_suffix`` accepts, not just
+                 # «an»: «mach Zurück auf» left is_play False and «prev»
                  # skipped a track instead of playing the record. «aus» is
-                 # pointedly absent — that one is the stop command.
-                 r"|\bmach(?:e)?\b.*\b(?:an|auf|ab|h(?:ö|oe)ren)\s*$"
+                 # pointedly absent — that one is the stop command — and so
+                 # is «hören», which the first alternative above already
+                 # matches («hören» is «hör» plus an ending).
+                 #
+                 # It costs the awkward «mach das nächste Lied auf», which
+                 # now searches instead of skipping. The phrasing people
+                 # actually use, «… an», was already a search before this,
+                 # so nothing anyone says out loud changed hands.
+                 r"|\bmach(?:e)?\b.*\b(?:an|auf|ab)\s*$"
                  r"|\bich\s+(?:will|m(?:ö|oe)chte|mag)\b"),
     # «hör auf» belongs here rather than in ``pause``, and for the reason
     # «metti in pausa» does in Italian: it carries a play verb, so the
@@ -140,13 +147,22 @@ PATTERNS = {
     # With the list, «hör Wach Auf» is not stolen either — "Wach" is not an
     # adverb — so the pattern now costs nothing at all.
     #
-    # «hör auf zu spielen» is its own alternative: nothing else in German
-    # ends that way, so it needs no verb in front of it.
+    # «hör auf zu spielen» is the same alternative with a tail, NOT one of
+    # its own. Given its own — matching a bare «auf zu spielen» anywhere —
+    # it inverted the sentence: «hör NICHT auf zu spielen» paused, because
+    # nothing bound the phrase to a verb the negation could sit in front of.
+    # It also swallowed «hör in einer Stunde auf zu spielen», the timer this
+    # same commit taught ``sleep`` to catch in its shorter form.
+    #
+    # What it costs, said accurately: a title made of «hör» plus one of these
+    # adverbs plus «auf» — «spiel Hör mal auf» pauses. Not nothing, but the
+    # list is closed, so the cost is enumerable instead of being whatever
+    # fits in fifteen characters.
     "pause_explicit": c(r"\bauf\s+pause\b"
                         r"|\bh(?:ö|oe)r(?:e|en|st|t)?\b"
                         r"(?:\s+(?:bitte|jetzt|endlich|sofort|mal|doch"
-                        r"|auch|damit|schon))*\s+auf\s*$"
-                        r"|\bauf\s+zu\s+(?:spielen|h(?:ö|oe)ren)\s*$"),
+                        r"|auch|damit|schon|du|ihr|sie))*"
+                        r"\s+auf(?:\s+zu\s+(?:spielen|h(?:ö|oe)ren))?\s*$"),
     # «aus» is far too common a German word to stand alone («aus Liebe», «aus
     # meiner Musik»): it only counts as the tail of «mach … aus», which is how
     # the command is said and where the word cannot be anything else. Bare
@@ -180,7 +196,8 @@ PATTERNS = {
                          # are how everyone in the house says ▶.
                          r"|(?:mach(?:e)?|schalt(?:e)?|spiel(?:e)?)\s+"
                          r"(?:d(?:ie|as|en)\s+)?"
-                         r"(?:musik|radio|anlage|mucke)\s+(?:an|weiter))\s*$"),
+                         r"(?:musik|radio(?:sender)?|anlage|mucke)"
+                         r"\s+(?:an|weiter))\s*$"),
     "resume": c(r"\b(weiter|weiterspielen|weitermachen|fortsetzen"
                 r"|fortfahren|play)\b"),
     # Prefix matching, like the Italian pack: German inflects the ending.
@@ -208,11 +225,26 @@ PATTERNS = {
     "sleep": c(r"^(?=.*\b(?:(?:aus)?schalt\w*|stopp?\w*|pausier\w*"
                r"|aufh(?:ö|oe)ren|schlaftimer|schluss)\b"
                # The split form of the same verb: «hör in 30 Minuten auf»
-               # keeps its «auf» at the very end, where the one-word
-               # alternatives above cannot see it. Without this the phrase
-               # fell past the timer and reached ``pause_explicit``, which
-               # paused at once.
-               r"|.*\bh(?:ö|oe)r(?:e|en|st|t)?\b.*\bauf\s*$)"
+               # (and «… auf zu spielen») keeps its particle at the very end,
+               # where the one-word alternatives above cannot see it. Without
+               # this the phrase fell past the timer and reached
+               # ``pause_explicit``, which paused at once.
+               #
+               # The verb half is a nested lookahead, not a second ``.*``:
+               # two unbounded stars in sequence backtrack against each other,
+               # and on a 64 KB body — which is exactly what
+               # ``httpbase.MAX_JSON_BYTES`` allows an unauthenticated POST to
+               # /api/v1/command — this pattern took 3.3 seconds instead of
+               # four milliseconds. Zero-width, it is scanned once.
+               #
+               # Unlike ``pause_explicit`` above, this asks only whether a
+               # stop verb is present ANYWHERE, with no closed list between
+               # the halves — which is how every other alternative here has
+               # always worked, and it is safe for a reason that pattern has
+               # no equivalent of: the captured tail must still parse through
+               # DURATIONS, so a phrase that is not a duration falls through.
+               r"|(?=.*\bh(?:ö|oe)r(?:e|en|st|t)?\b)"
+               r".*\bauf(?:\s+zu\s+(?:spielen|h(?:ö|oe)ren))?\s*$)"
                r".*?\bin\s+(.+)$"),
     "sleep_cancel": c(r"^(?:l(?:ö|oe)sch\w*|entferne?|brich|beende"
                       r"|deaktiviere|storniere)\b.{0,20}"
@@ -288,7 +320,11 @@ PATTERNS = {
     # " an". Nothing upstream collapses inner whitespace.
     "radio": c(r"\b(?:spiel(?:e|en)?|mach(?:e)?|leg(?:e)?|starte?)\s+"
                r"(?:d(?:as|en|ie)\s+)?radio(?:sender)?\b"
-               r"(?!\s*(?:an|auf|ab|aus|lauter|leiser|weiter|stopp?)\s*$)"
+               # The adverbs are here because an exact-final guard is
+               # defeated by one word: «mach das Radio bitte aus» asked LMS
+               # for a station called "bitte aus".
+               r"(?!\s*(?:bitte\s+|ganz\s+|mal\s+|jetzt\s+|wieder\s+)?"
+               r"(?:an|auf|ab|aus|lauter|leiser|weiter|stopp?)\s*$)"
                r"\s+(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
     "choose_number": c(r"(?:spiel(?:e)?|nimm|w(?:ä|ae)hl(?:e)?)?\s*"
                        r"(?:die\s+)?nummer\s+([a-z0-9äöüß]+)\s*$"),

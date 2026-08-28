@@ -316,12 +316,60 @@ def test_a_noun_built_on_the_stop_verb_is_not_a_stop(router, transport,
 
 @pytest.mark.parametrize(
     "phrase",
-    ["hör auf", "hör bitte auf", "hör jetzt endlich auf", "hör auf zu spielen"],
+    ["hör auf", "hör bitte auf", "hör jetzt endlich auf", "hör auf zu spielen",
+     "hörst du auf", "hört auf"],
 )
 def test_the_split_stop_verb_stops(router, transport, phrase):
     assert router.handle(phrase, lang="de") == "Pausiert."
 
 
+@pytest.mark.parametrize(
+    "phrase",
+    ["hör nicht auf zu spielen", "hör bitte nicht auf zu spielen",
+     "hör nie auf zu spielen"],
+)
+def test_the_negated_stop_does_not_stop(router, transport, make_tidal, phrase):
+    """«hör auf zu spielen» started life as an alternative of its own, matching
+    that tail anywhere with no verb bound to it — so the negation rode straight
+    through and "don't stop playing" paused the music. It is the same
+    alternative as «hör auf» now, with an optional tail, and the negator has
+    nowhere to sit."""
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": []})
+    assert router.handle(phrase, source="tidal", lang="de") != "Pausiert."
+    assert ["pause", "1"] not in transport.commands()
+
+
+@pytest.mark.parametrize(
+    "phrase, seconds",
+    [("hör in 30 Minuten auf", "1800"),
+     ("hör in einer Stunde auf zu spielen", "3600")],
+)
+def test_the_split_stop_verb_carries_a_timer_in_both_its_lengths(
+        router, transport, phrase, seconds):
+    """The longer tail is the one that got away: the timer step learned «… auf»
+    and not «… auf zu spielen», so the phrase fell into the pause the same
+    commit had just taught, and the music stopped at once instead of in an
+    hour."""
+    router.handle(phrase, lang="de")
+    assert transport.last_call()[1] == ["sleep", seconds]
+
+
+def test_the_timer_lookahead_does_not_backtrack_against_itself(router, transport):
+    """Two unbounded ``.*`` in sequence cost 3.3 s on a 64 KB body — which is
+    exactly what ``httpbase.MAX_JSON_BYTES`` lets an unauthenticated POST to
+    /api/v1/command send, and this router is what it reaches. The verb half is
+    a zero-width lookahead now, so it is scanned once."""
+    import time
+    hostile = "in 1 minute " + "hör auf " * 8000 + "x"
+    start = time.monotonic()
+    router.handle(hostile, lang="de")
+    assert time.monotonic() - start < 1.0
+
+
+# «hör Wach Auf» is the case that pins the closed list: its gap is 14
+# characters, so the character window this replaced admitted it. The long one
+# is a guard rather than a pin — the window declined it too.
 @pytest.mark.parametrize("phrase", ["hör Wach Auf", "spiel Hör Mal Wer Da Hämmert auf"])
 def test_a_title_between_the_stop_verb_and_its_particle_is_not_a_stop(
         router, transport, make_tidal, phrase):
@@ -344,9 +392,15 @@ def test_the_split_stop_verb_can_still_carry_a_timer(router, transport):
 @pytest.mark.parametrize(
     "phrase, expected_cmd",
     [("mach das Radio aus", ["pause", "1"]),
+     # One adverb defeats an exact-final guard, which is why the guard is not
+     # exact-final any more.
+     ("mach das Radio bitte aus", ["pause", "1"]),
+     ("mach das Radio ganz aus", ["pause", "1"]),
      ("mach das Radio leiser", ["mixer", "volume", "-5"]),
      ("mach das Radio lauter", ["mixer", "volume", "+5"]),
      ("mach das Radio an", ["pause", "0"]),
+     ("mach den Radiosender an", ["pause", "0"]),
+     ("spiel die Musik weiter", ["pause", "0"]),
      ("spiel das Radio weiter", ["pause", "0"])],
 )
 def test_a_control_word_after_radio_is_a_control_not_a_station(
