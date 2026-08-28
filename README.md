@@ -109,6 +109,14 @@ store → ⋮ → Repositories* (before Home Assistant 2026.2, when apps were ca
 add-ons: *Settings → Add-ons → Add-on store*), then install **Vivavoce** — see
 [DEPLOY.md](DEPLOY.md).
 
+**…and then talk to it through Assist**: import
+[`blueprints/vivavoce_assist.yaml`](blueprints/vivavoce_assist.yaml) and say
+«metti Comfortably Numb dei Pink Floyd» to a voice satellite, the phone app or
+the dashboard — the answer names the song that actually started. Home Assistant
+keeps everything Vivavoce doesn't claim, and uninstalling is deleting one
+automation. Setup:
+[DEPLOY.md](DEPLOY.md#home-assistant-voice--talking-to-vivavoce-through-assist).
+
 
 **Without Docker** (Python ≥ 3.9 + [uv](https://docs.astral.sh/uv/)):
 

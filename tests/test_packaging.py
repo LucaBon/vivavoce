@@ -724,3 +724,218 @@ def test_actions_re_exports_the_whole_engine():
         f"engine/actions.py no longer re-exports {missing} — add them to the "
         f"import block at the bottom, or every caller that reaches through "
         f"actions breaks without warning")
+
+
+# -- the Home Assistant blueprint ----------------------------------------------
+#
+# `blueprints/vivavoce_assist.yaml` is the one file in this repo that runs
+# inside somebody else's program. Nothing else here can see it: it is not
+# imported, not served, not copied into the image, and its mistakes surface as
+# a voice assistant answering "Done" in a kitchen. These are the checks that a
+# reading of the file would otherwise have to catch every time.
+
+BLUEPRINT = ("blueprints", "vivavoce_assist.yaml")
+# The route with the compatibility promise (docs/api.md). The unversioned
+# /command alias exists and works, but a client that ships separately — which
+# is exactly what a blueprint is — has no business calling the path that
+# carries no version.
+VERSIONED_ROUTE = "/api/v1/command"
+
+
+class _Input(str):
+    """Marker for a `!input name` node, carrying the input's name."""
+
+
+def _load_blueprint():
+    """The blueprint, with `!input` nodes preserved as _Input markers.
+
+    ``yaml.safe_load`` cannot read this file — `!input` is Home Assistant's own
+    tag — so the loader has to be taught it, and teaching it is also what makes
+    the input cross-check below possible.
+    """
+    yaml = pytest.importorskip("yaml")
+
+    class Loader(yaml.SafeLoader):
+        pass
+
+    Loader.add_constructor("!input",
+                           lambda loader, node: _Input(node.value))
+    return yaml.load(_read(*BLUEPRINT), Loader=Loader)
+
+
+def _walk(node):
+    """Every value in a nested dict/list, the containers included."""
+    yield node
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from _walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk(value)
+
+
+def _deploy_rest_command():
+    """The `rest_command:` YAML block DEPLOY.md tells people to paste."""
+    yaml = pytest.importorskip("yaml")
+    blocks = re.findall(r"```yaml\n(.*?)```", _read("DEPLOY.md"), re.S)
+    for block in blocks:
+        if block.lstrip().startswith("rest_command:"):
+            return yaml.safe_load(block)["rest_command"]
+    pytest.fail("DEPLOY.md no longer shows a rest_command block to paste")
+
+
+def test_the_blueprint_is_a_blueprint():
+    doc = _load_blueprint()
+    meta = doc["blueprint"]
+    assert meta["domain"] == "automation"
+    assert meta["name"] and meta["description"]
+    # Import-by-URL is the install route DEPLOY.md gives first, and Home
+    # Assistant refuses to import a blueprint that does not name its source.
+    assert meta["source_url"].endswith("/".join(BLUEPRINT))
+
+
+def test_every_blueprint_input_is_declared_and_used():
+    # Both directions, because they fail differently and both fail quietly.
+    # An undeclared `!input` makes Home Assistant reject the whole blueprint at
+    # import; a declared input nobody reads is a setting the user fills in and
+    # that changes nothing — the worse of the two, because it looks like it
+    # worked.
+    doc = _load_blueprint()
+    declared = set(doc["blueprint"]["input"])
+    used = {str(n) for n in _walk(doc) if isinstance(n, _Input)}
+    assert used - declared == set(), "!input names nothing declares"
+    assert declared - used == set(), "declared inputs nothing reads"
+
+
+def test_the_rest_command_calls_the_versioned_route():
+    # DEPLOY.md carries the URL (rest_command lives in configuration.yaml, not
+    # in a blueprint), so this is where the route is chosen.
+    url = _deploy_rest_command()["vivavoce_command"]["url"]
+    assert url.endswith(VERSIONED_ROUTE), (
+        f"the blueprint's rest_command should call {VERSIONED_ROUTE}, the route "
+        f"docs/api.md promises to keep, not {url}")
+
+
+def test_the_blueprint_and_the_docs_agree_on_the_rest_command():
+    # Two files, written at different times, in different languages: the name
+    # in DEPLOY.md's snippet and the action the blueprint calls. Rename one and
+    # the automation fails at the only moment nobody is watching — the first
+    # time somebody speaks to it.
+    documented = set(_deploy_rest_command())
+    called = {str(step["action"]).split(".", 1)[1]
+              for step in _walk(_load_blueprint())
+              if isinstance(step, dict)
+              and str(step.get("action", "")).startswith("rest_command.")}
+    assert called and called <= documented, (
+        f"the blueprint calls rest_command.{called} but DEPLOY.md defines "
+        f"{documented}")
+
+
+def test_the_rest_command_and_the_blueprint_pass_the_same_fields():
+    # The other half of the same pair, and both directions matter because they
+    # fail differently:
+    #   sent but never read -> the field is dropped and the server answers as
+    #     though it was never asked. Silent.
+    #   read but never sent -> the template renders against an undefined
+    #     variable, rest_command raises, `continue_on_error` turns that into
+    #     "I cannot reach Vivavoce" — for a server that is up and correctly
+    #     configured. Silent, permanent, and impossible to diagnose from the
+    #     symptom.
+    # Matching on the rendered variable names, not on substrings of the
+    # template: `"player"` also occurs there as a JSON *key*, so a payload that
+    # hardcoded it and never read the variable used to pass.
+    command = _deploy_rest_command()["vivavoce_command"]
+    read = set(re.findall(r"\{\{[-\s]*(\w+)", command["url"] + command["payload"]))
+    sent = set()
+    for step in _walk(_load_blueprint()):
+        if (isinstance(step, dict)
+                and str(step.get("action", "")).startswith("rest_command.")):
+            sent |= set(step.get("data", {}))
+    assert sent - read == set(), "the blueprint sends fields the template drops"
+    assert read - sent == set(), (
+        "DEPLOY.md's template reads variables the blueprint never sends: every "
+        "call would raise on an undefined variable")
+
+
+def test_the_blueprint_defaults_to_the_url_the_app_actually_serves():
+    yaml = pytest.importorskip("yaml")
+    options = yaml.safe_load(_read("ha-addon", "config.yaml"))["options"]
+    default = _load_blueprint()["blueprint"]["input"]["server"]["default"]
+    scheme = "https" if options["https"] else "http"
+    assert default == f"{scheme}://localhost:{options['port']}", (
+        f"the blueprint offers {default} but the Home Assistant app serves "
+        f"{scheme} on {options['port']} — the default is the one setting most "
+        f"people will never change")
+
+
+def test_every_call_out_of_the_blueprint_can_fail_without_ending_the_script():
+    # Found by running it: without `continue_on_error` a rest_command that
+    # cannot connect aborts the script *before* set_conversation_response, and
+    # Home Assistant answers with its own default — "Done". A confident "Done"
+    # for a song that never started is the one failure this product does not
+    # allow, and it needs no code of ours to happen.
+    #
+    # Every call out, not just the HTTP ones: assist_satellite.ask_question
+    # raises too, when nobody answers.
+    naked = [str(step["action"]) for step in _walk(_load_blueprint())
+             if isinstance(step, dict) and "action" in step
+             and step.get("continue_on_error") is not True]
+    assert naked == [], (
+        f"{naked} can raise and end the turn as Assist's own 'Done'; mark them "
+        f"`continue_on_error: true` and answer for ourselves")
+
+
+def test_every_branch_of_the_blueprint_ends_by_answering():
+    # The property the test above only approximates. `continue_on_error` keeps
+    # one action from aborting the script; this checks the thing that actually
+    # matters, which is that no route through the actions can reach the end
+    # without having said something. A branch that falls off the end is
+    # answered by Assist, not by us, and Assist says "Done".
+    def answers(sequence):
+        """Does every path through this action list set a response?"""
+        for step in sequence:
+            if not isinstance(step, dict):
+                continue
+            if "set_conversation_response" in step:
+                return True
+            if "choose" in step:
+                # Every option, and the default — an absent default means
+                # "fall through", which is exactly the hole being looked for.
+                options = [opt.get("sequence", []) for opt in step["choose"]]
+                if "default" not in step:
+                    return False
+                options.append(step["default"])
+                if all(answers(opt) for opt in options):
+                    return True
+            if "if" in step:
+                if ("else" in step
+                        and answers(step.get("then", []))
+                        and answers(step["else"])):
+                    return True
+        return False
+
+    assert answers(_load_blueprint()["actions"]), (
+        "a path through the blueprint reaches the end without calling "
+        "set_conversation_response: on that path Home Assistant answers "
+        "'Done' for us")
+
+
+def test_the_blueprint_only_names_streaming_services_the_engine_has():
+    # «da spotify metti X» would match the trigger, miss the `service` pattern
+    # in localvoice/lang/, fall through to a plain play, and start the song on
+    # TIDAL *without saying so*. Answering from a different source than the one
+    # asked for, silently, is the exact failure this whole blueprint exists to
+    # prevent — so the names are pinned to the ones the engine really has.
+    import lms
+
+    known = set(lms.SERVICES) | {"tidal", "qobuz"}
+    named = set()
+    for trigger in _load_blueprint()["triggers"]:
+        for sentence in trigger["command"]:
+            for group in re.findall(r"\(([^()]*)\)", sentence):
+                named |= {w for w in group.split("|") if w in known or
+                          w in {"spotify", "deezer", "apple music", "napster",
+                                "amazon", "youtube", "plex"}}
+    assert named <= known, (
+        f"the blueprint offers {named - known}, which engine/lms.py has no "
+        f"ServiceSpec for")
