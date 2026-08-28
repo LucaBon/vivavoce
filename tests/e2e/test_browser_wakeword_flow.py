@@ -82,17 +82,48 @@ class _ProLicense:
 
 
 def _start_browser_wake(page, srv):
-    """Boot the page into continuous listening on the Web Speech engine."""
+    """Boot the page into continuous listening on the Web Speech engine.
+
+    Waits for the app to stop talking before handing back. Switching on
+    continuous listening is what says the art. 50(1) notice out loud, and the
+    microphone deliberately ignores everything it hears while the loudspeaker
+    is going (see appIsSpeaking in static/js/tts.js) — so a test that starts
+    speaking immediately is testing a moment the product ignores on purpose.
+    Headless Chromium has no voices but still reports `speaking` for about a
+    second, which is enough to reproduce it.
+    """
     page.add_init_script(FAKE_CONTINUOUS_SPEECH)
     page.goto(srv.url)
     page.wait_for_function("!!window.vivavoce")
     page.eval_on_selector("#settings", "el => { el.open = true; }")
     page.check("#wakemode")
     page.wait_for_function("() => window.__sr.sessions >= 1", timeout=5000)
+    _wait_until_quiet(page)
+
+
+def _wait_until_quiet(page):
+    """Block until the app's own voice has finished and its echo tail run out."""
+    page.wait_for_function(
+        "() => !speechSynthesis.speaking && !speechSynthesis.pending",
+        timeout=8000)
+    page.wait_for_timeout(1000)  # ECHO_TAIL_MS in tts.js, plus a little
 
 
 def _say(page, text):
     return page.evaluate(f"window.__sr.live.say({text!r})")
+
+
+def _say_when_listening(page, text):
+    """Speak into whichever session is live, waiting for one if need be.
+
+    The fake ends a session 1200 ms after the last thing said, and the page
+    reopens it 350 ms later — so any test that waits longer than that between
+    two phrases can land in the gap, where ``say()`` answers SESSION_CLOSED
+    and the phrase is simply never delivered.
+    """
+    page.wait_for_function(
+        "() => window.__sr.live && window.__sr.live._on", timeout=5000)
+    return _say(page, text)
 
 
 def _wait_new_session(page):
@@ -333,3 +364,88 @@ def test_a_longer_stray_after_the_command_does_not_swallow_it(page, web):
         timeout=8000)
     assert "pausa" in _bubbles(page)
     assert "vivavoce pausa" not in _bubbles(page)
+
+
+# --- the app must not hear itself --------------------------------------------
+#
+# Hands-free listening starts the recogniser and THEN says the art. 50(1)
+# notice out loud (micUI -> speakAiNotice, miccapture.js). The notice used to
+# open with "Vivavoce," — which is the default wake word — so the loudspeaker
+# said the wake word into the live microphone, commandAfterWake() matched it,
+# and the rest of the sentence went to the router as a command: one "Non ho
+# capito" per page load, out of nowhere. The notice no longer carries the wake
+# word, but that only fixes the phrase that ships; the wake word is a
+# free-text field and read-back speaks whatever the server replied. The rule
+# under test is the general one.
+
+# `speaking` is a live browser property with no setter, so the test drives it
+# through the prototype. speak() stays real: what is faked is the answer to
+# "is sound coming out right now", which is the only thing tts.js reads.
+FAKE_TTS_STATE = """
+    window.__tts = { speaking: false };
+    Object.defineProperty(SpeechSynthesis.prototype, 'speaking', {
+      configurable: true, get: () => window.__tts.speaking });
+    Object.defineProperty(SpeechSynthesis.prototype, 'pending', {
+      configurable: true, get: () => false });
+"""
+
+
+def test_the_wake_word_from_the_loudspeaker_is_not_a_command(page, web):
+    srv = web(license_mgr=_ProLicense())
+    page.add_init_script(FAKE_TTS_STATE)
+    _start_browser_wake(page, srv)
+
+    page.evaluate("window.__tts.speaking = true")
+    _say(page, "vivavoce pausa")
+    page.wait_for_timeout(1800)  # well past the 1s command debounce
+    assert _bubbles(page) == [], "the app took its own voice for a command"
+
+    # And the room is heard again the moment the app stops talking.
+    page.evaluate("window.__tts.speaking = false")
+    page.wait_for_timeout(1000)  # ECHO_TAIL_MS
+    _say_when_listening(page, "vivavoce pausa")
+    page.wait_for_function(
+        "() => [...document.querySelectorAll('#log .bubble')]"
+        "        .some(b => b.textContent === 'pausa')", timeout=5000)
+    assert "pausa" in _bubbles(page)
+
+
+def test_a_transcript_heard_while_speaking_is_not_replayed_afterwards(page, web):
+    # Chrome's continuous `results` are CUMULATIVE for the session, and one
+    # utterance arrives more than once — interim snapshots, then the final.
+    # So merely returning early while the loudspeaker is going is not enough:
+    # the very next event re-delivers the sentence the app spoke, now that it
+    # has fallen silent, and it would be acted on then. What was heard through
+    # the speaker has to stay ignored for the rest of the session.
+    srv = web(license_mgr=_ProLicense())
+    page.add_init_script(FAKE_TTS_STATE)
+    _start_browser_wake(page, srv)
+
+    page.evaluate("window.__tts.speaking = true")
+    _say(page, "vivavoce pausa")
+    session = page.evaluate("window.__sr.sessions")
+    page.evaluate("window.__tts.speaking = false")
+    page.wait_for_timeout(1000)  # ECHO_TAIL_MS: the app is silent again
+
+    # The same transcript, re-delivered with nothing new said — a final event
+    # after the interims, which is a thing that always happens.
+    page.evaluate("window.__sr.live.sayAll([])")
+    assert page.evaluate("window.__sr.sessions") == session, (
+        "the session restarted, which resets the ignore mark and tests nothing")
+    page.wait_for_timeout(1800)  # well past the 1s command debounce
+    assert _bubbles(page) == [], "the sentence the app spoke was replayed as a command"
+
+
+def test_a_speech_engine_stuck_speaking_does_not_deafen_the_microphone(page, web):
+    # `speaking` has been known to stay true forever after a cancel, and
+    # onstart/onend are not delivered everywhere (headless Chromium fires
+    # neither). Either way, trusting the engine without a bound would leave
+    # the wake word deaf for the rest of the page's life — the microphone
+    # dead, the panel still saying "In ascolto". tts.js caps it at the longest
+    # the utterances it submitted could possibly take.
+    srv = web(license_mgr=_ProLicense())
+    page.add_init_script(FAKE_TTS_STATE)
+    _start_browser_wake(page, srv)
+
+    page.evaluate("window.__tts.speaking = true")
+    page.wait_for_function("() => !window.vivavoce.appIsSpeaking()", timeout=15000)

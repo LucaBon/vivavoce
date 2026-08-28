@@ -6,6 +6,7 @@ import { $ } from "./util.js";
 import { ui } from "./i18n.js";
 import { handleManualFinal, autosendOn, isSending } from "./chat.js";
 import { wakeWord } from "./settings.js";
+import { appIsSpeaking } from "./tts.js";
 
 const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
@@ -95,6 +96,13 @@ export function createWakeHandler(rec) {
   let capTimer = null;
   let armed = false, armedTimer = null;
   let awaitingReview = false;  // a transcript is in the box, waiting for Send
+  // How much of this session's transcript the app said itself. Chrome's
+  // `results` are CUMULATIVE for the session, so simply returning early while
+  // the app is talking is not enough: the sentence it spoke is re-delivered
+  // in every later event of the same session, and would be acted on the
+  // moment the loudspeaker fell silent. Everything before this index was
+  // heard through the speaker and is not something anybody said.
+  let ignoreBefore = 0;
 
   function disarm() { armed = false; clearTimeout(armedTimer); }
   function arm() {
@@ -137,6 +145,10 @@ export function createWakeHandler(rec) {
   }
 
   function wakeResult(e) {
+    // The app is talking: whatever the microphone is picking up right now is
+    // the loudspeaker, not the room. Remember how far the transcript has got
+    // so the cumulative snapshots that follow don't hand it back to us.
+    if (appIsSpeaking()) { ignoreBefore = e.results.length; return; }
     awaitingReview = false;  // something new was said; the old transcript is moot
     // In this browser Chrome's continuous `results` are CUMULATIVE snapshots that
     // grow entry by entry — each one repeats the words before it ("vivavoce",
@@ -151,7 +163,8 @@ export function createWakeHandler(rec) {
     // longest of those is the wake word. Every command spoken promptly after
     // the prompt was thrown away in favour of the phrase that asked for it,
     // and the panel just asked again.
-    const entries = Array.from(e.results, (r) => r);
+    const entries = Array.from(e.results, (r) => r).slice(ignoreBefore);
+    if (!entries.length) return;  // the whole session so far is our own voice
     const textOf = (r) => ((r && r[0] && r[0].transcript) || "").trim();
     let best = entries[entries.length - 1] || null;
     // One guard kept from the longest-wins rule it replaces: a stray short
@@ -206,6 +219,10 @@ export function createWakeHandler(rec) {
 
   return {
     wakeResult,
+    // A session's result indices start again from zero, so what we chose to
+    // ignore in the last one means nothing in this one. mic.js calls this
+    // from rec.onstart, where the other per-session state is already reset.
+    newSession: () => { ignoreBefore = 0; },
     // mic.js consults this so a session restart mid-question doesn't wipe the
     // "tell me the command" prompt, nor blink the button as if listening had
     // stopped while it is in fact still waiting for an answer.
@@ -214,6 +231,8 @@ export function createWakeHandler(rec) {
     // transcript is sitting in the box under "check the text and press Send",
     // and a session restart must not answer that with "listening…" either.
     isAwaitingReview: () => awaitingReview,
-    clearCap: () => { clearTimeout(capTimer); disarm(); awaitingReview = false; },
+    clearCap: () => {
+      clearTimeout(capTimer); disarm(); awaitingReview = false; ignoreBefore = 0;
+    },
   };
 }

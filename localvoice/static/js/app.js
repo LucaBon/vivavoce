@@ -5,7 +5,7 @@
 
 import { $ } from "./util.js";
 import { initI18n, setUIHooks, applyUI, setLmsDown } from "./i18n.js";
-import { initTts, buildVoicePickers } from "./tts.js";
+import { initTts, buildVoicePickers, appIsSpeaking } from "./tts.js";
 import { initChat, bubble, send } from "./chat.js";
 import { initPro, applyPro, renderKidsafe, refreshLicense, refreshKidsafe,
          showProUpsell } from "./pro.js";
@@ -52,4 +52,8 @@ initCertSetup();
 window.vivavoce = { bubble, send, renderNowPlaying, renderPlayers,
                     setPlayersData, setLmsDown, applyUI, showProUpsell,
                     refreshLicense, refreshKidsafe, refreshAsr, refreshServerWake,
-                    certState };
+                    certState,
+                    // Exposed for the browser tests: whether the app counts
+                    // itself as talking right now, which is what makes the
+                    // microphone ignore what it hears (see tts.js).
+                    appIsSpeaking };

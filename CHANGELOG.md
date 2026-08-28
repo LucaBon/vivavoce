@@ -67,6 +67,40 @@
 
 ### Fixed
 
+- **Hands-free listening woke itself up and then said it hadn't understood.**
+  Switching on continuous listening starts the recogniser and *then* speaks
+  the art. 50(1) notice — and that notice used to open with "Vivavoce,",
+  which is the default wake word. So the loudspeaker said the wake word into
+  the app's own live microphone, `commandAfterWake()` matched it, and
+  everything after it — "assistente vocale automatico" — went to the router
+  as a command. One unexplained "Non ho capito" per page load, before anybody
+  had said anything.
+
+  Fixed on both sides, because either alone is half a fix. The notice no
+  longer names the product, which removes the collision that ships by
+  default; and **the microphone now ignores whatever it hears while the app
+  is talking**, which is the rule that holds for a wake word the household
+  typed itself and for read-back speaking a reply. That gate reads
+  `speechSynthesis.speaking` rather than counting `onstart`/`onend` events:
+  those are not delivered everywhere (headless Chromium fires neither, iOS
+  Safari drops them), and a counter that never comes back down would leave
+  the wake word deaf for the rest of the page's life. It is bounded in the
+  other direction too — Chrome has been known to leave `speaking` true
+  forever after a cancel.
+
+  Ignoring is not enough on its own, either: Chrome's continuous results are
+  *cumulative for the session*, so the sentence the app spoke is re-delivered
+  in every later event and would simply be acted on a moment after the room
+  fell silent. What was heard through the speaker stays ignored for the rest
+  of the session.
+
+- **The spoken notice was startlingly loud.** It is a legal notice, not an
+  answer to anything anybody asked, and it arrives the instant the microphone
+  goes on. Now spoken below the read-back voice, and shortened to "Assistente
+  vocale automatico." / "Automated voice assistant." Art. 50(1) asks that it
+  be said plainly at the start of the interaction, not that it be the loudest
+  thing in the room; `docs/ai-act.md` records the change.
+
 - **One silent client could stop the whole HTTPS server.** Serving TLS by
   wrapping the *listening* socket — which is the obvious way to do it, and
   what `--cert/--key` did — puts the handshake inside `SSLSocket.accept()`,
