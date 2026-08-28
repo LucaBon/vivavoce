@@ -86,8 +86,15 @@ export const UI_EN = {
   // Art. 50(1) AI Act. `ai_notice` is the English side of the label that lives
   // in the markup; `ai_notice_spoken` is said out loud once per voice session,
   // for the hands-free case where nobody ever looks at the screen.
+  //
+  // The spoken one deliberately does NOT open with the product name. It used
+  // to — "Vivavoce, automated voice assistant." — and the product name is the
+  // default wake word, so the app said its own wake word through the
+  // loudspeaker into its own live microphone and took the rest of the
+  // sentence for a command. tts.js's echo gate is the general fix; this is
+  // simply not handing it the one collision that ships by default.
   ai_notice: "Automated assistant: you are talking to software, not to a person.",
-  ai_notice_spoken: "Vivavoce, automated voice assistant.",
+  ai_notice_spoken: "Automated voice assistant.",
   src_auto: "Automatic: library, then streaming",
   src_local: "My library only",
   src_only: "Only ",
@@ -226,7 +233,8 @@ export const UI_IT = {
   title_page: "Vivavoce — voce locale",
   status_tap_write: "Tocca il microfono e parla, oppure scrivi qui sotto.",
   // Only the spoken half: the on-screen line is Italian markup already.
-  ai_notice_spoken: "Vivavoce, assistente vocale automatico.",
+  // No product name here either — see the English side for why.
+  ai_notice_spoken: "Assistente vocale automatico.",
   src_auto: "Automatica: libreria, poi streaming",
   src_local: "Solo la mia libreria",
   src_only: "Solo ",

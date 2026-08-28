@@ -135,11 +135,16 @@ would cost more than complying with the rule.
   a menu, which §38 rules out; it is unconditional, so no state can hide it.
 - A spoken sentence at the start of a voice session, when the app has a voice
   at all or is listening continuously (`static/js/tts.js`, `speakAiNotice`,
-  called from `micUI()` in `static/js/miccapture.js`): *"Vivavoce, assistente
-  vocale automatico."* This is the §37 "auditory disclosure", for the
-  hands-free case where nobody looks at a screen. Said once per page session
-  per language rather than once per command — §39 warns that a disclosure
-  repeated past the point of being heard stops being one.
+  called from `micUI()` in `static/js/miccapture.js`): *"Assistente vocale
+  automatico."* / *"Automated voice assistant."* This is the §37 "auditory
+  disclosure", for the hands-free case where nobody looks at a screen. Said
+  once per page session per language rather than once per command — §39 warns
+  that a disclosure repeated past the point of being heard stops being one.
+  It names no product: the product name is also the default wake word, and a
+  notice that says the wake word into a live microphone wakes the app up. It
+  is spoken below the read-back volume (`NOTICE_VOLUME`) — §37 asks that the
+  disclosure be made plainly at the start of the interaction, not that it be
+  the loudest thing in the room.
 - Wording is deliberately short and plain. Guidelines §34 and footnote 40 ask
   for child-friendly, age-appropriate text in the official language of the
   Member State where the service is offered when minors are foreseeably in the

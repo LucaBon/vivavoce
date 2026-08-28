@@ -240,7 +240,9 @@ export function initMic() {
       else startManual();
     };
     rec.onstart = () => {
-      active = true; tornDown = false; wakeFailures = 0; micUI(true);
+      active = true; tornDown = false; wakeFailures = 0;
+      wake.newSession();  // before micUI: it is micUI that starts the app talking
+      micUI(true);
       if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
       // A restart in the middle of "yes? tell me the command" — or of "check
       // the text and press Send" — must not answer its own question with

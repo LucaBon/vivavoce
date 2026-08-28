@@ -52,10 +52,57 @@ function splitByTerms(speech, terms) {
   return segs;
 }
 
-function utter(text, lang) {
+// --- "is the app talking right now?" ----------------------------------------
+//
+// The microphone must not hear the loudspeaker. It did: hands-free listening
+// starts the recogniser, THEN says the art. 50(1) notice out loud (micUI ->
+// speakAiNotice), and that sentence used to begin with the wake word itself —
+// so the app woke itself up, took "assistente vocale automatico" for a
+// command and answered "Non ho capito", once per page load. The notice no
+// longer carries the wake word (see ai_notice_spoken in strings.js), but that
+// only fixes the phrase that ships: the wake word is a free-text field, and
+// read-back speaks whatever the server replied. The general rule is this flag
+// — while the app is talking, wakeword.js ignores what it hears.
+//
+// `speechSynthesis.speaking` is the authority here, NOT a count of the
+// onstart/onend events. Those events are not delivered everywhere — headless
+// Chromium fires none of them, iOS Safari drops them, and cancel() makes it
+// worse — and a counter that never comes back down leaves the wake word deaf
+// for the rest of the page's life. The live property costs nothing to read
+// and clears itself even when the engine did nothing at all.
+//
+// Two corrections around it. `quietAt` covers the gap in which speak() has
+// been called but `speaking` has not gone true yet (and, after an utterance
+// ends, the beat Web Speech takes to finalise a phrase it heard just before).
+// `deadline` bounds the property in the other direction: Chrome has been
+// known to leave `speaking` true forever after a cancel, and nothing we
+// submitted can still be playing past the time it could possibly take.
+const ECHO_TAIL_MS = 900;   // after the last utterance ends
+const START_GRACE_MS = 400; // after speak(), before `speaking` goes true
+const utterCap = (text) => 3000 + (text || "").length * 200;
+
+let quietAt = 0;    // count as talking until this moment, whatever the engine says
+let deadline = 0;   // ...and never past this one, whatever the engine says
+
+export function appIsSpeaking() {
+  const now = Date.now();
+  if (now < quietAt) return true;
+  if (now >= deadline) return false;
+  try { return speechSynthesis.speaking || speechSynthesis.pending; }
+  catch (e) { return false; }
+}
+
+function utter(text, lang, volume) {
   const u = new SpeechSynthesisUtterance(text);
   const v = chosenVoice(lang);
   if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = (LANGS[lang] || LANGS.it).tag; }
+  if (volume !== undefined) u.volume = volume;
+  const endsQuiet = () => { quietAt = Math.max(quietAt, Date.now() + ECHO_TAIL_MS); };
+  u.onend = endsQuiet;
+  u.onerror = endsQuiet;
+  const now = Date.now();
+  quietAt = Math.max(quietAt, now + START_GRACE_MS);
+  deadline = Math.max(deadline, now + utterCap(text));
   speechSynthesis.speak(u);
 }
 
@@ -84,12 +131,19 @@ export function speak(text, terms) {
 // a new session and says it again.
 let noticeSaidIn = "";  // "" = not said yet in this page session
 
+// Under the read-back voice, not level with it. This sentence is a legal
+// notice, not an answer to anything anybody asked: at full volume it startles
+// a room that has just switched the microphone on, and testers read it as the
+// app shouting at them. Quiet is still "heard" for the purposes of §37 — what
+// the article asks is that it be said, plainly, at the start.
+const NOTICE_VOLUME = 0.6;
+
 export function speakAiNotice() {
   if (!("speechSynthesis" in window)) return;
   const lang = uiLang();
   if (noticeSaidIn === lang) return;
   noticeSaidIn = lang;
-  try { utter(ui("ai_notice_spoken"), lang); } catch (e) { /* TTS optional */ }
+  try { utter(ui("ai_notice_spoken"), lang, NOTICE_VOLUME); } catch (e) { /* TTS optional */ }
 }
 
 // --- voice settings UI ---
