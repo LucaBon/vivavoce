@@ -40,9 +40,10 @@ state, kid-safe, multi-room); a pack owns nothing but data:
 Adding a language is adding one module with these seven names (plus its
 message catalog in ``engine/catalogs/`` and a test suite modeled on
 ``tests/test_english.py``); the registry in ``__init__.py`` finds it by
-itself. A language whose connectors cannot be shared — the words that join
-the parts of a request, «di X», «by X», «de X» — adds a fourth module in
-``engine/connectors/``; French explains there why that package exists.
+itself. It also adds a module in ``engine/connectors/`` for the words that
+join the parts of a request — «di X», «by X», «von X», «de X» — which belong
+to one language each and to no other; French explains there why that package
+exists, and ``tests/test_connectors.py`` fails a pack that ships without one.
 
 **A pack module holds the grammar; the word lists live beside it.** ``xx.py``
 is ``PATTERNS`` and nothing else; ``moods_xx.py`` and ``numbers_xx.py`` hold

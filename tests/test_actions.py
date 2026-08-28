@@ -10,23 +10,27 @@ from actions import ERR_UNREACHABLE, parse_song_query
 
 
 # -- parse_song_query -----------------------------------------------------
+# The language is spelled out per row because the connectors are per language:
+# «by» and «from album» are English's and match nothing under Italian. See
+# engine/connectors/ and tests/test_connectors.py.
 @pytest.mark.parametrize(
-    "text, title, artist, album",
+    "lang, text, title, artist, album",
     [
-        ("Comfortably Numb", "Comfortably Numb", None, None),
-        ("Comfortably Numb Pink Floyd", "Comfortably Numb Pink Floyd", None, None),
-        ("Comfortably Numb dei Pink Floyd", "Comfortably Numb", "Pink Floyd", None),
-        ("Time di Hans Zimmer", "Time", "Hans Zimmer", None),
-        ("Yesterday by The Beatles", "Yesterday", "The Beatles", None),
-        ("Time dall'album Dark Side of the Moon", "Time", None, "Dark Side of the Moon"),
-        ("Time dall album The Wall", "Time", None, "The Wall"),
-        ("Money from album Dark Side", "Money", None, "Dark Side"),
-        ("la canzone Love", "Love", None, None),
-        ("", None, None, None),
+        ("it", "Comfortably Numb", "Comfortably Numb", None, None),
+        ("it", "Comfortably Numb Pink Floyd", "Comfortably Numb Pink Floyd", None, None),
+        ("it", "Comfortably Numb dei Pink Floyd", "Comfortably Numb", "Pink Floyd", None),
+        ("it", "Time di Hans Zimmer", "Time", "Hans Zimmer", None),
+        ("en", "Yesterday by The Beatles", "Yesterday", "The Beatles", None),
+        ("it", "Time dall'album Dark Side of the Moon", "Time", None, "Dark Side of the Moon"),
+        ("it", "Time dall album The Wall", "Time", None, "The Wall"),
+        ("en", "Money from album Dark Side", "Money", None, "Dark Side"),
+        ("it", "la canzone Love", "Love", None, None),
+        ("it", "", None, None, None),
     ],
 )
-def test_parse_song_query(text, title, artist, album):
-    assert parse_song_query(text) == {"title": title, "artist": artist, "album": album}
+def test_parse_song_query(lang, text, title, artist, album):
+    assert parse_song_query(text, lang=lang) == {
+        "title": title, "artist": artist, "album": album}
 
 
 # -- play_song ------------------------------------------------------------

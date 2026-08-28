@@ -420,7 +420,9 @@ def test_non_latin_titles_keep_their_characters():
 # -- the artist separator -----------------------------------------------------
 def test_the_last_connector_splits_title_from_artist():
     # Split on the FIRST "by" and this searched for a song called "Stand".
-    assert actions.parse_song_query("Stand By Me by Ben E. King") == {
+    # Said in English, so parsed in English: «by» is English's connector and
+    # nobody else's (engine/connectors/en.py).
+    assert actions.parse_song_query("Stand By Me by Ben E. King", lang="en") == {
         "title": "Stand By Me", "artist": "Ben E. King", "album": None}
 
 
@@ -450,10 +452,12 @@ def test_a_title_that_opens_with_a_connector_keeps_its_first_word():
     # STARTED with a connector lost its first word: «By the Way» searched TIDAL
     # for "the Way" and «Della vita» for "vita". It may only fire when the lead
     # filler actually removed something.
-    assert actions.parse_song_query("By the Way")["title"] == "By the Way"
+    # Each under the language whose connector it opens with, or the assertion
+    # is vacuous: «By the Way» has nothing to strip when parsed as Italian.
+    assert actions.parse_song_query("By the Way", lang="en")["title"] == "By the Way"
     assert actions.parse_song_query("Della vita")["title"] == "Della vita"
     assert actions.parse_song_query("Di Nuovo Insieme")["title"] == "Di Nuovo Insieme"
-    assert actions.parse_song_query("By the Way")["artist"] is None
+    assert actions.parse_song_query("By the Way", lang="en")["artist"] is None
 
 
 @pytest.mark.parametrize("query, title", [

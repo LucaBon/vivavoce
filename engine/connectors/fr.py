@@ -4,7 +4,8 @@
 it is also two letters that begin a great many names. Shared with every other
 language it broke Italian outright: ``parse_song_query`` takes the LAST
 connector, so «la canzone di Marinella di De André» split at the «De» and went
-looking for a singer called «André». Here it is French's and nobody else's.
+looking for a singer called «André». That is what ended the one shared pile,
+and every language has answered for its own words since.
 
 ``d['’]`` carries ``\\s*`` rather than ``\\s+`` because elision leaves no space
 behind: «d'Édith Piaf» is one word to a keyboard and two to a reader.

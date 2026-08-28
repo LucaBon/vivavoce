@@ -88,12 +88,20 @@
   one pile every language matched against at once. French is what made the
   pile impossible: its artist connector is «de», the split takes the *last*
   connector in the phrase, and «la canzone di Marinella di De André» went
-  looking for a singer called «André». What stays shared is what is safe
-  shared — «by», «di», «von» and the album phrases, which the suite asks for
-  under Italian on purpose, because the recogniser's language and the
-  phrasing routinely disagree. Nothing changed for Italian, English or German.
-  German's «von» could move next, and would be a behaviour change rather than
-  a refactor, so it did not move here.
+  looking for a singer called «André». One module per language, and what a
+  module declares is what that language matches: «di» is Italian's, «by»
+  English's, «von» German's, «de» French's, and none of them is everyone's.
+
+  This is a behaviour change and not only a move — the reason «von» was left
+  in the pile the first time round. A request phrased in one language and
+  heard by a recogniser set to another is no longer split into title and
+  artist: «Comfortably Numb von Pink Floyd», said to an Italian mic, is one
+  long title now. The search still runs on the full text, so the request is
+  still answered; what it loses is the hint that ranks the results. That is
+  the trade, and it is paid for by the mic: `Router.handle` sets the language
+  before anything parses, so the language in flight is the language of the
+  phrase far more often than not — while a shared «de» broke Italian for
+  everyone, every time.
 
 - **The message catalogs moved to `engine/catalogs/`**, one module per
   language, discovered the way `localvoice/lang/` discovers its packs.
