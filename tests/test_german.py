@@ -300,6 +300,99 @@ def test_a_play_verb_does_not_match_inside_a_word(router, transport, make_tidal,
     assert transport.commands() == []
 
 
+@pytest.mark.parametrize("phrase", ["leg das Hörbuch auf", "leg Hörspiel auf",
+                                    "leg die Hörprobe auf"])
+def test_a_noun_built_on_the_stop_verb_is_not_a_stop(router, transport,
+                                                     make_tidal, phrase):
+    """German builds nouns on the same stem: «Hörbuch», «Hörspiel»,
+    «Hörprobe». Spelling the verb's ending as ``\\w*`` made all three read as
+    «hör … auf», and asking for an audiobook paused the player."""
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": []})
+    speech = router.handle(phrase, source="tidal", lang="de")
+    assert speech != "Pausiert."
+    assert ["pause", "1"] not in transport.commands()
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["hör auf", "hör bitte auf", "hör jetzt endlich auf", "hör auf zu spielen"],
+)
+def test_the_split_stop_verb_stops(router, transport, phrase):
+    assert router.handle(phrase, lang="de") == "Pausiert."
+
+
+@pytest.mark.parametrize("phrase", ["hör Wach Auf", "spiel Hör Mal Wer Da Hämmert auf"])
+def test_a_title_between_the_stop_verb_and_its_particle_is_not_a_stop(
+        router, transport, make_tidal, phrase):
+    """What may stand between «hör» and «auf» is a closed list of adverbs, not
+    a span of characters. A character window decided this by the length of the
+    title, which is the flaw `is_play` had and this pattern inherited."""
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": []})
+    assert router.handle(phrase, source="tidal", lang="de") != "Pausiert."
+
+
+def test_the_split_stop_verb_can_still_carry_a_timer(router, transport):
+    """«hör in 30 Minuten auf» keeps its «auf» at the very end, where the
+    one-word verbs in the sleep lookahead could not see it — so the phrase
+    fell past the timer and paused at once instead."""
+    router.handle("hör in 30 Minuten auf", lang="de")
+    assert transport.last_call()[1] == ["sleep", "1800"]
+
+
+@pytest.mark.parametrize(
+    "phrase, expected_cmd",
+    [("mach das Radio aus", ["pause", "1"]),
+     ("mach das Radio leiser", ["mixer", "volume", "-5"]),
+     ("mach das Radio lauter", ["mixer", "volume", "+5"]),
+     ("mach das Radio an", ["pause", "0"]),
+     ("spiel das Radio weiter", ["pause", "0"])],
+)
+def test_a_control_word_after_radio_is_a_control_not_a_station(
+        router, transport, phrase, expected_cmd):
+    """The radio step runs before the transport block, so a bare control word
+    after «Radio» used to reach LMS as a station name and answer «Ich habe
+    keinen Radiosender namens aus gefunden»."""
+    router.handle(phrase, lang="de")
+    assert transport.last_call()[1] == expected_cmd
+    assert not any("search:aus" in str(c) for c in transport.commands())
+
+
+def test_a_typed_double_space_does_not_slip_past_the_radio_guard(router, transport):
+    # The guard used to sit after a greedy ``\s+``, which can hand a space
+    # back; nothing between the text box and the pattern collapses inner
+    # whitespace, so «mach das radio  an» asked for a station named " an".
+    router.handle("mach das radio  an", lang="de")
+    assert transport.last_call()[1] == ["pause", "0"]
+
+
+@pytest.mark.parametrize("phrase", ["mach Zurück auf", "mach Zurück in die Zukunft auf"])
+def test_every_particle_the_suffix_form_accepts_counts_as_a_play(
+        router, transport, make_tidal, phrase):
+    """`is_play` anchored on «an» alone while ``generic_play_suffix`` accepts
+    four particles, so «mach Zurück auf» left the transport block open and
+    «zurück» skipped a track instead of playing the record."""
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://3.flc", "name": "Zurück"}]},
+    )
+    router.handle(phrase, source="tidal", lang="de")
+    assert ["playlist", "index", "-1"] not in transport.commands()
+
+
+def test_naming_what_it_is_gets_past_the_resume_shortcut(router, transport,
+                                                         make_tidal):
+    """«mach das Radio an» is ▶, which costs a record called exactly *Radio*
+    (Rammstein, 2019). Saying what it is buys it back."""
+    transport.responses["tidal"] = make_tidal(
+        categories={"Albums": "A"},
+        items={"A": [{"id": "alb1", "name": "Radio", "hasitems": 1}]},
+    )
+    assert router.handle("mach das Album Radio an", source="tidal",
+                         lang="de") == "Ich spiele das Album Radio von TIDAL."
+
+
 # -- playback + German replies ------------------------------------------------
 def test_play_song_de_reply(router, transport, make_tidal):
     transport.responses["tidal"] = make_tidal(

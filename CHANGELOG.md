@@ -45,7 +45,9 @@
   catalog behind it (Spanish, French) is answered in Italian. German is what
   made this impossible to keep filing as a detail: its replies are German
   inside an English page, so neither of the two languages already on the page
-  was the right one.
+  was the right one. One spoken string is deliberately left behind: the AI Act
+  disclosure follows the page language, because there is no German version of
+  it to read out.
 
 ### Changed
 

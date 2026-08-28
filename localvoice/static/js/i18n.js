@@ -32,6 +32,10 @@ export const foreignDefault = () => localStorage.getItem("foreign_default") || "
 // language ever, since the chrome is Italian or English only. Read-back needs
 // this one: the frame of the reply is written in it, so it has to be spoken by
 // its voice. The list is injected by the server — see http_api.REPLY_LANGS.
+// The "it" here is not this module's decision: it mirrors
+// engine/messages.DEFAULT_LANG, which is what set_lang() actually falls back
+// to. The LIST is injected so a fourth catalog needs no edit; the default is
+// not, because changing it is a product decision and not a new language.
 const REPLY_LANGS = (window.VIVAVOCE_CFG || {}).langs || ["it"];
 export const replyLang = () =>
   (REPLY_LANGS.includes(recLang()) ? recLang() : "it");

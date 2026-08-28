@@ -10,10 +10,17 @@ them. A pattern that captures «(.+)$» after the verb swallows the particle
 and searches for a song called "die musik an". So the separable forms live in
 ``generic_play_suffix`` — the same key English uses for "put Dark Side on" —
 and ``generic_play`` deliberately does NOT list ``leg``/``mach``, or it would
-match first and hand the particle on. The one that costs something: a title
-that really ends in a particle («Wach auf») still loses it after those verbs.
-It keeps it after ``spiel``/``starte``/``hör``, which is where it is actually
-said.
+match first and hand the particle on.
+
+Where that leaves a title that really ends in a particle («Wach auf»): it
+survives in ``generic_play`` and nowhere else. «spiel Wach Auf» searches for
+"Wach Auf", and that is the whole reason the plain verbs stand alone there.
+The three named-thing steps — ``album``, ``playlist``, ``artist`` — cannot
+have it both ways: they must list the separable verbs («leg das Album
+Nevermind auf» is ordinary German), so they strip the particle whatever the
+verb was, and «spiel das Album Steh auf» loses its "auf". Said plainly
+because it is a real cost and the step comments alone were not where anyone
+would look for it.
 
 **«mach» is not a play verb on its own.** It heads «mach lauter» (volume),
 «mach aus» (stop) and «mach die Musik an» (play) alike, so ``is_play`` asks
@@ -111,17 +118,35 @@ PATTERNS = {
                  # a grammar rule's clothes. «mach die Playlist Zurück in die
                  # Zukunft an» is 32, so is_play went False, the transport
                  # block opened, and «zurück» skipped to the previous track.
-                 r"|\bmach(?:e)?\b.*\ban\s*$"
+                 #
+                 # All four particles ``generic_play_suffix`` accepts, not
+                 # just «an»: «mach Zurück auf» left is_play False and «prev»
+                 # skipped a track instead of playing the record. «aus» is
+                 # pointedly absent — that one is the stop command.
+                 r"|\bmach(?:e)?\b.*\b(?:an|auf|ab|h(?:ö|oe)ren)\s*$"
                  r"|\bich\s+(?:will|m(?:ö|oe)chte|mag)\b"),
     # «hör auf» belongs here rather than in ``pause``, and for the reason
     # «metti in pausa» does in Italian: it carries a play verb, so the
     # is_play gate would never let ``pause`` see it, and the phrase went
-    # looking for a song called "auf". Anchored on the final particle — a
-    # title that merely contains «auf» («spiel Hör Auf Dein Herz») does not
-    # end in it. What it costs is «hör Wach Auf», which is not how anyone
-    # asks for that record: they say «spiel Wach Auf», and that still works.
+    # looking for a song called "auf".
+    #
+    # Two things this must NOT do, and the first draft did both. The verb's
+    # ending is spelled out rather than left as ``\w*``: German builds nouns
+    # on the same stem, so «leg das Hörbuch auf» — a staple of an LMS library
+    # — paused the player instead of playing the audiobook. And what may
+    # stand between the verb and the particle is a CLOSED LIST of adverbs,
+    # not a character window: a window is a length limit on titles wearing a
+    # grammar rule's clothes, which is the exact flaw ``is_play`` below had.
+    # With the list, «hör Wach Auf» is not stolen either — "Wach" is not an
+    # adverb — so the pattern now costs nothing at all.
+    #
+    # «hör auf zu spielen» is its own alternative: nothing else in German
+    # ends that way, so it needs no verb in front of it.
     "pause_explicit": c(r"\bauf\s+pause\b"
-                        r"|\bh(?:ö|oe)r\w*\b.{0,15}\bauf\s*$"),
+                        r"|\bh(?:ö|oe)r(?:e|en|st|t)?\b"
+                        r"(?:\s+(?:bitte|jetzt|endlich|sofort|mal|doch"
+                        r"|auch|damit|schon))*\s+auf\s*$"
+                        r"|\bauf\s+zu\s+(?:spielen|h(?:ö|oe)ren)\s*$"),
     # «aus» is far too common a German word to stand alone («aus Liebe», «aus
     # meiner Musik»): it only counts as the tail of «mach … aus», which is how
     # the command is said and where the word cannot be anything else. Bare
@@ -143,9 +168,19 @@ PATTERNS = {
                          # «mach die Musik an» names no title: it is the
                          # German for pressing ▶, and reading it as a request
                          # for a record called "die Musik" searched the
-                         # library for the word.
-                         r"|(?:mach(?:e)?|schalt(?:e)?)\s+(?:d(?:ie|as|en)\s+)?"
-                         r"(?:musik|radio|anlage|mucke)\s+an)\s*$"),
+                         # library for the word. «weiter» is the same
+                         # sentence after a pause.
+                         #
+                         # What it costs is four one-word titles: a record
+                         # called exactly *Musik*, *Radio* (Rammstein, 2019),
+                         # *Anlage* or *Mucke* cannot be asked for this way.
+                         # The escape hatch is to name what it is — «mach das
+                         # Album Radio an» reaches the album step untouched —
+                         # and the trade is worth it because the four words
+                         # are how everyone in the house says ▶.
+                         r"|(?:mach(?:e)?|schalt(?:e)?|spiel(?:e)?)\s+"
+                         r"(?:d(?:ie|as|en)\s+)?"
+                         r"(?:musik|radio|anlage|mucke)\s+(?:an|weiter))\s*$"),
     "resume": c(r"\b(weiter|weiterspielen|weitermachen|fortsetzen"
                 r"|fortfahren|play)\b"),
     # Prefix matching, like the Italian pack: German inflects the ending.
@@ -171,7 +206,13 @@ PATTERNS = {
     # DURATIONS), or the phrase falls through to pause/play — which is what
     # keeps a title carrying «in» from becoming a timer.
     "sleep": c(r"^(?=.*\b(?:(?:aus)?schalt\w*|stopp?\w*|pausier\w*"
-               r"|aufh(?:ö|oe)ren|schlaftimer|schluss)\b)"
+               r"|aufh(?:ö|oe)ren|schlaftimer|schluss)\b"
+               # The split form of the same verb: «hör in 30 Minuten auf»
+               # keeps its «auf» at the very end, where the one-word
+               # alternatives above cannot see it. Without this the phrase
+               # fell past the timer and reached ``pause_explicit``, which
+               # paused at once.
+               r"|.*\bh(?:ö|oe)r(?:e|en|st|t)?\b.*\bauf\s*$)"
                r".*?\bin\s+(.+)$"),
     "sleep_cancel": c(r"^(?:l(?:ö|oe)sch\w*|entferne?|brich|beende"
                       r"|deaktiviere|storniere)\b.{0,20}"
@@ -233,12 +274,22 @@ PATTERNS = {
     "favorites": c(r"\b(?:spiel(?:e|en)?|leg(?:e)?|mach(?:e)?|starte?)\s+"
                    r"(?:meine\s+)?favoriten\b"),
     # The lookahead is «mach das Radio an»: with the separable verbs listed
-    # here, a bare particle is all that follows «Radio», and the step used to
-    # answer «Ich habe keinen Radiosender namens an gefunden». Declining lets
-    # it reach ``resume_explicit``, which is what the phrase actually means.
+    # here, a bare control word is all that follows «Radio», and the step
+    # answered «Ich habe keinen Radiosender namens an gefunden» — after
+    # asking LMS, because this step runs at 0b, before the transport block
+    # that should have had the phrase.
+    #
+    # It has to cover every such word, not only the separable particles.
+    # «mach das Radio aus» is the stop command and was the same bug one
+    # particle over; «leiser»/«lauter»/«weiter» are the volume and resume
+    # forms. And the guard sits BEFORE the whitespace it guards: after a
+    # greedy ``\s+`` the regex can hand a space back and slip past it, so a
+    # typed double space («mach das radio  an») asked for a station named
+    # " an". Nothing upstream collapses inner whitespace.
     "radio": c(r"\b(?:spiel(?:e|en)?|mach(?:e)?|leg(?:e)?|starte?)\s+"
-               r"(?:d(?:as|en|ie)\s+)?radio(?:sender)?\s+"
-               r"(?!(?:an|auf|ab)\s*$)(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
+               r"(?:d(?:as|en|ie)\s+)?radio(?:sender)?\b"
+               r"(?!\s*(?:an|auf|ab|aus|lauter|leiser|weiter|stopp?)\s*$)"
+               r"\s+(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
     "choose_number": c(r"(?:spiel(?:e)?|nimm|w(?:ä|ae)hl(?:e)?)?\s*"
                        r"(?:die\s+)?nummer\s+([a-z0-9äöüß]+)\s*$"),
     # «die 2» and ordinals: «die zweite», «spiel das zweite Lied»

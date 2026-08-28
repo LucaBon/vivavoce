@@ -39,7 +39,7 @@ from router import Router
 # data rather than duplicated in the JS, so a fourth catalog needs no edit here
 # or there. Anything else the mic selector offers falls back to Italian —
 # exactly what ``messages.set_lang`` does with it.
-REPLY_LANGS = sorted(CATALOGS)
+REPLY_LANGS = tuple(sorted(CATALOGS))
 
 # One Router per (client id, player) — see router_for. The map is keyed on a
 # client-chosen string, so it is bounded: without a cap, every page load with
