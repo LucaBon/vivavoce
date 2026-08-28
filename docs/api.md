@@ -34,7 +34,7 @@ one call per action, it is the whole voice interface behind one route.
 | `text` | string | `""` | The sentence to execute: «metti Comfortably Numb dei Pink Floyd», "pause", «metti la 2». |
 | `conversation_id` | string | `"default"` | The conversation this sentence belongs to. See [Conversation state](#conversation-state). |
 | `client` | string | — | Accepted as an alias for `conversation_id`, which wins when both are sent. The web app has always used this name; new clients should use `conversation_id`. |
-| `lang` | string | `"it"` | `it`, `en` or `de`. The language the sentence is *in*, and the language the answer comes back in. Anything else falls back to Italian. |
+| `lang` | string | `"it"` | `it`, `en`, `fr` or `de`. The language the sentence is *in*, and the language the answer comes back in. Anything else falls back to Italian. |
 | `source` | string | `"auto"` | Where music comes from when the sentence does not say: `auto` (the local library first, then the streaming service), `local`, or a service name (`tidal`, `qobuz`). Phrases like «dalla mia musica» / «da tidal» override it. |
 | `player` | string | `""` | The LMS player id to command, instead of the server's default player. Requires Pro (multi-room); ignored otherwise. |
 | `alternatives` | string[] | `[text]` | Speech-recognition alternatives, best first. Each is tried until one is understood; only an understood one ever plays anything, so a wrong guess has no side effect. `used` says which one won. |

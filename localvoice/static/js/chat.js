@@ -77,6 +77,7 @@ const PICK_PHRASE = {
   it: (n) => "metti la " + n,
   en: (n) => "play number " + n,
   de: (n) => "spiel Nummer " + n,
+  fr: (n) => "mets le numéro " + n,
 };
 
 function renderChoices(afterEl, choices) {
@@ -86,8 +87,8 @@ function renderChoices(afterEl, choices) {
     const btn = document.createElement("button");
     btn.className = "choice";
     btn.textContent = c.n + " · " + c.label;
-    // The pick phrase must match the language the SERVER parses (it/en/de;
-    // es/fr fall back to Italian patterns), not the page chrome language —
+    // The pick phrase must match the language the SERVER parses (it/en/de/fr;
+    // es falls back to Italian patterns), not the page chrome language —
     // which for German is English, and would send a phrase de.py never sees.
     btn.onclick = () => send((PICK_PHRASE[recLang()] || PICK_PHRASE.it)(c.n));
     row.appendChild(btn);

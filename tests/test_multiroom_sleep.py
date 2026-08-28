@@ -317,6 +317,34 @@ def test_von_is_not_a_german_room_preposition(lms):
     assert mr.extract_room(phrase, "de") == (phrase, None)
 
 
+@pytest.mark.parametrize(
+    "phrase, stripped",
+    [("mets Time dans la cuisine", "mets Time"),
+     ("mets Time en cuisine", "mets Time"),
+     ("mets Time au salon", "mets Time"),
+     # «à» and «a» are two different words to this filter: it lowercases the
+     # token and does not fold it, and the text box writes the second one.
+     ("mets Time à la cuisine", "mets Time"),
+     ("mets Time a la cuisine", "mets Time"),
+     ("dans la cuisine mets Time", "mets Time")],
+)
+def test_a_french_room_is_found_on_both_sides(lms, phrase, stripped):
+    mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cuisine"},
+                                 {"playerid": "s:s", "name": "Salon"}])
+    left, player = mr.extract_room(phrase, "fr")
+    assert player is not None, phrase
+    assert left == stripped
+
+
+def test_de_and_sur_are_not_french_room_prepositions(lms):
+    """The French twins of the Italian «da»/«su» exclusions: «de» introduces
+    the artist and «sur» the service, so with a player called «Cave» neither
+    «la musique de Cave» nor «sur Cave» may become a command for the cellar."""
+    mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cave"}])
+    for phrase in ("mets la musique de Cave", "mets Time sur Cave"):
+        assert mr.extract_room(phrase, "fr") == (phrase, None), phrase
+
+
 def test_a_disconnected_player_is_not_a_room(lms):
     mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cucina",
                                   "connected": 0}])

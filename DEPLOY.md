@@ -176,8 +176,8 @@ favourites and mood; the numbered "which one did you mean?" and its answer
 "what's playing", «quali album ho di X» and «quali brani di X»; the music sleep
 timer; the kid-safe blocklist. In Italian and English only — the limit is the
 blueprint's, not the product's: what decides the language here is Assist's
-sentence triggers, which are written out in the blueprint, and German (which
-the web app does understand) has none yet.
+sentence triggers, which are written out in the blueprint, and French and
+German (which the web app does understand) have none yet.
 
 Each of those sentences was checked against the grammar in
 `localvoice/lang/`, and phrasings the engine does not parse are deliberately

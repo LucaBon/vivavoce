@@ -17,6 +17,7 @@ from catalogs import CATALOGS
 IT = CATALOGS["it"]
 EN = CATALOGS["en"]
 DE = CATALOGS["de"]
+FR = CATALOGS["fr"]
 
 DEFAULT_LANG = "it"
 

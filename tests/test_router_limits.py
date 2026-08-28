@@ -25,7 +25,7 @@ def router(lms):
     return Router(lms)
 
 
-@pytest.mark.parametrize("lang", ["it", "en", "de"])
+@pytest.mark.parametrize("lang", ["it", "en", "de", "fr"])
 def test_an_oversized_command_is_refused_quickly(router, transport, lang):
     hostile = "spielen " * 8000
     assert len(hostile) > MAX_COMMAND_CHARS

@@ -4,6 +4,39 @@
 
 ### New
 
+- **French, the fourth language.** Pick *Français* as the mic language and
+  Vivavoce parses and answers in French: «mets Time de Pink Floyd», «coupe la
+  musique», «arrête dans 30 minutes», «mets quelque chose de relaxant», «mets
+  Time dans la cuisine». One pattern pack (`localvoice/lang/fr.py`), one
+  message catalog, and a test suite of its own — the page already offered
+  fr-FR to the microphone and already picked a French voice for it, and
+  answered in Italian.
+
+  Three things French does that none of the other three does, and each one
+  decided a pattern rather than being translated into it:
+
+  * **The accent is optional and the meaning is not.** The router matches what
+    was said as it arrives, and `re.I` folds case but not accents, so
+    «arrete la musique» typed into the box was not the same word as «arrête»
+    — it fell past the stop step and searched the library for a record called
+    "la musique". Every accented word in the pack is now built by one helper
+    from its correct French spelling, so a review checks the French and the
+    six vowel families come for free.
+  * **The word that decides sits on either side of the object.** «monte le
+    son» puts it in front, «mets la musique plus fort» puts it behind a verb
+    that says nothing on its own — German's separable verb with French parts.
+    And «son» is also the possessive, so it counts as the device only behind
+    an article: «mets son dernier album» is a request to play.
+  * **Politeness lands after the object, not inside the phrase.** «mets la
+    radio s'il te plaît» asked the server for a station called "s'il te
+    plaît"; «mets la deuxième stp» stopped being a pick. Every step that
+    reads to the end of the sentence now ends at the end of the *command*.
+
+  Not included: the page chrome, which is Italian or English only — a French
+  session gets French answers inside an English page — and the Home Assistant
+  blueprint, whose sentence triggers are still Italian and English. The
+  phrasings have not yet been reviewed by a native speaker.
+
 - **German, the third language.** Pick *Deutsch* as the mic language and
   Vivavoce parses and answers in German: «spiel Time von Pink Floyd», «mach die
   Musik aus», «schalt in 30 Minuten aus», «spiel etwas Entspannendes», «spiel
@@ -50,6 +83,17 @@
   it to read out.
 
 ### Changed
+
+- **The connectors are per language now** (`engine/connectors/`), instead of
+  one pile every language matched against at once. French is what made the
+  pile impossible: its artist connector is «de», the split takes the *last*
+  connector in the phrase, and «la canzone di Marinella di De André» went
+  looking for a singer called «André». What stays shared is what is safe
+  shared — «by», «di», «von» and the album phrases, which the suite asks for
+  under Italian on purpose, because the recogniser's language and the
+  phrasing routinely disagree. Nothing changed for Italian, English or German.
+  German's «von» could move next, and would be a behaviour change rather than
+  a refactor, so it did not move here.
 
 - **The message catalogs moved to `engine/catalogs/`**, one module per
   language, discovered the way `localvoice/lang/` discovers its packs.

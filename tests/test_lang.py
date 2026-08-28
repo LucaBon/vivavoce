@@ -14,7 +14,7 @@ from lang.base import c
 
 
 def test_registry_finds_the_shipped_languages():
-    assert set(lang.PACKS) >= {"it", "en", "de"}
+    assert set(lang.PACKS) >= {"it", "en", "de", "fr"}
 
 
 def test_helpers_are_not_mistaken_for_packs():
