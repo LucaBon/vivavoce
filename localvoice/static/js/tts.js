@@ -1,9 +1,11 @@
 // Multilingual read-back: natural browser voices, one per language, and the
-// voice-settings panel. The reply frame is spoken in the UI language; the
-// foreign terms (title/artist) each by their own language's voice.
+// voice-settings panel. The reply frame is spoken in the language the SERVER
+// answered in (replyLang, not the page chrome — a German session gets German
+// replies inside an English page); the foreign terms (title/artist) each by
+// their own language's voice.
 
 import { $ } from "./util.js";
-import { LANGS, ui, uiLang, recLang, foreignDefault, detectLang, applyUI } from "./i18n.js";
+import { LANGS, ui, uiLang, recLang, replyLang, foreignDefault, detectLang, applyUI } from "./i18n.js";
 
 const NATURAL = /natural|neural|online|google|siri|premium|enhanced/i;
 let VOICES = [];
@@ -24,9 +26,13 @@ function chosenVoice(lang) {
   return pickDefaultVoice(lang);
 }
 
-// Split the reply into the Italian frame vs the foreign terms (in order), so each
-// part is spoken by the right-language voice.
+// Split the reply into its frame vs the foreign terms (in order), so each part
+// is spoken by the right-language voice. The frame's language is the one the
+// server replied in: it was hard-coded to Italian, which meant an English
+// session heard "Playing" and "by" read out by an Italian voice — and German,
+// arriving third, made that impossible to keep calling a detail.
 function splitByTerms(speech, terms) {
+  const frame = replyLang();
   const marks = [];
   let from = 0;
   (terms || []).forEach(term => {
@@ -34,15 +40,15 @@ function splitByTerms(speech, terms) {
     const pos = speech.toLowerCase().indexOf(String(term).toLowerCase(), from);
     if (pos >= 0) { marks.push([pos, pos + term.length, detectLang(term)]); from = pos + term.length; }
   });
-  if (!marks.length) return [{ text: speech, lang: "it" }];
+  if (!marks.length) return [{ text: speech, lang: frame }];
   const segs = [];
   let cur = 0;
   marks.forEach(([start, end, lang]) => {
-    if (start > cur) segs.push({ text: speech.slice(cur, start), lang: "it" });
+    if (start > cur) segs.push({ text: speech.slice(cur, start), lang: frame });
     segs.push({ text: speech.slice(start, end), lang });
     cur = end;
   });
-  if (cur < speech.length) segs.push({ text: speech.slice(cur), lang: "it" });
+  if (cur < speech.length) segs.push({ text: speech.slice(cur), lang: frame });
   return segs;
 }
 

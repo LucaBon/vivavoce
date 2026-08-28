@@ -141,6 +141,29 @@ NEW_PHRASES_EN = [
     ("play some seventies music", "seventies"),
 ]
 
+# German, where the mood may sit on either side of the marker noun: «etwas
+# Entspannendes» puts it after, «etwas entspannende Musik» before. Both shapes
+# are here on purpose - the pattern has to reach the tail through a trailing
+# «Musik»/«Lieder», and the separable verb has to find its own particle
+# («mach ... an») without it landing in the lookup.
+NEW_PHRASES_DE = [
+    ("spiel etwas Entspannendes", "relax"),
+    ("spiel etwas entspannende Musik", "relax"),
+    ("mach Musik für die Party an", "party"),
+    ("spiel Musik zum Einschlafen", "sleep"),
+    ("spiel etwas Fröhliches", "happy"),
+    ("spiel Musik zum Lernen", "focus"),
+    ("spiel etwas weihnachtliche Musik", "christmas"),
+    ("spiel Musik zu Weihnachten", "christmas"),
+    ("spiel etwas Instrumentales", "instrumental"),
+    ("spiel etwas ohne Gesang", "instrumental"),
+    ("spiel etwas Sommerliches", "summer"),
+    ("spiel Musik aus den Achtzigern", "eighties"),
+    ("spiel etwas aus den 80ern", "eighties"),
+    ("spiel Musik aus den Sechzigern", "sixties"),
+    ("spiel etwas Klassisches", "classical"),
+]
+
 
 def resolved(phrase, code):
     """The mood key a spoken phrase really produces - both filters, in the
@@ -160,6 +183,25 @@ def test_the_new_italian_phrases_reach_their_mood(phrase, key):
 @pytest.mark.parametrize("phrase,key", NEW_PHRASES_EN)
 def test_the_new_english_phrases_reach_their_mood(phrase, key):
     assert resolved(phrase, "en") == key
+
+
+@pytest.mark.parametrize("phrase,key", NEW_PHRASES_DE)
+def test_the_new_german_phrases_reach_their_mood(phrase, key):
+    assert resolved(phrase, "de") == key
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    # The anchor and the marker noun, in German. Each of these carries a mood
+    # word and asks for something else entirely; a pattern without ^ or
+    # without the marker starts the music on all four.
+    ["mach die Musik aus",
+     "stopp die entspannende Musik",
+     "ich will keine traurige Musik",
+     "blockiere traurige Musik"],
+)
+def test_a_german_phrase_that_is_not_a_request_to_play(phrase):
+    assert resolved(phrase, "de") is None
 
 
 @pytest.mark.parametrize("code", sorted(PACKS))

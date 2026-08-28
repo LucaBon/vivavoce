@@ -292,6 +292,31 @@ def test_a_real_room_still_matches_through_asr_spelling(lms):
     assert stripped == "metti Time"
 
 
+@pytest.mark.parametrize(
+    "phrase, stripped",
+    [("spiel Time im Wohnzimmer", "spiel Time"),      # «im» = «in dem»
+     ("spiel Time in der Küche", "spiel Time"),
+     ("im Wohnzimmer spiel Time", "spiel Time")],
+)
+def test_a_german_room_is_found_on_both_sides(lms, phrase, stripped):
+    """«im» is the German room preposition — «in dem» welded together — and
+    without it in `_PREPS` the language never matches a room at all."""
+    mr = make_multiroom(players=[{"playerid": "w:w", "name": "Wohnzimmer"},
+                                 {"playerid": "k:k", "name": "Küche"}])
+    left, player = mr.extract_room(phrase, "de")
+    assert player is not None
+    assert left == stripped
+
+
+def test_von_is_not_a_german_room_preposition(lms):
+    """The German twin of the Italian «da» exclusion: «von» introduces the
+    artist, so with a player called «Keller» «spiel Musik von Keller» must
+    stay a request for an artist, not a command for the cellar."""
+    mr = make_multiroom(players=[{"playerid": "k:k", "name": "Keller"}])
+    phrase = "spiel Musik von Keller"
+    assert mr.extract_room(phrase, "de") == (phrase, None)
+
+
 def test_a_disconnected_player_is_not_a_room(lms):
     mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cucina",
                                   "connected": 0}])

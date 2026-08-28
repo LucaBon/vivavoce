@@ -174,7 +174,10 @@ is decided by the list of sentences in the blueprint and by nothing else.
 favourites and mood; the numbered "which one did you mean?" and its answer
 («la 2» … «la 5», and the ordinals); adding to the queue and clearing it;
 "what's playing", «quali album ho di X» and «quali brani di X»; the music sleep
-timer; the kid-safe blocklist. In Italian and English only.
+timer; the kid-safe blocklist. In Italian and English only — the limit is the
+blueprint's, not the product's: what decides the language here is Assist's
+sentence triggers, which are written out in the blueprint, and German (which
+the web app does understand) has none yet.
 
 Each of those sentences was checked against the grammar in
 `localvoice/lang/`, and phrasings the engine does not parse are deliberately
@@ -366,7 +369,9 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
   class box, using ~0.7–1 GB of RAM during the call (nothing while idle:
   the model loads lazily on first use, which also adds a one-time delay).
   `base` roughly halves latency and memory at some accuracy cost — a good
-  fit for a Pi 4. Language follows the page's mic-language selector (it/en).
+  fit for a Pi 4. Language follows the page's mic-language selector, whichever
+  it is: the selection is passed straight to Whisper, which is multilingual,
+  so it is not limited to the languages the router parses.
 
 ### Server-side wake word (Pro, optional)
 

@@ -12,7 +12,7 @@
 name: Vivavoce
 version: "0.4.0"
 slug: vivavoce
-description: Controllo vocale in italiano/inglese per LMS/Squeezebox/Daphile, TIDAL e Qobuz inclusi
+description: Controllo vocale in italiano/inglese/tedesco per LMS/Squeezebox/Daphile, TIDAL e Qobuz inclusi
 url: https://github.com/LucaBon/vivavoce
 arch:
   - amd64

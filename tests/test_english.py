@@ -33,7 +33,10 @@ def test_msg_lang_selection():
 
 
 def test_unsupported_lang_falls_back_to_italian():
-    set_lang("de")
+    # French: the page offers fr-FR as a mic language, so it is a code the
+    # client really sends, and there is no pack behind it. (This test used to
+    # say "de", which stopped being unsupported the day German shipped.)
+    set_lang("fr")
     assert msg("paused") == "In pausa."
 
 
@@ -177,11 +180,14 @@ def test_languages_do_not_leak_between_requests(router, transport):
     assert router.handle("pausa", lang="it") == "In pausa."
 
 
-def test_patterns_cover_both_langs():
+def test_patterns_cover_every_lang():
     # Optional keys are read with ``P.get``/``in P`` in handle(); every other
-    # key is indexed directly, so it must exist in every language.
+    # key is indexed directly, so it must exist in every language — not just
+    # in the two this file is named after.
     optional = {"generic_play_suffix"}
-    assert set(PATTERNS["it"]) - optional == set(PATTERNS["en"]) - optional
+    required = set(PATTERNS["it"]) - optional
+    for code, patterns in PATTERNS.items():
+        assert set(patterns) - optional == required, f"{code} differs"
 
 
 # -- field-hardening battery: realistic phrasing variants ---------------------

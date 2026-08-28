@@ -34,7 +34,7 @@ one call per action, it is the whole voice interface behind one route.
 | `text` | string | `""` | The sentence to execute: «metti Comfortably Numb dei Pink Floyd», "pause", «metti la 2». |
 | `conversation_id` | string | `"default"` | The conversation this sentence belongs to. See [Conversation state](#conversation-state). |
 | `client` | string | — | Accepted as an alias for `conversation_id`, which wins when both are sent. The web app has always used this name; new clients should use `conversation_id`. |
-| `lang` | string | `"it"` | `it` or `en`. The language the sentence is *in*, and the language the answer comes back in. Anything else falls back to Italian. |
+| `lang` | string | `"it"` | `it`, `en` or `de`. The language the sentence is *in*, and the language the answer comes back in. Anything else falls back to Italian. |
 | `source` | string | `"auto"` | Where music comes from when the sentence does not say: `auto` (the local library first, then the streaming service), `local`, or a service name (`tidal`, `qobuz`). Phrases like «dalla mia musica» / «da tidal» override it. |
 | `player` | string | `""` | The LMS player id to command, instead of the server's default player. Requires Pro (multi-room); ignored otherwise. |
 | `alternatives` | string[] | `[text]` | Speech-recognition alternatives, best first. Each is tried until one is understood; only an understood one ever plays anything, so a wrong guess has no side effect. `used` says which one won. |
@@ -54,7 +54,7 @@ shape does not narrow when something goes wrong:
 | `ok` | bool | Did the request get acted on? A question ("which one?") counts as acted on — it is `true`. |
 | `needs_choice` | bool | This answer read out a numbered list and is **waiting for a pick**. See below. |
 | `choices` | array | The same list, machine-readable: `[{"n": 1, "label": "Love di X"}, …]`. Empty unless `needs_choice` is true. |
-| `used` | string | Which of the `alternatives` was actually executed (the first one when nothing else matched). |
+| `used` | string | Which of the `alternatives` was actually executed (the first one when nothing else matched), truncated to 1000 characters — a reply reports what was run, and a body larger than any sentence is not that. |
 | `terms` | string[] | The foreign-language names inside `speech` (song, album, artist). A TTS engine that pronounces "Bohemian Rhapsody" with an Italian voice needs to know which words are not Italian. |
 | `unmatched` | bool | Nothing in the parser matched: this is a **gap in the grammar**, not a failed action. The web app offers a "report this phrase" button on it; a headless client can log it. |
 | `error` | string | *Only present* when an unexpected exception was caught. `ok` is `false` and `speech` explains. Never a 5xx — see [Failure modes](#failure-modes). |

@@ -4,6 +4,65 @@
 
 ### New
 
+- **German, the third language.** Pick *Deutsch* as the mic language and
+  Vivavoce parses and answers in German: «spiel Time von Pink Floyd», «mach die
+  Musik aus», «schalt in 30 Minuten aus», «spiel etwas Entspannendes», «spiel
+  Time im Wohnzimmer». One pattern pack (`localvoice/lang/de.py`), one message
+  catalog, and a test suite of its own — no other module learned a word of
+  German.
+
+  Three things German does that neither Italian nor English does, and each one
+  decided a pattern rather than being translated into it:
+
+  * **The verb comes in two pieces.** «leg Time auf», «mach die Musik an» and
+    «ich möchte Time hören» wrap the title in a verb and its particle, so the
+    plain-verb pattern would have searched for "die Musik an". The split forms
+    have their own pattern — the one English already uses for "put Dark Side
+    on" — and the plain verbs deliberately do not list «leg»/«mach», which is
+    what lets «spiel Wach Auf» keep its "auf".
+  * **«mach» heads three different commands.** «mach lauter» is volume, «mach
+    aus» is stop, «mach die Musik an» is play. The play reading is recognised
+    only *with* its particle, so the other two stay reachable.
+  * **The adjective changes sides.** «etwas Entspannendes» puts the mood after
+    the marker noun, «etwas entspannende Musik» before it. Both reach the mood
+    table; both still require the marker, so «stopp die entspannende Musik»
+    keeps stopping the music.
+
+  Not included: the page chrome, which is Italian or English only — a German
+  session gets German answers inside an English page. The phrasings have not
+  yet been reviewed by a native speaker.
+
+### Fixed
+
+- **Read-back spoke the reply frame with the wrong voice.** The split between
+  "the frame" and "the foreign terms" was right; the frame's language was
+  hard-coded to Italian, so an English session heard "Playing" and "by" read
+  out by an Italian voice, and only the title and the artist got an English
+  one. The frame now follows the language the *server* answered in, which the
+  page learns from the server (`window.VIVAVOCE_CFG.langs`) instead of
+  guessing: it is not the page language — the chrome is Italian or English
+  only — and it is not the mic language either, since a mic language with no
+  catalog behind it (Spanish, French) is answered in Italian. German is what
+  made this impossible to keep filing as a detail: its replies are German
+  inside an English page, so neither of the two languages already on the page
+  was the right one. One spoken string is deliberately left behind: the AI Act
+  disclosure follows the page language, because there is no German version of
+  it to read out.
+
+### Changed
+
+- **The message catalogs moved to `engine/catalogs/`**, one module per
+  language, discovered the way `localvoice/lang/` discovers its packs.
+  `messages.py` is now the forty lines that *select* a catalog rather than the
+  five hundred that *are* one; `messages.IT`/`.EN`/`.DE` and `msg()` are
+  unchanged for every caller.
+
+- **Each language pack's mood vocabulary moved next door**, to
+  `localvoice/lang/moods_{it,en,de}.py`. Same reason and same size guard: the
+  spoken vocabulary is a word list, not grammar, it is the half that grows, and
+  it is the half `engine/moods.py` is meant to read from generated data one
+  day. The packs re-export it, so the contract in `lang/base.py` is unchanged.
+
 - **Spotify, through the LMS Spotty plugin.** «da spotify metti Comfortably
   Numb» now works the way «da tidal …» and «da qobuz …» do, the source selector
   lists it when the plugin is installed, and the Home Assistant blueprint

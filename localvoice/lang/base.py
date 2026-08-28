@@ -38,9 +38,22 @@ state, kid-safe, multi-room); a pack owns nothing but data:
     number or a MINUTE_WORDS token).
 
 Adding a language is adding one module with these seven names (plus its
-message catalog in ``engine/messages.py`` and a test suite modeled on
+message catalog in ``engine/catalogs/`` and a test suite modeled on
 ``tests/test_english.py``); the registry in ``__init__.py`` finds it by
 itself.
+
+**A pack module holds the grammar; the word lists live beside it.** ``xx.py``
+is ``PATTERNS`` and nothing else; ``moods_xx.py`` and ``numbers_xx.py`` hold
+the five data tables of the contract above, ``words_xx.py`` holds the closed
+sets those patterns are built from, and the pack re-exports them all so this
+contract is unchanged. The seam is real and not bookkeeping: a regex encodes how a
+language is *shaped*, a table only what it happens to *say*, the tables are
+what ``parsing.py`` merges across every pack, and ``MOOD_WORDS`` is what
+``engine/moods.py`` will one day read from generated data. It is also where
+the growth is — the size guard in ``tests/test_packaging.py`` is what said so,
+twice, when German went over the line on the strength of its vocabulary alone.
+A module without ``CODE`` is invisible to the registry, so all six sit here
+without being mistaken for packs — the same way this file does.
 """
 
 from __future__ import annotations

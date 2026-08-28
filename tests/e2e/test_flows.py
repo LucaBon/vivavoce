@@ -123,6 +123,28 @@ def test_settings_persist_across_reload(page, web):
     assert page.input_value("#reclang") == "en"
 
 
+def test_the_reply_frame_is_voiced_in_the_language_it_is_written_in(page, web):
+    """Read-back used to hand the frame to an Italian voice whatever the
+    session's language was, so an English «Playing X by Y» was read out with
+    an Italian accent on every word that was not the title. The frame's
+    language now follows the server's reply language, which the page learns
+    from the server rather than guessing.
+
+    German is the case that cannot be papered over — the chrome around it is
+    English, so neither the page language nor the UI language is the answer.
+    """
+    page.goto(web().url)
+    assert page.evaluate("window.VIVAVOCE_CFG.langs") == ["de", "en", "it"]
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+    for pick, expected in (("de", "de"), ("en", "en"), ("fr", "it"), ("it", "it")):
+        page.select_option("#reclang", pick)
+        # fr has no catalog: the server answers in Italian, so the frame is
+        # Italian — the same fall-back messages.set_lang makes.
+        got = page.evaluate(
+            "import('/static/js/i18n.js').then(m => m.replyLang())")
+        assert got == expected, f"{pick} -> {got}"
+
+
 def test_the_seek_bar_survives_the_track_ending_mid_drag(page, web, transport):
     # The drag reads npState on every pointer event and the poll can drop it
     # from under one — a track that ends, a failed fetch (which renders null),

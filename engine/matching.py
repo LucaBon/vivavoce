@@ -164,7 +164,8 @@ def _rank(query: Optional[str], items: List[Dict], key: str = "title") -> List:
 # Leading filler the ASR/user often prepends ("metti la canzone X") that would
 # pollute the search. Stripped before matching so "la canzone love" -> "love".
 _LEAD_FILLER = re.compile(
-    r"^(?:la\s+canzone|il\s+brano|la\s+traccia|il\s+pezzo|la\s+song|the\s+song)\s+",
+    r"^(?:la\s+canzone|il\s+brano|la\s+traccia|il\s+pezzo|la\s+song|the\s+song"
+    r"|d(?:as|en)\s+lied|d(?:er|en)\s+song|das\s+st(?:ü|ue)ck|den\s+titel)\s+",
     re.IGNORECASE,
 )
 
@@ -277,14 +278,16 @@ def _normalize_apart(text: Optional[str]) -> str:
 # Splits "titolo dall'album X" / "title from album X" into title + album.
 _ALBUM_SEP = re.compile(
     r"\b(?:dall['’]?\s*album|dell['’]?\s*album|dal\s+disco|dall['’]?\s*disco|"
-    r"from\s+(?:the\s+)?album)\b",
+    r"from\s+(?:the\s+)?album|"
+    # German: «Time aus dem Album Dark Side», «vom Album …».
+    r"(?:aus|auf)\s+dem\s+album|vom\s+album|von\s+dem\s+album)\b",
     re.IGNORECASE,
 )
 # Splits "titolo di/dei/degli X" / "title by X" into title + artist. Used only to
 # *rank* results (the search still runs on the full text), so a mis-split — e.g. a
 # title that itself contains "di" — degrades gracefully instead of breaking.
 _ARTIST_SEP = re.compile(
-    r"\b(?:dei|degli|delle|della|dell['’]|del|di|by)\s+", re.IGNORECASE
+    r"\b(?:dei|degli|delle|della|dell['’]|del|di|by|von)\s+", re.IGNORECASE
 )
 
 # Tails that are never an artist name — the phrase just happens to contain a
@@ -294,6 +297,11 @@ _NOT_AN_ARTIST = {
     "piu", "meno", "me", "te", "noi", "voi", "lui", "lei", "loro", "se",
     "you", "us", "it", "her", "him", "them", "myself", "yourself", "now",
     "here", "there", "one", "two", "all", "more", "less", "everyone",
+    # German, where «von» is the connector: «Ein Teil von mir» must not go
+    # looking for a singer called "mir".
+    "mir", "dir", "uns", "euch", "ihm", "ihr", "ihnen", "mich", "dich",
+    "sich", "hier", "dort", "jetzt", "allen", "alle", "einem", "einer",
+    "keinem", "niemandem", "damals", "heute",
 }
 
 

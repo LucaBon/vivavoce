@@ -24,7 +24,6 @@ State (the last read-out list) is kept in-instance for the "metti la N" /
 
 from __future__ import annotations
 
-import re
 import threading
 import time
 
@@ -34,7 +33,7 @@ from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
 from intents import IntentTable
 from lang import PACKS
 from messages import msg, set_lang
-from parsing import _source_suffix
+from parsing import _reportable, _source_suffix, clean_command
 
 # The two windows are defined next to the state they bound, but they are still
 # the router's windows: ``router.CANDIDATES_TTL`` has to keep naming the one it
@@ -256,7 +255,7 @@ class Router(ConversationState, IntentTable):
             # such a caller sees no change.
             ok = getattr(speech, "ok", not speech.strip().lower().startswith("non "))
             if primary is None:
-                primary = (speech, alt, ok, self._unmatched)
+                primary = (speech, _reportable(alt), ok, self._unmatched)
             # A gate is the end of the turn even though it is not a hit. The
             # alternatives exist to find better *words*; a gate has already
             # said the words are not the problem — no licence, not the owner,
@@ -268,13 +267,13 @@ class Router(ConversationState, IntentTable):
             # The listener never hears the refusal. Same shape for kid-safe:
             # retry the blocked artist until one spelling slips through.
             if not ok and getattr(speech, "kind", None) == actions.GATE:
-                return {"speech": speech, "used": alt, "ok": False,
+                return {"speech": speech, "used": _reportable(alt), "ok": False,
                         "terms": list(getattr(speech, "terms", [])),
                         "choices": self._choices(),
                         "needs_choice": self._needs_choice(),
                         "unmatched": False}
             if ok:
-                return {"speech": speech, "used": alt, "ok": True,
+                return {"speech": speech, "used": _reportable(alt), "ok": True,
                         "terms": list(getattr(speech, "terms", [])),
                         "choices": self._choices(),
                         "needs_choice": self._needs_choice(),
@@ -313,13 +312,12 @@ class Router(ConversationState, IntentTable):
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
         self._mood_words = MOOD_WORDS.get(lang) or MOOD_WORDS["it"]
-        t = (text or "").strip()
-        # Dictation often appends final punctuation ("Metti la 2."): it would
-        # break the $-anchored patterns (picks, suffix forms) and leak into the
-        # search terms, so strip it.
-        t = re.sub(r"[.!?…]+$", "", t).strip()
-        if not t:
+        t = clean_command(text)
+        if t is None:
             return actions.ActionResult(msg("heard_nothing"), ok=False)
+        if not t:  # too long to be a sentence anyone spoke — see parsing.py
+            self._unmatched = True
+            return actions.ActionResult(msg("router_fallback"), ok=False)
 
         # Kid-safe guard for this request: restrictive only when the feature is
         # enabled and this client isn't PIN-unlocked. Recomputed per turn so an
