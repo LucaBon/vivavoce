@@ -202,9 +202,10 @@
   </div><!-- /.content -->
 
 <!-- Server-injected config: the streaming services actually installed on the
-     LMS. Inline (not in the static modules) so the per-request substitution
-     keeps working; the JS reads it from window.VIVAVOCE_CFG. -->
-<script>window.VIVAVOCE_CFG = { services: __SERVICES__, version: __VERSION__ };</script>
+     LMS, and the languages the router can answer in. Inline (not in the static
+     modules) so the per-request substitution keeps working; the JS reads it
+     from window.VIVAVOCE_CFG. -->
+<script>window.VIVAVOCE_CFG = { services: __SERVICES__, langs: __LANGS__, version: __VERSION__ };</script>
 <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

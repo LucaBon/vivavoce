@@ -110,7 +110,11 @@ PATTERNS = {
                r"|\bmach\w*\b.{0,25}\baus\s*$"),
     # Bare "play"/«weiter» resumes (like a remote's ▶). «spiel weiter» has to
     # be here rather than in ``resume``: it carries a play verb, so the
-    # is_play gate below would never let the loose pattern see it.
+    # is_play gate below would never let the loose pattern see it. What that
+    # costs, said out loud: a record called *Weiter* cannot be asked for by
+    # name. «weiter» after a play verb is what a person says to un-pause, many
+    # times a day, and the title is one record — the same trade ``it.py``
+    # makes with a bare «play».
     "resume_explicit": c(r"^(?:play|weiter|weiterspielen"
                          r"|(?:spiel(?:e)?|mach(?:e)?)\s+weiter)\s*$"),
     "resume": c(r"\b(weiter|weiterspielen|weitermachen|fortsetzen"

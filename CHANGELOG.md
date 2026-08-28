@@ -32,6 +32,21 @@
   session gets German answers inside an English page. The phrasings have not
   yet been reviewed by a native speaker.
 
+### Fixed
+
+- **Read-back spoke the reply frame with the wrong voice.** The split between
+  "the frame" and "the foreign terms" was right; the frame's language was
+  hard-coded to Italian, so an English session heard "Playing" and "by" read
+  out by an Italian voice, and only the title and the artist got an English
+  one. The frame now follows the language the *server* answered in, which the
+  page learns from the server (`window.VIVAVOCE_CFG.langs`) instead of
+  guessing: it is not the page language — the chrome is Italian or English
+  only — and it is not the mic language either, since a mic language with no
+  catalog behind it (Spanish, French) is answered in Italian. German is what
+  made this impossible to keep filing as a detail: its replies are German
+  inside an English page, so neither of the two languages already on the page
+  was the right one.
+
 ### Changed
 
 - **The message catalogs moved to `engine/catalogs/`**, one module per

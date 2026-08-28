@@ -27,6 +27,15 @@ export const LANGS = {
 export const recLang = () => localStorage.getItem("reclang") || "it";
 export const foreignDefault = () => localStorage.getItem("foreign_default") || "en";
 
+// The language the SERVER answers in, which is not the mic language whenever
+// the mic language has no catalog behind it (es/fr today) and is not the page
+// language ever, since the chrome is Italian or English only. Read-back needs
+// this one: the frame of the reply is written in it, so it has to be spoken by
+// its voice. The list is injected by the server — see http_api.REPLY_LANGS.
+const REPLY_LANGS = (window.VIVAVOCE_CFG || {}).langs || ["it"];
+export const replyLang = () =>
+  (REPLY_LANGS.includes(recLang()) ? recLang() : "it");
+
 
 const IT_MARKUP = {};  // Italian innerHTML of every [data-i18n], snapshotted at load
 export const uiLang = () => (recLang() === "it" ? "it" : "en");
