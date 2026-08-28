@@ -67,6 +67,39 @@
 
 ### Fixed
 
+- **One silent client could stop the whole HTTPS server.** Serving TLS by
+  wrapping the *listening* socket — which is the obvious way to do it, and
+  what `--cert/--key` did — puts the handshake inside `SSLSocket.accept()`,
+  which is to say inside the accept loop, in the main thread, with no
+  timeout. So a single client that opened a connection and then said nothing
+  blocked every other device in the house, and it did not recover on its own:
+  the connections queued behind it were still there, unanswered, when it went
+  away. Browsers produce exactly such connections without being asked to —
+  they preconnect and abandon — so in practice the page loaded once and every
+  later request hung or was reset, and it looked like a certificate problem
+  because the certificate is what you are thinking about when you first turn
+  HTTPS on. The listening socket now stays plain and each accepted connection
+  is wrapped in the thread that will serve it, bounded by the same timeout
+  every other request has. A failed handshake — a browser sitting on the
+  self-signed warning, a plain `http://` typed at the TLS port, a LAN scanner
+  — now costs its own connection and nothing else, and no longer prints a
+  stack trace for something that is not an error.
+
+- **Dismissing the microphone prompt killed the microphone until reload.**
+  Tapping *beside* the permission prompt rather than answering it is the
+  easiest mistake there is to make here, and it ended the session: the button
+  did nothing from then on, no prompt ever came back, and only reloading the
+  page brought the microphone back — which was the tell, because a reload is
+  precisely a new `SpeechRecognition` object. Chrome reports a dismissal by
+  reporting nothing at all — no `onstart`, no `onerror`, no `onend` — and
+  leaves the recogniser in its starting state, where every later `start()`
+  throws `InvalidStateError`; that throw was swallowed, so nothing downstream
+  ever learned the microphone had stopped working. A stranded session is now
+  aborted and the start retried, so the second tap asks again. A denial on
+  tap-to-talk also no longer switches continuous listening off: that teardown
+  exists because a denied mic would restart-loop in wake mode, and it was
+  unticking — and saving — a preference the user had set on purpose.
+
 - **Read-back spoke the reply frame with the wrong voice.** The split between
   "the frame" and "the foreign terms" was right; the frame's language was
   hard-coded to Italian, so an English session heard "Playing" and "by" read
