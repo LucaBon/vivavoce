@@ -55,6 +55,16 @@ def clean_command(text):
     return "" if len(t) > MAX_COMMAND_CHARS else t
 
 
+def _reportable(alt):
+    """An alternative, bounded, for the ``used`` field of a reply.
+
+    :func:`clean_command` strips before it measures, so a string far over the
+    cap can still be executed — 60 KB of spaces and the word «stopp» is a
+    valid pause — and every reply path echoed the whole of it back.
+    """
+    return alt[:MAX_COMMAND_CHARS] if alt else alt
+
+
 def _as_number(token, ordinals=False):
     """A spoken position -> int, or None if the token isn't a number."""
     token = (token or "").strip().lower()

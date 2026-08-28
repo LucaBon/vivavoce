@@ -477,6 +477,57 @@ def _device_commands():
                         yield f"{verb} {article}{noun} {adverbs}{control}"
 
 
+# The other direction, which the cross product above cannot see: a request
+# that NAMES something must never be answered with a transport command. Both
+# halves are needed and neither implies the other — the one-directional test
+# shipped for one commit and, on its own, required «spiel die Musik ab» to
+# mean stop, when ``abspielen`` is the German for "to play back".
+_MUST_PLAY = [
+    "spiel Musik aus Italien",
+    "spiel den Song Mach die Musik aus",     # a title that IS a device command
+    "spiel den Titel Mach die Musik lauter",
+    "spiel Wir spielen Musik ab",
+    "spiel Radiohead",
+    "starte Radioaktivität",
+    "spiel Anlage 12",
+    "spiel Mucke für die Party",
+    "von tidal spiel die Musik von Rammstein",
+]
+
+# Every reply that means "I did something to the playback rather than starting
+# something you named".
+_TRANSPORT_CMDS = [["pause", "1"], ["pause", "0"],
+                   ["mixer", "volume", "+5"], ["mixer", "volume", "-5"],
+                   ["playlist", "index", "+1"], ["playlist", "index", "-1"]]
+
+
+@pytest.mark.parametrize("phrase", _MUST_PLAY)
+def test_a_named_request_is_never_answered_with_a_transport_command(
+        lms, transport, make_tidal, phrase):
+    from router import Router
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Egal"}]},
+    )
+    Router(lms).handle(phrase, source="tidal", lang="de")
+    stolen = [c for c in transport.commands() if c in _TRANSPORT_CMDS]
+    assert stolen == [], f"{phrase!r} was answered with {stolen}"
+    assert ["playlist", "play", "tidal://7.flc"] in transport.commands()
+
+
+def test_a_station_shaped_title_is_a_known_limit_not_a_transport_command():
+    """«spiel Radio Ga Ga» asks the favorites for a station called "Ga Ga"
+    instead of playing the Queen song — the radio step runs at 0b and claims
+    it. Recorded rather than fixed: Italian and English have the identical
+    shape («metti Radio Ga Ga», "play radio Ga Ga"), so it is a cross-language
+    limit of that step and not something German introduced. It is out of the
+    corpus above because it cannot assert playback; it is in this file so the
+    absence is deliberate and not an oversight."""
+    from lang import PACKS
+    assert PACKS["de"].PATTERNS["radio"].search("spiel Radio Ga Ga")
+    assert PACKS["it"].PATTERNS["radio"].search("metti radio Ga Ga")
+
+
 def test_no_device_command_can_reach_the_play_step(lms, transport, make_tidal):
     """A command aimed at the music itself must never start music.
 
@@ -506,6 +557,9 @@ def test_no_device_command_can_reach_the_play_step(lms, transport, make_tidal):
      ("leg das Radio wieder an", ["pause", "0"]),
      ("mach das Radio auf", ["pause", "0"]),           # southern «on»
      ("spiel das Radio bitte aus", ["pause", "1"]),
+     # ``abspielen``, split: it starts music, it does not stop it.
+     ("spiel die Musik ab", ["pause", "0"]),
+     ("spiele die Musik ab", ["pause", "0"]),
      ("mach das Radio endlich wieder aus", ["pause", "1"]),
      ("spiel das Radio leiser", ["mixer", "volume", "-5"]),
      ("starte die Musik lauter", ["mixer", "volume", "+5"])],

@@ -13,8 +13,8 @@ from .numbers_en import (  # noqa: F401
     DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "en"
-
-_LOCAL = r"(?:from my (?:music|library)|from the library|locally)"
+# The closed word lists these patterns are built from.
+from .words_en import _LOCAL  # noqa: F401
 
 PATTERNS = {
     # ``put`` alone (not just "put on") so the suffix form "put X on" is

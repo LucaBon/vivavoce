@@ -12,32 +12,29 @@ and searches for a song called "die musik an". So the separable forms live in
 and ``generic_play`` deliberately does NOT list ``leg``/``mach``, or it would
 match first and hand the particle on.
 
-Where that leaves a title that really ends in a particle («Wach auf»): it
-survives in ``generic_play`` and nowhere else. «spiel Wach Auf» searches for
-"Wach Auf", and that is the whole reason the plain verbs stand alone there.
-The three named-thing steps — ``album``, ``playlist``, ``artist`` — cannot
-have it both ways: they must list the separable verbs («leg das Album
-Nevermind auf» is ordinary German), so they strip the particle whatever the
-verb was, and «spiel das Album Steh auf» loses its "auf". Said plainly
-because it is a real cost and the step comments alone were not where anyone
-would look for it.
+A title that really ends in a particle («Wach auf») survives in
+``generic_play`` and nowhere else — that is why the plain verbs stand alone
+there. The named-thing steps (``album``, ``playlist``, ``artist``) must list
+the separable verbs, «leg das Album Nevermind auf» being ordinary German, so
+they strip the particle whatever the verb was and «spiel das Album Steh auf»
+loses its "auf". A real cost, written here because nobody looks for it in a
+step comment.
 
 **«mach» is not a play verb on its own.** It heads «mach lauter» (volume),
 «mach aus» (stop) and «mach die Musik an» (play) alike, so ``is_play`` asks
-for the particle too — ``mach … an`` — and the volume and stop forms stay
-reachable.
+for the particle too and the volume and stop forms stay reachable. The words
+that may stand between a verb and its particle, and the verbs and nouns a
+command aimed at the playback itself is built from, are the shared ``_ADV`` /
+``_VERB_DEV`` / ``_DEVICE`` below: six review rounds found the same defect
+whenever two patterns spelled one of those lists out separately.
 
-**The adjective moves.** Italian and English put the mood after the marker
-noun («qualcosa di rilassante», "something relaxing"); German can put it on
-either side — «etwas Entspannendes», «etwas entspannende Musik». The ``mood``
-pattern therefore allows a trailing «Musik»/«Lieder» after the captured tail,
-the same trick ``en.py`` uses for "some upbeat music".
-
-What it does **not** do is drop the marker. «spiel entspannende Musik», with
-no «etwas» in front, stays a title search — exactly as "play relaxing music"
-does in English, and for the same reason: the marker noun is one of the three
-conditions that keep an identified request identified, and German has no
-equivalent guard to put in its place.
+**The adjective moves.** German puts the mood on either side of the marker
+noun — «etwas Entspannendes», «etwas entspannende Musik» — so ``mood`` allows
+a trailing «Musik»/«Lieder» after the captured tail, the trick ``en.py`` uses
+for "some upbeat music". It does not drop the marker: «spiel entspannende
+Musik» stays a title search, exactly as "play relaxing music" does in English,
+because the marker noun is one of the three conditions that keep an identified
+request identified.
 
 Umlauts are written as alternations (``h(?:ö|oe)r``) throughout: browser ASR
 and typed input disagree about them constantly, and one spelling is a silent
@@ -57,42 +54,8 @@ from .numbers_de import (  # noqa: F401
     DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "de"
-
-_LOCAL = (r"(?:aus\s+meiner\s+(?:musik|bibliothek|sammlung)"
-          r"|von\s+(?:der\s+)?(?:festplatte|platte)|lokal)")
-
-# Words that may stand between a verb and its separable particle («hör BITTE
-# auf») or between a noun and the control word after it («mach das Radio
-# WIEDER an»). German drops them everywhere; a router acts on none of them.
-#
-# ONE list, read by the three patterns that step over them, and that is the
-# point rather than tidiness. Spelled out three times with three different
-# sets of words, it produced the same defect every round: one pattern's guard
-# was widened, the pattern catching what it declines was not, and the phrase
-# fell through to something that acts — «mach das Radio wieder an» reached the
-# play step and started a stream. A closed list can only do that when there is
-# more than one copy of it.
-#
-# Repeated (``*``), not optional (``?``): «mach das Radio jetzt bitte aus» is
-# ordinary German, and one slot let the second adverb step around the guard.
-_ADV = (r"(?:bitte|jetzt|endlich|sofort|mal|doch|auch|damit|schon|ganz"
-        r"|wieder|nochmal|du|ihr|sie)")
-
-# «<verb> <article> <thing> <adverbs…>» — everything a command aimed at the
-# music itself carries before the word that says what to do with it.
-#
-# The same lesson as _ADV, one seam over. Sharing the adverbs was necessary
-# and not sufficient: the ``radio`` guard declined four verbs while
-# ``resume_explicit`` accepted three others, and it declined eight control
-# words while the steps after it accepted two — so «starte das Radio wieder
-# an» and «spiel das Radio bitte aus» fell past every catcher to the play
-# step and started a stream. Three lists that must agree are three lists that
-# will not. There is one of each now, and
-# ``test_no_device_command_can_reach_the_play_step`` crosses them so the next
-# gap is a failing test rather than a sixth review.
-_VERB_DEV = r"(?:spiel(?:e|en)?|mach(?:e)?|leg(?:e)?|starte?|schalt(?:e)?)"
-_DEVICE = r"(?:musik|radio(?:sender)?|anlage|mucke)"
-_DEV = rf"\b{_VERB_DEV}\s+(?:d(?:ie|as|en|er)\s+)?{_DEVICE}\s+(?:{_ADV}\s+)*"
+# The closed word lists these patterns are built from.
+from .words_de import _ADV, _DEV, _DEVICE, _LOCAL, _VERB_DEV  # noqa: F401
 
 # One entry per routing step; the handle() flow is identical across languages.
 # ``service`` is a template expanded per streaming service name.
@@ -156,7 +119,12 @@ PATTERNS = {
                         # Here rather than in ``pause`` because that step is
                         # gated on ``not is_play`` and every one of these
                         # verbs sets it.
-                        rf"|{_DEV}(?:aus|ab|stopp?)\s*$"),
+                        #
+                        # No «ab»: ``abspielen`` is the German for "to play
+                        # back" and the particle is a PLAY one in four other
+                        # patterns here, so it sits with «an» in
+                        # ``resume_explicit``.
+                        rf"|{_DEV}(?:aus|stopp?)\s*$"),
     # «aus» is far too common a German word to stand alone («aus Liebe», «aus
     # meiner Musik»): it only counts as the tail of «mach … aus», which is how
     # the command is said and where the word cannot be anything else. Bare
@@ -193,9 +161,11 @@ PATTERNS = {
                          rf"{_DEVICE}"
                          rf"\s+(?:{_ADV}\s+)*(?:an|weiter))\s*$"
                          # The same sentence with the other verbs, and with
-                         # «auf» — «mach das Radio auf» is how it is said in
-                         # the south.
-                         rf"|^{_DEV}(?:an|auf|weiter)\s*$"),
+                         # «auf» («mach das Radio auf» is how it is said in
+                         # the south) and «ab» («spiel die Musik ab» is
+                         # ``abspielen``, split — it starts music, it does
+                         # not stop it).
+                         rf"|{_DEV}(?:an|auf|ab|weiter)\s*$"),
     "resume": c(r"\b(weiter|weiterspielen|weitermachen|fortsetzen"
                 r"|fortfahren|play)\b"),
     # Prefix matching, like the Italian pack: German inflects the ending.
@@ -323,10 +293,9 @@ PATTERNS = {
                # _ADV because an exact-final guard is defeated by one word
                # («mach das Radio bitte aus» asked for a station called
                # "bitte aus"). Every word declined here is caught by a step
-               # below — built from the same _DEV and asserted by
-               # ``test_no_device_command_can_reach_the_play_step``, because
-               # the last four reviews all found the same thing: a guard
-               # widened, and the catcher not widened with it.
+               # below, built from the same _DEV and asserted by the
+               # cross-product test: five reviews running found the same
+               # thing — a guard widened, its catcher not widened with it.
                rf"(?!\s*(?:{_ADV}\s+)*"
                r"(?:an|auf|ab|aus|lauter|leiser|weiter|stopp?)\s*$)"
                r"\s+(.+?)(?:\s+(?:an|auf|ab))?\s*$"),

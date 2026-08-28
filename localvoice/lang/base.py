@@ -44,8 +44,9 @@ itself.
 
 **A pack module holds the grammar; the word lists live beside it.** ``xx.py``
 is ``PATTERNS`` and nothing else; ``moods_xx.py`` and ``numbers_xx.py`` hold
-the five data tables, and the pack re-exports them so this contract is
-unchanged. The seam is real and not bookkeeping: a regex encodes how a
+the five data tables of the contract above, ``words_xx.py`` holds the closed
+sets those patterns are built from, and the pack re-exports them all so this
+contract is unchanged. The seam is real and not bookkeeping: a regex encodes how a
 language is *shaped*, a table only what it happens to *say*, the tables are
 what ``parsing.py`` merges across every pack, and ``MOOD_WORDS`` is what
 ``engine/moods.py`` will one day read from generated data. It is also where

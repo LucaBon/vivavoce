@@ -33,7 +33,7 @@ from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
 from intents import IntentTable
 from lang import PACKS
 from messages import msg, set_lang
-from parsing import MAX_COMMAND_CHARS, _source_suffix, clean_command
+from parsing import _reportable, _source_suffix, clean_command
 
 # The two windows are defined next to the state they bound, but they are still
 # the router's windows: ``router.CANDIDATES_TTL`` has to keep naming the one it
@@ -255,10 +255,7 @@ class Router(ConversationState, IntentTable):
             # such a caller sees no change.
             ok = getattr(speech, "ok", not speech.strip().lower().startswith("non "))
             if primary is None:
-                # Truncated: an alternative the length cap refused is still
-                # what ``used`` reports, and reflecting 64 KB of somebody's
-                # own payload back at them is not a report.
-                primary = (speech, alt[:MAX_COMMAND_CHARS], ok, self._unmatched)
+                primary = (speech, _reportable(alt), ok, self._unmatched)
             # A gate is the end of the turn even though it is not a hit. The
             # alternatives exist to find better *words*; a gate has already
             # said the words are not the problem — no licence, not the owner,
@@ -270,13 +267,13 @@ class Router(ConversationState, IntentTable):
             # The listener never hears the refusal. Same shape for kid-safe:
             # retry the blocked artist until one spelling slips through.
             if not ok and getattr(speech, "kind", None) == actions.GATE:
-                return {"speech": speech, "used": alt, "ok": False,
+                return {"speech": speech, "used": _reportable(alt), "ok": False,
                         "terms": list(getattr(speech, "terms", [])),
                         "choices": self._choices(),
                         "needs_choice": self._needs_choice(),
                         "unmatched": False}
             if ok:
-                return {"speech": speech, "used": alt, "ok": True,
+                return {"speech": speech, "used": _reportable(alt), "ok": True,
                         "terms": list(getattr(speech, "terms", [])),
                         "choices": self._choices(),
                         "needs_choice": self._needs_choice(),

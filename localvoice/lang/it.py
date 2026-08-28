@@ -13,8 +13,8 @@ from .numbers_it import (  # noqa: F401
     DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "it"
-
-_LOCAL = r"(?:dalla mia musica|dal disco|in locale|dalla libreria)"
+# The closed word lists these patterns are built from.
+from .words_it import _LOCAL  # noqa: F401
 
 # One entry per routing step; the handle() flow is identical across languages.
 # ``service`` is a template expanded per streaming service name.

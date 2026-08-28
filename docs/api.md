@@ -54,7 +54,7 @@ shape does not narrow when something goes wrong:
 | `ok` | bool | Did the request get acted on? A question ("which one?") counts as acted on — it is `true`. |
 | `needs_choice` | bool | This answer read out a numbered list and is **waiting for a pick**. See below. |
 | `choices` | array | The same list, machine-readable: `[{"n": 1, "label": "Love di X"}, …]`. Empty unless `needs_choice` is true. |
-| `used` | string | Which of the `alternatives` was actually executed (the first one when nothing else matched). |
+| `used` | string | Which of the `alternatives` was actually executed (the first one when nothing else matched), truncated to 1000 characters — a reply reports what was run, and a body larger than any sentence is not that. |
 | `terms` | string[] | The foreign-language names inside `speech` (song, album, artist). A TTS engine that pronounces "Bohemian Rhapsody" with an Italian voice needs to know which words are not Italian. |
 | `unmatched` | bool | Nothing in the parser matched: this is a **gap in the grammar**, not a failed action. The web app offers a "report this phrase" button on it; a headless client can log it. |
 | `error` | string | *Only present* when an unexpected exception was caught. `ok` is `false` and `speech` explains. Never a 5xx — see [Failure modes](#failure-modes). |
