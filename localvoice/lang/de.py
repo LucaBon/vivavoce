@@ -52,56 +52,31 @@ from .base import c
 # its own. Imported (not just referenced) because the pack contract in
 # ``base.py`` asks the *pack* for MOOD_WORDS.
 from .moods_de import MOOD_WORDS  # noqa: F401
+# Spoken numbers and durations, same reasoning — see numbers_de.py.
+from .numbers_de import (  # noqa: F401
+    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "de"
 
-# Web Speech transcribes a spoken position as a word ("drei"), not "3". The
-# umlaut spellings are listed twice on purpose: ``_as_number`` lowercases its
-# token but does not fold it, so "fünf" and "funf" are two different keys.
-NUM_WORDS = {
-    "eins": 1, "ein": 1, "eine": 1, "einer": 1, "zwei": 2, "drei": 3,
-    "vier": 4, "fünf": 5, "funf": 5, "sechs": 6, "sieben": 7, "acht": 8,
-    "neun": 9, "zehn": 10,
-}
-
-# People answer a read-out list with «die zweite» at least as often as with
-# the bare number, and German inflects the ordinal for gender and case: the
-# recogniser writes whichever the speaker used.
-ORDINAL_WORDS = {
-    "erste": 1, "erster": 1, "erstes": 1, "ersten": 1,
-    "zweite": 2, "zweiter": 2, "zweites": 2, "zweiten": 2,
-    "dritte": 3, "dritter": 3, "drittes": 3, "dritten": 3,
-    "vierte": 4, "vierter": 4, "viertes": 4, "vierten": 4,
-    "fünfte": 5, "funfte": 5, "fünfter": 5, "funfter": 5,
-    "fünftes": 5, "funftes": 5, "fünften": 5, "funften": 5,
-    "sechste": 6, "sechster": 6, "sechstes": 6, "sechsten": 6,
-    "siebte": 7, "siebter": 7, "siebtes": 7, "siebten": 7,
-    "siebente": 7, "achte": 8, "achter": 8, "achtes": 8, "achten": 8,
-    "neunte": 9, "neunter": 9, "neuntes": 9, "neunten": 9,
-    "zehnte": 10, "zehnter": 10, "zehntes": 10, "zehnten": 10,
-}
-
-# Durations go beyond list positions: the sleep timer needs the spoken tens
-# too («schalt in dreißig Minuten aus»).
-MINUTE_WORDS = dict(NUM_WORDS)
-MINUTE_WORDS.update({
-    "fünfzehn": 15, "funfzehn": 15, "zwanzig": 20,
-    "dreißig": 30, "dreissig": 30, "vierzig": 40,
-    "fünfzig": 50, "funfzig": 50, "sechzig": 60, "neunzig": 90,
-})
-
-# The tail of a sleep command («… in <tail>»), most specific first. The tail
-# keeps whatever the separable verb left behind it («30 Minuten aus»); every
-# pattern here is anchored at the start and simply ignores it.
-DURATIONS = (
-    (c(r"^(?:einer\s+)?halben?\s+stunde\b"), 30),
-    (c(r"^(?:einer|eine|einem|ein|1)\W?\s*stunde\b"), 60),
-    (c(r"^(\d+|[a-zäöüß]+)\s*stunden\b"), "hours"),
-    (c(r"^(\d+|[a-zäöüß]+)\s*(?:minut\w*|min\b)"), "minutes"),
-)
-
 _LOCAL = (r"(?:aus\s+meiner\s+(?:musik|bibliothek|sammlung)"
           r"|von\s+(?:der\s+)?(?:festplatte|platte)|lokal)")
+
+# Words that may stand between a verb and its separable particle («hör BITTE
+# auf») or between a noun and the control word after it («mach das Radio
+# WIEDER an»). German drops them everywhere; a router acts on none of them.
+#
+# ONE list, read by the three patterns that step over them, and that is the
+# point rather than tidiness. Spelled out three times with three different
+# sets of words, it produced the same defect every round: one pattern's guard
+# was widened, the pattern catching what it declines was not, and the phrase
+# fell through to something that acts — «mach das Radio wieder an» reached the
+# play step and started a stream. A closed list can only do that when there is
+# more than one copy of it.
+#
+# Repeated (``*``), not optional (``?``): «mach das Radio jetzt bitte aus» is
+# ordinary German, and one slot let the second adverb step around the guard.
+_ADV = (r"(?:bitte|jetzt|endlich|sofort|mal|doch|auch|damit|schon|ganz"
+        r"|wieder|nochmal|du|ihr|sie)")
 
 # One entry per routing step; the handle() flow is identical across languages.
 # ``service`` is a template expanded per streaming service name.
@@ -148,20 +123,18 @@ PATTERNS = {
     # adverb — so the pattern now costs nothing at all.
     #
     # «hör auf zu spielen» is the same alternative with a tail, NOT one of
-    # its own. Given its own — matching a bare «auf zu spielen» anywhere —
-    # it inverted the sentence: «hör NICHT auf zu spielen» paused, because
-    # nothing bound the phrase to a verb the negation could sit in front of.
-    # It also swallowed «hör in einer Stunde auf zu spielen», the timer this
-    # same commit taught ``sleep`` to catch in its shorter form.
+    # its own. Given its own — a bare «auf zu spielen» matched anywhere — it
+    # inverted the sentence («hör NICHT auf zu spielen» paused: nothing bound
+    # the phrase to a verb the negation could precede) and swallowed «hör in
+    # einer Stunde auf zu spielen», which is a timer.
     #
-    # What it costs, said accurately: a title made of «hör» plus one of these
-    # adverbs plus «auf» — «spiel Hör mal auf» pauses. Not nothing, but the
-    # list is closed, so the cost is enumerable instead of being whatever
-    # fits in fifteen characters.
+    # What it costs, said accurately: a title made of «hör» plus one of the
+    # _ADV words plus «auf» — «spiel Hör mal auf» and «spiel Hör Du Auf»
+    # pause. Not nothing, but the list is closed, so the cost is enumerable
+    # instead of being whatever fits in fifteen characters.
     "pause_explicit": c(r"\bauf\s+pause\b"
                         r"|\bh(?:ö|oe)r(?:e|en|st|t)?\b"
-                        r"(?:\s+(?:bitte|jetzt|endlich|sofort|mal|doch"
-                        r"|auch|damit|schon|du|ihr|sie))*"
+                        rf"(?:\s+{_ADV})*"
                         r"\s+auf(?:\s+zu\s+(?:spielen|h(?:ö|oe)ren))?\s*$"),
     # «aus» is far too common a German word to stand alone («aus Liebe», «aus
     # meiner Musik»): it only counts as the tail of «mach … aus», which is how
@@ -196,8 +169,8 @@ PATTERNS = {
                          # are how everyone in the house says ▶.
                          r"|(?:mach(?:e)?|schalt(?:e)?|spiel(?:e)?)\s+"
                          r"(?:d(?:ie|as|en)\s+)?"
-                         r"(?:musik|radio(?:sender)?|anlage|mucke)"
-                         r"\s+(?:an|weiter))\s*$"),
+                         rf"(?:musik|radio(?:sender)?|anlage|mucke)"
+                         rf"\s+(?:{_ADV}\s+)*(?:an|weiter))\s*$"),
     "resume": c(r"\b(weiter|weiterspielen|weitermachen|fortsetzen"
                 r"|fortfahren|play)\b"),
     # Prefix matching, like the Italian pack: German inflects the ending.
@@ -320,10 +293,11 @@ PATTERNS = {
     # " an". Nothing upstream collapses inner whitespace.
     "radio": c(r"\b(?:spiel(?:e|en)?|mach(?:e)?|leg(?:e)?|starte?)\s+"
                r"(?:d(?:as|en|ie)\s+)?radio(?:sender)?\b"
-               # The adverbs are here because an exact-final guard is
-               # defeated by one word: «mach das Radio bitte aus» asked LMS
-               # for a station called "bitte aus".
-               r"(?!\s*(?:bitte\s+|ganz\s+|mal\s+|jetzt\s+|wieder\s+)?"
+               # _ADV because an exact-final guard is defeated by one word
+               # («mach das Radio bitte aus» asked for a station called
+               # "bitte aus"), and the SAME _ADV that resume_explicit and the
+               # transport block read — whatever this declines, they accept.
+               rf"(?!\s*(?:{_ADV}\s+)*"
                r"(?:an|auf|ab|aus|lauter|leiser|weiter|stopp?)\s*$)"
                r"\s+(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
     "choose_number": c(r"(?:spiel(?:e)?|nimm|w(?:ä|ae)hl(?:e)?)?\s*"

@@ -355,15 +355,20 @@ def test_the_split_stop_verb_carries_a_timer_in_both_its_lengths(
     assert transport.last_call()[1] == ["sleep", seconds]
 
 
-def test_the_timer_lookahead_does_not_backtrack_against_itself(router, transport):
-    """Two unbounded ``.*`` in sequence cost 3.3 s on a 64 KB body — which is
-    exactly what ``httpbase.MAX_JSON_BYTES`` lets an unauthenticated POST to
-    /api/v1/command send, and this router is what it reaches. The verb half is
-    a zero-width lookahead now, so it is scanned once."""
+def test_the_timer_lookahead_does_not_backtrack_against_itself():
+    """Two unbounded ``.*`` in sequence cost 3.3 s to match a 64 KB string.
+
+    Asserted on the PATTERN, not through ``Router.handle``: the router now
+    refuses anything over ``MAX_COMMAND_CHARS`` before a pattern sees it, so
+    routing this string would measure the length check and certify nothing.
+    Both guards matter and they are different — see
+    ``tests/test_router_limits.py`` for the other one.
+    """
     import time
+    from lang import PACKS
     hostile = "in 1 minute " + "hör auf " * 8000 + "x"
     start = time.monotonic()
-    router.handle(hostile, lang="de")
+    PACKS["de"].PATTERNS["sleep"].search(hostile)
     assert time.monotonic() - start < 1.0
 
 

@@ -42,14 +42,17 @@ message catalog in ``engine/catalogs/`` and a test suite modeled on
 ``tests/test_english.py``); the registry in ``__init__.py`` finds it by
 itself.
 
-``MOOD_WORDS`` lives in a module of its own — ``moods_it.py``, ``moods_en.py``,
-``moods_de.py`` — and each pack re-exports it. It is a word list rather than
-grammar, it is the half ``engine/moods.py`` will one day read from generated
-data, and it is the half that grows: the size guard in
-``tests/test_packaging.py`` is what said so, when German went over the line on
-the strength of its vocabulary alone. A module without ``CODE`` is invisible to
-the registry, so those three sit here without being mistaken for packs — the
-same way this file does.
+**A pack module holds the grammar; the word lists live beside it.** ``xx.py``
+is ``PATTERNS`` and nothing else; ``moods_xx.py`` and ``numbers_xx.py`` hold
+the five data tables, and the pack re-exports them so this contract is
+unchanged. The seam is real and not bookkeeping: a regex encodes how a
+language is *shaped*, a table only what it happens to *say*, the tables are
+what ``parsing.py`` merges across every pack, and ``MOOD_WORDS`` is what
+``engine/moods.py`` will one day read from generated data. It is also where
+the growth is — the size guard in ``tests/test_packaging.py`` is what said so,
+twice, when German went over the line on the strength of its vocabulary alone.
+A module without ``CODE`` is invisible to the registry, so all six sit here
+without being mistaken for packs — the same way this file does.
 """
 
 from __future__ import annotations

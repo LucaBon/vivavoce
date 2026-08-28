@@ -26,6 +26,35 @@ for _pack in PACKS.values():
     _MINUTE_WORDS.update(_pack.MINUTE_WORDS)
 
 
+# The longest spoken command the router will look at: a generous multiple of
+# the longest real request (well under 200 characters), and a hard bound on
+# backtracking. Every pack has phrases shaped ``verb\s+(.+?)\s+<literal>\s*$``
+# — queue insert, local suffix, the German separable forms — and a lazy capture
+# between two unbounded boundaries goes quadratic when the literal never
+# arrives. ``httpbase.MAX_JSON_BYTES`` lets an unauthenticated POST carry
+# 64 KB, which cost ~10 s of CPU per request on a server with no accounts
+# running 128 at once. The cap is the structural cure: the shape is in every
+# pack, and in every pattern of that kind nobody has written yet.
+MAX_COMMAND_CHARS = 1000
+
+# Dictation often appends final punctuation ("Metti la 2."): it would break the
+# $-anchored patterns (picks, suffix forms) and leak into the search terms.
+_TRAILING_PUNCT = re.compile(r"[.!?…]+$")
+
+
+def clean_command(text):
+    """What was said, ready to route — or ``None`` when there is nothing to
+    route and ``""`` when it is too long to be a sentence anyone spoke.
+
+    Three outcomes rather than two because the router owes the two silences
+    different answers: nothing heard, and a body that is not a command.
+    """
+    t = _TRAILING_PUNCT.sub("", (text or "").strip()).strip()
+    if not t:
+        return None
+    return "" if len(t) > MAX_COMMAND_CHARS else t
+
+
 def _as_number(token, ordinals=False):
     """A spoken position -> int, or None if the token isn't a number."""
     token = (token or "").strip().lower()

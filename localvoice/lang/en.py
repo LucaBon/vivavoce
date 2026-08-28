@@ -8,32 +8,11 @@ from .base import c
 # its own. Imported (not just referenced) because the pack contract in
 # ``base.py`` asks the *pack* for MOOD_WORDS.
 from .moods_en import MOOD_WORDS  # noqa: F401
+# Spoken numbers and durations, same reasoning — see numbers_en.py.
+from .numbers_en import (  # noqa: F401
+    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "en"
-
-NUM_WORDS = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-}
-
-ORDINAL_WORDS = {
-    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
-    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
-}
-
-MINUTE_WORDS = dict(NUM_WORDS)
-MINUTE_WORDS.update({
-    "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
-    "fifty": 50, "sixty": 60, "ninety": 90,
-})
-
-# The tail of a sleep command ("stop in <tail>"), most specific first.
-DURATIONS = (
-    (c(r"^half\s+an?\s+hour\b"), 30),
-    (c(r"^(?:an|one|1)\W?\s*hour\b"), 60),
-    (c(r"^(\d+|[a-z]+)\s*hours?\b"), "hours"),
-    (c(r"^(\d+|[a-z]+)\s*(?:minut\w*|min\b)"), "minutes"),
-)
 
 _LOCAL = r"(?:from my (?:music|library)|from the library|locally)"
 

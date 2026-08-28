@@ -34,7 +34,7 @@ from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
 from intents import IntentTable
 from lang import PACKS
 from messages import msg, set_lang
-from parsing import _source_suffix
+from parsing import _source_suffix, clean_command
 
 # The two windows are defined next to the state they bound, but they are still
 # the router's windows: ``router.CANDIDATES_TTL`` has to keep naming the one it
@@ -313,13 +313,12 @@ class Router(ConversationState, IntentTable):
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
         self._mood_words = MOOD_WORDS.get(lang) or MOOD_WORDS["it"]
-        t = (text or "").strip()
-        # Dictation often appends final punctuation ("Metti la 2."): it would
-        # break the $-anchored patterns (picks, suffix forms) and leak into the
-        # search terms, so strip it.
-        t = re.sub(r"[.!?…]+$", "", t).strip()
-        if not t:
+        t = clean_command(text)
+        if t is None:
             return actions.ActionResult(msg("heard_nothing"), ok=False)
+        if not t:  # too long to be a sentence anyone spoke — see parsing.py
+            self._unmatched = True
+            return actions.ActionResult(msg("router_fallback"), ok=False)
 
         # Kid-safe guard for this request: restrictive only when the feature is
         # enabled and this client isn't PIN-unlocked. Recomputed per turn so an
