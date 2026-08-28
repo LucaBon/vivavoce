@@ -38,9 +38,18 @@ state, kid-safe, multi-room); a pack owns nothing but data:
     number or a MINUTE_WORDS token).
 
 Adding a language is adding one module with these seven names (plus its
-message catalog in ``engine/messages.py`` and a test suite modeled on
+message catalog in ``engine/catalogs/`` and a test suite modeled on
 ``tests/test_english.py``); the registry in ``__init__.py`` finds it by
 itself.
+
+``MOOD_WORDS`` lives in a module of its own — ``moods_it.py``, ``moods_en.py``,
+``moods_de.py`` — and each pack re-exports it. It is a word list rather than
+grammar, it is the half ``engine/moods.py`` will one day read from generated
+data, and it is the half that grows: the size guard in
+``tests/test_packaging.py`` is what said so, when German went over the line on
+the strength of its vocabulary alone. A module without ``CODE`` is invisible to
+the registry, so those three sit here without being mistaken for packs — the
+same way this file does.
 """
 
 from __future__ import annotations

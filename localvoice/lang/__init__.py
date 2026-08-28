@@ -1,9 +1,11 @@
 """Language registry: one module per spoken language, discovered by itself.
 
 The router asks this package which languages exist; each language is a *pack*
-(a data-only module, contract in ``base.py``). Adding German is dropping a
-``de.py`` in here — plus its message catalog in ``engine/messages.py`` and a
-test suite modeled on ``tests/test_english.py``. Nothing else changes.
+(a data-only module, contract in ``base.py``). Adding a language is dropping an
+``xx.py`` in here, with its mood vocabulary beside it in ``moods_xx.py`` —
+plus its message catalog in ``engine/catalogs/`` and a test suite modeled on
+``tests/test_english.py``. Nothing else changes; German (2026-08-28) is the
+proof, and it needed no edit to the router at all.
 
 Discovery is deliberate about failure: a pack missing part of the contract
 breaks the import loudly at startup, not a routing step quietly at runtime.

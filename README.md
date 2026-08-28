@@ -127,7 +127,8 @@ uv run python localvoice/server.py          # auto-discovers LMS on the LAN
 ```
 
 Then say (or type), in Italian — or in English or German, after picking the
-mic language on the page (the page labels follow for English and German alike):
+mic language on the page (the page labels are Italian or English; a German
+session gets German answers inside the English page):
 
 > «metti Comfortably Numb dei Pink Floyd» · «metti l'album The Wall» ·
 > «dalla mia musica metti Aerosmith» · «da qobuz metti Time» ·

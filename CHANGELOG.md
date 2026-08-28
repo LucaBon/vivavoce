@@ -51,9 +51,15 @@
 
 - **The message catalogs moved to `engine/catalogs/`**, one module per
   language, discovered the way `localvoice/lang/` discovers its packs.
-  `messages.py` is now the twenty lines that *select* a catalog rather than the
+  `messages.py` is now the forty lines that *select* a catalog rather than the
   five hundred that *are* one; `messages.IT`/`.EN`/`.DE` and `msg()` are
   unchanged for every caller.
+
+- **Each language pack's mood vocabulary moved next door**, to
+  `localvoice/lang/moods_{it,en,de}.py`. Same reason and same size guard: the
+  spoken vocabulary is a word list, not grammar, it is the half that grows, and
+  it is the half `engine/moods.py` is meant to read from generated data one
+  day. The packs re-export it, so the contract in `lang/base.py` is unchanged.
 
 - **Spotify, through the LMS Spotty plugin.** «da spotify metti Comfortably
   Numb» now works the way «da tidal …» and «da qobuz …» do, the source selector

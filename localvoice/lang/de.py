@@ -21,11 +21,16 @@ for the particle too — ``mach … an`` — and the volume and stop forms stay
 reachable.
 
 **The adjective moves.** Italian and English put the mood after the marker
-noun («qualcosa di rilassante», "something relaxing"); German says either
-«etwas Entspannendes» or «entspannende Musik», the marker on the far side.
-The ``mood`` pattern therefore allows a trailing «Musik»/«Lieder» after the
-captured tail — the same trick ``en.py`` uses for "some upbeat music" — and,
-like both other packs, refuses everything that does not open with a marker.
+noun («qualcosa di rilassante», "something relaxing"); German can put it on
+either side — «etwas Entspannendes», «etwas entspannende Musik». The ``mood``
+pattern therefore allows a trailing «Musik»/«Lieder» after the captured tail,
+the same trick ``en.py`` uses for "some upbeat music".
+
+What it does **not** do is drop the marker. «spiel entspannende Musik», with
+no «etwas» in front, stays a title search — exactly as "play relaxing music"
+does in English, and for the same reason: the marker noun is one of the three
+conditions that keep an identified request identified, and German has no
+equivalent guard to put in its place.
 
 Umlauts are written as alternations (``h(?:ö|oe)r``) throughout: browser ASR
 and typed input disagree about them constantly, and one spelling is a silent
@@ -36,6 +41,10 @@ because that table is looked up on the *normalized* tail — see ``it.py``.
 from __future__ import annotations
 
 from .base import c
+# Spoken tail -> mood key: a word list, not grammar, so it has a module of
+# its own. Imported (not just referenced) because the pack contract in
+# ``base.py`` asks the *pack* for MOOD_WORDS.
+from .moods_de import MOOD_WORDS  # noqa: F401
 
 CODE = "de"
 
@@ -96,9 +105,23 @@ PATTERNS = {
     # and is_play is what switches the whole transport block off.
     "is_play": c(r"\b(?:spiel(?:e|en)?|abspielen|leg(?:e)?|starte?"
                  r"|h(?:ö|oe)r(?:e|en)?|auflegen)\b"
-                 r"|\bmach(?:e)?\b.{0,30}\ban\b"
+                 # Anchored at the end, not measured in characters: a
+                 # separable particle goes LAST, and a window («mach» within
+                 # 30 characters of «an») is a length limit on titles wearing
+                 # a grammar rule's clothes. «mach die Playlist Zurück in die
+                 # Zukunft an» is 32, so is_play went False, the transport
+                 # block opened, and «zurück» skipped to the previous track.
+                 r"|\bmach(?:e)?\b.*\ban\s*$"
                  r"|\bich\s+(?:will|m(?:ö|oe)chte|mag)\b"),
-    "pause_explicit": c(r"\bauf\s+pause\b"),
+    # «hör auf» belongs here rather than in ``pause``, and for the reason
+    # «metti in pausa» does in Italian: it carries a play verb, so the
+    # is_play gate would never let ``pause`` see it, and the phrase went
+    # looking for a song called "auf". Anchored on the final particle — a
+    # title that merely contains «auf» («spiel Hör Auf Dein Herz») does not
+    # end in it. What it costs is «hör Wach Auf», which is not how anyone
+    # asks for that record: they say «spiel Wach Auf», and that still works.
+    "pause_explicit": c(r"\bauf\s+pause\b"
+                        r"|\bh(?:ö|oe)r\w*\b.{0,15}\bauf\s*$"),
     # «aus» is far too common a German word to stand alone («aus Liebe», «aus
     # meiner Musik»): it only counts as the tail of «mach … aus», which is how
     # the command is said and where the word cannot be anything else. Bare
@@ -116,7 +139,13 @@ PATTERNS = {
     # times a day, and the title is one record — the same trade ``it.py``
     # makes with a bare «play».
     "resume_explicit": c(r"^(?:play|weiter|weiterspielen"
-                         r"|(?:spiel(?:e)?|mach(?:e)?)\s+weiter)\s*$"),
+                         r"|(?:spiel(?:e)?|mach(?:e)?)\s+weiter"
+                         # «mach die Musik an» names no title: it is the
+                         # German for pressing ▶, and reading it as a request
+                         # for a record called "die Musik" searched the
+                         # library for the word.
+                         r"|(?:mach(?:e)?|schalt(?:e)?)\s+(?:d(?:ie|as|en)\s+)?"
+                         r"(?:musik|radio|anlage|mucke)\s+an)\s*$"),
     "resume": c(r"\b(weiter|weiterspielen|weitermachen|fortsetzen"
                 r"|fortfahren|play)\b"),
     # Prefix matching, like the Italian pack: German inflects the ending.
@@ -203,8 +232,13 @@ PATTERNS = {
     # Favorites & radio (LMS core feature — see engine/actions.py).
     "favorites": c(r"\b(?:spiel(?:e|en)?|leg(?:e)?|mach(?:e)?|starte?)\s+"
                    r"(?:meine\s+)?favoriten\b"),
+    # The lookahead is «mach das Radio an»: with the separable verbs listed
+    # here, a bare particle is all that follows «Radio», and the step used to
+    # answer «Ich habe keinen Radiosender namens an gefunden». Declining lets
+    # it reach ``resume_explicit``, which is what the phrase actually means.
     "radio": c(r"\b(?:spiel(?:e|en)?|mach(?:e)?|leg(?:e)?|starte?)\s+"
-               r"(?:d(?:as|en|ie)\s+)?radio(?:sender)?\s+(.+)$"),
+               r"(?:d(?:as|en|ie)\s+)?radio(?:sender)?\s+"
+               r"(?!(?:an|auf|ab)\s*$)(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
     "choose_number": c(r"(?:spiel(?:e)?|nimm|w(?:ä|ae)hl(?:e)?)?\s*"
                        r"(?:die\s+)?nummer\s+([a-z0-9äöüß]+)\s*$"),
     # «die 2» and ordinals: «die zweite», «spiel das zweite Lied»
@@ -212,7 +246,7 @@ PATTERNS = {
                         r"d(?:ie|as|er|en)\s+([a-z0-9äöüß]+)"
                         r"(?:\s+(?:lied|song|st(?:ü|ue)ck|titel|option))?\s*$"),
     "local_prefix": c(rf"{_LOCAL}\s+(?:spiel(?:e)?\s+|leg(?:e)?\s+)?(.+)$"),
-    "local_suffix": c(rf"(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+(.+?)\s+"
+    "local_suffix": c(rf"\b(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+(.+?)\s+"
                       rf"{_LOCAL}\s*$"),
     "service": r"(?:von {s}|auf {s}|mit {s}|(?:ü|ue)ber {s})\s+(?:spiel(?:e)?\s+|leg(?:e)?\s+)?(.+)$",
     "albums_list": c(r"welch\w*\s.{0,20}alben.{0,20}?\bvon\s+(.+)$"),
@@ -223,22 +257,39 @@ PATTERNS = {
     "name_pick": c(r"(?:(?:ich\s+(?:will|m(?:ö|oe)chte)|spiel(?:e|en)?|nimm"
                    r"|w(?:ä|ae)hl(?:e)?|leg(?:e)?|starte?|mach(?:e)?)\s+)?"
                    r"(.+)$"),
-    "album": c(r"(?:spiel(?:e|en)?|leg(?:e)?|starte?|mach(?:e)?)\s+"
-               r"(?:d(?:as|ie|en)\s+)?album\s+(.+)$"),
-    "playlist": c(r"(?:spiel(?:e|en)?|leg(?:e)?|starte?|mach(?:e)?)\s+"
-                  r"(?:d(?:ie|as)\s+)?playlist\s+(.+)$"),
+    # The three named-thing steps all list the separable verbs, so all three
+    # need the particle taken back off: «leg das Album Nevermind auf» named
+    # an album called "Nevermind auf", and nothing downstream strips it — it
+    # went into the LMS search and dragged every score down. The trailing
+    # group is optional and lazy-bounded, so the plain forms are untouched.
+    # It costs an album or artist whose name really ends in «an»/«auf»/«ab»,
+    # which is the same trade ``generic_play_suffix`` already makes and the
+    # opposite of the one ``generic_play`` makes — there, the plain verbs are
+    # alone, so nothing has to be given up at all.
+    "album": c(r"\b(?:spiel(?:e|en)?|leg(?:e)?|starte?|mach(?:e)?)\s+"
+               r"(?:d(?:as|ie|en)\s+)?album\s+"
+               r"(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
+    "playlist": c(r"\b(?:spiel(?:e|en)?|leg(?:e)?|starte?|mach(?:e)?)\s+"
+                  r"(?:d(?:ie|as)\s+)?playlist\s+"
+                  r"(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
     # Only «von» introduces the artist, and only behind a word that says a
     # person is coming: «spiel Musik von X», never a bare «von» — half the
     # German song titles in a library contain one.
-    "artist": c(r"(?:spiel(?:e|en)?|leg(?:e)?|starte?|mach(?:e)?)\s+"
+    "artist": c(r"\b(?:spiel(?:e|en)?|leg(?:e)?|starte?|mach(?:e)?)\s+"
                 r"(?:(?:etwas|was|alles|nur)\s+von"
                 r"|(?:d(?:ie|as)\s+)?(?:musik|lieder|songs|titel|st(?:ü|ue)cke)"
                 r"\s+von"
-                r"|d(?:en|ie)\s+k(?:ü|ue)nstler(?:in)?)\s+(.+)$"),
+                r"|d(?:en|ie)\s+k(?:ü|ue)nstler(?:in)?)\s+"
+                r"(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
     # No «leg»/«mach» here: those are separable and land in the suffix form
     # below, which is the only one that strips the particle. See the module
     # docstring — this is what lets «spiel Wach Auf» keep its "auf".
-    "generic_play": c(r"(?:spiel(?:e|en)?|abspielen|starte?"
+    # The \b is load-bearing in German in a way it is not in the other two
+    # packs: the verbs compound. Without it «hör» matched inside «gehöre» and
+    # «start» inside «Neustart», so a bare title reaching this step — which
+    # is how a pick from an open list arrives — searched for its own tail:
+    # «Ich gehöre nur mir» looked for "nur mir".
+    "generic_play": c(r"\b(?:spiel(?:e|en)?|abspielen|starte?"
                       r"|h(?:ö|oe)r(?:e)?)\s+(.+)$"),
     # Separable/split forms: «leg Time auf», «mach die Musik an», «ich möchte
     # Time hören».
@@ -255,113 +306,4 @@ PATTERNS = {
                     r"|was\s+ist\s+(?:gesperrt|blockiert)"
                     r"|(?:zeige?|liste)\w*\s+(?:die\s+)?"
                     r"(?:gesperrten|blockierten))"),
-}
-
-# Spoken tail -> mood key. Keys are written already NORMALIZED — lowercase,
-# umlauts folded, ``ß`` written ``ss`` — because the lookup is a dict hit on
-# the normalized tail (tests/test_moods.py enforces it). «fröhlich» is spelled
-# "frohlich" here and still matches what the recogniser wrote. The match is on
-# the WHOLE tail: a partial one is how a song title becomes a mood.
-MOOD_WORDS = {
-    # relax
-    "entspannend": "relax", "entspannende": "relax", "entspannendes": "relax",
-    "entspannender": "relax", "entspannten": "relax", "entspannt": "relax",
-    "ruhig": "relax", "ruhige": "relax", "ruhiges": "relax", "ruhiger": "relax",
-    "zum entspannen": "relax", "chillige": "relax", "chillig": "relax", "chilliges": "relax",
-    "chill": "relax", "gemutlich": "relax", "gemutliche": "relax",
-    "gemutliches": "relax", "sanft": "relax", "sanfte": "relax",
-    "sanftes": "relax",
-    # sleep
-    "zum einschlafen": "sleep", "zum schlafen": "sleep",
-    "fur die nacht": "sleep", "zum schlafengehen": "sleep",
-    "einschlafmusik": "sleep", "schlafmusik": "sleep",
-    "fur den schlaf": "sleep",
-    # dinner
-    "zum essen": "dinner", "zum abendessen": "dinner",
-    "fur das abendessen": "dinner", "furs abendessen": "dinner",
-    "fur das essen": "dinner", "furs essen": "dinner",
-    "zum mittagessen": "dinner", "zum dinner": "dinner",
-    # party
-    "fur die party": "party", "fur eine party": "party", "party": "party",
-    "zum feiern": "party", "zum tanzen": "party", "partymusik": "party",
-    "tanzbare": "party", "tanzbar": "party",
-    # happy
-    "frohlich": "happy", "frohliche": "happy", "frohliches": "happy",
-    "gute laune": "happy", "fur gute laune": "happy", "gutelaunemusik": "happy",
-    "lustig": "happy", "lustige": "happy", "lustiges": "happy",
-    "heiter": "happy",
-    "heitere": "happy", "heiteres": "happy",
-    "beschwingt": "happy", "beschwingte": "happy", "beschwingtes": "happy",
-    # energetic
-    "energiegeladen": "energetic", "energiegeladene": "energetic",
-    "energiegeladenes": "energetic",
-    "energisch": "energetic", "energische": "energetic",
-    "energisches": "energetic",
-    "zum sport": "energetic", "furs training": "energetic",
-    "fur das training": "energetic", "zum joggen": "energetic",
-    "zum laufen": "energetic", "fur das fitnessstudio": "energetic",
-    "furs fitnessstudio": "energetic", "schwungvoll": "energetic",
-    # focus
-    "zum lernen": "focus", "zum arbeiten": "focus", "zum lesen": "focus",
-    "zum konzentrieren": "focus", "fur die konzentration": "focus",
-    "furs lernen": "focus", "furs arbeiten": "focus",
-    # background
-    "im hintergrund": "background", "als hintergrund": "background",
-    "hintergrundmusik": "background", "hintergrund": "background",
-    "nebenbei": "background", "leise": "background", "unaufdringlich": "background",
-    "leichte": "background", "zum nebenbeihoren": "background",
-    # romantic
-    "romantisch": "romantic", "romantische": "romantic",
-    "romantisches": "romantic", "fur ein date": "romantic",
-    "fur verliebte": "romantic", "zum verlieben": "romantic",
-    "sinnlich": "romantic", "sinnliche": "romantic", "sinnliches": "romantic",
-    # melancholy
-    "traurig": "melancholy", "traurige": "melancholy",
-    "trauriges": "melancholy", "melancholisch": "melancholy",
-    "melancholische": "melancholy", "melancholisches": "melancholy",
-    "nachdenklich": "melancholy",
-    "nachdenkliche": "melancholy", "nachdenkliches": "melancholy",
-    "wehmutig": "melancholy", "wehmutige": "melancholy",
-    "zum weinen": "melancholy", "fur einen regentag": "melancholy",
-    # morning
-    "fur den morgen": "morning", "zum aufwachen": "morning",
-    "zum fruhstuck": "morning", "furs fruhstuck": "morning",
-    "morgenmusik": "morning", "am morgen": "morning",
-    "fur den start in den tag": "morning",
-    # genre-shaped
-    "klassik": "classical", "klassische": "classical",
-    "klassisches": "classical",
-    "klassische musik": "classical", "klassisch": "classical",
-    "oper": "classical", "barock": "classical",
-    "jazz": "jazz", "jazzige": "jazz", "jazzig": "jazz", "jazziges": "jazz",
-    "rock": "rock", "rockig": "rock", "rockige": "rock", "rockiges": "rock",
-    "harter rock": "rock",
-    "blues": "blues", "bluesig": "blues", "bluesige": "blues",
-    "bluesiges": "blues",
-    # Metadata axes (T2.4-bis). Adjectives and phrases, never the bare noun:
-    # «Weihnachten» and «Sommer» are both song titles a German library really
-    # has, and every entry here widens the set of tails that stop being one.
-    "weihnachtlich": "christmas", "weihnachtliche": "christmas",
-    "weihnachtliches": "christmas", "weihnachtsmusik": "christmas",
-    "zu weihnachten": "christmas",
-    "fur weihnachten": "christmas",
-    "instrumental": "instrumental", "instrumentale": "instrumental",
-    "instrumentales": "instrumental",
-    "ohne gesang": "instrumental", "ohne worte": "instrumental",
-    "sommerlich": "summer", "sommerliche": "summer",
-    "sommerliches": "summer", "sommermusik": "summer",
-    # Decades. A bare «achtziger» needs the marker noun in front of it to get
-    # here at all, which is what keeps «spiel Achtziger» a search.
-    "sechziger": "sixties", "sechziger jahre": "sixties",
-    "aus den sechzigern": "sixties", "aus den 60ern": "sixties",
-    "60er": "sixties", "die 60er": "sixties",
-    "siebziger": "seventies", "siebziger jahre": "seventies",
-    "aus den siebzigern": "seventies", "aus den 70ern": "seventies",
-    "70er": "seventies", "die 70er": "seventies",
-    "achtziger": "eighties", "achtziger jahre": "eighties",
-    "aus den achtzigern": "eighties", "aus den 80ern": "eighties",
-    "80er": "eighties", "die 80er": "eighties",
-    "neunziger": "nineties", "neunziger jahre": "nineties",
-    "aus den neunzigern": "nineties", "aus den 90ern": "nineties",
-    "90er": "nineties", "die 90er": "nineties",
 }

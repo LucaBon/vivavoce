@@ -40,8 +40,13 @@ def _as_number(token, ordinals=False):
 def _parse_minutes(tail):
     """A spoken duration ('30 minuti', "mezz'ora", 'an hour') -> minutes, or
     None when the tail isn't a duration (then the phrase wasn't a sleep
-    command and routing falls through). Tries every language's DURATIONS:
-    the patterns are language-disjoint, so the order across packs is moot."""
+    command and routing falls through). Tries every language's DURATIONS in
+    pack order. Those patterns are *mostly* language-disjoint; the generic
+    minute form is not — German's ``30 minuten`` and Italian's ``30 minuti``
+    are the same regex once ``minut`` plus a wildcard has done its work, so
+    whichever pack
+    comes first answers. It reads the token through the merged MINUTE_WORDS
+    table either way, so the two paths cannot disagree."""
     t = (tail or "").strip().lower()
     for pack in PACKS.values():
         for pattern, spec in pack.DURATIONS:

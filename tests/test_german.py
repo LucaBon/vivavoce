@@ -185,6 +185,121 @@ def test_play_title_containing_transport_word_de(router, transport, make_tidal):
     assert ["pause", "1"] not in transport.commands()
 
 
+# -- the separable verb, and the six ways it went wrong -----------------------
+#
+# Every test in this block was a defect found in review of the pack's first
+# draft. They share one cause: German writes the second half of the verb after
+# the object, so any pattern that captures "everything to the end" captures a
+# word that is grammar, not a name — and any gate that looks for that half
+# near the verb is really a length limit on titles.
+
+def test_a_long_title_does_not_reopen_the_transport_block(router, transport,
+                                                          make_tidal):
+    """`is_play` measured the distance from «mach» to «an» in characters, so
+    «mach die Playlist Zurück in die Zukunft an» — 32 of them — read as no
+    play command at all, and «zurück» skipped to the previous track."""
+    transport.responses["playlists"] = {"playlists_loop": [
+        {"id": "p1", "playlist": "Zurück in die Zukunft"}]}
+    router.handle("mach die Playlist Zurück in die Zukunft an",
+                  source="tidal", lang="de")
+    assert ["playlist", "index", "-1"] not in transport.commands()
+
+
+@pytest.mark.parametrize(
+    "phrase, wanted",
+    [("mach das Album Dark Side an", "Dark Side"),
+     ("leg das Album Nevermind auf", "Nevermind")],
+)
+def test_the_album_name_does_not_keep_the_particle(router, transport,
+                                                   make_tidal, phrase, wanted):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Albums": "A"},
+        items={"A": [{"id": "alb1", "name": wanted, "hasitems": 1}]},
+    )
+    assert router.handle(phrase, source="tidal",
+                         lang="de") == f"Ich spiele das Album {wanted} von TIDAL."
+
+
+def test_the_playlist_name_does_not_keep_the_particle(router, transport, make_tidal):
+    # Asserted through the miss, which echoes the name back: what is on trial
+    # is the capture, and a "not found" says it exactly.
+    transport.responses["tidal"] = make_tidal(categories={"Playlists": "P"},
+                                              items={"P": []})
+    speech = router.handle("leg die Playlist Chill auf", source="tidal", lang="de")
+    assert speech == "Ich habe die Playlist Chill nicht gefunden."
+
+
+def test_the_artist_name_does_not_keep_the_particle(router, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Artists": "Ar"},
+        items={"Ar": [{"id": "a1", "name": "Nena", "hasitems": 1}],
+               "a1": [{"id": "tt", "name": "Top Tracks", "hasitems": 1}],
+               "tt": [{"isaudio": 1, "url": "tidal://6.flc", "name": "99 Luftballons"}]},
+    )
+    router.handle("spiel Musik von Nena an", source="tidal", lang="de")
+    assert ["playlist", "play", "tidal://6.flc"] in transport.commands()
+
+
+@pytest.mark.parametrize("phrase", ["mach die Musik an", "mach das Radio an",
+                                    "mach die Anlage an"])
+def test_turning_the_music_on_is_a_resume_not_a_search(router, transport, phrase):
+    """«mach die Musik an» names nothing: it is the German for pressing ▶.
+    Read as a request it searched the library for the word «Musik», and
+    «mach das Radio an» asked the favorites for a station called "an"."""
+    assert router.handle(phrase, lang="de") == "Ich spiele weiter."
+    assert transport.last_call()[1] == ["pause", "0"]
+
+
+@pytest.mark.parametrize("phrase", ["spiel das Radio SWR3",
+                                   "mach das Radio SWR3 an"])
+def test_a_named_radio_station_still_reaches_the_radio_step(router, transport,
+                                                            phrase):
+    # Same shape as the playlist test: the miss quotes the station name, so it
+    # proves the particle came off without needing a favorites feed.
+    assert router.handle(phrase, lang="de") == (
+        "Ich habe keinen Radiosender namens SWR3 in deinen Favoriten gefunden.")
+
+
+@pytest.mark.parametrize("phrase", ["hör auf", "hör bitte auf"])
+def test_hoer_auf_stops_instead_of_playing_a_song_called_auf(router, transport,
+                                                             phrase):
+    """The commonest German "stop" carries a play verb, so the is_play gate
+    kept ``pause`` from ever seeing it and the phrase went looking for «auf»."""
+    assert router.handle(phrase, lang="de") == "Pausiert."
+
+
+def test_a_title_that_merely_contains_auf_still_plays(router, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://2.flc",
+                      "name": "Hör auf dein Herz"}]},
+    )
+    router.handle("spiel Hör auf dein Herz", source="tidal", lang="de")
+    assert ["playlist", "play", "tidal://2.flc"] in transport.commands()
+    assert ["pause", "1"] not in transport.commands()
+
+
+@pytest.mark.parametrize(
+    "title, stolen",
+    [("Ich gehöre nur mir", "nur mir"),      # «hör» lives inside «gehöre»
+     ("Neustart der Nacht", "der Nacht")],   # «start» inside «Neustart»
+)
+def test_a_play_verb_does_not_match_inside_a_word(router, transport, make_tidal,
+                                                  title, stolen):
+    """German compounds put the verbs inside other words. Without a word
+    boundary, a phrase carrying no play command at all matched ``generic_play``
+    on a substring and searched for its own tail — «Ich gehöre nur mir» went
+    looking for "nur mir". With one, the phrase names no command and the
+    router says so, which is the same thing Italian and English do with a
+    bare title and no open list."""
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": []})
+    speech = router.handle(title, source="tidal", lang="de")
+    assert speech.startswith("Das habe ich nicht verstanden.")
+    assert stolen not in speech
+    assert transport.commands() == []
+
+
 # -- playback + German replies ------------------------------------------------
 def test_play_song_de_reply(router, transport, make_tidal):
     transport.responses["tidal"] = make_tidal(
