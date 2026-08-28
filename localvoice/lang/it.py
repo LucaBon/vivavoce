@@ -4,41 +4,17 @@
 from __future__ import annotations
 
 from .base import c
+# Spoken tail -> mood key: a word list, not grammar, so it has a module of
+# its own. Imported (not just referenced) because the pack contract in
+# ``base.py`` asks the *pack* for MOOD_WORDS.
+from .moods_it import MOOD_WORDS  # noqa: F401
+# Spoken numbers and durations, same reasoning — see numbers_it.py.
+from .numbers_it import (  # noqa: F401
+    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "it"
-
-# Web Speech transcribes a spoken position as a word ("tre"), not "3".
-NUM_WORDS = {
-    "uno": 1, "un": 1, "una": 1, "due": 2, "tre": 3, "quattro": 4, "cinque": 5,
-    "sei": 6, "sette": 7, "otto": 8, "nove": 9, "dieci": 10,
-}
-
-# People answer a read-out list with "la seconda" at least as often as with
-# the bare number (see the router for how ordinals are gated on an open list).
-ORDINAL_WORDS = {
-    "primo": 1, "prima": 1, "secondo": 2, "seconda": 2, "terzo": 3, "terza": 3,
-    "quarto": 4, "quarta": 4, "quinto": 5, "quinta": 5, "sesto": 6, "sesta": 6,
-    "settimo": 7, "settima": 7, "ottavo": 8, "ottava": 8, "nono": 9, "nona": 9,
-    "decimo": 10, "decima": 10,
-}
-
-# Durations go beyond list positions: the sleep timer needs the spoken tens too
-# («spegni tra trenta minuti»).
-MINUTE_WORDS = dict(NUM_WORDS)
-MINUTE_WORDS.update({
-    "quindici": 15, "venti": 20, "trenta": 30, "quaranta": 40,
-    "cinquanta": 50, "sessanta": 60, "novanta": 90,
-})
-
-# The tail of a sleep command ("spegni tra <tail>"), most specific first.
-DURATIONS = (
-    (c(r"^mezz\W?ora\b"), 30),
-    (c(r"^(?:un|1)\W?\s*ora\b"), 60),
-    (c(r"^(\d+|[a-zà-ù]+)\s*ore\b"), "hours"),
-    (c(r"^(\d+|[a-zà-ù]+)\s*(?:minut\w*|min\b)"), "minutes"),
-)
-
-_LOCAL = r"(?:dalla mia musica|dal disco|in locale|dalla libreria)"
+# The closed word lists these patterns are built from.
+from .words_it import _LOCAL  # noqa: F401
 
 # One entry per routing step; the handle() flow is identical across languages.
 # ``service`` is a template expanded per streaming service name.
@@ -123,6 +99,15 @@ PATTERNS = {
     "local_prefix": c(rf"{_LOCAL}\s+(?:metti\s+|riproduci\s+)?(.+)$"),
     "local_suffix": c(rf"(?:metti|riproduci|suona)\s+(.+?)\s+{_LOCAL}\s*$"),
     "service": r"(?:da {s}|su {s}|con {s})\s+(?:metti\s+|riproduci\s+)?(.+)$",
+    # The same override said the other way round — «metti X da Qobuz» — which
+    # is where the naming goes when the sentence is spoken rather than typed,
+    # and the only shape the prefix form cannot read. Without it the phrase
+    # fell through to the source selector and was answered by the DEFAULT
+    # service, so naming a service out loud did nothing at all. Paired with
+    # ``service`` exactly as ``local_suffix`` is paired with ``local_prefix``,
+    # verb and all: a title is not a command, and «X da Qobuz» on its own
+    # reaches no play branch either.
+    "service_suffix": r"(?:metti|riproduci|suona)\s+(.+?)\s+(?:da|su|con) {s}\s*$",
     "albums_list": c(r"(?:quali|che).{0,12}album.{0,4}di\s+(.+)$"),
     "toptracks": c(r"(?:quali.{0,10}brani|top tracks|brani.{0,15}ascoltati).*?di\s+(.+)$"),
     "name_pick": c(r"(?:(?:voglio\s+ascoltare|fai\s+partire|metti|scegli|riproduci|suona|voglio)\s+)?(.+)$"),
@@ -142,95 +127,4 @@ PATTERNS = {
     "block_remove": c(r"^sblocca\s+(.+)$"),
     "block_list": c(r"^(?:(?:quali|che)\s+(?:brani|canzoni)\s+sono\s+bloccat|"
                     r"cosa\s+(?:è|e)\s+bloccat|lista\s+(?:dei\s+)?bloccat)"),
-}
-
-# Spoken tail -> mood key (the table in engine/moods.py). Keys are written
-# already normalized — lowercase, no accents, no apostrophes ("damore", not
-# "d'amore") — because the lookup is a dict hit on the normalized tail, and
-# tests/test_moods.py enforces it. The match is on the WHOLE tail: a partial
-# one is exactly how a song title would become a mood.
-MOOD_WORDS = {
-    # relax
-    "rilassante": "relax", "rilassanti": "relax", "rilassata": "relax",
-    "rilassato": "relax", "tranquillo": "relax", "tranquilla": "relax",
-    "calmo": "relax", "calma": "relax", "chill": "relax", "relax": "relax",
-    "per rilassarmi": "relax", "per rilassarsi": "relax",
-    "distensiva": "relax", "soft": "relax",
-    # sleep
-    "per dormire": "sleep", "per addormentarmi": "sleep",
-    "per prendere sonno": "sleep", "per la notte": "sleep",
-    "della buonanotte": "sleep", "per far dormire i bambini": "sleep",
-    # dinner
-    "per cena": "dinner", "per la cena": "dinner", "a cena": "dinner",
-    "da cena": "dinner", "per mangiare": "dinner", "per pranzo": "dinner",
-    "per il pranzo": "dinner", "per la tavola": "dinner",
-    # party
-    "per la festa": "party", "per una festa": "party", "da festa": "party",
-    "festa": "party", "per ballare": "party", "per fare festa": "party",
-    "da ballare": "party",
-    # happy
-    "allegro": "happy", "allegra": "happy", "allegre": "happy",
-    "di buonumore": "happy", "buonumore": "happy", "spensierata": "happy", "spensierato": "happy",
-    "solare": "happy", "che tiri su": "happy", "divertente": "happy",
-    # energetic
-    "energico": "energetic", "energica": "energetic", "carico": "energetic",
-    "carica": "energetic", "per allenarmi": "energetic",
-    "per correre": "energetic", "per la palestra": "energetic",
-    "per fare sport": "energetic", "grintoso": "energetic",
-    "grintosa": "energetic", "movimentata": "energetic",
-    # focus
-    "per studiare": "focus", "per lavorare": "focus",
-    "per concentrarmi": "focus", "per leggere": "focus",
-    "da studio": "focus", "per la concentrazione": "focus",
-    # background
-    "di sottofondo": "background", "in sottofondo": "background",
-    "come sottofondo": "background", "sottofondo": "background",
-    "leggera": "background", "leggero": "background",
-    "di accompagnamento": "background", "accompagnamento": "background",
-    "di atmosfera": "background", "atmosfera": "background",
-    # romantic
-    "romantico": "romantic", "romantica": "romantic", "damore": "romantic",
-    "per una serata romantica": "romantic", "per innamorati": "romantic",
-    "sensuale": "romantic",
-    # melancholy
-    "malinconico": "melancholy", "malinconica": "melancholy",
-    "triste": "melancholy", "nostalgico": "melancholy",
-    "nostalgica": "melancholy", "struggente": "melancholy",
-    "per piangere": "melancholy",
-    # morning
-    "per la colazione": "morning", "per svegliarmi": "morning",
-    "del mattino": "morning", "mattutina": "morning",
-    "per la mattina": "morning", "per iniziare la giornata": "morning",
-    # genre-shaped
-    "classica": "classical", "classico": "classical",
-    "musica classica": "classical", "lirica": "classical",
-    "operistica": "classical",
-    "jazz": "jazz", "jazzistica": "jazz",
-    "rock": "rock", "rock duro": "rock", "hard rock": "rock",
-    "blues": "blues",
-    # Metadata axes (T2.4-bis). Adjectives and phrases only, never the bare
-    # noun: «natale» on its own is «Bianco Natale» and «estate» is Vivaldi and
-    # De André at once, and every entry here widens the set of tails that stop
-    # being a title. "di natale" is deliberately absent and would be dead
-    # anyway — the pattern eats the "di", so «metti musica di natale» arrives
-    # here as the bare "natale", which is exactly the entry we refuse to have.
-    "natalizia": "christmas", "natalizie": "christmas",
-    "natalizio": "christmas", "per natale": "christmas",
-    "strumentale": "instrumental", "strumentali": "instrumental",
-    "senza parole": "instrumental",
-    "estivo": "summer", "estiva": "summer", "da spiaggia": "summer",
-    # Decades. A bare "anni ottanta" needs the marker noun in front of it to
-    # get here at all, which is what keeps «metti Anni 60» a search.
-    "anni sessanta": "sixties", "anni 60": "sixties",
-    "degli anni sessanta": "sixties", "dagli anni sessanta": "sixties",
-    "degli anni 60": "sixties", "dagli anni 60": "sixties",
-    "anni settanta": "seventies", "anni 70": "seventies",
-    "degli anni settanta": "seventies", "dagli anni settanta": "seventies",
-    "degli anni 70": "seventies", "dagli anni 70": "seventies",
-    "anni ottanta": "eighties", "anni 80": "eighties",
-    "degli anni ottanta": "eighties", "dagli anni ottanta": "eighties",
-    "degli anni 80": "eighties", "dagli anni 80": "eighties",
-    "anni novanta": "nineties", "anni 90": "nineties",
-    "degli anni novanta": "nineties", "dagli anni novanta": "nineties",
-    "degli anni 90": "nineties", "dagli anni 90": "nineties",
 }

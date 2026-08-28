@@ -141,6 +141,53 @@ NEW_PHRASES_EN = [
     ("play some seventies music", "seventies"),
 ]
 
+# German, where the mood may sit on either side of the marker noun: «etwas
+# Entspannendes» puts it after, «etwas entspannende Musik» before. Both shapes
+# are here on purpose - the pattern has to reach the tail through a trailing
+# «Musik»/«Lieder», and the separable verb has to find its own particle
+# («mach ... an») without it landing in the lookup.
+NEW_PHRASES_DE = [
+    ("spiel etwas Entspannendes", "relax"),
+    ("spiel etwas entspannende Musik", "relax"),
+    ("mach Musik für die Party an", "party"),
+    ("spiel Musik zum Einschlafen", "sleep"),
+    ("spiel etwas Fröhliches", "happy"),
+    ("spiel Musik zum Lernen", "focus"),
+    ("spiel etwas weihnachtliche Musik", "christmas"),
+    ("spiel Musik zu Weihnachten", "christmas"),
+    ("spiel etwas Instrumentales", "instrumental"),
+    ("spiel etwas ohne Gesang", "instrumental"),
+    ("spiel etwas Sommerliches", "summer"),
+    ("spiel Musik aus den Achtzigern", "eighties"),
+    ("spiel etwas aus den 80ern", "eighties"),
+    ("spiel Musik aus den Sechzigern", "sixties"),
+    ("spiel etwas Klassisches", "classical"),
+]
+
+
+NEW_PHRASES_FR = [
+    ("mets quelque chose de relaxant", "relax"),
+    ("mets de la musique douce", "relax"),
+    ("mets de la musique pour dormir", "sleep"),
+    ("mets de la musique pour la fête", "party"),
+    ("mets quelque chose de joyeux", "happy"),
+    ("mets de la musique pour travailler", "focus"),
+    ("mets quelque chose d'instrumental", "instrumental"),
+    ("mets de la musique sans paroles", "instrumental"),
+    ("mets quelque chose de triste", "melancholy"),
+    ("mets de la musique pour les fêtes", "christmas"),
+    ("mets quelque chose de classique", "classical"),
+    ("mets un peu de jazz", "jazz"),
+    ("mets de la musique des années 80", "eighties"),
+    ("mets des chansons des années quatre vingt dix", "nineties"),
+    ("mets quelque chose d'estival", "summer"),
+    # The politeness tail, which no other language has to survive here: it
+    # lands after the mood word, so «douce s'il te plaît» is what the table
+    # would have been asked about.
+    ("mets de la musique douce s'il te plaît", "relax"),
+    ("mets quelque chose de relaxant stp", "relax"),
+]
+
 
 def resolved(phrase, code):
     """The mood key a spoken phrase really produces - both filters, in the
@@ -160,6 +207,52 @@ def test_the_new_italian_phrases_reach_their_mood(phrase, key):
 @pytest.mark.parametrize("phrase,key", NEW_PHRASES_EN)
 def test_the_new_english_phrases_reach_their_mood(phrase, key):
     assert resolved(phrase, "en") == key
+
+
+@pytest.mark.parametrize("phrase,key", NEW_PHRASES_DE)
+def test_the_new_german_phrases_reach_their_mood(phrase, key):
+    assert resolved(phrase, "de") == key
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    # The anchor and the marker noun, in German. Each of these carries a mood
+    # word and asks for something else entirely; a pattern without ^ or
+    # without the marker starts the music on all four.
+    ["mach die Musik aus",
+     "stopp die entspannende Musik",
+     "ich will keine traurige Musik",
+     "blockiere traurige Musik"],
+)
+def test_a_german_phrase_that_is_not_a_request_to_play(phrase):
+    assert resolved(phrase, "de") is None
+
+
+@pytest.mark.parametrize("phrase,key", NEW_PHRASES_FR)
+def test_the_new_french_phrases_reach_their_mood(phrase, key):
+    assert resolved(phrase, "fr") == key
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    # The anchor and the marker noun, in French. Each of these carries a mood
+    # word and asks for something else entirely.
+    ["coupe la musique",
+     "arrête la musique classique",
+     "je ne veux pas de musique triste",
+     "bloque la musique triste"],
+)
+def test_a_french_phrase_that_is_not_a_request_to_play(phrase):
+    assert resolved(phrase, "fr") is None
+
+
+def test_a_french_christmas_request_needs_pour_not_de():
+    """The mood pattern eats the «de», so «de la musique de Noël» arrives at
+    the table as the bare "noel" — which is the one entry the table must not
+    have, because «Petit Papa Noël» is a title. moods_it.py records the same
+    shape for «di natale». «pour Noël» is the form that works."""
+    assert resolved("mets de la musique de Noël", "fr") is None
+    assert resolved("mets de la musique pour Noël", "fr") == "christmas"
 
 
 @pytest.mark.parametrize("code", sorted(PACKS))
@@ -521,10 +614,15 @@ def test_a_named_song_is_not_a_mood(router, library, make_tidal):
     assert not any(cmd[0] == "genres" for cmd in library.commands())
 
 
-def test_a_named_artist_clears_the_marker_and_still_is_not_a_mood(router, library):
+def test_a_named_artist_clears_the_marker_and_still_is_not_a_mood(router, library,
+                                                                  make_tidal):
     # «metti la musica di Vasco Rossi» DOES match the mood pattern — "la
     # musica" is the marker. The second filter is what saves it: "vasco rossi"
     # is not a mood word, so it goes on to the artist path untouched.
+    # The service is wired and answers nothing, which is the case this asserts
+    # on: a service that isn't wired at all is a service nobody is logged in
+    # to, and that has its own answer now (see test_service_fallback.py).
+    library.responses["tidal"] = make_tidal(categories={}, items={})
     pack = PACKS["it"]
     assert pack.PATTERNS["mood"].search("metti la musica di Vasco Rossi")
     reply = router.handle("metti la musica di Vasco Rossi")
@@ -604,11 +702,13 @@ def test_pausing_still_pauses(router, library):
     ("riproduci la playlist Musica Rilassante",
      "Non ho trovato la playlist Musica Rilassante."),
 ])
-def test_a_request_that_names_what_it_wants_keeps_it(router, library, phrase,
-                                                     expected):
+def test_a_request_that_names_what_it_wants_keeps_it(router, library, make_tidal,
+                                                     phrase, expected):
     # "Musica Rilassante" is what people actually call their own playlists, and
     # the listener said the word "album"/"playlist": the request is identified
-    # by definition, so the mood must not take it.
+    # by definition, so the mood must not take it. A connected service that
+    # holds neither is what makes "non ho trovato" the honest answer here.
+    library.responses["tidal"] = make_tidal(categories={}, items={})
     assert str(router.handle(phrase)) == expected
     assert router.mood is None
 

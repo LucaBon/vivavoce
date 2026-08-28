@@ -21,7 +21,8 @@ import actions
 import moods
 from conversation import MOOD_TTL
 from messages import msg
-from parsing import _as_number, _parse_minutes, _service_re, _source_suffix
+from parsing import (_as_number, _parse_minutes, _service_label, _service_re,
+                     _source_suffix)
 
 
 class IntentTable:
@@ -201,10 +202,23 @@ class IntentTable:
             return self._played(actions.play_local(self.lms, m.group(1).strip(),
                                                    guard=self._guard), "local")
         for service in self.services:
-            m = re.search(P["service"].format(s=_service_re(service)), t, re.I)
+            sound = _service_re(service)
+            # Both word orders: «da Qobuz metti X» and «metti X da Qobuz».
+            m = (re.search(P["service"].format(s=sound), t, re.I)
+                 or re.search(P["service_suffix"].format(s=sound), t, re.I))
             if m:
-                res = actions.play_song(self.lms.for_service(service),
-                                        m.group(1).strip(), guard=self._guard)
+                stream = self.lms.for_service(service)
+                res = actions.play_song(stream, m.group(1).strip(),
+                                        guard=self._guard)
+                if not stream.can_search():
+                    # Named outright, so nothing is substituted for it: the
+                    # answer names the service the user asked for. (The
+                    # selector's silent fall-through to a connected service
+                    # lives in Router._stream_name, and is only right where
+                    # the user expressed no preference.)
+                    return self._if_searched(
+                        res, msg("service_offline",
+                                 service=_service_label(service)))
                 return self._played(self._tag(res, _source_suffix(service)), service)
 
         # 4) lists that open a numbered choice
@@ -215,10 +229,12 @@ class IntentTable:
                                           guard=self._guard), "local")
         m = P["toptracks"].search(t)
         if m:  # top tracks -> streaming (selected or default service)
-            return self._remember(
-                actions.top_tracks_list(self._stream(source), m.group(1).strip(),
-                                        guard=self._guard),
-                self._stream_name(source))
+            stream, name, offline = self._streaming(source)
+            res = actions.top_tracks_list(stream, m.group(1).strip(),
+                                          guard=self._guard)
+            if offline:
+                return self._if_searched(res, msg("no_service_online"))
+            return self._remember(res, name)
 
         # 4b) name-based choice from the last read-out list (only while a list is
         # open). "metti Supernatural" / "play Supernatural" / bare "Supernatural"
@@ -251,11 +267,12 @@ class IntentTable:
         # 6) playlist (streaming: selected or default service)
         m = P["playlist"].search(t)
         if m:
-            name = self._stream_name(source)
-            return self._tag(
-                actions.play_playlist(self.lms.for_service(name),
-                                      m.group(1).strip(), guard=self._guard),
-                _source_suffix(name))
+            stream, name, offline = self._streaming(source)
+            res = actions.play_playlist(stream, m.group(1).strip(),
+                                        guard=self._guard)
+            if offline:
+                return self._if_searched(res, msg("no_service_online"))
+            return self._tag(res, _source_suffix(name))
 
         # 7) artist — streaming or local per selector
         m = P["artist"].search(t)

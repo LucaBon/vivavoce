@@ -4,7 +4,7 @@
 
 > Say **«metti Comfortably Numb dei Pink Floyd»** — and the *exact* song plays on your hi-fi.
 
-**Hands-free voice control — in Italian or English — for a [Daphile](https://www.daphile.com/) /
+**Hands-free voice control — in Italian, English, French or German — for a [Daphile](https://www.daphile.com/) /
 [Lyrion Music Server](https://lyrion.org/) (LMS / Squeezebox) system — TIDAL and
 Qobuz included.**
 No cloud required, no LLM, no compromise on sound: Vivavoce sends **only control
@@ -43,7 +43,7 @@ unlocks the hands-free features and funds development:
 | Free | Pro (one-time license) |
 |---|---|
 | Typed commands (the text box, works on every device over plain HTTP) | 🎙️ **Microphone** tap-to-talk |
-| All search & playback: local library, TIDAL, Qobuz, "did you mean" with tappable choices | 🪄 **Wake word** («vivavoce metti Time») |
+| All search & playback: local library, TIDAL, Qobuz, Spotify, "did you mean" with tappable choices | 🪄 **Wake word** («vivavoce metti Time») |
 | Transport, volume slider, sleep timer, now-playing panel with artwork | 🌍 **Multilingual read-back voices** |
 | Docker / Home Assistant app / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side for every device *asking Vivavoce*[^kidsafe] |
 | Updates | 🛋️ **Multi-room**: room selector + «metti X **in cucina**» voice targeting |
@@ -81,7 +81,7 @@ no LLM), so behaviour is testable and repeatable.
 |---|---|
 | 🧠 **Title / artist / album parsing** | "metti Comfortably Numb **dei** Pink Floyd" → title + artist; "… **dall'album** X" → album. |
 | 🎯 **Artist-aware ranking** | Streaming results are read in *menu mode*, which carries the **artist** — so among three "Comfortably Numb" it plays *Pink Floyd's* edition and confirms it out loud. |
-| 🎼 **Two streaming services** | **TIDAL** and **Qobuz** (plus your local library): pick one in the page's source selector — it only lists the plugins your LMS actually has — or just say «da qobuz metti …». "Auto" tries your library first, then the default service. |
+| 🎼 **Three streaming services** | **TIDAL**, **Qobuz** and **Spotify** (plus your local library): pick one in the page's source selector — it only lists the plugins your LMS actually has — or just say «da qobuz metti …» (or «metti … da qobuz»). If one of them is logged out, the request goes to a service that isn't, and the reply says which one played. "Auto" tries your library first, then the default service. Spotify goes through the *Spotty* plugin, needs **Premium**, and is 320 kbps Ogg rather than lossless; see the caveats. |
 | ❓ **"Did you mean" (top 3)** | When genuinely different songs match, it reads back the top three and you answer «metti la 2» — the choices are also **tappable buttons**. Exact matches just play; junk never wins. |
 | 📀 **Local library scored too** | A generic word like "love" never plays an unrelated album, and "aerosmith" plays the *artist*, not a random album. |
 | 👂 **Mishearing resilience** | The web app tries the browser's alternative transcriptions until one hits (English names that it-IT often mangles). |
@@ -93,7 +93,7 @@ no LLM), so behaviour is testable and repeatable.
 
 ## Quick start — local web app
 
-Prereqs: an LMS/Daphile on the LAN with the TIDAL and/or Qobuz plugin installed
+Prereqs: an LMS/Daphile on the LAN with the TIDAL, Qobuz and/or Spotty plugin installed
 and logged in, and at least one active player.
 
 **With Docker** (Linux / NAS / Raspberry Pi — easiest, HTTPS included):
@@ -109,6 +109,14 @@ store → ⋮ → Repositories* (before Home Assistant 2026.2, when apps were ca
 add-ons: *Settings → Add-ons → Add-on store*), then install **Vivavoce** — see
 [DEPLOY.md](DEPLOY.md).
 
+**…and then talk to it through Assist**: import
+[`blueprints/vivavoce_assist.yaml`](blueprints/vivavoce_assist.yaml) and say
+«metti Comfortably Numb dei Pink Floyd» to a voice satellite, the phone app or
+the dashboard — the answer names the song that actually started. Home Assistant
+keeps everything Vivavoce doesn't claim, and uninstalling is deleting one
+automation. Setup:
+[DEPLOY.md](DEPLOY.md#home-assistant-voice--talking-to-vivavoce-through-assist).
+
 
 **Without Docker** (Python ≥ 3.9 + [uv](https://docs.astral.sh/uv/)):
 
@@ -118,11 +126,12 @@ uv run python localvoice/server.py          # auto-discovers LMS on the LAN
 # open http://<this-pc-ip>:8730 from a phone/tablet/PC on the same network
 ```
 
-Then say (or type), in Italian — or in English, after picking the mic language
-on the page (the whole UI follows):
+Then say (or type), in Italian — or in English, French or German, after
+picking the mic language on the page (the page labels are Italian or English;
+a French or German session gets its answers inside the English page):
 
 > «metti Comfortably Numb dei Pink Floyd» · «metti l'album The Wall» ·
-> «dalla mia musica metti Aerosmith» · «da qobuz metti Time» ·
+> «dalla mia musica metti Aerosmith» · «da qobuz metti Time» · «metti Time da qobuz» ·
 > «quali album ho di Yes» → «metti la 2» ·
 > «pausa» · «alza il volume» · «cosa sta suonando» ·
 > «spegni tra 30 minuti» · «metti Time in cucina»
@@ -172,9 +181,12 @@ uv run python tools/probe_lms.py --service qobuz --query "Pink Floyd"
 
 ## Honest caveats
 
-- **The voice interface speaks Italian and English.** Pick the mic language on
-  the page — commands are parsed and answered in that language, and the page
-  labels follow it too. Other languages fall back to Italian for now.
+- **The voice interface speaks Italian, English, French and German.** Pick the
+  mic language on the page — commands are parsed and answered in that language.
+  The page labels are Italian or English only, so a French or German session
+  gets its answers inside an English page. Other languages fall back to Italian
+  for now. The French and German phrasings have not yet been reviewed by a
+  native speaker.
 - **Wake-word mode on Android beeps**: the browser plays its own earcon every time
   continuous listening restarts — a platform behaviour Vivavoce can't silence
   (the app warns about it in-page).
@@ -186,10 +198,19 @@ uv run python tools/probe_lms.py --service qobuz --query "Pink Floyd"
   troubleshooting notes in DEPLOY.md. Once logged in, the stored token keeps
   working. (Vivavoce's Qobuz support itself is verified against a live
   LMS 9 + plugin-Qobuz 3.7.0.)
-- **No Spotify**: Spotify Lossless (launched Sept 2025) is not delivered to
-  third-party Connect clients, so the LMS plugin (Spotty/librespot) still gets
-  lossy Ogg Vorbis 320 kbps — pointless on a bit-perfect chain. If Spotify ever
-  opens lossless to the Connect API, a plugin path may become worth adding.
+- **Spotify is supported, and needs Spotify Premium.** Vivavoce drives it
+  through the LMS **Spotty** plugin, so «da spotify metti Comfortably Numb»
+  works like the other two — but Spotty plays through Spotify Connect, which
+  free accounts cannot use, and the plugin refuses to log in without Premium.
+  The audio is the second caveat: Spotify Lossless is not delivered to
+  third-party Connect clients, so Spotty/librespot still receives lossy Ogg
+  Vorbis 320 kbps. On a bit-perfect chain TIDAL or Qobuz is the better source,
+  and Vivavoce will not pretend otherwise — it just no longer refuses to reach
+  a service you already pay for. One behaviour differs on purpose: Spotify's
+  search answers *every* query, gibberish included, where TIDAL and Qobuz
+  return nothing. So on Spotify Vivavoce never falls back to "play the top
+  result" — for a song, an album, an artist or a playlist alike. If nothing
+  matches your words it says so instead of guessing.
 - Bit-perfect: Vivavoce sends **only commands**; ensure LMS doesn't resample to the player.
 
 ## Privacy, honestly

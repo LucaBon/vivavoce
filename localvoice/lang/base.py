@@ -10,9 +10,14 @@ state, kid-safe, multi-room); a pack owns nothing but data:
 ``PATTERNS``
     Dict of compiled regexes, one entry per routing step (see ``it.py`` for
     the canonical key list — ``tests/test_english.py`` asserts key parity
-    between languages). The ``service`` entry is a **template string**, not a
-    compiled regex: the router expands ``{s}`` per streaming service with its
-    ASR sound-alike pattern.
+    between languages). The ``service`` and ``service_suffix`` entries are
+    **template strings**, not compiled regexes: the router expands ``{s}`` per
+    streaming service with its ASR sound-alike pattern. They are one intent in
+    two word orders — the service named before the request («da Qobuz metti
+    X») or after it («metti X da Qobuz») — and a pack owes both, the way it
+    owes ``local_prefix`` and ``local_suffix``. Being templates, they are the
+    two patterns that cannot be built from the ``words_xx`` helpers: every
+    brace in them would have to survive ``str.format``.
 
 ``NUM_WORDS`` / ``ORDINAL_WORDS``
     Spoken positions -> int ("tre"/"three", "seconda"/"second"). The router
@@ -38,9 +43,28 @@ state, kid-safe, multi-room); a pack owns nothing but data:
     number or a MINUTE_WORDS token).
 
 Adding a language is adding one module with these seven names (plus its
-message catalog in ``engine/messages.py`` and a test suite modeled on
+message catalog in ``engine/catalogs/`` and a test suite modeled on
 ``tests/test_english.py``); the registry in ``__init__.py`` finds it by
-itself.
+itself. It also adds a module in ``engine/connectors/`` for the words that
+join the parts of a request — «di X», «by X», «von X», «de X» — which belong
+to one language each and to no other. All four of its tables are required,
+because nothing is shared any more and an omitted one silently turns that
+connector off for the language; the import says so, French explains there why
+the package exists, and ``tests/test_connectors.py`` fails a pack that ships
+without a module at all.
+
+**A pack module holds the grammar; the word lists live beside it.** ``xx.py``
+is ``PATTERNS`` and nothing else; ``moods_xx.py`` and ``numbers_xx.py`` hold
+the five data tables of the contract above, ``words_xx.py`` holds the closed
+sets those patterns are built from, and the pack re-exports them all so this
+contract is unchanged. The seam is real and not bookkeeping: a regex encodes how a
+language is *shaped*, a table only what it happens to *say*, the tables are
+what ``parsing.py`` merges across every pack, and ``MOOD_WORDS`` is what
+``engine/moods.py`` will one day read from generated data. It is also where
+the growth is — the size guard in ``tests/test_packaging.py`` is what said so,
+twice, when German went over the line on the strength of its vocabulary alone.
+A module without ``CODE`` is invisible to the registry, so all six sit here
+without being mistaken for packs — the same way this file does.
 """
 
 from __future__ import annotations

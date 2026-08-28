@@ -32,12 +32,44 @@ def _undo_play(lms) -> None:
         pass
 
 
+def _trusts_ranking(lms) -> bool:
+    """Whether "the search returned it first" is evidence of what was asked for.
+
+    It is, for a search that answers *nothing* when nothing matches: TIDAL and
+    Qobuz return no results for «zzzzqqqxyzzy», so results existing at all means
+    something. It is not for Spotify, whose search always answers — see
+    ``ServiceSpec.trust_ranking``. ``getattr`` twice on purpose: this module's
+    contract is "any object with the same methods", not "an LMSClient".
+    """
+    return getattr(getattr(lms, "service", None), "trust_ranking", True)
+
+
+def _resolved_enough(lms, query, item, key: str = "title") -> bool:
+    """Guard for the paths that resolve a request to a *single* first result —
+    an album, an artist, a playlist. ``_resolve_song`` has its own, richer
+    version of this decision; these four had none at all, which meant «metti
+    l'album <anything>» on Spotify played whatever came back first, in silence.
+    """
+    if _trusts_ranking(lms):
+        return True
+    return _score(query, (item or {}).get(key)) >= CONFIDENT_SCORE
+
+
 def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
                       mode: str = "play", guard: Optional[Guard] = None) -> ActionResult:
     if guard and guard.blocks_item(track):
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
+    # Most feeds hand back a url with the search result. Spotty hands back an
+    # item id and keeps the url one level down, so it is fetched here — for the
+    # one track actually being played, rather than for all twenty that were
+    # searched. Resolved before the guard's second look below, because every
+    # branch from here on wants a url.
+    url = track.get("url") or (lms.track_url(track["item_id"])
+                               if track.get("item_id") else None)
+    if not url:
+        return ActionResult(msg("no_track_found", title=fallback_title), ok=False)
     if mode == "play":
-        lms.play_url(track["url"])
+        lms.play_url(url)
         speech, terms = _confirm_song(lms, track, fallback_title)
         # _confirm_song may have LEARNED the artist from the now-playing
         # status: TIDAL song-search items don't always carry one, and a
@@ -47,7 +79,7 @@ def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
             _undo_play(lms)
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         return ActionResult(speech, ok=True, terms=terms)
-    getattr(lms, f"{mode}_url")(track["url"])
+    getattr(lms, f"{mode}_url")(url)
     name = track.get("title") or fallback_title
     artist = track.get("artist")
     if not artist:
@@ -121,6 +153,15 @@ def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None,
     if exacts:
         return _play_tidal_track(lms, exacts[0], title, mode=mode, guard=guard)
     if not strong:
+        # Nothing came close to the title. Playing the top result anyway is a
+        # bet on the search engine's ranking, and it is only a safe bet where an
+        # empty answer is possible: TIDAL and Qobuz return nothing for a query
+        # that matches nothing, so results existing at all means something.
+        # Spotify always returns something — «zzzzqqqxyzzy» yields fourteen
+        # tracks — and there the same line plays a song nobody asked for without
+        # saying so. See ServiceSpec.trust_ranking.
+        if not _trusts_ranking(lms):
+            return ActionResult(msg("no_track_found", title=title), ok=False)
         return _play_tidal_track(lms, tracks[0], title, mode=mode, guard=guard)
     # 4) Several strong partial matches. One song (same title) -> play the top; if
     #    genuinely different titles -> ask the top 3.
@@ -161,6 +202,8 @@ def _play_from_album(
     result = lms.album_tracks(album)
     if not result["album"]:
         return ActionResult(msg("album_not_found", album=album), ok=False)
+    if not _resolved_enough(lms, album, result["album"]):
+        return ActionResult(msg("album_not_found", album=album), ok=False)
     album_name = result["album"]["title"] or album
     if guard and (guard.blocks_item(result["album"]) or guard.blocks(album_name)):
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
@@ -199,6 +242,8 @@ def play_album(lms, album: Optional[str], *, guard: Optional[Guard] = None) -> A
         if not cands:
             return ActionResult(msg("album_not_found", album=album), ok=False)
         item = _rank(album, cands)[0][1]  # best title match, not blindly the first
+        if not _resolved_enough(lms, album, item):
+            return ActionResult(msg("album_not_found", album=album), ok=False)
         if guard and guard.blocks_item(item):
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])
@@ -217,6 +262,8 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
     try:
         result = lms.artist_top_tracks(artist)
         if not result["artist"]:
+            return ActionResult(msg("artist_not_found", artist=artist), ok=False)
+        if not _resolved_enough(lms, artist, result["artist"]):
             return ActionResult(msg("artist_not_found", artist=artist), ok=False)
         if guard and guard.blocks_item(result["artist"]):
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
@@ -240,6 +287,8 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
         if not cands:
             return ActionResult(msg("playlist_not_found", name=name), ok=False)
         item = _rank(name, cands)[0][1]
+        if not _resolved_enough(lms, name, item):
+            return ActionResult(msg("playlist_not_found", name=name), ok=False)
         if guard and guard.blocks_item(item):
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])

@@ -108,9 +108,22 @@ class ConversationState:
         if self.mood_player and not self._room_turn:
             lms = self.lms.for_player(self.mood_player[0])
             room_suffix = msg("in_room", room=self.mood_player[1])
-        stream = (None if source == "local"
-                  else lms.for_service(self._stream_name(source)))
-        res = moods.play_mood(lms, state["key"], stream=stream,
+        def stream():
+            """Which service, asked only if the library declines.
+
+            Deferred (play_mood resolves it at step 2, not before) because
+            ``_stream_name`` now talks to the server to find out which
+            services are actually connected, and the library winning over the
+            service means the service is never asked at all — including about
+            itself. None when nothing is connected, which is the same answer a
+            local source gives: the mood is the library's to fill or nobody's,
+            and it is the one caller that needs no message of its own for
+            that."""
+            name = self._stream_name(source)
+            return lms.for_service(name) if name else None
+
+        res = moods.play_mood(lms, state["key"],
+                              stream=None if source == "local" else stream,
                               exclude=state["used"], guard=self._guard)
         if getattr(res, "ok", False):
             if res.label:

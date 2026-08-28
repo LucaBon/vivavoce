@@ -123,6 +123,30 @@ def test_settings_persist_across_reload(page, web):
     assert page.input_value("#reclang") == "en"
 
 
+def test_the_reply_frame_is_voiced_in_the_language_it_is_written_in(page, web):
+    """Read-back used to hand the frame to an Italian voice whatever the
+    session's language was, so an English «Playing X by Y» was read out with
+    an Italian accent on every word that was not the title. The frame's
+    language now follows the server's reply language, which the page learns
+    from the server rather than guessing.
+
+    German is the case that cannot be papered over — the chrome around it is
+    English, so neither the page language nor the UI language is the answer.
+    """
+    page.goto(web().url)
+    assert page.evaluate("window.VIVAVOCE_CFG.langs") == ["de", "en", "fr", "it"]
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+    for pick, expected in (("de", "de"), ("en", "en"), ("fr", "fr"),
+                           ("es", "it"), ("it", "it")):
+        page.select_option("#reclang", pick)
+        # es is the mic language with no catalog behind it: the server answers
+        # in Italian, so the frame is Italian — the same fall-back
+        # messages.set_lang makes. French used to be that case and is not.
+        got = page.evaluate(
+            "import('/static/js/i18n.js').then(m => m.replyLang())")
+        assert got == expected, f"{pick} -> {got}"
+
+
 def test_the_seek_bar_survives_the_track_ending_mid_drag(page, web, transport):
     # The drag reads npState on every pointer event and the poll can drop it
     # from under one — a track that ends, a failed fetch (which renders null),
@@ -138,9 +162,16 @@ def test_the_seek_bar_survives_the_track_ending_mid_drag(page, web, transport):
     page.goto(web().url)
     page.wait_for_selector("#np:not([hidden])")
 
-    box = page.locator("#npseek").bounding_box()
-    mid_y = box["y"] + box["height"] / 2
-    page.mouse.move(box["x"] + box["width"] * 0.2, mid_y)
+    # The bar only takes a pointer once it knows the duration (.nodur is how
+    # renderNpTime says it doesn't), and hover() rather than mouse.move() to
+    # raw coordinates: this page grows after its first paint — artwork, the
+    # licence panel, the certificate box — and a box measured before that
+    # settles can point somewhere else entirely by the time the press lands.
+    # hover() waits for the element to be stable and re-resolves it.
+    seek = page.locator("#npseek")
+    page.wait_for_selector("#npseek:not(.nodur)")
+    box = seek.bounding_box()
+    seek.hover(position={"x": box["width"] * 0.2, "y": box["height"] / 2})
     page.mouse.down()
     page.wait_for_selector("#npseek.drag")
 

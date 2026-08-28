@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import socket
+import ssl
 import threading
 from http.server import ThreadingHTTPServer
 
@@ -209,10 +210,14 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
         connections open, so every phone that locks its screen or walks out of
         Wi-Fi range ends one abruptly — and the stdlib default prints a full
         stack trace for each, to a console this app otherwise keeps silent.
+
+        Over HTTPS a failed handshake is the same kind of non-event: a browser
+        sitting on the self-signed warning, a plain http:// typed at the TLS
+        port, a LAN scanner. Those raise SSLError and mean nothing to the user.
         Anything else still gets reported.
         """
         import sys
         if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError,
-                                          socket.timeout)):
+                                          socket.timeout, ssl.SSLError)):
             return
         super().handle_error(request, client_address)

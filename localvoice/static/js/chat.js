@@ -71,6 +71,15 @@ function renderReportButton(afterEl, text) {
 // Render the server's numbered "did you mean" list as tappable buttons just
 // under its reply bubble, so on the web app you tap instead of re-speaking
 // "metti la 2". The pick reuses the server-side candidate list.
+// One per language the router parses; anything else falls back to Italian,
+// exactly as the router itself does.
+const PICK_PHRASE = {
+  it: (n) => "metti la " + n,
+  en: (n) => "play number " + n,
+  de: (n) => "spiel Nummer " + n,
+  fr: (n) => "mets le numéro " + n,
+};
+
 function renderChoices(afterEl, choices) {
   const row = document.createElement("div");
   row.className = "choices";
@@ -78,9 +87,10 @@ function renderChoices(afterEl, choices) {
     const btn = document.createElement("button");
     btn.className = "choice";
     btn.textContent = c.n + " · " + c.label;
-    // The pick phrase must match the language the SERVER parses (it/en only;
-    // es/fr/de fall back to Italian patterns), not the page chrome language.
-    btn.onclick = () => send((recLang() === "en" ? "play number " : "metti la ") + c.n);
+    // The pick phrase must match the language the SERVER parses (it/en/de/fr;
+    // es falls back to Italian patterns), not the page chrome language —
+    // which for German is English, and would send a phrase de.py never sees.
+    btn.onclick = () => send((PICK_PHRASE[recLang()] || PICK_PHRASE.it)(c.n));
     row.appendChild(btn);
   });
   afterEl.after(row);

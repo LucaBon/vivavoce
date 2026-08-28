@@ -6,7 +6,7 @@ unit-tested without any network access (see ``tests/``).
 
 Streaming search & playback (app feeds)
 ---------------------------------------
-Streaming plugins (TIDAL, Qobuz) expose an LMS *app feed* — an OPML tree browsed
+Streaming plugins (TIDAL, Qobuz, Spotify) expose an LMS *app feed* — an OPML tree browsed
 via the ``items`` command; results come back under the ``loop_loop`` key. Which
 feed a client instance talks to is set by its ``ServiceSpec`` (see ``SERVICES``).
 Searching is a three-level navigation:
@@ -29,6 +29,13 @@ same pattern and is verified live too (2026-07-14); its quirks — nested search
 node, "Releases" category, " (Hi-Res)" title tag, "Artist - Album" text line —
 are captured in ``SERVICES["qobuz"]``.
 
+Spotify (tag ``spotty``) is verified live too (2026-08-28) and does **not**
+follow the pattern above: no Songs category, tracks listed beside the category
+links, no url on a track, and title/artist/album packed into one name. It needs
+Spotify Premium — Spotty plays through Spotify Connect — and its search never
+answers "nothing", which is why ``trust_ranking`` exists. See the comment on
+``SERVICES["spotify"]``.
+
 Category names are matched against the per-service alias tables; adjust if your
 LMS UI language changes them.
 """
@@ -37,6 +44,7 @@ from __future__ import annotations
 
 import copy
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -59,8 +67,9 @@ def _uri_re(schemes: Tuple[str, ...]) -> "re.Pattern":
 class ServiceSpec:
     """Everything service-specific about an LMS streaming app feed."""
 
-    name: str                    # registry key: "tidal" / "qobuz"
+    name: str                    # registry key as spoken: "tidal" / "spotify"
     tag: str                     # CLI tag: cmd[0] of ["<tag>","items",...]
+                                 # (not always the name: "spotify" -> "spotty")
     schemes: Tuple[str, ...]     # URL scheme(s) the plugin's tracks use
     category_aliases: Dict[str, tuple]  # canonical -> names the plugin may show
     artist_children: Tuple[str, ...]    # playable child nodes under an artist
@@ -75,11 +84,40 @@ class ServiceSpec:
     # When the menu-mode text's 2nd line is "Artist<sep>Album" (Qobuz) rather
     # than just the artist (TIDAL), split on this to keep the artist part.
     artist_line_sep: Optional[str] = None
+    # Spotty does not put songs in a category. Its search node answers with the
+    # category links (Artists/Albums/Playlists/...) and the matching *tracks as
+    # their siblings*, flagged ``isaudio``, with title/artist/album packed into
+    # one ``name`` and no url at all. Two flags describe that shape:
+    #   tracks_inline   read tracks from the search node's own children rather
+    #                   than from a "Songs" category, which does not exist
+    #   track_name_re   splits that one name; groups: title, artist, album
+    tracks_inline: bool = False
+    track_name_re: Any = None
+    # The same packaging on an album row, which carries no " from " part:
+    # "Brothers In Arms (Remastered 1996) by Dire Straits".
+    album_name_re: Any = None
+    # Whether "no title matched, so play the top result" is a safe fallback.
+    # It is for a search that answers *nothing* when nothing matches, which is
+    # what TIDAL and Qobuz do — there, the top result being returned at all is
+    # itself evidence. Spotify's search always answers: «zzzzqqqxyzzy» comes
+    # back with fourteen tracks, and trusting the ranking there means playing a
+    # song nobody asked for, in silence, which is the one thing this product
+    # promises not to do. Off for such a service: say it was not found.
+    trust_ranking: bool = True
     uri_re: Any = field(init=False, default=None, repr=False, compare=False)
 
     def __post_init__(self):
         object.__setattr__(self, "uri_re", _uri_re(self.schemes))
 
+
+# How many non-track rows a ``tracks_inline`` feed puts before the tracks.
+# Six on Spotty (Artists, Albums, Playlists, Podcasts, Podcast Episodes,
+# Users); asking for a few more than that costs nothing and guards against the
+# plugin adding a seventh.
+_INLINE_HEADROOM = 10
+
+# "1. So Far Away ..." — the position Spotty prefixes to album tracks.
+_TRACK_NUMBER_RE = re.compile(r"^\d{1,3}\.\s+")
 
 SERVICES: Dict[str, ServiceSpec] = {
     # Verified against a live LMS/Daphile (see module docstring).
@@ -113,6 +151,54 @@ SERVICES: Dict[str, ServiceSpec] = {
         search_parents=("search", "cerca", "ricerca"),
         title_noise_re=re.compile(r"(?:\s*\(Hi-Res\)|\s*\[E\])+\s*$", re.IGNORECASE),
         artist_line_sep=" - ",
+    ),
+    # Spotify, through the Spotty plugin (``cmd`` is "spotty", not "spotify" —
+    # the registry key is what a person says, the tag is what LMS answers to).
+    #
+    # Verified live against LMS 9.0.3 + Spotty (2026-08-28), and it turned out
+    # not to follow the pattern the other two share. Three differences, each
+    # read off the wire rather than assumed:
+    #
+    #  1. **there is no Songs category.** The search node answers with the
+    #     category links — Artists, Albums, Playlists, Podcasts, Podcast
+    #     Episodes, Users — and then the matching tracks as their *siblings*;
+    #  2. **a track carries no url.** It is `{"id", "name", "isaudio": 1,
+    #     "hasitems": 1}` and nothing else. The url lives one level down, as the
+    #     name of its single ``type == "audio"`` child:
+    #     ``spotify://track:01Txvu3dNthhldq8oR0Pae``. See ``track_url``;
+    #  3. **title, artist and album are one string**, "T by A from B", where the
+    #     other two feeds give a separate ``text`` line.
+    #
+    # It also needs Spotify Premium, which is not a detail: Spotty plays through
+    # Spotify Connect, so on a free account its whole menu is one "credentials
+    # missing" notice and every search here returns nothing.
+    "spotify": ServiceSpec(
+        name="spotify",
+        tag="spotty",
+        schemes=("spotify",),
+        # No "Songs": that is the whole point of ``tracks_inline`` below. The
+        # four that are here were read off a live search.
+        category_aliases={
+            "Albums": ("Albums", "Album"),
+            "Artists": ("Artists", "Artisti"),
+            "Playlists": ("Playlists", "Playlist"),
+            "Podcasts": ("Podcasts", "Podcast"),
+        },
+        # Read off a live artist node, whose children are: Albums, Singles &
+        # EPs, Compilations, Top Tracks, Artist Radio, Related Artists, Follow
+        # artist. Only the one we can play is listed — a speculative entry in
+        # here would cost the table the thing that makes it worth reading.
+        artist_children=("Top Tracks",),
+        search_parents=("search", "cerca", "ricerca"),
+        tracks_inline=True,
+        trust_ranking=False,
+        # "Money For Nothing by Dire Straits from The Best Of Dire Straits".
+        # The title group is greedy on purpose: an artist almost never contains
+        # " by " while a title routinely does, so «Killed by Death by Motorhead
+        # from ...» has to give the last " by " to the split, not the first.
+        track_name_re=re.compile(r"^(?P<title>.+) by (?P<artist>.+?) from "
+                                 r"(?P<album>.+)$"),
+        album_name_re=re.compile(r"^(?P<title>.+) by (?P<artist>.+)$"),
     ),
 }
 
@@ -202,6 +288,11 @@ class LMSClient:
         self.timeout = timeout
         self.service = SERVICES[service]
         self._transport: Transport = transport or self._http_transport
+        # service tag -> (search node id or None, when it expires). A dict, so
+        # the shallow copies for_service()/for_player() hand out SHARE it:
+        # "is Qobuz logged in" is a fact about the server, not about which
+        # clone asked. See search_node_id.
+        self._search_nodes: Dict[str, Tuple[Optional[str], float]] = {}
 
     def for_service(self, name: str) -> "LMSClient":
         """This client re-targeted at another streaming service. Returns a
@@ -295,12 +386,45 @@ class LMSClient:
         res = self.command(self.service.tag, "items", *params)
         return res.get("loop_loop") or res.get("item_loop") or []
 
-    def search_node_id(self) -> Optional[str]:
-        """Id of the plugin's search node (type == 'search').
+    #: How long a search-node lookup is trusted. It buys two things at once:
+    #: the extra round-trip ``can_search`` would otherwise add to every
+    #: streaming request (the search path asks for the same node moments
+    #: later), and a bound on how long a plugin that has just been logged in
+    #: keeps being reported as offline. Short enough that authenticating in
+    #: LMS and speaking the next sentence works without restarting the app.
+    SEARCH_NODE_TTL = 30.0
 
-        TIDAL exposes it right in the home menu; Qobuz nests it one level
-        down (home 'Search' link -> 'New search'), so when the home menu has
-        none we enter the ``search_parents`` nodes and look again."""
+    def search_node_id(self) -> Optional[str]:
+        """Id of the plugin's search node (type == 'search'), or None when the
+        plugin has none to give — which is what an unauthenticated service
+        looks like from here: a TIDAL that is logged out answers its whole
+        menu with one 'Please go to Settings/Advanced/TIDAL' textarea.
+
+        Memoized per service for ``SEARCH_NODE_TTL`` seconds (see there)."""
+        cached = self._search_nodes.get(self.service.tag)
+        if cached is not None and cached[1] > time.monotonic():
+            return cached[0]
+        node = self._find_search_node()
+        self._search_nodes[self.service.tag] = (
+            node, time.monotonic() + self.SEARCH_NODE_TTL)
+        return node
+
+    def can_search(self) -> bool:
+        """Whether this service can answer a search at all — i.e. whether the
+        plugin is installed AND logged in. False is the difference between
+        "your music isn't there" and "nobody was asked", and the router needs
+        it to tell those two apart before it reports a miss."""
+        try:
+            return self.search_node_id() is not None
+        except LMSError:
+            return False
+
+    def _find_search_node(self) -> Optional[str]:
+        """The uncached lookup behind :meth:`search_node_id`.
+
+        TIDAL exposes the node right in the home menu; Qobuz nests it one
+        level down (home 'Search' link -> 'New search'), so when the home menu
+        has none we enter the ``search_parents`` nodes and look again."""
         items = self._app_items("0", "50")
         for item in items:
             if item.get("type") == "search":
@@ -344,6 +468,104 @@ class LMSClient:
             return []
         return self._app_items("0", str(count), f"item_id:{node_id}", "want_url:1")
 
+    def _clean_name(self, name: Optional[str]) -> Optional[str]:
+        """Strip a feed's display packaging from an item name.
+
+        Spotty writes the same "T by A from B" into *album* listings as into
+        search results, and prefixes album tracks with "1. ". Nothing plays by
+        these strings — ranking absorbs the extra words — but they are read
+        back aloud, and «Metto "1. So Far Away - Remastered 1996 by Dire
+        Straits from Brothers In Arms"» is not a sentence to say to somebody.
+        Services with no ``track_name_re`` are untouched.
+        """
+        if not name:
+            return name
+        cleaned = _TRACK_NUMBER_RE.sub("", name.strip())
+        # Track form first ("T by A from B"), then the album form ("T by A"),
+        # which is the same sentence with the tail missing. Order matters: the
+        # album pattern would happily eat a track name and keep "T by A" as the
+        # title.
+        for pattern in (self.service.track_name_re, self.service.album_name_re):
+            if pattern is None:
+                continue
+            match = pattern.match(cleaned)
+            if match:
+                return match.group("title").strip() or name
+        return cleaned or name
+
+    def _inline_tracks(self, query: str, count: int) -> List[Dict[str, Any]]:
+        """Tracks for feeds that list them beside the category links, not under
+        a Songs category (Spotty).
+
+        Deliberately does NOT resolve each url: that costs one round trip per
+        track, and of twenty results at most one is ever played. The item id
+        travels instead, and ``track_url`` turns the chosen one into a url.
+        """
+        node = self.search_node_id()
+        if node is None:
+            return []
+        # The category links (Artists, Albums, Playlists, Podcasts, Podcast
+        # Episodes, Users) are the first rows and they count against the
+        # quantity asked for: a plain ``count`` of 20 came back as 14 tracks
+        # every time, which would hand Spotify a shortlist a third smaller than
+        # the one TIDAL and Qobuz get for the same request. Ask for the links
+        # too, then keep ``count`` tracks.
+        out: List[Dict[str, Any]] = []
+        for item in self._app_items("0", str(count + _INLINE_HEADROOM),
+                                    f"item_id:{node}", f"search:{query}"):
+            if len(out) >= count:
+                break
+            if not item.get("isaudio") or not item.get("id"):
+                continue
+            name = (item.get("name") or "").strip()
+            title, artist, album = name, None, None
+            pattern = self.service.track_name_re
+            match = pattern.match(name) if (pattern and name) else None
+            if match:
+                title = match.group("title").strip() or name
+                artist = (match.group("artist") or "").strip() or None
+                album = (match.group("album") or "").strip() or None
+            track = {"item_id": item["id"], "title": title}
+            if artist:
+                track["artist"] = artist
+            # The album is kept although nothing plays by it, because the
+            # kid-safe guard checks every name field of a resolved item
+            # (guard.ITEM_NAME_FIELDS) and this is the only feed that hands one
+            # over. Dropping it would mean a blocked album whose tracks are not
+            # themselves blocked still plays.
+            if album:
+                track["album"] = album
+            out.append(track)
+        return out
+
+    def track_url(self, item_id: str) -> Optional[str]:
+        """The play url of a browseable track node, fetched on demand.
+
+        Spotty's search results carry no url; entering a track yields a single
+        ``type == "audio"`` child carrying it (in ``text`` and in
+        ``presetParams.favorites_url`` — verified live 2026-08-28, and note it
+        has no ``name`` at all under ``menu:1``).
+
+        Three conditions, not one. The child must *be* audio, and the uri must
+        classify as a **track**: the service scheme alone also matches
+        ``spotify://album:`` and ``spotify://artist:``, and Spotty does ship
+        "go to album"/"go to artist" actions on this node. Returning one of
+        those would hand ``play_url`` a whole album for a request for one song
+        — quietly, which is the failure mode this file works hardest to avoid.
+        """
+        for child in self._app_items("0", "5", f"item_id:{item_id}", "menu:1"):
+            if child.get("type") != "audio":
+                continue
+            preset = child.get("presetParams") or {}
+            for value in (child.get("url"), preset.get("favorites_url"),
+                          child.get("text"), child.get("name")):
+                if not isinstance(value, str):
+                    continue
+                found = self.service.uri_re.search(value)
+                if found and uri_kind(found.group(0)) == "track":
+                    return found.group(0)
+        return None
+
     def search_tracks(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
         """Return playable tracks ``[{'url', 'title'[, 'artist']}, ...]`` for a query.
 
@@ -351,7 +573,13 @@ class LMSClient:
         artist as the 2nd line of ``text`` ('Title\\nArtist') and the play URL under
         ``presetParams.favorites_url`` — the plain ``want_url`` mode strips both to a
         bare title. Falls back to ``name``/``url``/``artist`` keys so the simulated
-        transport in tests still works."""
+        transport in tests still works.
+
+        Spotty answers a different shape and takes the branch below: no Songs
+        category, tracks inline as siblings of the category links, and no url on
+        the item — see ``SERVICES["spotify"]`` and ``_inline_tracks``."""
+        if self.service.tracks_inline:
+            return self._inline_tracks(query, count)
         cats = self.search_categories(query, count)
         node = self._resolve_category(cats, "Songs")
         if not node:
@@ -394,7 +622,7 @@ class LMSClient:
         caller scores these against the request (edition words like 'Live In
         Berlin' surface the right edition)."""
         return [
-            {"id": it["id"], "title": it.get("name")}
+            {"id": it["id"], "title": self._clean_name(it.get("name"))}
             for it in self.category_items(query, "Albums", count)
             if it.get("id")
         ]
@@ -414,13 +642,15 @@ class LMSClient:
         ):
             url = item.get("url") or find_uri(item, self.service.uri_re)
             if item.get("isaudio") and url:
-                tracks.append({"url": url, "title": item.get("name")})
+                tracks.append({"url": url,
+                               "title": self._clean_name(item.get("name"))})
         return {"album": album, "tracks": tracks}
 
     def find_artist(self, query: str, count: int = 20) -> Optional[Dict[str, Any]]:
         for item in self.category_items(query, "Artists", count):
             if item.get("id"):
-                return {"id": item["id"], "title": item.get("name")}
+                return {"id": item["id"],
+                        "title": self._clean_name(item.get("name"))}
         return None
 
     # Artist "outline" nodes are NOT directly playable (verified live on TIDAL:

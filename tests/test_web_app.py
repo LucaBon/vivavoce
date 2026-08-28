@@ -10,9 +10,9 @@ Why each check earns its place:
 * ``sw.js`` pre-caches a fixed shell list with ``caches.addAll()``, which is
   atomic — one 404 rejects the whole service-worker install and the app
   silently stops being installable. Renaming an icon would do it.
-* ``index.html`` is served with ``__MATERIAL_URL__`` / ``__SERVICES__``
-  substituted at request time; a typo in either token ships a page with a raw
-  placeholder in it.
+* ``index.html`` is served with ``__MATERIAL_URL__`` / ``__SERVICES__`` /
+  ``__LANGS__`` substituted at request time; a typo in any of those tokens
+  ships a page with a raw placeholder in it.
 * the page reaches the server through ~10 hard-coded ``fetch()`` paths. Nothing
   but a test ties those strings to the handler's routing table.
 """
@@ -105,6 +105,12 @@ def test_index_substitutes_its_placeholders(live_server):
     assert "http://lms.local:9000/material/" in page
     # The services list reaches the page as JSON the browser can parse.
     assert json.dumps(["tidal", "qobuz"]) in page
+    # ...and so does the list of languages the router can answer in, which is
+    # what read-back picks the voice of the reply FRAME from (tts.js). Asserted
+    # against the catalogs rather than a literal, so a fourth language is one
+    # file and no test edit.
+    import messages
+    assert json.dumps(sorted(messages.CATALOGS)) in page
 
 
 def test_index_leaves_no_placeholder_behind(live_server):

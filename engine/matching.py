@@ -16,7 +16,8 @@ import re
 import unicodedata
 from typing import Dict, List, Optional
 
-from messages import msg
+from connectors import DEFAULT, for_lang
+from messages import get_lang, msg
 
 # Legacy alias, frozen in the default language at import: kept for external
 # callers/tests; the code paths below call msg() so replies follow the
@@ -163,14 +164,21 @@ def _rank(query: Optional[str], items: List[Dict], key: str = "title") -> List:
 
 # Leading filler the ASR/user often prepends ("metti la canzone X") that would
 # pollute the search. Stripped before matching so "la canzone love" -> "love".
-_LEAD_FILLER = re.compile(
-    r"^(?:la\s+canzone|il\s+brano|la\s+traccia|il\s+pezzo|la\s+song|the\s+song)\s+",
-    re.IGNORECASE,
-)
+# The four connector tables live in ``engine/connectors/``, one module per
+# language and nothing shared between them. These names are the DEFAULT
+# language's set — Italian's — kept for callers that reach them through
+# ``actions`` without a language to hand. The live paths below go through
+# ``for_lang`` instead, which is the whole point of that package: «by» is
+# English's, «von» German's, «de» French's, and none of them is everyone's.
+_LEAD_FILLER = DEFAULT.lead_filler
+_ALBUM_SEP = DEFAULT.album_sep
+_ARTIST_SEP = DEFAULT.artist_sep
+_NOT_AN_ARTIST = DEFAULT.not_an_artist
 
 
-def _strip_lead_filler(text: Optional[str]) -> str:
-    return _LEAD_FILLER.sub("", (text or "").strip()).strip()
+def _strip_lead_filler(text: Optional[str], *, lang: Optional[str] = None) -> str:
+    return for_lang(lang or get_lang()).lead_filler.sub(
+        "", (text or "").strip()).strip()
 
 
 LOCAL_CONFIDENT = CONFIDENT_SCORE  # a local match must clearly fit the query to win
@@ -274,40 +282,24 @@ def _normalize_apart(text: Optional[str]) -> str:
     return re.sub(r"\s+", " ", spaced).strip()
 
 
-# Splits "titolo dall'album X" / "title from album X" into title + album.
-_ALBUM_SEP = re.compile(
-    r"\b(?:dall['’]?\s*album|dell['’]?\s*album|dal\s+disco|dall['’]?\s*disco|"
-    r"from\s+(?:the\s+)?album)\b",
-    re.IGNORECASE,
-)
-# Splits "titolo di/dei/degli X" / "title by X" into title + artist. Used only to
-# *rank* results (the search still runs on the full text), so a mis-split — e.g. a
-# title that itself contains "di" — degrades gracefully instead of breaking.
-_ARTIST_SEP = re.compile(
-    r"\b(?:dei|degli|delle|della|dell['’]|del|di|by)\s+", re.IGNORECASE
-)
-
-# Tails that are never an artist name — the phrase just happens to contain a
-# connector. Without this, "Ti amo di più" searched for a singer called
-# «più», and "Stand By Me" for one called "Me".
-_NOT_AN_ARTIST = {
-    "piu", "meno", "me", "te", "noi", "voi", "lui", "lei", "loro", "se",
-    "you", "us", "it", "her", "him", "them", "myself", "yourself", "now",
-    "here", "there", "one", "two", "all", "more", "less", "everyone",
-}
-
-
-def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
+def parse_song_query(text: Optional[str], *,
+                     lang: Optional[str] = None) -> Dict[str, Optional[str]]:
     """Parse a free-text song request into ``{'title', 'artist', 'album'}``.
 
     "Time dall'album Dark Side" -> title='Time', album='Dark Side'.
     "Comfortably Numb dei Pink Floyd" -> title='Comfortably Numb', artist='Pink Floyd'.
-    "Comfortably Numb Pink Floyd" (no connector) stays title-only."""
+    "Comfortably Numb Pink Floyd" (no connector) stays title-only.
+
+    ``lang`` selects the connectors (see ``engine/connectors/``); it defaults
+    to the language of the request in flight, which ``router.handle`` has
+    already set. The keyword is for callers outside a request — tests, and
+    ``tools/probe_lms.py``."""
+    conn = for_lang(lang or get_lang())
     raw = (text or "").strip()
-    text = _strip_lead_filler(raw)
+    text = conn.lead_filler.sub("", raw).strip()
     filler_stripped = text != raw
     album = None
-    match = _ALBUM_SEP.search(text)
+    match = conn.album_sep.search(text)
     if match:
         pre = text[: match.start()].strip()
         album = text[match.end():].strip() or None
@@ -320,7 +312,7 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
     # opens with a connector, so «By the Way» searched for "the Way" and
     # «Della vita» for "vita".
     if filler_stripped:
-        lead = _ARTIST_SEP.match(pre)
+        lead = conn.artist_sep.match(pre)
         if lead and pre[lead.end():].strip():
             pre = pre[lead.end():].strip()
     title, artist = pre, None
@@ -328,11 +320,11 @@ def parse_song_query(text: Optional[str]) -> Dict[str, Optional[str]]:
     # its own "By" and searched for a song called "Stand". Scanned right to
     # left so a title that itself contains a connector keeps it, and skipped
     # entirely when the tail is a word no artist is called.
-    for am in reversed(list(_ARTIST_SEP.finditer(pre))):
+    for am in reversed(list(conn.artist_sep.finditer(pre))):
         head, tail = pre[: am.start()].strip(), pre[am.end():].strip()
         if not head or not tail:
             continue
-        if _normalize(tail) in _NOT_AN_ARTIST:
+        if _normalize(tail) in conn.not_an_artist:
             continue
         title, artist = head, tail
         break

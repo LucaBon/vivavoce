@@ -33,12 +33,18 @@ def test_msg_lang_selection():
 
 
 def test_unsupported_lang_falls_back_to_italian():
-    set_lang("de")
+    # Spanish: the page offers es-ES as a mic language, so it is a code the
+    # client really sends, and there is no pack behind it. (This test used to
+    # say "de", and then "fr"; each stopped being unsupported the day that
+    # language shipped. Spanish is the last mic language without a catalog,
+    # so the next one to ship has to delete this test rather than repoint it.)
+    set_lang("es")
     assert msg("paused") == "In pausa."
 
 
 # -- parsing (actions) --------------------------------------------------------
 def test_parse_song_query_english_by_and_album():
+    set_lang("en")
     q = actions.parse_song_query("Comfortably Numb by Pink Floyd")
     assert q == {"title": "Comfortably Numb", "artist": "Pink Floyd", "album": None}
     q = actions.parse_song_query("Time from the album The Dark Side of the Moon")
@@ -177,11 +183,14 @@ def test_languages_do_not_leak_between_requests(router, transport):
     assert router.handle("pausa", lang="it") == "In pausa."
 
 
-def test_patterns_cover_both_langs():
+def test_patterns_cover_every_lang():
     # Optional keys are read with ``P.get``/``in P`` in handle(); every other
-    # key is indexed directly, so it must exist in every language.
+    # key is indexed directly, so it must exist in every language — not just
+    # in the two this file is named after.
     optional = {"generic_play_suffix"}
-    assert set(PATTERNS["it"]) - optional == set(PATTERNS["en"]) - optional
+    required = set(PATTERNS["it"]) - optional
+    for code, patterns in PATTERNS.items():
+        assert set(patterns) - optional == required, f"{code} differs"
 
 
 # -- field-hardening battery: realistic phrasing variants ---------------------

@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "eng
 
 import actions  # noqa: E402
 import discovery  # noqa: E402
+from connectors import CONNECTORS  # noqa: E402
 from lms import SERVICES, LMSClient, LMSError, uri_kind  # noqa: E402
 
 
@@ -65,6 +66,12 @@ def main() -> int:
     ap.add_argument("--url", help="Base URL LMS, es. http://192.168.1.50:9000")
     ap.add_argument("--player", help="Player id (MAC). Default: il primo trovato.")
     ap.add_argument("--query", default="Pink Floyd", help="Testo di ricerca.")
+    # I connettori sono per lingua (engine/connectors/): «by» è dell'inglese,
+    # «von» del tedesco, «di» dell'italiano. Senza questo il [parse] qui sotto
+    # spezzava una frase inglese con le parole italiane e mostrava un risultato
+    # che l'app, che la lingua ce l'ha dal microfono, non produce mai.
+    ap.add_argument("--lang", default="it", choices=sorted(CONNECTORS),
+                    help="Lingua della frase, per i connettori del [parse].")
     ap.add_argument("--service", default="tidal", choices=sorted(SERVICES),
                     help="Servizio streaming da provare (default: tidal).")
     ap.add_argument("--count", type=int, default=10)
@@ -115,8 +122,9 @@ def main() -> int:
         print(f"\n[apps] query fallita (non bloccante): {exc}")
 
     # 2) navigazione di ricerca a 3 livelli (home -> Search -> categoria)
-    parsed = actions.parse_song_query(args.query)
-    print(f"\n[parse] titolo={parsed['title']!r} artista={parsed['artist']!r} "
+    parsed = actions.parse_song_query(args.query, lang=args.lang)
+    print(f"\n[parse:{args.lang}] titolo={parsed['title']!r} "
+          f"artista={parsed['artist']!r} "
           f"album={parsed['album']!r}")
     print(f"\n[ricerca {service}] query={args.query!r}")
     try:

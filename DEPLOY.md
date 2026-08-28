@@ -107,6 +107,130 @@ If you run Home Assistant OS/Supervised, Vivavoce installs as an app
    once. Full details in the app's Documentation tab
    ([ha-addon/DOCS.md](ha-addon/DOCS.md)).
 
+### Home Assistant voice — talking to Vivavoce through Assist
+
+The app above gives you the web page. This gives you the voice: say «metti
+Comfortably Numb dei Pink Floyd» to Assist — a voice satellite, the phone app,
+the dashboard — and Vivavoce answers with *what actually started playing*.
+
+It is one blueprint,
+[`blueprints/vivavoce_assist.yaml`](blueprints/vivavoce_assist.yaml), plus one
+block in `configuration.yaml`. Nothing is replaced and no integration is
+disabled; uninstalling is deleting one automation.
+
+**1. Add the REST command** to `configuration.yaml` (this is the part a
+blueprint cannot ship, because `rest_command` is configured in YAML):
+
+```yaml
+rest_command:
+  vivavoce_command:
+    url: "{{ base_url | trim | regex_replace('/$', '') }}/api/v1/command"
+    method: post
+    content_type: "application/json"
+    verify_ssl: false          # the server's certificate is self-signed
+    timeout: 20
+    payload: >-
+      {"text": {{ text | to_json }}, "lang": {{ lang | to_json }},
+       "conversation_id": {{ conversation_id | to_json }},
+       "player": {{ player | to_json }}}
+```
+
+`verify_ssl: false` is not laziness: Vivavoce serves HTTPS with the certificate
+it generates for itself, the same one your browser asks you to accept once.
+Home Assistant is talking to a machine on your own LAN, over a name you typed.
+Restart Home Assistant (or **Developer tools → YAML → All YAML configuration**).
+
+**2. Import the blueprint.** **Settings → Automations & scenes → Blueprints →
+Import blueprint**, and paste:
+
+```
+https://github.com/LucaBon/vivavoce/blob/main/blueprints/vivavoce_assist.yaml
+```
+
+Or copy the file to `config/blueprints/automation/vivavoce/` yourself and
+reload automations.
+
+**3. Create the automation** from the blueprint. One setting matters: the
+**Vivavoce server** URL. `https://localhost:8730` is right on Home Assistant
+OS/Supervised with the Vivavoce app installed — the app runs in the host
+network namespace, so `localhost` really is the same machine, and its default is
+`https: true` on port 8730. Anywhere else, including a plain Docker Home
+Assistant (which is usually bridged), use `https://<ip>:8730`. Use `http://`
+only if you started the server with `VIVAVOCE_HTTPS=0`. Leave **LMS player** empty unless you have
+several players and want this automation pinned to one — that is the multi-room
+Pro feature.
+
+Say «metti Comfortably Numb dei Pink Floyd». If two songs genuinely match,
+Vivavoce reads them out and you answer «la 2» — and on a voice satellite it is
+meant to ask out loud and wait, which is the one part of this that has not been
+tried on real hardware (see the limit below).
+
+#### What it takes over, and what it leaves alone
+
+Home Assistant tries sentence triggers **before** its own intents, so the split
+is decided by the list of sentences in the blueprint and by nothing else.
+
+**Vivavoce takes**: playing by title, artist, album, playlist, radio,
+favourites and mood; the numbered "which one did you mean?" and its answer
+(«la 2» … «la 5», and the ordinals); adding to the queue and clearing it;
+"what's playing", «quali album ho di X» and «quali brani di X»; the music sleep
+timer; the kid-safe blocklist. In Italian and English only — the limit is the
+blueprint's, not the product's: what decides the language here is Assist's
+sentence triggers, which are written out in the blueprint, and French and
+German (which the web app does understand) have none yet.
+
+Each of those sentences was checked against the grammar in
+`localvoice/lang/`, and phrasings the engine does not parse are deliberately
+**not** claimed — «che brano è questo», «quali album hai di X», «what songs by
+X». A sentence claimed but unparsed is worse than one never claimed: the trigger
+beats Home Assistant's own intent, and the phrase then dies as a failed library
+search instead of being answered by whoever could.
+
+**Home Assistant keeps everything else**, and that deliberately includes
+**transport** — pause, resume, next, previous, volume. Home Assistant covers
+those in both languages already, and covers them *better*, because its version
+knows which room you are in and Vivavoce's would always reach one configured
+player. Taking "pause" would also have stopped your television.
+
+**Search is the opposite case, and it is why this blueprint exists.** Home
+Assistant's built-in `HassMediaSearchAndPlay` starts the first result without
+asking, cannot filter by artist — and, checked in the 2026.8 intent packs, **is
+not in the Italian pack at all**. In Italian there is no built-in music search
+to coexist with; in English there is one that guesses.
+
+A few overlaps are known and accepted, all of them consequences of «metti X»
+and "play X" being the ordinary way to ask for music, which leaves no way to
+narrow them:
+
+| You say | Vivavoce answers | Say this instead for Home Assistant's |
+|---|---|---|
+| «metti in pausa la musica» | pauses, but on its own player | «pausa la musica» |
+| «metti un timer di 5 minuti» | "no such song" | «imposta un timer di 5 minuti» |
+| «metti in pausa il timer» | "no such song" | «pausa il timer» |
+| "play the previous song" | searches for a song by that name | "previous track" |
+
+Nothing is lost in any of them — each has a phrasing that reaches Home
+Assistant — but they are worth knowing before you wonder why.
+
+#### The limit worth knowing before you install it
+
+A conversation opened by a sentence trigger **cannot hold the turn open** —
+Home Assistant's trigger result has no way to say "I am waiting for an answer".
+So "which one did you mean?" is a real back-and-forth only on an
+`assist_satellite`, which has `ask_question`. From the phone app or the
+dashboard, Vivavoce reads the numbered list and the turn closes; you answer by
+starting a new one, which is why «la 2» is a sentence the blueprint listens for.
+
+**And that satellite branch is the one part of this that has not been run on
+real hardware.** Its templates are checked — against Home Assistant's own
+template engine and the real schema of `assist_satellite.ask_question` — but
+nobody here owns a voice satellite, so whether Home Assistant is happy to make
+a satellite ask a question while that same satellite's pipeline is waiting on
+this automation is unproven. If it misbehaves, the failure is contained: you
+get the numbered list read out and the turn closes, exactly as on the phone.
+Please [open an issue](https://github.com/LucaBon/vivavoce/issues) if you try
+it — that report is the only way this line gets to change.
+
 ### Without Docker
 
 ```bash
@@ -245,7 +369,9 @@ uv run python localvoice/server.py       # "Riconoscimento vocale locale attivo"
   class box, using ~0.7–1 GB of RAM during the call (nothing while idle:
   the model loads lazily on first use, which also adds a one-time delay).
   `base` roughly halves latency and memory at some accuracy cost — a good
-  fit for a Pi 4. Language follows the page's mic-language selector (it/en).
+  fit for a Pi 4. Language follows the page's mic-language selector, whichever
+  it is: the selection is passed straight to Whisper, which is multilingual,
+  so it is not limited to the languages the router parses.
 
 ### Server-side wake word (Pro, optional)
 
@@ -338,16 +464,34 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 7. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
    **Voci & lingue** panel then lets you pick natural per-language voices.
 
-### Streaming services (TIDAL / Qobuz)
+### Streaming services (TIDAL / Qobuz / Spotify)
 
 Install and log in the plugin(s) on LMS/Daphile first (**LMS Settings → Plugins**:
-*TIDAL* and/or *Qobuz*). Then:
+*TIDAL*, *Qobuz* and/or *Spotty* for Spotify). **Spotty requires a Spotify
+Premium account** — it plays through Spotify Connect, which free accounts
+cannot use, and it will not complete its login without one. Then:
 
 By default the server **auto-detects** the installed plugins and the
 page's "Sorgente musica" selector only shows what's really there. Override with
-`--services tidal,qobuz` (skips detection) and pick which one "auto" mode falls
-back to with `--default-service qobuz`. Spoken phrases «da tidal …» / «da qobuz …»
-always win over the selector. (Docker needs nothing: detection is the default.)
+`--services tidal,qobuz,spotify` (skips detection) and pick which one "auto" mode
+falls back to with `--default-service qobuz`. Spoken phrases «da tidal …» /
+«da qobuz …» / «da spotify …» always win over the selector. (Docker needs
+nothing: detection is the default.)
+
+> [!IMPORTANT]
+> **Spotify behaves differently from the other two, on purpose.** Its search
+> answers every query — «zzzzqqqxyzzy» comes back with a full page of tracks,
+> albums, artists *and* playlists, where TIDAL and Qobuz return none — so the
+> usual "nothing matched, act on the top result anyway" fallback would start
+> something nobody asked for. Vivavoce does not take that bet on Spotify, on any
+> of those four: when nothing matches your words it says so. Ask for a title it
+> has and it plays it; ask for something it does not and you get an answer
+> rather than a surprise.
+>
+> Note also that **a Spotty that is installed but not logged in still shows up**
+> as an available source: its menu is a "Spotify Credentials missing" notice and
+> every search returns nothing. That is also what an install without Premium
+> looks like, permanently, and the two are indistinguishable from outside.
 
 > [!NOTE]
 > Qobuz support is verified against a live LMS 9.0.3 + plugin-Qobuz 3.7.0. If the

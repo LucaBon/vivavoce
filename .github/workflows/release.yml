@@ -13,6 +13,9 @@
 # otherwise publish with nothing checked at all. The verify job below is that
 # check, and it is deliberately aimed at the failure this repo actually has:
 # a version bumped in one place and tagged as another.
+#
+# setup-uv is pinned to the full version, not `@v10`: from v8 its releases are
+# immutable and the moving tags no longer exist. ci.yml explains the rest.
 
 name: Release
 
@@ -32,10 +35,10 @@ jobs:
     name: the tag and the code agree
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -69,7 +72,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The image is a file copy plus one wheel install (cryptography, which
       # publishes aarch64 wheels), so emulating arm64 costs a minute and keeps
@@ -77,8 +80,8 @@ jobs:
       # true — an optional group baked in, something compiled from source —
       # the upgrade is native ubuntu-24.04-arm runners plus a manifest merge,
       # not a longer QEMU build.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
       # GHCR requires a lowercase image path; the repository name may not be.
       - name: Work out the image name
@@ -86,7 +89,7 @@ jobs:
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -96,7 +99,7 @@ jobs:
       # "any 0.x", which is not a promise this project can keep.
       - name: Tags and labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.name.outputs.image }}
           tags: |
@@ -105,7 +108,7 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64

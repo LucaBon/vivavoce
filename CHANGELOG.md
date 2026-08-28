@@ -1,5 +1,203 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **French, the fourth language.** Pick *Français* as the mic language and
+  Vivavoce parses and answers in French: «mets Time de Pink Floyd», «coupe la
+  musique», «arrête dans 30 minutes», «mets quelque chose de relaxant», «mets
+  Time dans la cuisine». One pattern pack (`localvoice/lang/fr.py`), one
+  message catalog, and a test suite of its own — the page already offered
+  fr-FR to the microphone and already picked a French voice for it, and
+  answered in Italian.
+
+  Three things French does that none of the other three does, and each one
+  decided a pattern rather than being translated into it:
+
+  * **The accent is optional and the meaning is not.** The router matches what
+    was said as it arrives, and `re.I` folds case but not accents, so
+    «arrete la musique» typed into the box was not the same word as «arrête»
+    — it fell past the stop step and searched the library for a record called
+    "la musique". Every accented word in the pack is now built by one helper
+    from its correct French spelling, so a review checks the French and the
+    six vowel families come for free.
+  * **The word that decides sits on either side of the object.** «monte le
+    son» puts it in front, «mets la musique plus fort» puts it behind a verb
+    that says nothing on its own — German's separable verb with French parts.
+    And «son» is also the possessive, so it counts as the device only behind
+    an article: «mets son dernier album» is a request to play.
+  * **Politeness lands after the object, not inside the phrase.** «mets la
+    radio s'il te plaît» asked the server for a station called "s'il te
+    plaît"; «mets la deuxième stp» stopped being a pick. Every step that
+    reads to the end of the sentence now ends at the end of the *command*.
+
+  Not included: the page chrome, which is Italian or English only — a French
+  session gets French answers inside an English page — and the Home Assistant
+  blueprint, whose sentence triggers are still Italian and English. The
+  phrasings have not yet been reviewed by a native speaker.
+
+- **German, the third language.** Pick *Deutsch* as the mic language and
+  Vivavoce parses and answers in German: «spiel Time von Pink Floyd», «mach die
+  Musik aus», «schalt in 30 Minuten aus», «spiel etwas Entspannendes», «spiel
+  Time im Wohnzimmer». One pattern pack (`localvoice/lang/de.py`), one message
+  catalog, and a test suite of its own — no other module learned a word of
+  German.
+
+  Three things German does that neither Italian nor English does, and each one
+  decided a pattern rather than being translated into it:
+
+  * **The verb comes in two pieces.** «leg Time auf», «mach die Musik an» and
+    «ich möchte Time hören» wrap the title in a verb and its particle, so the
+    plain-verb pattern would have searched for "die Musik an". The split forms
+    have their own pattern — the one English already uses for "put Dark Side
+    on" — and the plain verbs deliberately do not list «leg»/«mach», which is
+    what lets «spiel Wach Auf» keep its "auf".
+  * **«mach» heads three different commands.** «mach lauter» is volume, «mach
+    aus» is stop, «mach die Musik an» is play. The play reading is recognised
+    only *with* its particle, so the other two stay reachable.
+  * **The adjective changes sides.** «etwas Entspannendes» puts the mood after
+    the marker noun, «etwas entspannende Musik» before it. Both reach the mood
+    table; both still require the marker, so «stopp die entspannende Musik»
+    keeps stopping the music.
+
+  Not included: the page chrome, which is Italian or English only — a German
+  session gets German answers inside an English page. The phrasings have not
+  yet been reviewed by a native speaker.
+
+### Fixed
+
+- **One silent client could stop the whole HTTPS server.** Serving TLS by
+  wrapping the *listening* socket — which is the obvious way to do it, and
+  what `--cert/--key` did — puts the handshake inside `SSLSocket.accept()`,
+  which is to say inside the accept loop, in the main thread, with no
+  timeout. So a single client that opened a connection and then said nothing
+  blocked every other device in the house, and it did not recover on its own:
+  the connections queued behind it were still there, unanswered, when it went
+  away. Browsers produce exactly such connections without being asked to —
+  they preconnect and abandon — so in practice the page loaded once and every
+  later request hung or was reset, and it looked like a certificate problem
+  because the certificate is what you are thinking about when you first turn
+  HTTPS on. The listening socket now stays plain and each accepted connection
+  is wrapped in the thread that will serve it, bounded by the same timeout
+  every other request has. A failed handshake — a browser sitting on the
+  self-signed warning, a plain `http://` typed at the TLS port, a LAN scanner
+  — now costs its own connection and nothing else, and no longer prints a
+  stack trace for something that is not an error.
+
+- **Dismissing the microphone prompt killed the microphone until reload.**
+  Tapping *beside* the permission prompt rather than answering it is the
+  easiest mistake there is to make here, and it ended the session: the button
+  did nothing from then on, no prompt ever came back, and only reloading the
+  page brought the microphone back — which was the tell, because a reload is
+  precisely a new `SpeechRecognition` object. Chrome reports a dismissal by
+  reporting nothing at all — no `onstart`, no `onerror`, no `onend` — and
+  leaves the recogniser in its starting state, where every later `start()`
+  throws `InvalidStateError`; that throw was swallowed, so nothing downstream
+  ever learned the microphone had stopped working. A stranded session is now
+  aborted and the start retried, so the second tap asks again. A denial on
+  tap-to-talk also no longer switches continuous listening off: that teardown
+  exists because a denied mic would restart-loop in wake mode, and it was
+  unticking — and saving — a preference the user had set on purpose.
+
+- **Read-back spoke the reply frame with the wrong voice.** The split between
+  "the frame" and "the foreign terms" was right; the frame's language was
+  hard-coded to Italian, so an English session heard "Playing" and "by" read
+  out by an Italian voice, and only the title and the artist got an English
+  one. The frame now follows the language the *server* answered in, which the
+  page learns from the server (`window.VIVAVOCE_CFG.langs`) instead of
+  guessing: it is not the page language — the chrome is Italian or English
+  only — and it is not the mic language either, since a mic language with no
+  catalog behind it (Spanish, French) is answered in Italian. German is what
+  made this impossible to keep filing as a detail: its replies are German
+  inside an English page, so neither of the two languages already on the page
+  was the right one. One spoken string is deliberately left behind: the AI Act
+  disclosure follows the page language, because there is no German version of
+  it to read out.
+
+### Changed
+
+- **The connectors are per language now** (`engine/connectors/`), instead of
+  one pile every language matched against at once. French is what made the
+  pile impossible: its artist connector is «de», the split takes the *last*
+  connector in the phrase, and «la canzone di Marinella di De André» went
+  looking for a singer called «André». One module per language, and what a
+  module declares is what that language matches: «di» is Italian's, «by»
+  English's, «von» German's, «de» French's, and none of them is everyone's.
+
+  This is a behaviour change and not only a move — the reason «von» was left
+  in the pile the first time round. A request phrased in one language and
+  heard by a recogniser set to another is no longer split into title and
+  artist: «Comfortably Numb von Pink Floyd», said to an Italian mic, is one
+  long title now. The search still runs on the full text, so the request is
+  still answered; what it loses is the hint that ranks the results. That is
+  the trade, and it is paid for by the mic: `Router.handle` sets the language
+  before anything parses, so the language in flight is the language of the
+  phrase far more often than not — while a shared «de» broke Italian for
+  everyone, every time.
+
+- **The message catalogs moved to `engine/catalogs/`**, one module per
+  language, discovered the way `localvoice/lang/` discovers its packs.
+  `messages.py` is now the forty lines that *select* a catalog rather than the
+  five hundred that *are* one; `messages.IT`/`.EN`/`.DE` and `msg()` are
+  unchanged for every caller.
+
+- **Each language pack's mood vocabulary moved next door**, to
+  `localvoice/lang/moods_{it,en,de}.py`. Same reason and same size guard: the
+  spoken vocabulary is a word list, not grammar, it is the half that grows, and
+  it is the half `engine/moods.py` is meant to read from generated data one
+  day. The packs re-export it, so the contract in `lang/base.py` is unchanged.
+
+- **Spotify, through the LMS Spotty plugin.** «da spotify metti Comfortably
+  Numb» now works the way «da tidal …» and «da qobuz …» do, the source selector
+  lists it when the plugin is installed, and the Home Assistant blueprint
+  accepts it too. **It needs Spotify Premium**: Spotty plays through Spotify
+  Connect, which free accounts cannot use, and its login will not complete
+  without one. This reverses a documented decision: the README said "No
+  Spotify" because Spotify Lossless is not delivered to third-party Connect
+  clients, so Spotty/librespot still gets lossy Ogg Vorbis 320 kbps. That is
+  still true and still says TIDAL or Qobuz is the better source on a
+  bit-perfect chain — it is just no longer a reason to refuse to reach a
+  service you already pay for.
+
+  **Spotty's feed is not shaped like the other two**, and the support is
+  written to what it actually answers, read off a live LMS 9.0.3 on
+  2026-08-28: there is no "Songs" category — the search node returns the
+  category links with the matching tracks as their siblings — a track carries
+  no url at all (it is the name of its single audio child, one level down), and
+  title, artist and album arrive as one string, "T by A from B". The url is
+  fetched for the track actually being played rather than for all twenty that
+  were searched.
+
+  **One behaviour is deliberately different from TIDAL and Qobuz.** Vivavoce
+  normally falls back to "nothing matched, so trust the search engine's ranking
+  and act on the top result". That is safe where an empty answer is possible —
+  TIDAL and Qobuz return *nothing* for «zzzzqqqxyzzy» — and unsafe on Spotify,
+  which answers every query with a full page of tracks, albums, artists and
+  playlists. On Spotify the fallback is off for all four: if nothing matches,
+  Vivavoce says so. Acting on something nobody asked for, silently, is the one
+  failure this project is built to avoid, and a service whose search never says
+  "no" would have introduced it — in four places, not one.
+
+- **Vivavoce answers Home Assistant's voice assistant.** One blueprint,
+  [`blueprints/vivavoce_assist.yaml`](blueprints/vivavoce_assist.yaml), and one
+  `rest_command` block: say «metti Comfortably Numb dei Pink Floyd» to Assist —
+  a voice satellite, the phone app, the dashboard — and the reply names the song
+  that *actually started*, not the words the microphone thought it heard. The
+  "which one did you mean?" list works too — «la 2» through «la 5», and the
+  ordinals — and on a voice satellite it is meant to be asked out loud and
+  waited for, which is the one branch no one here could test without a
+  satellite to test it on. Setup is in
+  [DEPLOY.md](DEPLOY.md#home-assistant-voice--talking-to-vivavoce-through-assist).
+
+  It coexists by construction: Home Assistant tries sentence triggers before its
+  own intents, so the blueprint only ever sees the music sentences it lists, and
+  uninstalling is deleting one automation. Transport — pause, resume, next,
+  volume — is deliberately **left to Home Assistant**, which already covers it
+  in both languages and does it room-aware. Search is the opposite case:
+  `HassMediaSearchAndPlay` starts the first result without asking, cannot filter
+  by artist, and is missing from the Italian intent pack entirely.
+
 ## 0.4.0 — August 2026
 
 ### New

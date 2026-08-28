@@ -38,11 +38,30 @@ CACHE_TTL = 5.0
 #     called Camera, Salotto and Sala is an ordinary house, so admitting "da"
 #     would turn chamber music into a command for the bedroom. Nobody asks for
 #     a room with it either — it is «in salotto», never «da salotto».
+#   German has the same shape as the Italian exclusion and one of its own:
+#     "auf" is the service preposition («auf Spotify»), not a room one.
+#     "von" introduces the artist («Musik von …»), so it stays out for the
+#       same reason "da" does in Italian.
+#     "im" is «in dem» welded together and is how the room is actually said
+#       («im Wohnzimmer»), so it has to be here or German never matches.
+#   French repeats both exclusions and adds a spelling problem:
+#     "sur" is the service preposition («sur Spotify») — Italian's "su".
+#     "de" introduces the artist («la musique de …»), so it stays out for the
+#       same reason "da" and "von" do.
+#     "à" is listed twice, as «à» and as «a». The match below is a bare
+#       ``.lower()`` with no accent folding — unlike ``_match_player``, which
+#       folds — so the two spellings are two different words here, and the
+#       text box writes the second one every time. Bare "a" is also the verb
+#       *avoir*, which costs nothing: a phrase only gets this far if the word
+#       after it also names a real player.
 _PREPS = {
     "it": ("in", "nella", "nel", "sulla", "sul"),
     "en": ("in", "on"),
+    "de": ("in", "im", "ins"),
+    "fr": ("dans", "en", "au", "aux", "à", "a"),
 }
-_ARTICLES = ("the ", "la ", "il ", "lo ", "l'", "le ", "gli ")
+_ARTICLES = ("the ", "la ", "il ", "lo ", "l'", "le ", "gli ",
+             "der ", "die ", "das ", "dem ", "den ", "les ")
 
 
 def _fold(text: Optional[str]) -> str:

@@ -4,34 +4,17 @@ verbatim from the pre-split router."""
 from __future__ import annotations
 
 from .base import c
+# Spoken tail -> mood key: a word list, not grammar, so it has a module of
+# its own. Imported (not just referenced) because the pack contract in
+# ``base.py`` asks the *pack* for MOOD_WORDS.
+from .moods_en import MOOD_WORDS  # noqa: F401
+# Spoken numbers and durations, same reasoning — see numbers_en.py.
+from .numbers_en import (  # noqa: F401
+    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "en"
-
-NUM_WORDS = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-}
-
-ORDINAL_WORDS = {
-    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
-    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
-}
-
-MINUTE_WORDS = dict(NUM_WORDS)
-MINUTE_WORDS.update({
-    "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
-    "fifty": 50, "sixty": 60, "ninety": 90,
-})
-
-# The tail of a sleep command ("stop in <tail>"), most specific first.
-DURATIONS = (
-    (c(r"^half\s+an?\s+hour\b"), 30),
-    (c(r"^(?:an|one|1)\W?\s*hour\b"), 60),
-    (c(r"^(\d+|[a-z]+)\s*hours?\b"), "hours"),
-    (c(r"^(\d+|[a-z]+)\s*(?:minut\w*|min\b)"), "minutes"),
-)
-
-_LOCAL = r"(?:from my (?:music|library)|from the library|locally)"
+# The closed word lists these patterns are built from.
+from .words_en import _LOCAL  # noqa: F401
 
 PATTERNS = {
     # ``put`` alone (not just "put on") so the suffix form "put X on" is
@@ -101,6 +84,11 @@ PATTERNS = {
     "local_prefix": c(rf"{_LOCAL}\s+(?:play\s+|put\s+on\s+)?(.+)$"),
     "local_suffix": c(rf"(?:play|put\s+on|start)\s+(.+?)\s+{_LOCAL}\s*$"),
     "service": r"(?:from {s}|on {s}|with {s})\s+(?:play\s+|put\s+on\s+)?(.+)$",
+    # "play X on Qobuz" — see it.py for why the suffix form exists at all.
+    # ``put`` stands without its particle here, and only here: "put Dark Side
+    # on Spotify" splits the two words the ``service`` form keeps together.
+    "service_suffix": r"(?:play|put|start|listen\s+to)\s+(.+?)\s+"
+                      r"(?:from|on|with) {s}\s*$",
     "albums_list": c(r"(?:which|what).{0,12}albums?.{0,16}(?:by|of|from)\s+(.+)$"),
     "toptracks": c(r"(?:top\s+tracks|best\s+(?:songs|tracks)|most\s+(?:played|listened)"
                    r"|which\s+songs).*?(?:by|of|from)\s+(.+)$"),
@@ -122,85 +110,4 @@ PATTERNS = {
     "block_remove": c(r"^unblock\s+(.+)$"),
     "block_list": c(r"^(?:(?:what|which)\s+(?:songs?|tracks?)\s+(?:are|is)\s+blocked|"
                     r"what'?s\s+blocked|list\s+(?:the\s+)?blocked)"),
-}
-
-# Spoken tail -> mood key. See it.py: keys are pre-normalized and matched
-# against the WHOLE tail, never a part of it.
-MOOD_WORDS = {
-    # relax
-    "relaxing": "relax", "relaxed": "relax", "calm": "relax",
-    "calming": "relax", "chill": "relax", "chilled": "relax",
-    "mellow": "relax", "quiet": "relax", "to relax": "relax",
-    "laid back": "relax", "soothing": "relax",
-    # sleep
-    "to sleep": "sleep", "for sleeping": "sleep", "to fall asleep": "sleep",
-    "for bedtime": "sleep", "for the night": "sleep", "sleepy": "sleep",
-    # dinner
-    "for dinner": "dinner", "for supper": "dinner", "dinner": "dinner",
-    "for lunch": "dinner", "while we eat": "dinner",
-    "for a dinner party": "dinner",
-    # party
-    "for a party": "party", "for the party": "party", "party": "party",
-    "to dance": "party", "for dancing": "party", "to dance to": "party",
-    # happy
-    "happy": "happy", "cheerful": "happy", "upbeat": "happy",
-    "feel good": "happy", "fun": "happy", "joyful": "happy",
-    # energetic
-    "energetic": "energetic", "for the gym": "energetic",
-    "for a workout": "energetic", "for working out": "energetic",
-    "for running": "energetic", "to run to": "energetic",
-    "pumped up": "energetic", "high energy": "energetic",
-    # focus
-    "for studying": "focus", "to study": "focus", "to study to": "focus",
-    "for working": "focus", "to work to": "focus", "for reading": "focus",
-    "to read to": "focus", "for concentration": "focus", "to focus": "focus",
-    # background
-    "in the background": "background", "for the background": "background",
-    "background": "background", "light": "background",
-    "easy listening": "background", "unobtrusive": "background",
-    # romantic
-    "romantic": "romantic", "for a date": "romantic",
-    "for date night": "romantic", "for lovers": "romantic",
-    "sensual": "romantic",
-    # melancholy
-    "sad": "melancholy", "melancholy": "melancholy",
-    "melancholic": "melancholy", "nostalgic": "melancholy",
-    "moody": "melancholy", "for a rainy day": "melancholy",
-    # morning
-    "for the morning": "morning", "for breakfast": "morning",
-    "to wake up to": "morning", "for waking up": "morning",
-    "morning": "morning",
-    # genre-shaped
-    "classical": "classical", "classical music": "classical",
-    "opera": "classical", "baroque": "classical",
-    "jazz": "jazz", "jazzy": "jazz",
-    "rock": "rock", "classic rock": "rock", "hard rock": "rock",
-    "blues": "blues", "bluesy": "blues",
-    # Metadata axes (T2.4-bis) — see it.py for why the bare noun is the thing
-    # to be careful with. Bare "christmas" is here despite naming real songs,
-    # on the same terms as "fun" already in this table, and it earns it: "put
-    # on some christmas music" is a phrase people say and nothing else covers
-    # it. Bare "summer" was here too and is deliberately gone — measured, it
-    # covered no corpus phrase that "summery" did not already cover, while it
-    # did break "play some Summer", which is how a person asks for a one-word
-    # title. An entry that costs a real request and buys nothing is not a
-    # trade, and the fall-through is a weaker net than it looks: the phrase
-    # handed back still carries its marker, so the search sees "some Summer".
-    "christmas": "christmas", "for christmas": "christmas",
-    "instrumental": "instrumental", "without words": "instrumental",
-    "with no words": "instrumental",
-    "summery": "summer",
-    # Decades.
-    "sixties": "sixties", "the sixties": "sixties",
-    "from the sixties": "sixties", "60s": "sixties",
-    "the 60s": "sixties", "from the 60s": "sixties",
-    "seventies": "seventies", "the seventies": "seventies",
-    "from the seventies": "seventies", "70s": "seventies",
-    "the 70s": "seventies", "from the 70s": "seventies",
-    "eighties": "eighties", "the eighties": "eighties",
-    "from the eighties": "eighties", "80s": "eighties",
-    "the 80s": "eighties", "from the 80s": "eighties",
-    "nineties": "nineties", "the nineties": "nineties",
-    "from the nineties": "nineties", "90s": "nineties",
-    "the 90s": "nineties", "from the 90s": "nineties",
 }

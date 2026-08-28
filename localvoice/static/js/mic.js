@@ -154,18 +154,56 @@ export function initMic() {
       rec.continuous = continuous;
       rec.lang = (LANGS[recLang()] || LANGS.it).tag;  // match the language I'll speak
     }
+    // Which start attempt is current: a recovery scheduled below must not
+    // fire behind a later tap that has already moved on.
+    let startAttempt = 0;
+
+    // Ask the recogniser for a session, recovering from one that never began.
+    //
+    // Dismissing the permission prompt — a tap OUTSIDE it rather than an
+    // answer — is what this exists for, and it is the easiest thing in the
+    // world to do by accident. Chrome sends nothing back for it: no onstart,
+    // no onerror, no onend. The recogniser is left in its starting state,
+    // where every later start() throws InvalidStateError, and that throw used
+    // to be swallowed right here — so the microphone was dead for the rest of
+    // the page's life. Tapping it did nothing at all, the prompt never came
+    // back, and reloading was the only cure, which is exactly what a reload
+    // is: a new recogniser object.
+    //
+    // abort() discards the stranded session. start() cannot follow it
+    // immediately (it would throw for the same reason), so the retry waits
+    // for the abort to land — and marks the session torn down first, so the
+    // dying one's events are not mistaken for this one's.
+    function startSession(nextMode, continuous) {
+      mode = nextMode; configure(continuous); tornDown = false;
+      const attempt = ++startAttempt;
+      try { rec.start(); return; } catch (e) { /* stranded; recover below */ }
+      tornDown = true;
+      try { rec.abort(); } catch (e) {}
+      setTimeout(() => {
+        if (attempt !== startAttempt) return;  // a later tap owns the mic now
+        mode = nextMode; configure(continuous); tornDown = false;
+        try {
+          rec.start();
+        } catch (e) {
+          // Twice is not a hiccup. Say so instead of leaving a dead button.
+          statusEl.textContent = ui("mic_error") + (e.name || e);
+          micUI(false);
+        }
+      }, 200);
+    }
+
     function startManual() {
       if (active) { rec.stop(); return; }  // second tap stops
-      mode = "manual"; configure(false); tornDown = false;
       clearAwaitingReview();  // a new capture: whatever is in the box is moot
-      try { rec.start(); } catch (e) {}
+      startSession("manual", false);
     }
     function startWake() {
-      mode = "wake"; configure(true); tornDown = false;
-      try { rec.start(); } catch (e) {}
+      startSession("wake", true);
     }
     function stopAll() {
       mode = "off"; wake.clearCap();
+      startAttempt++;  // drop any recovery scheduled by startSession
       // Unconditionally, not just when `active`: a session that never reached
       // onstart can still fail afterwards, and that is precisely the case
       // that bit — a start() whose error arrives later reports it against a
@@ -253,12 +291,20 @@ export function initMic() {
     }
     rec.onerror = (e) => {
       if (tornDown) return;  // an error about the session we just killed
-      // A denied/blocked mic would otherwise restart-loop in wake mode: turn it off.
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        // leaveWakeMode() first, message second: the teardown resets the
-        // status line unconditionally, so the error has to be the last write
-        // (the same ordering miccapture.js's onError documents).
-        leaveWakeMode();
+        // Teardown first, message second: it resets the status line
+        // unconditionally, so the error has to be the last write (the same
+        // ordering miccapture.js's onError documents). stopAll() is what
+        // makes that hold — it marks the session torn down, so the onend
+        // that follows leaves the message alone.
+        //
+        // Only WAKE mode is switched off. There a denied mic would
+        // restart-loop, which is what turning it off buys. On tap-to-talk
+        // the same error is most often a prompt the user dismissed by
+        // tapping beside it, and unticking continuous listening — a
+        // preference they set deliberately — is no answer to that.
+        if (mode === "wake" || $("wakemode").checked) leaveWakeMode();
+        else { stopAll(); micUI(false); }
         statusEl.textContent = ui("mic_error") + e.error;
         return;
       }

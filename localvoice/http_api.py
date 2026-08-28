@@ -30,7 +30,16 @@ import webguard
 from api_v1 import api_v1_routes
 from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
+from messages import CATALOGS
 from router import Router
+
+# The languages the router can answer in, for the page's read-back: the voice
+# that speaks the reply frame has to be the voice of the language the frame is
+# written in, and only the server knows which languages those are. Sent as
+# data rather than duplicated in the JS, so a fourth catalog needs no edit here
+# or there. Anything else the mic selector offers falls back to Italian —
+# exactly what ``messages.set_lang`` does with it.
+REPLY_LANGS = tuple(sorted(CATALOGS))
 
 # One Router per (client id, player) — see router_for. The map is keyed on a
 # client-chosen string, so it is bounded: without a cap, every page load with
@@ -108,6 +117,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 page = staticfiles.index_html().replace("__MATERIAL_URL__",
                                                         material_url)
                 page = page.replace("__SERVICES__", json.dumps(services))
+                page = page.replace("__LANGS__", json.dumps(REPLY_LANGS))
                 # json.dumps: the version lands in the inline config script
                 # as a quoted JS string.
                 page = page.replace("__VERSION__", json.dumps(app_version))
