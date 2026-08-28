@@ -10,9 +10,14 @@ state, kid-safe, multi-room); a pack owns nothing but data:
 ``PATTERNS``
     Dict of compiled regexes, one entry per routing step (see ``it.py`` for
     the canonical key list — ``tests/test_english.py`` asserts key parity
-    between languages). The ``service`` entry is a **template string**, not a
-    compiled regex: the router expands ``{s}`` per streaming service with its
-    ASR sound-alike pattern.
+    between languages). The ``service`` and ``service_suffix`` entries are
+    **template strings**, not compiled regexes: the router expands ``{s}`` per
+    streaming service with its ASR sound-alike pattern. They are one intent in
+    two word orders — the service named before the request («da Qobuz metti
+    X») or after it («metti X da Qobuz») — and a pack owes both, the way it
+    owes ``local_prefix`` and ``local_suffix``. Being templates, they are the
+    two patterns that cannot be built from the ``words_xx`` helpers: every
+    brace in them would have to survive ``str.format``.
 
 ``NUM_WORDS`` / ``ORDINAL_WORDS``
     Spoken positions -> int ("tre"/"three", "seconda"/"second"). The router

@@ -28,11 +28,14 @@ def test_pack_honors_the_contract(code):
     assert pack.CODE == code
     for attr in lang.REQUIRED:
         assert hasattr(pack, attr), f"{code} is missing {attr}"
-    # The service entry is a template (expanded per streaming service), every
-    # other pattern is compiled and ready.
-    assert "{s}" in pack.PATTERNS["service"]
+    # The two service entries are templates (expanded per streaming service —
+    # one for each word order, «da Qobuz metti X» and «metti X da Qobuz»);
+    # every other pattern is compiled and ready.
+    templates = ("service", "service_suffix")
+    for key in templates:
+        assert "{s}" in pack.PATTERNS[key], f"{code}.{key} is not a template"
     for key, pattern in pack.PATTERNS.items():
-        if key != "service":
+        if key not in templates:
             assert isinstance(pattern, re.Pattern), f"{code}.{key} not compiled"
     # DURATIONS: compiled regex + a spec the router understands.
     for pattern, spec in pack.DURATIONS:

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import copy
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -287,6 +288,11 @@ class LMSClient:
         self.timeout = timeout
         self.service = SERVICES[service]
         self._transport: Transport = transport or self._http_transport
+        # service tag -> (search node id or None, when it expires). A dict, so
+        # the shallow copies for_service()/for_player() hand out SHARE it:
+        # "is Qobuz logged in" is a fact about the server, not about which
+        # clone asked. See search_node_id.
+        self._search_nodes: Dict[str, Tuple[Optional[str], float]] = {}
 
     def for_service(self, name: str) -> "LMSClient":
         """This client re-targeted at another streaming service. Returns a
@@ -380,12 +386,45 @@ class LMSClient:
         res = self.command(self.service.tag, "items", *params)
         return res.get("loop_loop") or res.get("item_loop") or []
 
-    def search_node_id(self) -> Optional[str]:
-        """Id of the plugin's search node (type == 'search').
+    #: How long a search-node lookup is trusted. It buys two things at once:
+    #: the extra round-trip ``can_search`` would otherwise add to every
+    #: streaming request (the search path asks for the same node moments
+    #: later), and a bound on how long a plugin that has just been logged in
+    #: keeps being reported as offline. Short enough that authenticating in
+    #: LMS and speaking the next sentence works without restarting the app.
+    SEARCH_NODE_TTL = 30.0
 
-        TIDAL exposes it right in the home menu; Qobuz nests it one level
-        down (home 'Search' link -> 'New search'), so when the home menu has
-        none we enter the ``search_parents`` nodes and look again."""
+    def search_node_id(self) -> Optional[str]:
+        """Id of the plugin's search node (type == 'search'), or None when the
+        plugin has none to give — which is what an unauthenticated service
+        looks like from here: a TIDAL that is logged out answers its whole
+        menu with one 'Please go to Settings/Advanced/TIDAL' textarea.
+
+        Memoized per service for ``SEARCH_NODE_TTL`` seconds (see there)."""
+        cached = self._search_nodes.get(self.service.tag)
+        if cached is not None and cached[1] > time.monotonic():
+            return cached[0]
+        node = self._find_search_node()
+        self._search_nodes[self.service.tag] = (
+            node, time.monotonic() + self.SEARCH_NODE_TTL)
+        return node
+
+    def can_search(self) -> bool:
+        """Whether this service can answer a search at all — i.e. whether the
+        plugin is installed AND logged in. False is the difference between
+        "your music isn't there" and "nobody was asked", and the router needs
+        it to tell those two apart before it reports a miss."""
+        try:
+            return self.search_node_id() is not None
+        except LMSError:
+            return False
+
+    def _find_search_node(self) -> Optional[str]:
+        """The uncached lookup behind :meth:`search_node_id`.
+
+        TIDAL exposes the node right in the home menu; Qobuz nests it one
+        level down (home 'Search' link -> 'New search'), so when the home menu
+        has none we enter the ``search_parents`` nodes and look again."""
         items = self._app_items("0", "50")
         for item in items:
             if item.get("type") == "search":

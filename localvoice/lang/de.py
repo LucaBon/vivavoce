@@ -309,6 +309,14 @@ PATTERNS = {
     "local_suffix": c(rf"\b(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+(.+?)\s+"
                       rf"{_LOCAL}\s*$"),
     "service": r"(?:von {s}|auf {s}|mit {s}|(?:ü|ue)ber {s})\s+(?:spiel(?:e)?\s+|leg(?:e)?\s+)?(.+)$",
+    # «spiel X auf Qobuz» — see it.py for why the suffix form exists at all.
+    # ``von`` is left out of this half on purpose: German names an artist with
+    # it («Comfortably Numb von Pink Floyd» — see connectors/de.py), so a
+    # trailing «von …» is far more often a singer than a service, and the
+    # sound-alike for a service name is the only thing standing between the
+    # two. The three prepositions that mean nothing else are enough.
+    "service_suffix": r"(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+(.+?)\s+"
+                      r"(?:auf|mit|(?:ü|ue)ber) {s}\s*$",
     "albums_list": c(r"welch\w*\s.{0,20}alben.{0,20}?\bvon\s+(.+)$"),
     "toptracks": c(r"(?:beste[nrs]?\s+(?:lieder|songs|titel|st(?:ü|ue)cke)"
                    r"|top\s*tracks|meistgespielte\w*|meist\s*geh(?:ö|oe)rte\w*"

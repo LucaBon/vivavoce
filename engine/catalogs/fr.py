@@ -15,6 +15,12 @@ MESSAGES = {
         "donc je ne peux pas le jouer.",
     "not_owner":
         "Seul un parent peut modifier la liste des morceaux bloqués.",
+    "service_offline":
+        "{service} n'est pas connect\u00e9. Ouvre les r\u00e9glages de LMS et "
+        "reconnecte-toi.",
+    "no_service_online":
+        "Aucun service de streaming n'est connect\u00e9. Ouvre les r\u00e9glages "
+        "de LMS et reconnecte-toi.",
 
     # -- labels / list read-outs -------------------------------------------
     "generic_track": "morceau",

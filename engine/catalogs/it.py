@@ -16,6 +16,16 @@ MESSAGES = {
         "Questa canzone c'è, ma è nella lista dei brani bloccati, quindi non "
         "posso metterla.",
     "not_owner": "Solo il genitore può cambiare la lista dei brani bloccati.",
+    # A streaming request that never reached a search: the plugin is
+    # installed but logged out (see LMSClient.can_search). Saying "non ho
+    # trovato nessun brano" here is a lie about the music library — nobody
+    # was asked. Both name the fix, because it is one the user can act on.
+    "service_offline":
+        "{service} non \u00e8 collegato. Apri le impostazioni di LMS e "
+        "rifai l'accesso.",
+    "no_service_online":
+        "Nessun servizio di streaming \u00e8 collegato. Apri le impostazioni "
+        "di LMS e rifai l'accesso.",
 
     # -- labels / list read-outs -------------------------------------------
     "generic_track": "brano",

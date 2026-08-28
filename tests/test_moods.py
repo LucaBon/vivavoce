@@ -614,10 +614,15 @@ def test_a_named_song_is_not_a_mood(router, library, make_tidal):
     assert not any(cmd[0] == "genres" for cmd in library.commands())
 
 
-def test_a_named_artist_clears_the_marker_and_still_is_not_a_mood(router, library):
+def test_a_named_artist_clears_the_marker_and_still_is_not_a_mood(router, library,
+                                                                  make_tidal):
     # «metti la musica di Vasco Rossi» DOES match the mood pattern — "la
     # musica" is the marker. The second filter is what saves it: "vasco rossi"
     # is not a mood word, so it goes on to the artist path untouched.
+    # The service is wired and answers nothing, which is the case this asserts
+    # on: a service that isn't wired at all is a service nobody is logged in
+    # to, and that has its own answer now (see test_service_fallback.py).
+    library.responses["tidal"] = make_tidal(categories={}, items={})
     pack = PACKS["it"]
     assert pack.PATTERNS["mood"].search("metti la musica di Vasco Rossi")
     reply = router.handle("metti la musica di Vasco Rossi")
@@ -697,11 +702,13 @@ def test_pausing_still_pauses(router, library):
     ("riproduci la playlist Musica Rilassante",
      "Non ho trovato la playlist Musica Rilassante."),
 ])
-def test_a_request_that_names_what_it_wants_keeps_it(router, library, phrase,
-                                                     expected):
+def test_a_request_that_names_what_it_wants_keeps_it(router, library, make_tidal,
+                                                     phrase, expected):
     # "Musica Rilassante" is what people actually call their own playlists, and
     # the listener said the word "album"/"playlist": the request is identified
-    # by definition, so the mood must not take it.
+    # by definition, so the mood must not take it. A connected service that
+    # holds neither is what makes "non ho trovato" the honest answer here.
+    library.responses["tidal"] = make_tidal(categories={}, items={})
     assert str(router.handle(phrase)) == expected
     assert router.mood is None
 

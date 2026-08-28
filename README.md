@@ -81,7 +81,7 @@ no LLM), so behaviour is testable and repeatable.
 |---|---|
 | 🧠 **Title / artist / album parsing** | "metti Comfortably Numb **dei** Pink Floyd" → title + artist; "… **dall'album** X" → album. |
 | 🎯 **Artist-aware ranking** | Streaming results are read in *menu mode*, which carries the **artist** — so among three "Comfortably Numb" it plays *Pink Floyd's* edition and confirms it out loud. |
-| 🎼 **Three streaming services** | **TIDAL**, **Qobuz** and **Spotify** (plus your local library): pick one in the page's source selector — it only lists the plugins your LMS actually has — or just say «da qobuz metti …». "Auto" tries your library first, then the default service. Spotify goes through the *Spotty* plugin, needs **Premium**, and is 320 kbps Ogg rather than lossless; see the caveats. |
+| 🎼 **Three streaming services** | **TIDAL**, **Qobuz** and **Spotify** (plus your local library): pick one in the page's source selector — it only lists the plugins your LMS actually has — or just say «da qobuz metti …» (or «metti … da qobuz»). If one of them is logged out, the request goes to a service that isn't, and the reply says which one played. "Auto" tries your library first, then the default service. Spotify goes through the *Spotty* plugin, needs **Premium**, and is 320 kbps Ogg rather than lossless; see the caveats. |
 | ❓ **"Did you mean" (top 3)** | When genuinely different songs match, it reads back the top three and you answer «metti la 2» — the choices are also **tappable buttons**. Exact matches just play; junk never wins. |
 | 📀 **Local library scored too** | A generic word like "love" never plays an unrelated album, and "aerosmith" plays the *artist*, not a random album. |
 | 👂 **Mishearing resilience** | The web app tries the browser's alternative transcriptions until one hits (English names that it-IT often mangles). |
@@ -131,7 +131,7 @@ picking the mic language on the page (the page labels are Italian or English;
 a French or German session gets its answers inside the English page):
 
 > «metti Comfortably Numb dei Pink Floyd» · «metti l'album The Wall» ·
-> «dalla mia musica metti Aerosmith» · «da qobuz metti Time» ·
+> «dalla mia musica metti Aerosmith» · «da qobuz metti Time» · «metti Time da qobuz» ·
 > «quali album ho di Yes» → «metti la 2» ·
 > «pausa» · «alza il volume» · «cosa sta suonando» ·
 > «spegni tra 30 minuti» · «metti Time in cucina»

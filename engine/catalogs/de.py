@@ -17,6 +17,12 @@ MESSAGES = {
         "Das Lied gibt es, aber es steht auf der Sperrliste, also kann ich es "
         "nicht abspielen.",
     "not_owner": "Nur die Eltern d\u00fcrfen die Sperrliste \u00e4ndern.",
+    "service_offline":
+        "{service} ist nicht verbunden. \u00d6ffne die LMS-Einstellungen und "
+        "melde dich neu an.",
+    "no_service_online":
+        "Es ist kein Streaming-Dienst verbunden. \u00d6ffne die "
+        "LMS-Einstellungen und melde dich neu an.",
 
     # -- labels / list read-outs -------------------------------------------
     "generic_track": "Titel",

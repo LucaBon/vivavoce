@@ -84,6 +84,11 @@ PATTERNS = {
     "local_prefix": c(rf"{_LOCAL}\s+(?:play\s+|put\s+on\s+)?(.+)$"),
     "local_suffix": c(rf"(?:play|put\s+on|start)\s+(.+?)\s+{_LOCAL}\s*$"),
     "service": r"(?:from {s}|on {s}|with {s})\s+(?:play\s+|put\s+on\s+)?(.+)$",
+    # "play X on Qobuz" — see it.py for why the suffix form exists at all.
+    # ``put`` stands without its particle here, and only here: "put Dark Side
+    # on Spotify" splits the two words the ``service`` form keeps together.
+    "service_suffix": r"(?:play|put|start|listen\s+to)\s+(.+?)\s+"
+                      r"(?:from|on|with) {s}\s*$",
     "albums_list": c(r"(?:which|what).{0,12}albums?.{0,16}(?:by|of|from)\s+(.+)$"),
     "toptracks": c(r"(?:top\s+tracks|best\s+(?:songs|tracks)|most\s+(?:played|listened)"
                    r"|which\s+songs).*?(?:by|of|from)\s+(.+)$"),

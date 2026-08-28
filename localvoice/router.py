@@ -16,7 +16,10 @@ Music sources:
   Ambiguous commands ("riproduci X" / "play X") follow the ``source`` passed by
   the UI selector; "auto" tries local first, then the configured default
   streaming service. Explicit phrases always win: "dalla mia musica …" /
-  "from my music …" forces local, "da tidal …" / "on tidal …" force a service.
+  "from my music …" forces local, "da tidal …" / "on tidal …" force a service,
+  in either word order. Which source a request actually reaches — and what
+  happens when the one it was aimed at turns out to be logged out — is
+  ``sources.py``.
 
 State (the last read-out list) is kept in-instance for the "metti la N" /
 "play number N" choice.
@@ -33,7 +36,8 @@ from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
 from intents import IntentTable
 from lang import PACKS
 from messages import msg, set_lang
-from parsing import _reportable, _source_suffix, clean_command
+from parsing import _reportable, clean_command
+from sources import SourceChoice
 
 # The two windows are defined next to the state they bound, but they are still
 # the router's windows: ``router.CANDIDATES_TTL`` has to keep naming the one it
@@ -56,7 +60,7 @@ MOOD_WORDS = {code: pack.MOOD_WORDS for code, pack in PACKS.items()}
 
 
 
-class Router(ConversationState, IntentTable):
+class Router(ConversationState, IntentTable, SourceChoice):
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
                  kidsafe=None, client_id="default", multiroom=None,
                  now=time.monotonic):
@@ -156,74 +160,6 @@ class Router(ConversationState, IntentTable):
         lead = verb.match(t) if verb else None
         tail = t[lead.end():].strip() if lead else ""
         return tail or None
-
-    def _stream_name(self, source):
-        """The streaming service a request goes to: ``source`` when it names a
-        known service, else the default streaming service."""
-        return source if source in self.services else self.default_service
-
-    def _stream(self, source):
-        """The LMS client for a streaming request (see :meth:`_stream_name`)."""
-        return self.lms.for_service(self._stream_name(source))
-
-    def _tag(self, res, suffix: str):
-        """Splice the source tag into a play confirmation ('Riproduco Time.' ->
-        'Riproduco Time da Qobuz.'). Only acted-on plays are tagged: misses,
-        errors and 'did you mean' questions pass through untouched.
-
-        It goes into the FIRST sentence, which is the same thing as the last
-        one for every confirmation that has only one — all of them until the
-        mood read-back, which ends by inviting «un'altra» and turned
-        «… in cucina» into an instruction about where to say it."""
-        if not suffix or not getattr(res, "ok", False) or getattr(res, "kind", None):
-            return res
-        head, sep, rest = str(res).partition(". ")
-        if head.endswith("."):
-            head = head[:-1]
-        speech = head + suffix + "." + ((" " + rest) if sep else "")
-        return actions.ActionResult(speech, ok=True, candidates=res.candidates,
-                                    kind=res.kind, terms=res.terms,
-                                    label=getattr(res, "label", None))
-
-    def _resolve(self, arg: str, stream_fn, source: str):
-        guard = self._guard
-        if source == "local":
-            return self._played(
-                actions.play_local(self.lms, arg, guard=guard), "local")
-        name = self._stream_name(source)
-        stream = self.lms.for_service(name)
-        if source == "auto":
-            # Auto: prefer a confident local-library hit, else fall back to the
-            # default streaming service (no cascading across services).
-            # play_local only plays when it matches, so a miss has no effect.
-            res = actions.play_local(self.lms, arg, guard=guard)
-            if getattr(res, "ok", False):
-                return self._played(res, "local")
-        return self._played(
-            self._tag(stream_fn(stream, arg, guard=guard), _source_suffix(name)),
-            name)
-
-    def _resolve_queue(self, arg: str, mode: str, source: str):
-        """Like :meth:`_resolve`, but for a song queued (mode: 'add' or
-        'insert') instead of played — only play_song/play_local accept a
-        queue mode. No explicit source-override phrases ("da tidal ...",
-        "dalla mia musica ...") for queue commands: out of scope, the UI
-        source selector still decides where a queued song comes from."""
-        guard = self._guard
-        if source == "local":
-            return self._played(
-                actions.play_local(self.lms, arg, mode=mode, guard=guard),
-                "local", mode=mode)
-        name = self._stream_name(source)
-        stream = self.lms.for_service(name)
-        if source == "auto":
-            res = actions.play_local(self.lms, arg, mode=mode, guard=guard)
-            if getattr(res, "ok", False):
-                return self._played(res, "local", mode=mode)
-        return self._played(
-            self._tag(actions.play_song(stream, arg, mode=mode, guard=guard),
-                      _source_suffix(name)),
-            name, mode=mode)
 
     def handle_many(self, alternatives, source: str = "tidal", lang: str = "it") -> dict:
         """Try each speech-recognition alternative until one is a hit.

@@ -99,6 +99,15 @@ PATTERNS = {
     "local_prefix": c(rf"{_LOCAL}\s+(?:metti\s+|riproduci\s+)?(.+)$"),
     "local_suffix": c(rf"(?:metti|riproduci|suona)\s+(.+?)\s+{_LOCAL}\s*$"),
     "service": r"(?:da {s}|su {s}|con {s})\s+(?:metti\s+|riproduci\s+)?(.+)$",
+    # The same override said the other way round — «metti X da Qobuz» — which
+    # is where the naming goes when the sentence is spoken rather than typed,
+    # and the only shape the prefix form cannot read. Without it the phrase
+    # fell through to the source selector and was answered by the DEFAULT
+    # service, so naming a service out loud did nothing at all. Paired with
+    # ``service`` exactly as ``local_suffix`` is paired with ``local_prefix``,
+    # verb and all: a title is not a command, and «X da Qobuz» on its own
+    # reaches no play branch either.
+    "service_suffix": r"(?:metti|riproduci|suona)\s+(.+?)\s+(?:da|su|con) {s}\s*$",
     "albums_list": c(r"(?:quali|che).{0,12}album.{0,4}di\s+(.+)$"),
     "toptracks": c(r"(?:quali.{0,10}brani|top tracks|brani.{0,15}ascoltati).*?di\s+(.+)$"),
     "name_pick": c(r"(?:(?:voglio\s+ascoltare|fai\s+partire|metti|scegli|riproduci|suona|voglio)\s+)?(.+)$"),

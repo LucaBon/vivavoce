@@ -280,6 +280,14 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
     service the request came from. ``exclude`` holds the normalized labels
     «un'altra» has already been given, so a second ask gets a second answer.
 
+    ``stream`` may also be a **callable** returning the client (or None), for
+    a caller whose choice of service costs something to make. The library wins
+    over the service here — step 2 runs only once step 1 has declined — and a
+    caller that has to ask the server which services are even connected would
+    otherwise pay for that on every mood, including the ones the library
+    answers by itself. Resolved at the top of step 2 and nowhere earlier, so
+    "the service is never asked" keeps meaning what it says.
+
     Returns a spoken read-back whose ``label`` is what was chosen — which is
     what the caller adds to ``exclude`` for the next round. Usually that is
     also the foreign name in ``terms``; on the year axis it deliberately is
@@ -346,6 +354,8 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
                                 terms=[name])
 
     # 2) the service's curated playlists.
+    if callable(stream):  # a deferred choice of service — see the docstring
+        stream = stream()
     if stream is not None:
         for query in mood["playlists"]:
             try:

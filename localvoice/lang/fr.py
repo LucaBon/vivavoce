@@ -264,6 +264,15 @@ PATTERNS = {
     "local_suffix": c(rf"(?:{_PLAY})\s*{_MOI}\s+(.+?)\s+{_LOCAL}{_END}"),
     "service": (r"(?:sur {s}|depuis {s}|avec {s}|via {s}|de {s})\s+"
                 r"(?:mets\s+|joue\s+|passe\s+|lance\s+)?(.+)$"),
+    # «mets X sur Qobuz» — see it.py for why the suffix form exists at all.
+    # ``de`` is left out of this half, for the reason connectors/fr.py gives
+    # at length: «de» is how French names an artist, so a trailing «de …» is
+    # a singer far more often than a service. The four that mean nothing else
+    # stay. Written with a plain `$` rather than ``_END``: this template is
+    # expanded with ``.format`` and every brace in it would have to survive
+    # that, which is also why ``service`` above is not built from the helpers.
+    "service_suffix": (r"(?:mets|met|joue|passe|lance|remets)\s+(.+?)\s+"
+                       r"(?:sur|depuis|avec|via) {s}\s*$"),
 
     # -- lists ---------------------------------------------------------------
     "albums_list": c(rf"(?:quels|quelles|combien\s+d).{{0,20}}albums?"

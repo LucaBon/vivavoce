@@ -13,6 +13,11 @@ MESSAGES = {
         "That song exists, but it's on the blocked-songs list, so I can't "
         "play it.",
     "not_owner": "Only the parent can change the blocked-songs list.",
+    "service_offline":
+        "{service} isn't connected. Open the LMS settings and sign in again.",
+    "no_service_online":
+        "No streaming service is connected. Open the LMS settings and sign "
+        "in again.",
 
     # -- labels / list read-outs -------------------------------------------
     "generic_track": "track",

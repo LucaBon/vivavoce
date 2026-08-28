@@ -134,6 +134,12 @@ def _service_re(name: str) -> str:
 _SERVICE_LABELS = {"tidal": "TIDAL", "qobuz": "Qobuz", "spotify": "Spotify"}
 
 
+def _service_label(name: str) -> str:
+    """How a service name is spelled when a reply says it out loud — 'qobuz'
+    is a config key, «Qobuz» is what the user hears."""
+    return _SERVICE_LABELS.get(name, name)
+
+
 def _source_suffix(name) -> str:
     """The localized ' da TIDAL' / ' from your music' tag for a source name
     ('local' or a service), so play replies say which source answered."""
@@ -141,4 +147,4 @@ def _source_suffix(name) -> str:
         return ""
     if name == "local":
         return msg("from_local")
-    return msg("from_service", service=_SERVICE_LABELS.get(name, name))
+    return msg("from_service", service=_service_label(name))
