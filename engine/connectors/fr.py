@@ -25,9 +25,9 @@ ALBUM_SEP = (r"de\s+l['’]?\s*album|dans\s+l['’]?\s*album|sur\s+l['’]?\s*al
 ARTIST_SEP = r"par\s+|d['’]\s*|des\s+|du\s+|de\s+"
 
 # «Le Temps de Vivre» must not go looking for a singer called «vivre» — the
-# French half of what ``shared.NOT_AN_ARTIST`` does for «più» and for «mir».
-# Written normalized (no accents, no apostrophes), because that is the form
-# ``_normalize`` hands the lookup.
+# French half of what ``NOT_AN_ARTIST`` does for «più» in it.py and «mir» in
+# de.py. Written normalized (no accents, no apostrophes), because that is the
+# form ``_normalize`` hands the lookup.
 NOT_AN_ARTIST = {
     "moi", "toi", "lui", "elle", "nous", "vous", "eux", "elles", "soi",
     "ici", "la", "ca", "cela", "celui", "celle", "ceux", "rien", "tout",

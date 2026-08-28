@@ -42,8 +42,11 @@ message catalog in ``engine/catalogs/`` and a test suite modeled on
 ``tests/test_english.py``); the registry in ``__init__.py`` finds it by
 itself. It also adds a module in ``engine/connectors/`` for the words that
 join the parts of a request — «di X», «by X», «von X», «de X» — which belong
-to one language each and to no other; French explains there why that package
-exists, and ``tests/test_connectors.py`` fails a pack that ships without one.
+to one language each and to no other. All four of its tables are required,
+because nothing is shared any more and an omitted one silently turns that
+connector off for the language; the import says so, French explains there why
+the package exists, and ``tests/test_connectors.py`` fails a pack that ships
+without a module at all.
 
 **A pack module holds the grammar; the word lists live beside it.** ``xx.py``
 is ``PATTERNS`` and nothing else; ``moods_xx.py`` and ``numbers_xx.py`` hold

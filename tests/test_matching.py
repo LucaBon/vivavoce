@@ -9,6 +9,7 @@ import pytest
 
 import actions
 from actions import ActionResult, _score
+from messages import set_lang
 
 
 # -- _score ---------------------------------------------------------------
@@ -460,17 +461,20 @@ def test_a_title_that_opens_with_a_connector_keeps_its_first_word():
     assert actions.parse_song_query("By the Way", lang="en")["artist"] is None
 
 
-@pytest.mark.parametrize("query, title", [
-    ("Cuore di Vetro", "Cuore di Vetro"),
-    ("Nel Blu Dipinto di Blu", "Nel Blu Dipinto di Blu"),
-    ("Il Ragazzo della Via Gluck", "Il Ragazzo della Via Gluck"),
-    ("Notte Prima degli Esami", "Notte Prima degli Esami"),
-    ("Fiume di Fango", "Fiume di Fango"),
-    ("Killed by Death", "Killed by Death"),
-    ("Blinded by the Light", "Blinded by the Light"),
-    ("Stand By Your Man", "Stand By Your Man"),
+# Each row under the language it is a title in: «by» is English's connector
+# now, so the three English rows invent nothing at all under Italian and would
+# stop testing the invention this guards against.
+@pytest.mark.parametrize("lang, query, title", [
+    ("it", "Cuore di Vetro", "Cuore di Vetro"),
+    ("it", "Nel Blu Dipinto di Blu", "Nel Blu Dipinto di Blu"),
+    ("it", "Il Ragazzo della Via Gluck", "Il Ragazzo della Via Gluck"),
+    ("it", "Notte Prima degli Esami", "Notte Prima degli Esami"),
+    ("it", "Fiume di Fango", "Fiume di Fango"),
+    ("en", "Killed by Death", "Killed by Death"),
+    ("en", "Blinded by the Light", "Blinded by the Light"),
+    ("en", "Stand By Your Man", "Stand By Your Man"),
 ])
-def test_a_title_containing_a_connector_still_plays(query, title, lms,
+def test_a_title_containing_a_connector_still_plays(lang, query, title, lms,
                                                     transport, make_tidal):
     # The split on the LAST connector invents an artist for any title that
     # merely contains one («Cuore di Vetro» -> 'Cuore' by 'Vetro'). That used to
@@ -478,6 +482,7 @@ def test_a_title_containing_a_connector_still_plays(query, title, lms,
     # existed it turned into a hard "non ho trovato" with the exact track
     # sitting first in the results — and ok=False made handle_many burn the
     # next ASR alternative on top.
+    set_lang(lang)
     transport.responses["tidal"] = make_tidal(
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://ok.flc", "name": title,

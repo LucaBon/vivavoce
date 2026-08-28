@@ -24,9 +24,11 @@ in flight is the language of the phrase far more often than not.
 
 A module without ``CODE`` is invisible here, so a helper can sit in the
 package without being mistaken for a language — the same way ``base.py`` does
-in ``localvoice/lang/``. A module *with* ``CODE`` and none of the four names
-raises: it declares a language and then says nothing about it, which is a
-typo rather than an intention.
+in ``localvoice/lang/``. A module *with* ``CODE`` must declare all four
+tables, and raises otherwise. While there was a core to widen, a missing name
+meant "this language adds nothing here"; with nothing shared it means the
+connector class is off for that language entirely — «del álbum» would simply
+never split, quietly and forever. Four names or an ImportError.
 
 The composition happens once, at import, for every registered language. A
 request pays a dict lookup.
@@ -73,9 +75,10 @@ for _info in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
     _mod = importlib.import_module(f"{__name__}.{_info.name}")
     if not hasattr(_mod, "CODE"):
         continue  # a helper, not a language
-    if not any(hasattr(_mod, _f) for _f in FIELDS):
+    _missing = [_f for _f in FIELDS if not hasattr(_mod, _f)]
+    if _missing:
         raise ImportError(
-            f"connectors/{_info.name}.py declares CODE but none of {FIELDS}")
+            f"connectors/{_info.name}.py declares CODE but is missing {_missing}")
     CONNECTORS[_mod.CODE] = _build(_mod)
 
 #: The default language's set, for a code this package has never heard of —
