@@ -98,11 +98,11 @@ triggers:
       # and not «vorrei», so only the mood form of it parses.
       - "voglio ascoltare {query}"
       # Source prefixes: the router reads them, so they must survive intact.
-      # Only the services the engine actually has — `engine/lms.py` SERVICES.
-      # Naming one it does not have would be the worst kind of wrong: «da
-      # spotify metti X» would fall through to a plain play and start the song
-      # on TIDAL without saying so.
-      - "(da|su|con) (tidal|qobuz) [metti|riproduci] {query}"
+      # Only the services the engine actually has — `engine/lms.py` SERVICES,
+      # and a packaging test pins this list to it. Naming one it does not have
+      # would be the worst kind of wrong: the phrase would fall through to a
+      # plain play and start the song on the default service without saying so.
+      - "(da|su|con) (tidal|qobuz|spotify) [metti|riproduci] {query}"
       - "(dalla mia musica|dal disco|in locale|dalla libreria) [metti|riproduci] {query}"
       # Picking from a numbered list, and re-rolling a vague request. Spelled
       # out rather than left to a wildcard, because "(la|il) {anything}" would
@@ -150,7 +150,7 @@ triggers:
       # HassLawnMowerStartMowing, and "play"/"put on" already cover music.
       - "(play|put on) {query}"
       - "i want to (hear|listen to) {query}"
-      - "(from|on|with) (tidal|qobuz) [play|put on] {query}"
+      - "(from|on|with) (tidal|qobuz|spotify) [play|put on] {query}"
       - "(from my music|from my library|from the library|locally) [play|put on] {query}"
       - "the (1|2|3|4|5|one|two|three|four|five)"
       - "the (first|second|third|fourth|fifth)"

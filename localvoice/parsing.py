@@ -73,6 +73,11 @@ _SERVICE_SOUNDS = {
              r"|titles?|titel|tider|tida|vidal)",
     "qobuz": r"(?:[qkc](?:u?[oóa]|ue)[\s\-]?b(?:oo|[uoaúù])[\s\-]?"
              r"(?:ts|tz|zz|ss|z|s)e?)",
+    # Spotify needs far less of this than the other two: it is a household
+    # name, so recognizers have it in their vocabulary and mostly write it
+    # correctly. The variants are the tail — the final syllable is the only
+    # part that drifts, and the plugin's own name leaks through now and then.
+    "spotify": r"(?:spo[\s\-]?ti[\s\-]?f(?:y|ai|ay|i|ie)|spotty)",
 }
 
 
@@ -82,7 +87,7 @@ def _service_re(name: str) -> str:
 
 
 # Display names for the source tag in play confirmations.
-_SERVICE_LABELS = {"tidal": "TIDAL", "qobuz": "Qobuz"}
+_SERVICE_LABELS = {"tidal": "TIDAL", "qobuz": "Qobuz", "spotify": "Spotify"}
 
 
 def _source_suffix(name) -> str:

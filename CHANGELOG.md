@@ -4,6 +4,37 @@
 
 ### New
 
+- **Spotify, through the LMS Spotty plugin.** «da spotify metti Comfortably
+  Numb» now works the way «da tidal …» and «da qobuz …» do, the source selector
+  lists it when the plugin is installed, and the Home Assistant blueprint
+  accepts it too. **It needs Spotify Premium**: Spotty plays through Spotify
+  Connect, which free accounts cannot use, and its login will not complete
+  without one. This reverses a documented decision: the README said "No
+  Spotify" because Spotify Lossless is not delivered to third-party Connect
+  clients, so Spotty/librespot still gets lossy Ogg Vorbis 320 kbps. That is
+  still true and still says TIDAL or Qobuz is the better source on a
+  bit-perfect chain — it is just no longer a reason to refuse to reach a
+  service you already pay for.
+
+  **Spotty's feed is not shaped like the other two**, and the support is
+  written to what it actually answers, read off a live LMS 9.0.3 on
+  2026-08-28: there is no "Songs" category — the search node returns the
+  category links with the matching tracks as their siblings — a track carries
+  no url at all (it is the name of its single audio child, one level down), and
+  title, artist and album arrive as one string, "T by A from B". The url is
+  fetched for the track actually being played rather than for all twenty that
+  were searched.
+
+  **One behaviour is deliberately different from TIDAL and Qobuz.** Vivavoce
+  normally falls back to "nothing matched, so trust the search engine's ranking
+  and act on the top result". That is safe where an empty answer is possible —
+  TIDAL and Qobuz return *nothing* for «zzzzqqqxyzzy» — and unsafe on Spotify,
+  which answers every query with a full page of tracks, albums, artists and
+  playlists. On Spotify the fallback is off for all four: if nothing matches,
+  Vivavoce says so. Acting on something nobody asked for, silently, is the one
+  failure this project is built to avoid, and a service whose search never says
+  "no" would have introduced it — in four places, not one.
+
 - **Vivavoce answers Home Assistant's voice assistant.** One blueprint,
   [`blueprints/vivavoce_assist.yaml`](blueprints/vivavoce_assist.yaml), and one
   `rest_command` block: say «metti Comfortably Numb dei Pink Floyd» to Assist —

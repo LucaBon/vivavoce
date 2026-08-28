@@ -34,6 +34,8 @@ import re
 
 import pytest
 
+import lms
+
 from conftest import FakeLicense
 from pro.kidsafe import KidSafe
 
@@ -137,10 +139,12 @@ def blueprint_server(live_server, transport, tmp_path, clock):
     transport.responses.update(LIBRARY)
     # Kid-safe present and licensed: «blocca X» is a real intent only when the
     # feature is wired up, and the blueprint claims it.
-    # Both streaming services configured: «da qobuz metti X» is only a
-    # service phrase on an install whose LMS has that plugin, and the blueprint
-    # names both.
-    srv = live_server(services=("tidal", "qobuz"),
+    # Every registered service configured, read from the registry rather than
+    # listed here: «da qobuz metti X» is only a service phrase on an install
+    # whose LMS has that plugin, so a service added to engine/lms.py and to the
+    # blueprint but not to this line would look like a sentence the router
+    # cannot read. (It did, the first time Spotify was added.)
+    srv = live_server(services=tuple(lms.SERVICES),
                       kidsafe=KidSafe(str(tmp_path), FakeLicense(pro=True),
                                       now=clock),
                       license_mgr=FakeLicense(pro=True))

@@ -37,8 +37,10 @@ def test_for_service_same_service_returns_self(lms, qobuz):
 
 
 def test_for_service_unknown_rejected(lms):
+    # Was "spotify" until Spotify became a registered service; the contract
+    # being checked is the rejection, not which name happens to be outside it.
     with pytest.raises(ValueError):
-        lms.for_service("spotify")
+        lms.for_service("napster")
 
 
 def test_for_service_does_not_mutate_original(lms):
@@ -127,12 +129,25 @@ def test_artist_top_tracks_uses_qobuz_children(qobuz, transport, make_feed):
 # -- installed services detection --------------------------------------------
 @pytest.mark.parametrize("loop_key", ["appss_loop", "apps_loop"])
 def test_installed_services_both_loop_spellings(lms, transport, loop_key):
+    # Note the tag: Spotify's plugin answers to "spotty", and the registry key
+    # is "spotify" because that is the word people say. The mapping between the
+    # two lives in ServiceSpec and this is the only test that exercises it.
     transport.responses["apps"] = {loop_key: [
         {"cmd": "tidal", "name": "TIDAL"},
         {"cmd": "qobuz", "name": "Qobuz"},
         {"cmd": "spotty", "name": "Spotify"},
     ]}
-    assert lms.installed_services() == ["tidal", "qobuz"]
+    assert lms.installed_services() == ["tidal", "qobuz", "spotify"]
+
+
+def test_installed_services_skips_plugins_with_no_servicespec(lms, transport):
+    # The gate that keeps an unknown plugin out of the source selector: only
+    # registered services are offered, however many apps the LMS has.
+    transport.responses["apps"] = {"apps_loop": [
+        {"cmd": "sounds", "name": "Sounds & Effects"},
+        {"cmd": "spotty", "name": "Spotify"},
+    ]}
+    assert lms.installed_services() == ["spotify"]
 
 
 def test_installed_services_empty_on_no_apps(lms, transport):

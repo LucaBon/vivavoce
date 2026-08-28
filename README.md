@@ -43,7 +43,7 @@ unlocks the hands-free features and funds development:
 | Free | Pro (one-time license) |
 |---|---|
 | Typed commands (the text box, works on every device over plain HTTP) | 🎙️ **Microphone** tap-to-talk |
-| All search & playback: local library, TIDAL, Qobuz, "did you mean" with tappable choices | 🪄 **Wake word** («vivavoce metti Time») |
+| All search & playback: local library, TIDAL, Qobuz, Spotify, "did you mean" with tappable choices | 🪄 **Wake word** («vivavoce metti Time») |
 | Transport, volume slider, sleep timer, now-playing panel with artwork | 🌍 **Multilingual read-back voices** |
 | Docker / Home Assistant app / bare Python, HTTPS + PWA install | 🧒 **Kid-safe**: PIN-protected blocklist, enforced server-side for every device *asking Vivavoce*[^kidsafe] |
 | Updates | 🛋️ **Multi-room**: room selector + «metti X **in cucina**» voice targeting |
@@ -81,7 +81,7 @@ no LLM), so behaviour is testable and repeatable.
 |---|---|
 | 🧠 **Title / artist / album parsing** | "metti Comfortably Numb **dei** Pink Floyd" → title + artist; "… **dall'album** X" → album. |
 | 🎯 **Artist-aware ranking** | Streaming results are read in *menu mode*, which carries the **artist** — so among three "Comfortably Numb" it plays *Pink Floyd's* edition and confirms it out loud. |
-| 🎼 **Two streaming services** | **TIDAL** and **Qobuz** (plus your local library): pick one in the page's source selector — it only lists the plugins your LMS actually has — or just say «da qobuz metti …». "Auto" tries your library first, then the default service. |
+| 🎼 **Three streaming services** | **TIDAL**, **Qobuz** and **Spotify** (plus your local library): pick one in the page's source selector — it only lists the plugins your LMS actually has — or just say «da qobuz metti …». "Auto" tries your library first, then the default service. Spotify goes through the *Spotty* plugin, needs **Premium**, and is 320 kbps Ogg rather than lossless; see the caveats. |
 | ❓ **"Did you mean" (top 3)** | When genuinely different songs match, it reads back the top three and you answer «metti la 2» — the choices are also **tappable buttons**. Exact matches just play; junk never wins. |
 | 📀 **Local library scored too** | A generic word like "love" never plays an unrelated album, and "aerosmith" plays the *artist*, not a random album. |
 | 👂 **Mishearing resilience** | The web app tries the browser's alternative transcriptions until one hits (English names that it-IT often mangles). |
@@ -93,7 +93,7 @@ no LLM), so behaviour is testable and repeatable.
 
 ## Quick start — local web app
 
-Prereqs: an LMS/Daphile on the LAN with the TIDAL and/or Qobuz plugin installed
+Prereqs: an LMS/Daphile on the LAN with the TIDAL, Qobuz and/or Spotty plugin installed
 and logged in, and at least one active player.
 
 **With Docker** (Linux / NAS / Raspberry Pi — easiest, HTTPS included):
@@ -194,10 +194,19 @@ uv run python tools/probe_lms.py --service qobuz --query "Pink Floyd"
   troubleshooting notes in DEPLOY.md. Once logged in, the stored token keeps
   working. (Vivavoce's Qobuz support itself is verified against a live
   LMS 9 + plugin-Qobuz 3.7.0.)
-- **No Spotify**: Spotify Lossless (launched Sept 2025) is not delivered to
-  third-party Connect clients, so the LMS plugin (Spotty/librespot) still gets
-  lossy Ogg Vorbis 320 kbps — pointless on a bit-perfect chain. If Spotify ever
-  opens lossless to the Connect API, a plugin path may become worth adding.
+- **Spotify is supported, and needs Spotify Premium.** Vivavoce drives it
+  through the LMS **Spotty** plugin, so «da spotify metti Comfortably Numb»
+  works like the other two — but Spotty plays through Spotify Connect, which
+  free accounts cannot use, and the plugin refuses to log in without Premium.
+  The audio is the second caveat: Spotify Lossless is not delivered to
+  third-party Connect clients, so Spotty/librespot still receives lossy Ogg
+  Vorbis 320 kbps. On a bit-perfect chain TIDAL or Qobuz is the better source,
+  and Vivavoce will not pretend otherwise — it just no longer refuses to reach
+  a service you already pay for. One behaviour differs on purpose: Spotify's
+  search answers *every* query, gibberish included, where TIDAL and Qobuz
+  return nothing. So on Spotify Vivavoce never falls back to "play the top
+  result" — for a song, an album, an artist or a playlist alike. If nothing
+  matches your words it says so instead of guessing.
 - Bit-perfect: Vivavoce sends **only commands**; ensure LMS doesn't resample to the player.
 
 ## Privacy, honestly

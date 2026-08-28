@@ -459,16 +459,34 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 7. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
    **Voci & lingue** panel then lets you pick natural per-language voices.
 
-### Streaming services (TIDAL / Qobuz)
+### Streaming services (TIDAL / Qobuz / Spotify)
 
 Install and log in the plugin(s) on LMS/Daphile first (**LMS Settings → Plugins**:
-*TIDAL* and/or *Qobuz*). Then:
+*TIDAL*, *Qobuz* and/or *Spotty* for Spotify). **Spotty requires a Spotify
+Premium account** — it plays through Spotify Connect, which free accounts
+cannot use, and it will not complete its login without one. Then:
 
 By default the server **auto-detects** the installed plugins and the
 page's "Sorgente musica" selector only shows what's really there. Override with
-`--services tidal,qobuz` (skips detection) and pick which one "auto" mode falls
-back to with `--default-service qobuz`. Spoken phrases «da tidal …» / «da qobuz …»
-always win over the selector. (Docker needs nothing: detection is the default.)
+`--services tidal,qobuz,spotify` (skips detection) and pick which one "auto" mode
+falls back to with `--default-service qobuz`. Spoken phrases «da tidal …» /
+«da qobuz …» / «da spotify …» always win over the selector. (Docker needs
+nothing: detection is the default.)
+
+> [!IMPORTANT]
+> **Spotify behaves differently from the other two, on purpose.** Its search
+> answers every query — «zzzzqqqxyzzy» comes back with a full page of tracks,
+> albums, artists *and* playlists, where TIDAL and Qobuz return none — so the
+> usual "nothing matched, act on the top result anyway" fallback would start
+> something nobody asked for. Vivavoce does not take that bet on Spotify, on any
+> of those four: when nothing matches your words it says so. Ask for a title it
+> has and it plays it; ask for something it does not and you get an answer
+> rather than a surprise.
+>
+> Note also that **a Spotty that is installed but not logged in still shows up**
+> as an available source: its menu is a "Spotify Credentials missing" notice and
+> every search returns nothing. That is also what an install without Premium
+> looks like, permanently, and the two are indistinguishable from outside.
 
 > [!NOTE]
 > Qobuz support is verified against a live LMS 9.0.3 + plugin-Qobuz 3.7.0. If the
