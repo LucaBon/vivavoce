@@ -24,7 +24,6 @@ State (the last read-out list) is kept in-instance for the "metti la N" /
 
 from __future__ import annotations
 
-import re
 import threading
 import time
 
@@ -34,7 +33,7 @@ from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
 from intents import IntentTable
 from lang import PACKS
 from messages import msg, set_lang
-from parsing import _source_suffix, clean_command
+from parsing import MAX_COMMAND_CHARS, _source_suffix, clean_command
 
 # The two windows are defined next to the state they bound, but they are still
 # the router's windows: ``router.CANDIDATES_TTL`` has to keep naming the one it
@@ -256,7 +255,10 @@ class Router(ConversationState, IntentTable):
             # such a caller sees no change.
             ok = getattr(speech, "ok", not speech.strip().lower().startswith("non "))
             if primary is None:
-                primary = (speech, alt, ok, self._unmatched)
+                # Truncated: an alternative the length cap refused is still
+                # what ``used`` reports, and reflecting 64 KB of somebody's
+                # own payload back at them is not a report.
+                primary = (speech, alt[:MAX_COMMAND_CHARS], ok, self._unmatched)
             # A gate is the end of the turn even though it is not a hit. The
             # alternatives exist to find better *words*; a gate has already
             # said the words are not the problem — no licence, not the owner,

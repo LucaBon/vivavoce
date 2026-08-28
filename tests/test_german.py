@@ -452,6 +452,73 @@ def test_naming_what_it_is_gets_past_the_resume_shortcut(router, transport,
                          lang="de") == "Ich spiele das Album Radio von TIDAL."
 
 
+# -- the invariant, asserted by construction ----------------------------------
+#
+# Five review rounds found the same shape: a guard was widened and the step
+# that catches what it declines was not, so a phrase fell past every catcher
+# to the play step and started a stream. The lists are shared now, and this is
+# what makes the sharing enforceable — it is a cross product rather than a
+# list of phrases, so the sixth gap fails here instead of shipping.
+
+_DEV_VERBS = ["spiel", "spiele", "mach", "leg", "starte", "schalt"]
+_DEV_ARTICLES = ["", "das ", "die ", "den ", "der "]
+_DEV_NOUNS = ["radio", "radiosender", "musik", "anlage", "mucke"]
+_DEV_ADVERBS = ["", "bitte ", "jetzt bitte ", "endlich wieder "]
+_DEV_CONTROLS = ["an", "auf", "ab", "aus", "lauter", "leiser", "weiter",
+                 "stopp", "stop"]
+
+
+def _device_commands():
+    for verb in _DEV_VERBS:
+        for article in _DEV_ARTICLES:
+            for noun in _DEV_NOUNS:
+                for adverbs in _DEV_ADVERBS:
+                    for control in _DEV_CONTROLS:
+                        yield f"{verb} {article}{noun} {adverbs}{control}"
+
+
+def test_no_device_command_can_reach_the_play_step(lms, transport, make_tidal):
+    """A command aimed at the music itself must never start music.
+
+    Every phrase here says what to DO with the playback — on, off, louder,
+    on again — and none of them names a thing to play. The library is stocked
+    with a track called «Das Radio» on purpose: if any of these reaches the
+    play step it will find it, and the assertion is what that costs.
+    """
+    from router import Router
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://42.flc",
+                      "name": "Das Radio"}]},
+    )
+    started = []
+    for phrase in _device_commands():
+        before = len(transport.commands())
+        Router(lms).handle(phrase, source="tidal", lang="de")
+        if ["playlist", "play", "tidal://42.flc"] in transport.commands()[before:]:
+            started.append(phrase)
+    assert started == [], f"{len(started)} started music, e.g. {started[:5]}"
+
+
+@pytest.mark.parametrize(
+    "phrase, expected_cmd",
+    [("starte das Radio wieder an", ["pause", "0"]),
+     ("leg das Radio wieder an", ["pause", "0"]),
+     ("mach das Radio auf", ["pause", "0"]),           # southern «on»
+     ("spiel das Radio bitte aus", ["pause", "1"]),
+     ("mach das Radio endlich wieder aus", ["pause", "1"]),
+     ("spiel das Radio leiser", ["mixer", "volume", "-5"]),
+     ("starte die Musik lauter", ["mixer", "volume", "+5"])],
+)
+def test_the_device_verbs_all_reach_the_same_place(lms, transport, phrase,
+                                                   expected_cmd):
+    """The four that leaked, plus the two-adverb form the fixed-width window
+    in ``pause`` could not reach."""
+    from router import Router
+    Router(lms).handle(phrase, lang="de")
+    assert transport.last_call()[1] == expected_cmd
+
+
 # -- playback + German replies ------------------------------------------------
 def test_play_song_de_reply(router, transport, make_tidal):
     transport.responses["tidal"] = make_tidal(

@@ -78,6 +78,22 @@ _LOCAL = (r"(?:aus\s+meiner\s+(?:musik|bibliothek|sammlung)"
 _ADV = (r"(?:bitte|jetzt|endlich|sofort|mal|doch|auch|damit|schon|ganz"
         r"|wieder|nochmal|du|ihr|sie)")
 
+# «<verb> <article> <thing> <adverbs…>» — everything a command aimed at the
+# music itself carries before the word that says what to do with it.
+#
+# The same lesson as _ADV, one seam over. Sharing the adverbs was necessary
+# and not sufficient: the ``radio`` guard declined four verbs while
+# ``resume_explicit`` accepted three others, and it declined eight control
+# words while the steps after it accepted two — so «starte das Radio wieder
+# an» and «spiel das Radio bitte aus» fell past every catcher to the play
+# step and started a stream. Three lists that must agree are three lists that
+# will not. There is one of each now, and
+# ``test_no_device_command_can_reach_the_play_step`` crosses them so the next
+# gap is a failing test rather than a sixth review.
+_VERB_DEV = r"(?:spiel(?:e|en)?|mach(?:e)?|leg(?:e)?|starte?|schalt(?:e)?)"
+_DEVICE = r"(?:musik|radio(?:sender)?|anlage|mucke)"
+_DEV = rf"\b{_VERB_DEV}\s+(?:d(?:ie|as|en|er)\s+)?{_DEVICE}\s+(?:{_ADV}\s+)*"
+
 # One entry per routing step; the handle() flow is identical across languages.
 # ``service`` is a template expanded per streaming service name.
 PATTERNS = {
@@ -135,7 +151,12 @@ PATTERNS = {
     "pause_explicit": c(r"\bauf\s+pause\b"
                         r"|\bh(?:ö|oe)r(?:e|en|st|t)?\b"
                         rf"(?:\s+{_ADV})*"
-                        r"\s+auf(?:\s+zu\s+(?:spielen|h(?:ö|oe)ren))?\s*$"),
+                        r"\s+auf(?:\s+zu\s+(?:spielen|h(?:ö|oe)ren))?\s*$"
+                        # «mach das Radio aus» and every verb it comes with.
+                        # Here rather than in ``pause`` because that step is
+                        # gated on ``not is_play`` and every one of these
+                        # verbs sets it.
+                        rf"|{_DEV}(?:aus|ab|stopp?)\s*$"),
     # «aus» is far too common a German word to stand alone («aus Liebe», «aus
     # meiner Musik»): it only counts as the tail of «mach … aus», which is how
     # the command is said and where the word cannot be anything else. Bare
@@ -169,8 +190,12 @@ PATTERNS = {
                          # are how everyone in the house says ▶.
                          r"|(?:mach(?:e)?|schalt(?:e)?|spiel(?:e)?)\s+"
                          r"(?:d(?:ie|as|en)\s+)?"
-                         rf"(?:musik|radio(?:sender)?|anlage|mucke)"
-                         rf"\s+(?:{_ADV}\s+)*(?:an|weiter))\s*$"),
+                         rf"{_DEVICE}"
+                         rf"\s+(?:{_ADV}\s+)*(?:an|weiter))\s*$"
+                         # The same sentence with the other verbs, and with
+                         # «auf» — «mach das Radio auf» is how it is said in
+                         # the south.
+                         rf"|^{_DEV}(?:an|auf|weiter)\s*$"),
     "resume": c(r"\b(weiter|weiterspielen|weitermachen|fortsetzen"
                 r"|fortfahren|play)\b"),
     # Prefix matching, like the Italian pack: German inflects the ending.
@@ -180,11 +205,13 @@ PATTERNS = {
     # never reach the "up" branch on the strength of the noun alone.
     "vol_up": c(r"lautst(?:ä|ae)rke\b.{0,20}\b(?:h(?:ö|oe)her|hoch|rauf"
                 r"|lauter|erh(?:ö|oe)hen?)"
-                r"|\b(?:erh(?:ö|oe)he|steigere)\b.{0,20}\blautst(?:ä|ae)rke"),
+                r"|\b(?:erh(?:ö|oe)he|steigere)\b.{0,20}\blautst(?:ä|ae)rke"
+                rf"|{_DEV}lauter\s*$"),
     "vol_down": c(r"lautst(?:ä|ae)rke\b.{0,20}\b(?:niedriger|runter|leiser"
                   r"|verringern?|reduzieren?|senken?)"
                   r"|\b(?:verringere|reduziere|senke)\b.{0,20}"
-                  r"\blautst(?:ä|ae)rke"),
+                  r"\blautst(?:ä|ae)rke"
+                  rf"|{_DEV}leiser\s*$"),
     # Loose forms that name no control: gated on is_play in the router, so a
     # title containing them still plays (see the Italian pack).
     "vol_up_loose": c(r"\blauter\b"),
@@ -295,8 +322,11 @@ PATTERNS = {
                r"(?:d(?:as|en|ie)\s+)?radio(?:sender)?\b"
                # _ADV because an exact-final guard is defeated by one word
                # («mach das Radio bitte aus» asked for a station called
-               # "bitte aus"), and the SAME _ADV that resume_explicit and the
-               # transport block read — whatever this declines, they accept.
+               # "bitte aus"). Every word declined here is caught by a step
+               # below — built from the same _DEV and asserted by
+               # ``test_no_device_command_can_reach_the_play_step``, because
+               # the last four reviews all found the same thing: a guard
+               # widened, and the catcher not widened with it.
                rf"(?!\s*(?:{_ADV}\s+)*"
                r"(?:an|auf|ab|aus|lauter|leiser|weiter|stopp?)\s*$)"
                r"\s+(.+?)(?:\s+(?:an|auf|ab))?\s*$"),
