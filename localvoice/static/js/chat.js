@@ -86,11 +86,14 @@ function renderChoices(afterEl, choices) {
   choices.forEach(c => {
     const btn = document.createElement("button");
     btn.className = "choice";
-    btn.textContent = c.n + " · " + c.label;
+    // A choice may name the words that pick it (`say`) instead of a position:
+    // that is how a yes/no offer arrives, where «metti la 1» answers nothing.
+    // The server writes them in the language it will parse them in.
+    btn.textContent = c.say ? c.label : c.n + " · " + c.label;
     // The pick phrase must match the language the SERVER parses (it/en/de/fr;
     // es falls back to Italian patterns), not the page chrome language —
     // which for German is English, and would send a phrase de.py never sees.
-    btn.onclick = () => send((PICK_PHRASE[recLang()] || PICK_PHRASE.it)(c.n));
+    btn.onclick = () => send(c.say || (PICK_PHRASE[recLang()] || PICK_PHRASE.it)(c.n));
     row.appendChild(btn);
   });
   afterEl.after(row);

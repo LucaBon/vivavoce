@@ -258,12 +258,20 @@ PATTERNS = {
                         rf"(?:la|le|les)\s+([a-z0-9{_ACCLASS}]+)"
                         rf"(?:\s+(?:{acc('chanson')}|{acc('morceau')}|titre"
                         rf"|option))?{_END}"),
+    # The answer to a yes/no offer (see ConversationState._offer). Both are
+    # read ONLY while an offer is open, and both are anchored to the whole
+    # sentence: «no» is a word people say to a hi-fi for other reasons, and a
+    # one-word title would otherwise stop being searched for.
+    "yes": c(r"^(?:oui|ouais|d['\u2019]accord|bien\s+s\u00fbr|ok(?:ay)?"
+             r"|vas[-\s]y|oui\s+merci)\s*$"),
+    "no": c(r"^(?:non|non\s+merci|laisse\s+tomber|tant\s+pis)\s*$"),
 
     # -- explicit sources ----------------------------------------------------
-    "local_prefix": c(rf"{_LOCAL}\s+(?:(?:{_PLAY})\s*{_MOI}\s+)?(.+?){_END}"),
-    "local_suffix": c(rf"(?:{_PLAY})\s*{_MOI}\s+(.+?)\s+{_LOCAL}{_END}"),
+    # The play verb stays inside the capture — see it.py for why.
+    "local_prefix": c(rf"{_LOCAL}\s+(.+?){_END}"),
+    "local_suffix": c(rf"((?:{_PLAY})\s*{_MOI}\s+.+?)\s+{_LOCAL}{_END}"),
     "service": (r"(?:sur {s}|depuis {s}|avec {s}|via {s}|de {s})\s+"
-                r"(?:mets\s+|joue\s+|passe\s+|lance\s+)?(.+)$"),
+                r"(.+)$"),
     # «mets X sur Qobuz» — see it.py for why the suffix form exists at all.
     # ``de`` is left out of this half, for the reason connectors/fr.py gives
     # at length: «de» is how French names an artist, so a trailing «de …» is
@@ -271,7 +279,7 @@ PATTERNS = {
     # stay. Written with a plain `$` rather than ``_END``: this template is
     # expanded with ``.format`` and every brace in it would have to survive
     # that, which is also why ``service`` above is not built from the helpers.
-    "service_suffix": (r"(?:mets|met|joue|passe|lance|remets)\s+(.+?)\s+"
+    "service_suffix": (r"((?:mets|met|joue|passe|lance|remets)\s+.+?)\s+"
                        r"(?:sur|depuis|avec|via) {s}\s*$"),
 
     # -- lists ---------------------------------------------------------------
@@ -293,10 +301,16 @@ PATTERNS = {
     # Temps des Cerises», «La Vie en Rose»). Plural nouns only, for it.py's
     # reason: «mets la chanson de Prévert» is a Gainsbourg title, not an
     # artist request.
+    # The quantifier is open — see it.py for what one missing partitive costs,
+    # and French is where it cost it: «mets DES chansons de X» is the ordinary
+    # way to say this, and «les chansons de X» the marked one. The partitive
+    # also introduces the noun itself — «mets de la musique de X» — which _L,
+    # being the definite article alone, could not read.
     "artist": c(rf"(?:{_PLAY})\s*{_MOI}\s+"
-                rf"(?:(?:{_L})?musique\s+{_DE}"
+                rf"(?:(?:de\s+la\s+|{_L})?musique\s+{_DE}"
                 rf"|(?:quelque\s+chose|tout|un\s+peu)\s+{_DE}"
-                rf"|(?:tous?\s+les\s+|toutes\s+les\s+|les\s+)?"
+                rf"|(?:tous?\s+les\s+|toutes\s+les\s+|les\s+|des\s+"
+                rf"|quelques\s+)?"
                 rf"(?:{acc('chansons')}|{acc('morceaux')}|titres)\s+{_DE}"
                 rf"|(?:{_L})?artiste\s+|(?:{_L})?groupe\s+)(.+?){_END}"),
     # Anchored like is_play, and for the same reason — see the docstring.

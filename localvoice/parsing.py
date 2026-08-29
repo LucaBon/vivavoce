@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 from lang import PACKS
+from lms import service_label
 from messages import msg
 
 
@@ -130,14 +131,14 @@ def _service_re(name: str) -> str:
     return _SERVICE_SOUNDS.get(name, re.escape(name))
 
 
-# Display names for the source tag in play confirmations.
-_SERVICE_LABELS = {"tidal": "TIDAL", "qobuz": "Qobuz", "spotify": "Spotify"}
-
-
+# Display names for the source tag in play confirmations. They live on the
+# service registry (``ServiceSpec.label``), not here: the engine says the same
+# names in its own messages, and one table spelling «TIDAL» twice is one table
+# too many.
 def _service_label(name: str) -> str:
     """How a service name is spelled when a reply says it out loud — 'qobuz'
     is a config key, «Qobuz» is what the user hears."""
-    return _SERVICE_LABELS.get(name, name)
+    return service_label(name)
 
 
 def _source_suffix(name) -> str:

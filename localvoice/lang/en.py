@@ -81,13 +81,21 @@ PATTERNS = {
     # "the 2" and ordinals: "the second", "play the second one/song"
     "choose_article": c(r"(?:play|choose|pick|put\s+on)?\s*the\s+([a-z0-9]+)"
                         r"(?:\s+(?:one|song|track|option))?\s*$"),
-    "local_prefix": c(rf"{_LOCAL}\s+(?:play\s+|put\s+on\s+)?(.+)$"),
-    "local_suffix": c(rf"(?:play|put\s+on|start)\s+(.+?)\s+{_LOCAL}\s*$"),
-    "service": r"(?:from {s}|on {s}|with {s})\s+(?:play\s+|put\s+on\s+)?(.+)$",
+    # The answer to a yes/no offer (see ConversationState._offer). Both are
+    # read ONLY while an offer is open, and both are anchored to the whole
+    # sentence: «no» is a word people say to a hi-fi for other reasons, and a
+    # one-word title would otherwise stop being searched for.
+    "yes": c(r"^(?:yes|yeah|yep|sure|ok(?:ay)?|go\s+ahead|please\s+do"
+             r"|yes\s+please)\s*$"),
+    "no": c(r"^(?:no|nope|no\s+thanks|never\s+mind|forget\s+it)\s*$"),
+    # The play verb stays inside the capture — see it.py for why.
+    "local_prefix": c(rf"{_LOCAL}\s+(.+)$"),
+    "local_suffix": c(rf"((?:play|put\s+on|start)\s+.+?)\s+{_LOCAL}\s*$"),
+    "service": r"(?:from {s}|on {s}|with {s})\s+(.+)$",
     # "play X on Qobuz" — see it.py for why the suffix form exists at all.
     # ``put`` stands without its particle here, and only here: "put Dark Side
     # on Spotify" splits the two words the ``service`` form keeps together.
-    "service_suffix": r"(?:play|put|start|listen\s+to)\s+(.+?)\s+"
+    "service_suffix": r"((?:play|put|start|listen\s+to)\s+.+?)\s+"
                       r"(?:from|on|with) {s}\s*$",
     "albums_list": c(r"(?:which|what).{0,12}albums?.{0,16}(?:by|of|from)\s+(.+)$"),
     "toptracks": c(r"(?:top\s+tracks|best\s+(?:songs|tracks)|most\s+(?:played|listened)"
@@ -97,9 +105,12 @@ PATTERNS = {
     "playlist": c(r"(?:play|put\s+on|start)\s+(?:the\s+)?playlist\s+(.+)$"),
     # Only "by" for songs/tracks: "songs of/from" collide with real titles
     # ("Songs from the Wood", "Songs of Innocence").
+    # The quantifier is open — see it.py for what one missing partitive costs.
     "artist": c(r"(?:play|put\s+on|start)\s+"
                 r"(?:(?:some\s+|the\s+)?music\s+(?:by|of|from)|something\s+by"
-                r"|the\s+artist|(?:all\s+)?(?:the\s+)?(?:songs?|tracks?)\s+by)\s+(.+)$"),
+                r"|the\s+artist"
+                r"|(?:all\s+)?(?:the\s+|some\s+|a\s+few\s+)?"
+                r"(?:songs?|tracks?)\s+by)\s+(.+)$"),
     "generic_play": c(r"(?:play|put\s+on|start|listen\s+to"
                       r"|i\s+want\s+to\s+(?:hear|listen\s+to))\s+(.+)$"),
     # Suffix form: "put Dark Side of the Moon on"

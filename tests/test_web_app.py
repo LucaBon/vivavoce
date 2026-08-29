@@ -23,7 +23,8 @@ import re
 
 import pytest
 
-from conftest import DEFAULT_MATERIAL_URL, FakeLicense
+from conftest import (DEFAULT_MATERIAL_URL, ELSEWHERE_MATERIAL_URL,
+                      FakeLicense)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(os.path.dirname(HERE), "localvoice")
@@ -61,6 +62,19 @@ def test_service_worker_shell_is_fully_served(live_server):
     assert paths, "parsed an empty SHELL out of sw.js"
     missing = [p for p in paths if srv.try_get(p).status != 200]
     assert missing == []
+
+
+def test_the_shell_lists_every_ui_module():
+    # SHELL is a hand-kept list, and a module missing from it is invisible
+    # until someone opens the installed app offline — the failure this test
+    # exists for is a forgotten line, not a broken one. (The other half,
+    # that everything listed is really served, is the test above.)
+    listed = set(_shell_paths())
+    js_dir = os.path.join(WEB_DIR, "static", "js")
+    missing = ["/static/js/" + name for name in sorted(os.listdir(js_dir))
+               if name.endswith(".js")
+               and "/static/js/" + name not in listed]
+    assert missing == [], f"not pre-cached by sw.js: {missing}"
 
 
 def test_service_worker_itself_is_served(live_server):
@@ -196,7 +210,11 @@ def _fetch_paths():
 def test_page_fetches_only_routes_the_server_answers(live_server):
     # The page's fetch() strings are the real API contract; a renamed route
     # would 404 at runtime with nothing failing at build time.
-    srv = live_server()
+    #
+    # Deliberately with Material Skin elsewhere, i.e. the reverse proxy off
+    # (see test_lmsproxy.py). With it on, every path is "answered" — forwarded
+    # to the LMS — and this test would pass while proving nothing at all.
+    srv = live_server(material_url=ELSEWHERE_MATERIAL_URL)
     paths = _fetch_paths()
     assert paths, "found no fetch() calls in the UI sources"
     unrouted = []
@@ -209,14 +227,21 @@ def test_page_fetches_only_routes_the_server_answers(live_server):
     assert unrouted == []
 
 
+# The two catch-alls, with the reverse proxy off. On — which is the default,
+# whenever Material Skin lives on the LMS we talk to — a path this server does
+# not own is forwarded there instead of refused here, and what happens then is
+# test_lmsproxy.py's subject. These pin the fallback that has to stay intact
+# underneath it, because it is what every install without Material still gets.
+
 def test_unknown_get_is_a_plain_404(live_server):
-    resp = live_server().try_get("/nope")
+    resp = live_server(material_url=ELSEWHERE_MATERIAL_URL).try_get("/nope")
     assert resp.status == 404
     assert resp.headers["Content-Type"].startswith("text/plain")
 
 
 def test_unknown_post_is_a_json_404(live_server):
-    resp = live_server().try_post_json("/nope", {"text": "ciao"})
+    srv = live_server(material_url=ELSEWHERE_MATERIAL_URL)
+    resp = srv.try_post_json("/nope", {"text": "ciao"})
     assert resp.status == 404
     assert "speech" in resp.json()
 

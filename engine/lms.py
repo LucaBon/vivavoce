@@ -73,6 +73,12 @@ class ServiceSpec:
     schemes: Tuple[str, ...]     # URL scheme(s) the plugin's tracks use
     category_aliases: Dict[str, tuple]  # canonical -> names the plugin may show
     artist_children: Tuple[str, ...]    # playable child nodes under an artist
+    # How the name is spelled when a reply says it out loud: "qobuz" is a
+    # config key, «Qobuz» is what the user hears. It lives here because the
+    # registry is where a service is described, and two modules now need it —
+    # the source tag on a play confirmation and the engine's own "that service
+    # is not connected".
+    label: str = ""
     # Some plugins (Qobuz) nest the search node one level down: home shows a
     # plain "Search" link whose CHILD is the ``type == "search"`` node. These
     # are the (lowercased) home-menu names worth entering to look for it.
@@ -96,6 +102,22 @@ class ServiceSpec:
     # The same packaging on an album row, which carries no " from " part:
     # "Brothers In Arms (Remastered 1996) by Dire Straits".
     album_name_re: Any = None
+    # An artist's child nodes are rendered in the LMS UI language, exactly like
+    # the search categories above — and unlike them, they used to be matched
+    # exactly and case-sensitively against the English names in
+    # ``artist_children``, so a plugin showing «Brani» made every artist
+    # unplayable and said "non posso riprodurre" about a catalogue that had the
+    # music. Canonical name -> the spellings a plugin may show; a canonical
+    # name that is also a search category falls back to ``category_aliases``,
+    # since it is the same word in the same language. Matching is
+    # case-insensitive either way.
+    #
+    # Deliberately empty for the names that are NOT also categories ("Top
+    # Tracks", "Artist Mix"): their localized spellings have not been read off
+    # a live plugin, and guessing them here would be indistinguishable from
+    # having verified them. ``tools/probe_lms.py`` prints the verbatim names —
+    # that is where the entries come from.
+    artist_child_aliases: Dict[str, tuple] = field(default_factory=dict)
     # Whether "no title matched, so play the top result" is a safe fallback.
     # It is for a search that answers *nothing* when nothing matches, which is
     # what TIDAL and Qobuz do — there, the top result being returned at all is
@@ -124,6 +146,7 @@ SERVICES: Dict[str, ServiceSpec] = {
     "tidal": ServiceSpec(
         name="tidal",
         tag="tidal",
+        label="TIDAL",
         schemes=("tidal", "wimp"),  # wimp:// is the legacy TIDAL scheme
         category_aliases={
             "Songs": ("Songs", "Brani", "Canzoni", "Tracce"),
@@ -140,6 +163,7 @@ SERVICES: Dict[str, ServiceSpec] = {
     "qobuz": ServiceSpec(
         name="qobuz",
         tag="qobuz",
+        label="Qobuz",
         schemes=("qobuz",),
         category_aliases={
             "Songs": ("Songs", "Tracks", "Brani", "Canzoni", "Tracce"),
@@ -175,6 +199,7 @@ SERVICES: Dict[str, ServiceSpec] = {
     "spotify": ServiceSpec(
         name="spotify",
         tag="spotty",
+        label="Spotify",
         schemes=("spotify",),
         # No "Songs": that is the whole point of ``tracks_inline`` below. The
         # four that are here were read off a live search.
@@ -209,6 +234,41 @@ _ANY_SCHEME = "|".join(
 
 # Backward-compatible alias (the TIDAL-only regex predates ServiceSpec).
 _TIDAL_URI = SERVICES["tidal"].uri_re
+
+# Scheme -> registry name, for the two places LMS names a service in a library
+# row: the track url (``tidal://322955652.flc``) and the ``extid`` of a row
+# imported from an online library (``tidal:album:322955651``, and for an artist
+# a comma-separated list, ``qobuz:artist:6505891,tidal:artist:15694955``). Both
+# spell the service the same way the registry does, which is why one map reads
+# both.
+_SERVICE_BY_SCHEME = {scheme: name
+                      for name, spec in SERVICES.items()
+                      for scheme in spec.schemes}
+
+
+def service_of(uri: Optional[str]) -> Optional[str]:
+    """The registry name behind a library row's url or ``extid``; None for a
+    file on a disk, which needs nobody's permission to play."""
+    if not uri:
+        return None
+    return _SERVICE_BY_SCHEME.get(str(uri).split(":", 1)[0].strip().lower())
+
+
+def _with_extid(cand: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
+    """``cand`` plus the row's ``extid``, and only when it has one — which is
+    the same thing as saying the row was imported from an online library. A
+    key that is present and empty would say something else, and every caller
+    that compares whole candidate dicts would have to learn about it."""
+    if row.get("extid"):
+        cand["extid"] = row["extid"]
+    return cand
+
+
+def service_label(name: Optional[str]) -> str:
+    """How a service is spelled when a reply says it out loud (``ServiceSpec.
+    label``): 'qobuz' is a config key, «Qobuz» is what the user hears."""
+    spec = SERVICES.get(name or "")
+    return (spec.label if spec and spec.label else (name or ""))
 
 
 class LMSError(Exception):
@@ -646,16 +706,76 @@ class LMSClient:
                                "title": self._clean_name(item.get("name"))})
         return {"album": album, "tracks": tracks}
 
+    def artist_candidates(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
+        """All artist matches for a query, in the service's relevance order.
+
+        The counterpart of :meth:`album_candidates` and
+        :meth:`playlist_candidates`, and it exists for the same reason: the
+        caller scores these against the request rather than trusting the first
+        row. ``find_artist`` did trust it, and for TIDAL and Qobuz nothing
+        downstream checked the name either.
+        """
+        return [
+            {"id": it["id"], "title": self._clean_name(it.get("name"))}
+            for it in self.category_items(query, "Artists", count)
+            if it.get("id")
+        ]
+
     def find_artist(self, query: str, count: int = 20) -> Optional[Dict[str, Any]]:
-        for item in self.category_items(query, "Artists", count):
-            if item.get("id"):
-                return {"id": item["id"],
-                        "title": self._clean_name(item.get("name"))}
+        cands = self.artist_candidates(query, count)
+        return cands[0] if cands else None
+
+    def _artist_child_id(self, by_name: Dict[str, str],
+                         canonical: str) -> Optional[str]:
+        """The node id for one of ``artist_children``, by any name the plugin
+        may show it under — see ``ServiceSpec.artist_child_aliases``."""
+        aliases = self.service.artist_child_aliases.get(
+            canonical, self.service.category_aliases.get(canonical, (canonical,)))
+        for alias in aliases:
+            node_id = by_name.get(alias.strip().lower())
+            if node_id:
+                return node_id
         return None
 
     # Artist "outline" nodes are NOT directly playable (verified live on TIDAL:
     # playing them is a no-op). Their music lives in child nodes; we drill the
     # first available of the service's ``artist_children`` to playable URLs.
+    def artist_tracks(self, artist: Dict[str, Any],
+                      count: int = 20) -> List[Dict[str, Any]]:
+        """The playable rows under an already-resolved artist node.
+
+        A row carries ``url`` where the feed hands one over, and ``item_id``
+        where it does not: Spotty's tracks are ``{"id", "name", "isaudio"}``
+        with the url one level down (see :meth:`track_url`), and dropping them
+        for want of a url is why an artist on Spotify came back unplayable
+        while its songs were right there. ``play_tracks`` resolves an id when —
+        and only when — it is about to queue that track.
+        """
+        children = self._app_items(
+            "0", str(count), f"item_id:{artist['id']}", "want_url:1"
+        )
+        by_name = {c["name"].strip().lower(): c["id"]
+                   for c in children if c.get("name") and c.get("id")}
+        tracks: List[Dict[str, Any]] = []
+        for child_name in self.service.artist_children:
+            node_id = self._artist_child_id(by_name, child_name)
+            if not node_id:
+                continue
+            for item in self._app_items(
+                "0", str(count), f"item_id:{node_id}", "want_url:1"
+            ):
+                if not item.get("isaudio"):
+                    continue
+                url = item.get("url") or find_uri(item, self.service.uri_re)
+                title = self._clean_name(item.get("name"))
+                if url:
+                    tracks.append({"url": url, "title": title})
+                elif self.service.tracks_inline and item.get("id"):
+                    tracks.append({"item_id": item["id"], "title": title})
+            if tracks:
+                break
+        return tracks
+
     def artist_top_tracks(
         self, query: str, count: int = 20
     ) -> Dict[str, Any]:
@@ -663,24 +783,7 @@ class LMSClient:
         artist = self.find_artist(query, count)
         if not artist:
             return {"artist": None, "tracks": []}
-        children = self._app_items(
-            "0", str(count), f"item_id:{artist['id']}", "want_url:1"
-        )
-        by_name = {c["name"]: c["id"] for c in children if c.get("name") and c.get("id")}
-        tracks: List[Dict[str, Any]] = []
-        for child_name in self.service.artist_children:
-            node_id = by_name.get(child_name)
-            if not node_id:
-                continue
-            for item in self._app_items(
-                "0", str(count), f"item_id:{node_id}", "want_url:1"
-            ):
-                url = item.get("url") or find_uri(item, self.service.uri_re)
-                if item.get("isaudio") and url:
-                    tracks.append({"url": url, "title": item.get("name")})
-            if tracks:
-                break
-        return {"artist": artist, "tracks": tracks}
+        return {"artist": artist, "tracks": self.artist_tracks(artist, count)}
 
     # -- local library (Music Folder / USB drive) -------------------------
     # Uses LMS core commands with stable numeric ids (verified live), so local
@@ -688,11 +791,17 @@ class LMSClient:
     # LMS ``search:`` is a loose keyword search across fields; it can return
     # loosely-related rows. So we return all candidates and let the caller score
     # them against the query (title + artist) instead of trusting the first row.
+    #
+    # ``tags:E`` (albums, artists) and ``tags:u`` (titles) are what tell a row
+    # that lives on a disk apart from one a streaming plugin IMPORTED into the
+    # library — see :meth:`blocking_service`, which is the whole reason they
+    # are asked for.
     def local_artist_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         loop = self.server_command(
-            "artists", "0", str(count), f"search:{query}"
+            "artists", "0", str(count), f"search:{query}", "tags:E"
         ).get("artists_loop") or []
-        return [{"id": a["id"], "title": a.get("artist")} for a in loop if a.get("id") is not None]
+        return [_with_extid({"id": a["id"], "title": a.get("artist")}, a)
+                for a in loop if a.get("id") is not None]
 
     def find_local_artist(self, query: str, count: int = 10) -> Optional[Dict[str, Any]]:
         cands = self.local_artist_candidates(query, count)
@@ -700,10 +809,12 @@ class LMSClient:
 
     def local_album_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         loop = self.server_command(
-            "albums", "0", str(count), f"search:{query}", "tags:la"
+            "albums", "0", str(count), f"search:{query}", "tags:laE"
         ).get("albums_loop") or []
         return [
-            {"id": a["id"], "title": a.get("album"), "artist": a.get("artist")}
+            _with_extid(
+                {"id": a["id"], "title": a.get("album"), "artist": a.get("artist")},
+                a)
             for a in loop if a.get("id") is not None
         ]
 
@@ -713,13 +824,15 @@ class LMSClient:
 
     def local_track_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         loop = self.server_command(
-            "titles", "0", str(count), f"search:{query}", "tags:a"
+            "titles", "0", str(count), f"search:{query}", "tags:au"
         ).get("titles_loop") or []
         out: List[Dict[str, Any]] = []
         for a in loop:
             if a.get("id") is None:
                 continue
             cand = {"id": a["id"], "title": a.get("title")}
+            if a.get("url"):
+                cand["url"] = a["url"]
             if a.get("artist"):
                 cand["artist"] = a["artist"]
             out.append(cand)
@@ -728,6 +841,61 @@ class LMSClient:
     def find_local_track(self, query: str, count: int = 10) -> Optional[Dict[str, Any]]:
         cands = self.local_track_candidates(query, count)
         return cands[0] if cands else None
+
+    #: How many tracks are read to decide whether an imported album or artist
+    #: can play. One would do — every track of an imported album comes from the
+    #: same plugin — but a handful costs the same single round trip and covers
+    #: an artist whose rows came from two different services.
+    IMPORT_PROBE_TRACKS = 20
+
+    def blocking_service(self, candidate: Dict[str, Any],
+                         kind: str) -> Optional[str]:
+        """The disconnected service a local-library row's audio comes from, or
+        None when the row can play right now.
+
+        A streaming plugin imports its favourites INTO the LMS library: the
+        rows look local — they answer ``artists``/``albums``/``titles``, they
+        have library ids, ``playlistcontrol`` queues them without complaint —
+        but the audio is still ``tidal://322955652.flc``, and with the plugin
+        logged out not one second of it plays. That is what happened here: an
+        artist request loaded ten imported tracks, LMS accepted the command,
+        the app said "playing", the player walked the whole queue failing every
+        track and stopped in silence. ``can_search`` (see there) had covered
+        only the other half of it — SEARCHING a logged-out plugin.
+
+        A row with no ``extid`` is a file on a disk and is answered without
+        asking anybody anything, which is nearly every row in nearly every
+        library. An imported album or artist costs one ``titles`` query,
+        because the ``extid`` says which services know the row and only the
+        track urls say which one it will actually stream from: this artist's
+        extid named both Qobuz and TIDAL while every track in the library was
+        TIDAL's.
+        """
+        if kind == "track":
+            return self._offline_service(candidate.get("url"))
+        if not candidate.get("extid"):
+            return None
+        loop = self.server_command(
+            "titles", "0", str(self.IMPORT_PROBE_TRACKS),
+            f"{kind}_id:{candidate['id']}", "tags:u"
+        ).get("titles_loop") or []
+        blocked = None
+        for track in loop:
+            offline = self._offline_service(track.get("url"))
+            if offline is None:
+                return None  # one playable track is enough to keep the row
+            blocked = blocked or offline
+        # No tracks came back: an empty album plays nothing either way, and
+        # inventing a verdict out of silence is how a working library starts
+        # losing rows. Say nothing is blocking it and let the play be a no-op.
+        return blocked
+
+    def _offline_service(self, uri: Optional[str]) -> Optional[str]:
+        """The service ``uri`` needs, when that service cannot answer today."""
+        name = service_of(uri)
+        if name is None or name not in SERVICES:
+            return None
+        return None if self.for_service(name).can_search() else name
 
     def local_albums_by_artist(self, query: str, count: int = 50) -> Dict[str, Any]:
         artist = self.find_local_artist(query)
@@ -895,13 +1063,32 @@ class LMSClient:
         """Queue a browseable app-feed node to play right after the current one."""
         return self.command(self.service.tag, "playlist", "insert", f"item_id:{item_id}")
 
-    def play_tracks(self, urls: List[str]) -> None:
-        """Play the first URL (replacing the queue) then enqueue the rest."""
-        if not urls:
-            return
-        self.play_url(urls[0])
-        for url in urls[1:]:
-            self.add_url(url)
+    def _entry_url(self, entry: Any) -> Optional[str]:
+        """The play url of a :meth:`artist_tracks` row (or of a bare url)."""
+        if isinstance(entry, str):
+            return entry
+        url = entry.get("url")
+        if url:
+            return url
+        item_id = entry.get("item_id")
+        return self.track_url(item_id) if item_id else None
+
+    def play_tracks(self, tracks: List[Any]) -> None:
+        """Play the first playable entry (replacing the queue) then enqueue the
+        rest. An entry is a url, or a row from :meth:`artist_tracks` — which
+        may carry ``item_id`` instead of ``url``. Ids are resolved one at a
+        time, in order, so the music starts after a single extra round trip
+        rather than after all twenty."""
+        started = False
+        for entry in tracks or []:
+            url = self._entry_url(entry)
+            if not url:
+                continue
+            if started:
+                self.add_url(url)
+            else:
+                self.play_url(url)
+                started = True
 
     def pause(self) -> Dict[str, Any]:
         return self.command("pause", "1")

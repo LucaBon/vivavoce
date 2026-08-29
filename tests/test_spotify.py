@@ -459,3 +459,78 @@ def test_the_other_services_still_act_on_their_first_result(lms, transport,
     res = actions.play_album(lms, "a title that matches nothing")
     assert res.ok is True
     assert ["tidal", "playlist", "play", "item_id:alb"] in transport.commands()
+
+
+# -- an artist, whose tracks carry an id and no url -----------------------------
+# The same difference as the search results, one node deeper — and the artist
+# path did not know about it. ``artist_tracks`` dropped every row for want of a
+# url, so a Spotify artist came back "non riesco a riprodurre" while the songs
+# were sitting right there.
+ARTIST_TRACK_URLS = {"tt.1": "spotify://track:aaaaaaaaaaaaaaaaaaaaa1",
+                     "tt.2": "spotify://track:aaaaaaaaaaaaaaaaaaaaa2"}
+
+
+def spotty_artist_feed(track_urls=None):
+    urls = ARTIST_TRACK_URLS if track_urls is None else track_urls
+
+    def handler(cmd):
+        params = cmd[2:]
+        item_id = next((p[len("item_id:"):] for p in params
+                        if p.startswith("item_id:")), None)
+        if item_id is None:
+            return {"loop_loop": [{"id": "1", "name": "Search",
+                                   "type": "link", "hasitems": 1}]}
+        if item_id == "1":
+            return {"loop_loop": [{"id": "1.0", "name": "New Search",
+                                   "type": "search", "hasitems": 1}]}
+        if item_id == "1.0":                       # search node -> categories
+            return {"loop_loop": [{"id": "cat.artists", "name": "Artists",
+                                   "hasitems": 1}]}
+        if item_id == "cat.artists":
+            return {"loop_loop": [{"id": "ar.1", "name": "Pink Floyd",
+                                   "hasitems": 1}]}
+        if item_id == "ar.1":                      # the artist's children
+            return {"loop_loop": [
+                {"id": "alb", "name": "Albums", "hasitems": 1},
+                {"id": "tt", "name": "Top Tracks", "hasitems": 1},
+            ]}
+        if item_id == "tt":                        # ...no url on any row
+            return {"loop_loop": [
+                {"id": "tt.1", "name": "Money", "isaudio": 1, "hasitems": 1},
+                {"id": "tt.2", "name": "Time", "isaudio": 1, "hasitems": 1},
+            ]}
+        url = urls.get(item_id)                    # the track node's audio child
+        return {"item_loop": ([{"type": "audio", "text": url,
+                                "presetParams": {"favorites_url": url}}]
+                              if url else [])}
+
+    return handler
+
+
+def test_an_artists_tracks_survive_having_no_url(spotify, transport):
+    transport.responses["spotty"] = spotty_artist_feed()
+    tracks = spotify.artist_tracks({"id": "ar.1"})
+    assert [t["title"] for t in tracks] == ["Money", "Time"]
+    assert [t["item_id"] for t in tracks] == ["tt.1", "tt.2"]
+    assert not any("url" in t for t in tracks)
+
+
+def test_playing_an_artist_resolves_each_url_only_as_it_queues_it(spotify,
+                                                                  transport):
+    import actions
+    transport.responses["spotty"] = spotty_artist_feed()
+    assert actions.play_artist(spotify, "Pink Floyd") == \
+        "Riproduco la musica di Pink Floyd."
+    cmds = transport.commands()
+    assert ["playlist", "play", ARTIST_TRACK_URLS["tt.1"]] in cmds
+    assert ["playlist", "add", ARTIST_TRACK_URLS["tt.2"]] in cmds
+
+
+def test_a_track_whose_url_cannot_be_resolved_is_skipped_not_fatal(spotify,
+                                                                   transport):
+    # One unresolvable row must not take the other one's music down with it.
+    transport.responses["spotty"] = spotty_artist_feed(
+        {"tt.2": ARTIST_TRACK_URLS["tt.2"]})
+    spotify.play_tracks(spotify.artist_tracks({"id": "ar.1"}))
+    assert ["playlist", "play", ARTIST_TRACK_URLS["tt.2"]] in transport.commands()
+    assert not any(cmd[:2] == ["playlist", "add"] for cmd in transport.commands())

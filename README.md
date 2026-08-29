@@ -27,7 +27,8 @@ Great visual apps for this ecosystem already exist — Vivavoce deliberately doe
 
 - 👀 **See & touch** with **[Material Skin](https://github.com/CDrummond/lms-material)**
   (web) or **[Squeezer](https://f-droid.org/en/packages/uk.org.ngo.squeezer/)** (Android)
-  — browse, queue, artwork, multi-room.
+  — browse, queue, artwork, multi-room. Material Skin opens **inside** the
+  page, with the microphone still on screen.
 - 🗣️ **Speak** with **Vivavoce** — the one thing those don't do well hands-free.
 
 The app is a **local web app** (`localvoice/`) over a tested engine
@@ -54,10 +55,13 @@ unlocks the hands-free features and funds development:
     deserves it: the blocklist is enforced on the server, so it holds for
     every phone, tablet and PC that asks *Vivavoce* — no browser setting or
     cleared storage gets around it. It is not a lock on the hi-fi: LMS's own
-    web UI, Material Skin and apps like Squeezer talk to LMS directly and
-    never pass through here, so they can still play anything. Kid-safe makes
-    the voice assistant safe to hand to a child; it does not make the whole
-    system child-proof.
+    web UI, Material Skin and apps like Squeezer drive LMS directly, without
+    consulting the blocklist, so they can still play anything — including the
+    Material Skin panel inside this page, which is why a locked device is not
+    shown the way into it. That is the interface being tidy, not a gate: the
+    address still works for whoever knows it. Kid-safe makes the voice
+    assistant safe to hand to a child; it does not make the whole system
+    child-proof.
 
 **Every install starts with 14 days of full Pro**, microphone included — no
 key, no card, no account. The window opens the first time the server starts
@@ -145,7 +149,31 @@ a French or German session gets its answers inside the English page):
 > The **text box works everywhere**, even plain HTTP. Full setup — Docker, HTTPS,
 > autostart on Windows/Linux — is in **[DEPLOY.md](DEPLOY.md)**.
 
-There's a link to Material Skin right in the page for when you want to browse visually.
+**Material Skin opens inside the page.** Tap the link at the bottom and it
+takes over the scrolling area — browsing, the queue, the covers — while the
+microphone and the text box stay exactly where they are, one tap away. It is
+Craig Drummond's Material Skin, running from the plugin already installed on
+your own LMS; Vivavoce only puts it under its own address, because the page is
+HTTPS and the music server is not, and a browser refuses to frame the second
+inside the first. Nothing of it is redistributed here, and nothing about how
+it works changes.
+
+That makes this server a front door to your LMS for everything it does not
+answer itself, behind the same Host allow-list and cross-site guard as every
+other route — and a stricter one, because the LMS classic interface acts on
+GET, so a cross-site GET arriving here is refused too
+(see [`localvoice/lmsproxy.py`](localvoice/lmsproxy.py)). Point
+`--material-url` at a Material somewhere else and both the panel and the
+forwarding switch off: you get the plain external link this used to be.
+
+**The honest part:** with the panel on, whatever your music server serves also
+answers under this app's address, so its pages are same-origin with the app.
+Framing somebody's interface means trusting the machine behind it as much as
+this one — there is no version of it that doesn't. What the proxy cannot do is
+reach a *different* machine: the target is fixed when the server starts and no
+request can steer it. Long-lived replies (Material's live updates, audio
+played through the panel) each hold one of the 128 connection slots for as
+long as they last, which is a household-sized limit, not a venue-sized one.
 
 ## Repo layout
 
@@ -156,6 +184,7 @@ There's a link to Material Skin right in the page for when you want to browse vi
 | `engine/discovery.py` | LMS LAN auto-discovery (UDP) |
 | `engine/blocklist_store.py` | Kid-safe blocklist (store contract) |
 | `localvoice/` | Local web app: `server.py`, `router.py`, `index.html` |
+| `localvoice/lmsproxy.py` | Reverse proxy to the LMS — what puts Material Skin inside the page |
 | `tools/probe_lms.py` | Validate search/playback against a real LMS |
 | `tests/` | pytest suite (simulated LMS transport, no network) |
 | `RELEASING.md` | How to cut a release (the version lives in two files + a tag) |

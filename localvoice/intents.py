@@ -21,7 +21,7 @@ import actions
 import moods
 from conversation import MOOD_TTL
 from messages import msg
-from parsing import (_as_number, _parse_minutes, _service_label, _service_re,
+from parsing import (_as_number, _parse_minutes, _service_re,
                      _source_suffix)
 
 
@@ -190,36 +190,48 @@ class IntentTable:
                 self._tag(picked, _source_suffix(self.cand_source)),
                 room_suffix)
 
-        # 3) explicit source override phrases (win over the selector). Service
-        # phrases route only the generic play_song; album/artist follow the
-        # selector.
-        m = P["local_prefix"].search(t)
+        # 2c) the answer to a yes/no question this router asked last turn (see
+        # ConversationState._offer). Only while one is open — «no» is a word
+        # people say to a hi-fi for other reasons, and a bare «sì» is not a
+        # command at all — and here rather than lower down because everything
+        # below reads the sentence as a request for music: «ok» would be looked
+        # for as a title, and the question it was answering would be gone by
+        # the time anybody noticed.
+        if self.offer is not None:
+            if P["yes"].match(t):
+                return self._answer_offer(True)
+            if P["no"].match(t):
+                return self._answer_offer(False)
+
+        # 3) explicit source override phrases (win over the selector).
+        #
+        # What they override is WHERE the music comes from, and only that. The
+        # capture is the original sentence minus the source phrase — verb and
+        # all, which is why neither template swallows the verb any more — and
+        # it re-enters the ladder at the four branches that play something
+        # (album 5, playlist 6, artist 7, generic 8; see
+        # ``Router._PLAY_BRANCHES``). Until it did, naming a service said both
+        # where AND what: «da qobuz metti canzoni dei Pink Floyd» was handed to
+        # play_song, which read "canzoni" as the title and played the first
+        # thing Qobuz offered — a lullaby cover, not the band.
+        #
+        # It re-enters at step 5 and nowhere earlier. Steps 0-2 (queue, mood,
+        # transport, picks) have already run against the full sentence, which
+        # is this one plus two words; step 4's `albums_list` is a question about
+        # the local disk by definition, `toptracks` opens a read-out rather than
+        # a play, and `name_pick` would answer from a remembered source while
+        # the user was naming a different one. All three keep today's
+        # precedence, where this branch wins.
+        m = P["local_prefix"].search(t) or P["local_suffix"].search(t)
         if m:
-            return self._played(actions.play_local(self.lms, m.group(1).strip(),
-                                                   guard=self._guard), "local")
-        m = P["local_suffix"].search(t)
-        if m:
-            return self._played(actions.play_local(self.lms, m.group(1).strip(),
-                                                   guard=self._guard), "local")
+            return self._local_play(m.group(1).strip(), P)
         for service in self.services:
             sound = _service_re(service)
             # Both word orders: «da Qobuz metti X» and «metti X da Qobuz».
             m = (re.search(P["service"].format(s=sound), t, re.I)
                  or re.search(P["service_suffix"].format(s=sound), t, re.I))
             if m:
-                stream = self.lms.for_service(service)
-                res = actions.play_song(stream, m.group(1).strip(),
-                                        guard=self._guard)
-                if not stream.can_search():
-                    # Named outright, so nothing is substituted for it: the
-                    # answer names the service the user asked for. (The
-                    # selector's silent fall-through to a connected service
-                    # lives in Router._stream_name, and is only right where
-                    # the user expressed no preference.)
-                    return self._if_searched(
-                        res, msg("service_offline",
-                                 service=_service_label(service)))
-                return self._played(self._tag(res, _source_suffix(service)), service)
+                return self._service_play(m.group(1).strip(), service, P)
 
         # 4) lists that open a numbered choice
         m = P["albums_list"].search(t)
@@ -274,10 +286,14 @@ class IntentTable:
                 return self._if_searched(res, msg("no_service_online"))
             return self._tag(res, _source_suffix(name))
 
-        # 7) artist — streaming or local per selector
+        # 7) artist — streaming or local per selector. The local half is NOT
+        # play_local: a request that named a category must not be answered from
+        # another one, and the generic resolver read back "intendevi?" over a
+        # band whose name also matched two tracks. See library.play_local_artist.
         m = P["artist"].search(t)
         if m:
-            return self._resolve(m.group(1).strip(), actions.play_artist, source)
+            return self._resolve(m.group(1).strip(), actions.play_artist, source,
+                                 local_fn=actions.play_local_artist)
 
         # 8) generic play — streaming or local per selector. Steps 5-7 have
         # already declined, so only the generic branch may answer here — which

@@ -524,9 +524,15 @@ _TRANSPORT_CMDS = [["pause", "1"], ["pause", "0"],
 @pytest.mark.parametrize("phrase", _MUST_PLAY)
 def test_a_named_request_is_never_answered_with_a_transport_command(
         lms, transport, make_tidal, phrase):
+    # Both categories — see tests/test_german.py for why: «sur tidal mets la
+    # musique de Téléphone» names an artist and now walks the Artists chain
+    # instead of being downgraded to a song search.
     transport.responses["tidal"] = make_tidal(
-        categories={"Songs": "S"},
-        items={"S": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Peu importe"}]},
+        categories={"Songs": "S", "Artists": "A"},
+        items={"S": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Peu importe"}],
+               "A": [{"type": "outline", "id": "AR", "name": "Téléphone"}],
+               "AR": [{"name": "Top Tracks", "id": "TT"}],
+               "TT": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Peu importe"}]},
     )
     Router(lms).handle(phrase, source="tidal", lang="fr")
     stolen = [c for c in transport.commands() if c in _TRANSPORT_CMDS]
@@ -753,3 +759,44 @@ def test_en_boucle_is_phrasing_and_not_part_of_the_title(
     )
     speech = Router(lms).handle("mets Time en boucle", source="tidal", lang="fr")
     assert speech.startswith("Je mets Time")
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["mets la musique de Pink Floyd",
+     "mets les chansons de Pink Floyd",
+     "mets toutes les chansons de Pink Floyd",
+     "mets quelque chose de Pink Floyd",
+     "mets l'artiste Pink Floyd",
+     # The partitive, which is the ORDINARY way to ask in French — «les
+     # chansons de X» is the marked one. Missing from the list, these fell
+     # through to the generic branch, where the whole phrase is read as a
+     # title: nothing matches it, and a service that trusts its own ranking
+     # played a stranger's song. It is how «mets des chansons de Teddy Swims»
+     # came back as one track by somebody else.
+     "mets des chansons de Pink Floyd",
+     "mets des morceaux de Pink Floyd",
+     "mets quelques chansons de Pink Floyd",
+     "joue des titres de Pink Floyd",
+     # ...and the partitive introducing the noun itself.
+     "mets de la musique de Pink Floyd"],
+)
+def test_artist_variants_fr(lms, transport, make_tidal, phrase):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Artists": "Ar"},
+        items={"Ar": [{"id": "a1", "name": "Pink Floyd", "hasitems": 1}],
+               "a1": [{"id": "tt", "name": "Top Tracks", "hasitems": 1}],
+               "tt": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Time"}]},
+    )
+    reply = Router(lms).handle(phrase, source="tidal", lang="fr")
+    assert ["playlist", "play", "tidal://1.flc"] in transport.commands(), reply
+
+
+@pytest.mark.parametrize("phrase", [
+    "mets la chanson de Prévert",      # a Gainsbourg title, not an artist
+    "mets Le Temps des Cerises",
+    "mets de la musique douce",        # a mood, and it must stay one
+])
+def test_a_title_or_a_mood_is_not_an_artist_request_fr(phrase):
+    from router import PATTERNS
+    assert not PATTERNS["fr"]["artist"].search(phrase), phrase

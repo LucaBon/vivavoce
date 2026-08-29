@@ -206,7 +206,13 @@ def test_command_answers_exactly_what_v1_answers(live_server, transport):
 
 
 def test_an_unknown_post_path_is_still_a_404(live_server):
-    resp = live_server().try_post_json("/api/v2/command", {"text": "pausa"})
+    # With Material Skin embedded the catch-all forwards to the LMS instead
+    # (test_lmsproxy.py); /api/v2 is about the versioned contract, so it is
+    # asked of the server without that panel — the shape every install has
+    # when Material lives somewhere else.
+    from conftest import ELSEWHERE_MATERIAL_URL
+    srv = live_server(material_url=ELSEWHERE_MATERIAL_URL)
+    resp = srv.try_post_json("/api/v2/command", {"text": "pausa"})
     assert resp.status == 404
 
 

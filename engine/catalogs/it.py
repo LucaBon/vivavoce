@@ -27,6 +27,27 @@ MESSAGES = {
         "Nessun servizio di streaming \u00e8 collegato. Apri le impostazioni "
         "di LMS e rifai l'accesso.",
 
+    # A row the library HAS and cannot play. A streaming plugin imports its
+    # favourites INTO the LMS library: the row answers a local search, carries a
+    # library id and queues without complaint, and its audio is still
+    # ``tidal://`` — silent for as long as the plugin is logged out. Naming the
+    # service is the whole point of the sentence: "I didn't find it" would be a
+    # lie about the library, and "it won't play" would leave nobody anything to
+    # do about it. The offer that follows is put together in
+    # ``sources.SourceChoice``, which is where a request finds out which other
+    # service is connected.
+    "local_import_offline":
+        "Quello che ho di {query} nella tua musica arriva da {service}, che "
+        "non \u00e8 collegato.",
+    "service_not_connected": "{service} non \u00e8 collegato.",
+    "offer_play_from": "Vuoi che la metta da {service}?",
+    # The two buttons the web app puts under an offer, and the words it
+    # sends when one is tapped: they have to be answers the language pack's
+    # ``yes``/``no`` patterns actually parse, because tapping is typing.
+    "offer_yes": "S\u00ec",
+    "offer_no": "No",
+    "offer_declined": "Va bene.",
+
     # -- labels / list read-outs -------------------------------------------
     "generic_track": "brano",
     "label_title_artist": "{title} di {artist}",

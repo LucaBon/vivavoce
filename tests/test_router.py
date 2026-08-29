@@ -296,6 +296,13 @@ def test_explicit_local_overrides_tidal_source(router, transport):
         "metti le canzoni di Pink Floyd",
         "metti canzoni dei Negrita",
         "metti tutte le canzoni dei Negrita",
+        # The partitive. Missing from the list, «metti delle canzoni di X»
+        # fell through to the generic branch, where the whole phrase is read
+        # as a TITLE — nothing matches it, and a service that trusts its own
+        # ranking then plays a stranger's song without saying so.
+        "metti delle canzoni dei Negrita",
+        "metti dei brani dei Negrita",
+        "metti un po' di canzoni dei Negrita",
         "riproduci i brani di Battisti",
         "Metti le canzoni dei Negrita.",  # dictation adds final punctuation
     ],
@@ -667,3 +674,100 @@ def test_an_absurd_sleep_is_refused(router, transport):
 
 def test_one_minute_is_singular(router, transport):
     assert router.handle("spegni tra 1 minuto") == "Va bene, spengo tra un minuto."
+
+
+# -- «metti canzoni di X» on the local library --------------------------------
+# The artist branch used to be answered by ``play_local``, the GENERIC local
+# resolver: it searches albums, artists and tracks, lets the best-scoring
+# category win, and asks "intendevi?" whenever two rows of the winner are
+# distinct. So a band that also has two tracks matching its name got two songs
+# read back instead of its music. A request that named a category is now
+# answered from that category.
+@pytest.fixture
+def local_pink_floyd(transport):
+    transport.responses["artists"] = {
+        "artists_loop": [{"id": 42, "artist": "Pink Floyd"}]}
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 7, "album": "Pink Floyd", "artist": "Pink Floyd"}]}
+    transport.responses["titles"] = {"titles_loop": [
+        {"id": 1, "title": "Pink Floyd Medley", "artist": "Various"},
+        {"id": 2, "title": "Pink Floyd Tribute", "artist": "Various"},
+    ]}
+    return transport
+
+
+def test_local_artist_plays_the_artist_not_a_shortlist(router, local_pink_floyd):
+    reply = router.handle("metti canzoni dei Pink Floyd", source="local")
+    assert str(reply) == "Riproduco Pink Floyd dalla tua musica."
+    assert ["playlistcontrol", "cmd:load", "artist_id:42"] in \
+        local_pink_floyd.commands()
+
+
+def test_an_album_and_tracks_of_the_same_name_do_not_make_it_a_question(
+        router, local_pink_floyd):
+    # The discriminating case against play_local: three categories match, and
+    # only the one the phrase named gets a vote.
+    assert "Intendevi" not in str(
+        router.handle("metti canzoni dei Pink Floyd", source="local"))
+    assert not any(cmd[:2] == ["playlistcontrol", "cmd:load"]
+                   and cmd[2].startswith(("album_id:", "track_id:"))
+                   for cmd in local_pink_floyd.commands())
+
+
+def test_two_close_artists_are_still_a_question(router, transport):
+    transport.responses["artists"] = {"artists_loop": [
+        {"id": 42, "artist": "Pink Floyd"},
+        {"id": 43, "artist": "Pink Floyd Tribute Band"},
+    ]}
+    reply = router.handle("metti canzoni dei Pink Floyd", source="local")
+    assert "Pink Floyd Tribute Band" in str(reply)
+    assert all(cmd[0] != "playlistcontrol" for cmd in transport.commands())
+    # ...and the pick acts on the artist, not on a track.
+    router.handle("la 1")
+    assert ["playlistcontrol", "cmd:load", "artist_id:42"] in transport.commands()
+
+
+def test_a_local_artist_miss_says_so_and_plays_nothing(router, transport):
+    reply = router.handle("metti canzoni dei Pink Floyd", source="local")
+    assert str(reply) == "Non ho Pink Floyd nella tua musica."
+    assert all(cmd[0] != "playlistcontrol" for cmd in transport.commands())
+
+
+def test_auto_prefers_the_local_artist_and_asks_no_service(
+        router, local_pink_floyd):
+    router.handle("metti canzoni dei Pink Floyd", source="auto")
+    cmds = local_pink_floyd.commands()
+    assert ["playlistcontrol", "cmd:load", "artist_id:42"] in cmds
+    assert all(cmd[0] not in ("tidal", "qobuz", "spotty") for cmd in cmds)
+
+
+def test_auto_falls_through_to_the_service_when_the_library_has_no_such_artist(
+        router, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Artists": "A"},
+        items={"A": [{"type": "outline", "id": "AR", "name": "Pink Floyd"}],
+               "AR": [{"name": "Top Tracks", "id": "TT"}],
+               "TT": [{"isaudio": 1, "url": "tidal://3.flc", "name": "Time"}]},
+    )
+    assert str(router.handle("metti canzoni dei Pink Floyd", source="auto")) == \
+        "Riproduco la musica di Pink Floyd da TIDAL."
+    assert ["playlist", "play", "tidal://3.flc"] in transport.commands()
+
+
+def test_the_album_and_generic_branches_still_use_the_generic_resolver(
+        router, transport):
+    # local_fn narrowed the artist branch and nothing else.
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 7, "album": "The Wall", "artist": "Pink Floyd"}]}
+    assert str(router.handle("metti l'album The Wall", source="local")) == \
+        "Riproduco l'album The Wall dalla tua musica."
+    assert ["playlistcontrol", "cmd:load", "album_id:7"] in transport.commands()
+
+
+def test_the_local_prefix_reaches_the_artist_branch_too(router, local_pink_floyd):
+    # «dalla mia musica …» is the same override said in words, and it used to
+    # hand everything to play_local for the same reason step 3 did.
+    assert str(router.handle("dalla mia musica metti canzoni dei Pink Floyd")) == \
+        "Riproduco Pink Floyd dalla tua musica."
+    assert ["playlistcontrol", "cmd:load", "artist_id:42"] in \
+        local_pink_floyd.commands()

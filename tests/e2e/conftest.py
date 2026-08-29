@@ -115,6 +115,9 @@ def page_with_fake_mic(browser_with_fake_mic):
     assert errors == [], f"uncaught JS errors on the page: {errors}"
 
 
+from conftest import FakeUpstream  # noqa: E402  (tests/ is on sys.path)
+
+
 class _FakeArtworkFetch:
     """Keeps /artwork off the network (a 1x1 PNG would be overkill)."""
 
@@ -130,6 +133,7 @@ def web(live_server, transport):
 
     def start(**kwargs):
         kwargs.setdefault("artwork_fetch", _FakeArtworkFetch())
+        kwargs.setdefault("proxy_open", FakeUpstream())
         return live_server(**kwargs)
 
     return start
@@ -200,6 +204,7 @@ def tls_web(lms, local_ca, transport):
 
     def start(ca=True, **kwargs):
         kwargs.setdefault("artwork_fetch", _FakeArtworkFetch())
+        kwargs.setdefault("proxy_open", FakeUpstream())
         handler = srv.make_handler(
             lms, DEFAULT_MATERIAL_URL, ["tidal"], "tidal",
             ca_path=(tls.find_ca(cert) if ca else None), **kwargs)
@@ -239,7 +244,8 @@ def http_elsewhere_web(lms, transport):
 
     transport.responses.setdefault("status", {"mode": "stop"})
     handler = srv.make_handler(lms, DEFAULT_MATERIAL_URL, ["tidal"], "tidal",
-                               artwork_fetch=_FakeArtworkFetch())
+                               artwork_fetch=_FakeArtworkFetch(),
+                               proxy_open=FakeUpstream())
     try:
         httpd = ThreadingHTTPServer(("127.0.0.2", 0), handler)
     except OSError as exc:  # not every platform routes the whole 127/8

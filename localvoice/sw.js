@@ -15,10 +15,11 @@
 // Nota: Chrome registra il service worker solo su HTTPS *fidato* — quindi con
 // la CA locale installata (vedi /ca.pem), non con il certificato "accettato
 // nonostante l'avviso".
-const VERSION = "vivavoce-v11";
+const VERSION = "vivavoce-v12";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png",
                "/static/css/app.css",
-               "/static/js/app.js", "/static/js/certsetup.js",
+               "/static/js/app.js", "/static/js/browse.js",
+               "/static/js/certsetup.js",
                "/static/js/chat.js", "/static/js/i18n.js",
                "/static/js/localasr.js",
                "/static/js/mic.js", "/static/js/miccapture.js",
@@ -30,6 +31,15 @@ const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png",
                "/static/js/wakeword.js"];
 // Endpoint dinamici: mai in cache (lo stato del player cambia di continuo).
 const NETWORK_ONLY = ["/nowplaying", "/artwork"];
+// Material Skin, servita da questa origine dal reverse proxy (lmsproxy.py):
+// è un'altra applicazione, con la sua cache e i suoi bundle versionati, e
+// niente di suo deve finire nella cache della PWA. Un prefisso che manca da
+// questa lista non è un bug — cade nel catch-all in fondo, che per una
+// richiesta mai messa in cache fa comunque rete — ma dirlo qui evita una
+// ricerca in cache per ogni asset di un'app intera.
+const UPSTREAM = ["/material/", "/cometd", "/jsonrpc.js", "/music/",
+                  "/imageproxy/", "/plugins/", "/settings/", "/html/",
+                  "/stream.mp3"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -52,6 +62,9 @@ self.addEventListener("fetch", (e) => {
   }
   if (NETWORK_ONLY.some((p) => url.pathname.startsWith(p))) {
     return; // stato live del player: sempre rete, mai cache
+  }
+  if (UPSTREAM.some((p) => url.pathname.startsWith(p))) {
+    return; // roba dell'LMS: sempre rete, mai cache
   }
   const isPage = url.pathname === "/" || url.pathname === "/index.html";
   if (isPage || url.pathname.startsWith("/static/")) {

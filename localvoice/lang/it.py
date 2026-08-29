@@ -96,9 +96,21 @@ PATTERNS = {
     # "la 2" and ordinals: "la seconda", "metti la seconda canzone"
     "choose_article": c(r"(?:metti|scegli|voglio)?\s*(?:la|il)\s+([a-z0-9]+)"
                         r"(?:\s+(?:canzone|brano|opzione))?\s*$"),
-    "local_prefix": c(rf"{_LOCAL}\s+(?:metti\s+|riproduci\s+)?(.+)$"),
-    "local_suffix": c(rf"(?:metti|riproduci|suona)\s+(.+?)\s+{_LOCAL}\s*$"),
-    "service": r"(?:da {s}|su {s}|con {s})\s+(?:metti\s+|riproduci\s+)?(.+)$",
+    # The answer to a yes/no offer (see ConversationState._offer). Both are
+    # read ONLY while an offer is open, and both are anchored to the whole
+    # sentence: «no» is a word people say to a hi-fi for other reasons, and a
+    # one-word title would otherwise stop being searched for.
+    "yes": c(r"^(?:s[i\u00ec]|certo|va\s+bene|ok(?:ay)?|d['\u2019]accordo"
+             r"|perch[e\u00e9]\s+no|s[i\u00ec]\s+grazie)\s*$"),
+    "no": c(r"^(?:no|no\s+grazie|lascia\s+stare|niente|non\s+importa)\s*$"),
+    # Neither half swallows the play verb: the capture is the whole request
+    # minus the source phrase, and the router re-reads it with the album /
+    # playlist / artist / generic patterns, all of which are anchored on that
+    # verb. Eating it here is what made «dalla mia musica metti canzoni dei
+    # Pink Floyd» and «da qobuz metti …» reach the generic song search alone.
+    "local_prefix": c(rf"{_LOCAL}\s+(.+)$"),
+    "local_suffix": c(rf"((?:metti|riproduci|suona)\s+.+?)\s+{_LOCAL}\s*$"),
+    "service": r"(?:da {s}|su {s}|con {s})\s+(.+)$",
     # The same override said the other way round — «metti X da Qobuz» — which
     # is where the naming goes when the sentence is spoken rather than typed,
     # and the only shape the prefix form cannot read. Without it the phrase
@@ -107,7 +119,7 @@ PATTERNS = {
     # ``service`` exactly as ``local_suffix`` is paired with ``local_prefix``,
     # verb and all: a title is not a command, and «X da Qobuz» on its own
     # reaches no play branch either.
-    "service_suffix": r"(?:metti|riproduci|suona)\s+(.+?)\s+(?:da|su|con) {s}\s*$",
+    "service_suffix": r"((?:metti|riproduci|suona)\s+.+?)\s+(?:da|su|con) {s}\s*$",
     "albums_list": c(r"(?:quali|che).{0,12}album.{0,4}di\s+(.+)$"),
     "toptracks": c(r"(?:quali.{0,10}brani|top tracks|brani.{0,15}ascoltati).*?di\s+(.+)$"),
     "name_pick": c(r"(?:(?:voglio\s+ascoltare|fai\s+partire|metti|scegli|riproduci|suona|voglio)\s+)?(.+)$"),
@@ -115,10 +127,18 @@ PATTERNS = {
     "playlist": c(r"(?:metti|riproduci|fai partire)\s+la\s+playlist\s+(.+)$"),
     # Plural only ("canzoni/brani"): "metti la canzone del sole" is a song
     # title (Battisti), not an artist request.
+    #
+    # The quantifier in front of the noun is open on purpose. Listing only the
+    # definite article made «metti delle canzoni di X» — an ordinary way to ask
+    # — fall through to the generic branch, where "delle canzoni di X" is read
+    # as a TITLE: nothing matches it, and a service that trusts its own ranking
+    # plays whatever came back first. One partitive missing from this list is
+    # the whole distance between an artist's music and a stranger's song.
     "artist": c(r"(?:metti|riproduci|fai partire)\s+"
                 r"(?:(?:la\s+)?musica\s+(?:di|dei|degli|delle|del|della|dell['’])"
                 r"|l['’]?\s*artista"
-                r"|(?:tutte\s+le\s+|le\s+|i\s+)?(?:canzoni|brani)\s+"
+                r"|(?:tutte\s+le\s+|le\s+|i\s+|delle\s+|dei\s+"
+                r"|un\s+po['’]?\s*di\s+)?(?:canzoni|brani)\s+"
                 r"(?:di|dei|degli|delle|del|della|dell['’]))\s+(.+)$"),
     "generic_play": c(r"(?:riproduci|metti|suona|fai partire|voglio ascoltare)\s+(.+)$"),
     # Kid-safe: anchored on the verb at string start, so a title containing

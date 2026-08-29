@@ -305,17 +305,28 @@ PATTERNS = {
     "choose_article": c(r"(?:spiel(?:e)?|nimm|w(?:ä|ae)hl(?:e)?)?\s*"
                         r"d(?:ie|as|er|en)\s+([a-z0-9äöüß]+)"
                         r"(?:\s+(?:lied|song|st(?:ü|ue)ck|titel|option))?\s*$"),
-    "local_prefix": c(rf"{_LOCAL}\s+(?:spiel(?:e)?\s+|leg(?:e)?\s+)?(.+)$"),
-    "local_suffix": c(rf"\b(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+(.+?)\s+"
+    # The answer to a yes/no offer (see ConversationState._offer). Both are
+    # read ONLY while an offer is open, and both are anchored to the whole
+    # sentence: «no» is a word people say to a hi-fi for other reasons, and a
+    # one-word title would otherwise stop being searched for.
+    "yes": c(r"^(?:ja|klar|gern(?:e)?|ok(?:ay)?|mach(?:\s+das)?"
+             r"|ja\s+bitte)\s*$"),
+    "no": c(r"^(?:nein|n\u00f6|nee|nein\s+danke|lass(?:\s+es)?|egal)\s*$"),
+    # The play verb stays inside the capture — see it.py. German gains the
+    # most from it: the branch patterns strip their own separable particle
+    # («spiel die Musik von Rammstein ab» ends `(?:\s+(?:an|auf|ab))?\s*$`),
+    # and they can only do that if the verb reaches them.
+    "local_prefix": c(rf"{_LOCAL}\s+(.+)$"),
+    "local_suffix": c(rf"(\b(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+.+?)\s+"
                       rf"{_LOCAL}\s*$"),
-    "service": r"(?:von {s}|auf {s}|mit {s}|(?:ü|ue)ber {s})\s+(?:spiel(?:e)?\s+|leg(?:e)?\s+)?(.+)$",
+    "service": r"(?:von {s}|auf {s}|mit {s}|(?:ü|ue)ber {s})\s+(.+)$",
     # «spiel X auf Qobuz» — see it.py for why the suffix form exists at all.
     # ``von`` is left out of this half on purpose: German names an artist with
     # it («Comfortably Numb von Pink Floyd» — see connectors/de.py), so a
     # trailing «von …» is far more often a singer than a service, and the
     # sound-alike for a service name is the only thing standing between the
     # two. The three prepositions that mean nothing else are enough.
-    "service_suffix": r"(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+(.+?)\s+"
+    "service_suffix": r"((?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+.+?)\s+"
                       r"(?:auf|mit|(?:ü|ue)ber) {s}\s*$",
     "albums_list": c(r"welch\w*\s.{0,20}alben.{0,20}?\bvon\s+(.+)$"),
     "toptracks": c(r"(?:beste[nrs]?\s+(?:lieder|songs|titel|st(?:ü|ue)cke)"
@@ -343,9 +354,13 @@ PATTERNS = {
     # Only «von» introduces the artist, and only behind a word that says a
     # person is coming: «spiel Musik von X», never a bare «von» — half the
     # German song titles in a library contain one.
+    # The quantifier is open — see it.py for what one missing partitive costs.
+    # «alles von X» was already here; «alle Lieder von X», the same request
+    # with the noun spelled out, was not.
     "artist": c(r"\b(?:spiel(?:e|en)?|leg(?:e)?|starte?|mach(?:e)?)\s+"
                 r"(?:(?:etwas|was|alles|nur)\s+von"
-                r"|(?:d(?:ie|as)\s+)?(?:musik|lieder|songs|titel|st(?:ü|ue)cke)"
+                r"|(?:d(?:ie|as)\s+|alle\s+|ein\s+paar\s+|einige\s+)?"
+                r"(?:musik|lieder|songs|titel|st(?:ü|ue)cke)"
                 r"\s+von"
                 r"|d(?:en|ie)\s+k(?:ü|ue)nstler(?:in)?)\s+"
                 r"(.+?)(?:\s+(?:an|auf|ab))?\s*$"),

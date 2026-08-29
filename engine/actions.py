@@ -260,17 +260,22 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
     if guard and guard.blocks(artist):
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
-        result = lms.artist_top_tracks(artist)
-        if not result["artist"]:
+        cands = lms.artist_candidates(artist)
+        if not cands:
             return ActionResult(msg("artist_not_found", artist=artist), ok=False)
-        if not _resolved_enough(lms, artist, result["artist"]):
+        # Best name match, not blindly the first — the same shape play_album
+        # and play_playlist already use. The search is an ARTIST search, so its
+        # top row is usually right; "usually" is what put a lullaby label ahead
+        # of the band one layer down, and this costs nothing.
+        item = _rank(artist, cands)[0][1]
+        if not _resolved_enough(lms, artist, item):
             return ActionResult(msg("artist_not_found", artist=artist), ok=False)
-        if guard and guard.blocks_item(result["artist"]):
+        if guard and guard.blocks_item(item):
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
-        tracks = result["tracks"]
+        tracks = lms.artist_tracks(item)
         if not tracks:
             return ActionResult(msg("artist_unplayable", artist=artist), ok=False)
-        lms.play_tracks([t["url"] for t in tracks])
+        lms.play_tracks(tracks)
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("playing_artist", artist=artist), ok=True, terms=[artist])
@@ -374,4 +379,5 @@ from transport import (VOLUME_STEP, pause, resume, next_track, previous_track,
 from library import (top_tracks_list, _LOCAL_KIND, _dispatch_play,
                      choose_from, choose_by_name, _LOCAL_KIND_RANK,
                      _local_group, library_candidates, best_match_score,
-                     play_local, local_albums_list)
+                     play_local, play_local_artist, local_albums_list,
+                     IMPORT_OFFLINE, _import_offline)

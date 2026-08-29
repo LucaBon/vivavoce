@@ -198,15 +198,35 @@
     <div data-i18n="install_ca_note">La CA è generata in casa tua e firma solo questo server: non dà a nessun altro
       la possibilità di intercettare il tuo traffico.</div>
   </details>
+  <!-- Material Skin, inside the page. The panel takes over the scrolling
+       area while the hero above it — microphone, status, text box — stays
+       put, so browsing and speaking are the same visit (browse.js + the
+       reverse proxy in lmsproxy.py). data-i18n goes on the LEAVES only:
+       applyUI() rewrites the innerHTML of everything carrying it, and on the
+       section or the bar that would destroy the iframe and reload Material
+       from scratch at every language change. -->
+  <section id="browse" class="browse" hidden>
+    <div class="browsebar">
+      <button class="choice" id="browseclose" type="button" data-i18n="browse_close">✕ Torna ai comandi</button>
+      <a class="hint" href="https://github.com/CDrummond/lms-material" target="_blank"
+         rel="noopener" data-i18n="browse_credit">Material Skin di Craig Drummond ↗</a>
+    </div>
+    <iframe id="browseframe" title="Material Skin" referrerpolicy="no-referrer"></iframe>
+  </section>
+  <!-- Stays exactly what it was: with no panel to open (the browse path is
+       empty when Material lives somewhere other than our LMS) this is the
+       link of before, and it works with no JavaScript at all. browse.js
+       intercepts the click only when it has somewhere to put it. -->
   <a class="hint" id="material" href="__MATERIAL_URL__" target="_blank" rel="noopener"
-     data-i18n="material_link">Vuoi vedere coda, copertine e sfogliare? Apri Material Skin ↗</a>
+     data-i18n="material_link">Sfoglia coda, copertine e libreria con Material Skin</a>
   </div><!-- /.content -->
 
 <!-- Server-injected config: the streaming services actually installed on the
      LMS, and the languages the router can answer in. Inline (not in the static
      modules) so the per-request substitution keeps working; the JS reads it
      from window.VIVAVOCE_CFG. -->
-<script>window.VIVAVOCE_CFG = { services: __SERVICES__, langs: __LANGS__, version: __VERSION__ };</script>
+<script>window.VIVAVOCE_CFG = { services: __SERVICES__, langs: __LANGS__, version: __VERSION__,
+                                browse: __BROWSE__ };</script>
 <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>
