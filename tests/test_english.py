@@ -287,7 +287,11 @@ def test_album_without_article_en(router, transport, make_tidal):
      "play songs by Pink Floyd",
      "play all the songs by Pink Floyd",
      "play tracks by Pink Floyd",
-     "play music from Pink Floyd"],
+     "play music from Pink Floyd",
+     # The open quantifier — see lang/it.py for what one missing determiner
+     # in front of the noun costs.
+     "play some songs by Pink Floyd",
+     "play a few tracks by Pink Floyd"],
 )
 def test_artist_variants_en(router, transport, make_tidal, phrase):
     transport.responses["tidal"] = make_tidal(

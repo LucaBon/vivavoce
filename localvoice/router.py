@@ -31,8 +31,8 @@ import threading
 import time
 
 import actions
-from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
-                          ConversationState)
+from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL, OFFER,
+                          OFFER_TTL, ConversationState)
 from intents import IntentTable
 from lang import PACKS
 from messages import msg, set_lang
@@ -43,7 +43,7 @@ from sources import SourceChoice
 # the router's windows: ``router.CANDIDATES_TTL`` has to keep naming the one it
 # actually honours.
 __all__ = ["Router", "PATTERNS", "MOOD_WORDS",
-           "CANDIDATES_TTL", "CANDIDATES_GRACE", "MOOD_TTL"]
+           "CANDIDATES_TTL", "CANDIDATES_GRACE", "MOOD_TTL", "OFFER_TTL"]
 
 # One patterns dict per language pack; ``PATTERNS.get(lang) or PATTERNS["it"]``
 # is the it-fallback the whole app relies on. (Kept under this name: the
@@ -119,6 +119,12 @@ class Router(ConversationState, IntentTable, SourceChoice):
         # music somewhere nobody asked for. Same idea as cand_player.
         self.mood_player = None
         self._mood_turn = False  # this turn acted on the mood
+        # The open yes/no question (see ConversationState._offer): the callable
+        # «sì» runs, None when nothing was asked. Its own window, and its own
+        # flag for "THIS turn asked it", exactly like the list above.
+        self.offer = None
+        self.offer_until = 0.0
+        self._offered = False
         # Whether the mood is still what the conversation is about, as far as
         # the NEXT turn is concerned. See handle() for the rule.
         self._mood_alive = True
@@ -132,34 +138,49 @@ class Router(ConversationState, IntentTable, SourceChoice):
     #: would find nothing, and answer a record on the disk with an advert.
     _PLAY_BRANCHES = ("album", "playlist", "artist", "generic_play")
 
-    def _play_query(self, t: str, P: dict):
-        """The search terms a play would use for ``t``, or ``None`` when ``t``
-        asks for no music at all.
+    def _play_branch(self, t: str, P: dict):
+        """``(branch, query)`` — which of steps 5-8 reads ``t`` and what it
+        asks for; ``(None, None)`` when ``t`` names no music at all.
 
-        Only the room gate calls this. Step 8 of :meth:`_route` deliberately
-        does *not*: by the time the route reaches it, steps 5-7 have already
-        declined, so it may consult the generic branch and nothing else. The
-        gate has no such ordering — it runs before any of them and has to ask
-        about all four.
+        Two callers, and they want different halves of the same answer. The
+        room gate wants only the query (:meth:`_play_query`). The explicit
+        source overrides (step 3 of :meth:`_route`) want the branch too: a
+        request that named a service still has to reach the album/playlist/
+        artist action rather than the generic one, and the branch name is how
+        they know which. Both go through here so the ladder is written once —
+        the order of ``_PLAY_BRANCHES`` is load-bearing and belongs in one
+        place.
+
+        Step 8 of :meth:`_route` deliberately does *not* call this: by the
+        time the route reaches it, steps 5-7 have already declined, so it may
+        consult the generic branch and nothing else. Neither caller here has
+        that ordering — both run before any of them and have to ask about all
+        four.
         """
         for name in self._PLAY_BRANCHES:
             pattern = P.get(name)
             m = pattern.search(t) if pattern else None
             if m:
-                return m.group(1).strip()
+                return name, m.group(1).strip()
         if "generic_play_suffix" in P:  # EN: "put Dark Side on"
             m = P["generic_play_suffix"].match(t)
             if m:
-                return m.group(1).strip()
-        # Last resort, and the gate's alone: a leading play verb with something
-        # after it. English «put love on repeat» matches no branch above — the
-        # adjacent "put on" is not there and the phrase does not end in "on" —
-        # and without this the gate would hand the turn to the room without
-        # ever asking whether *Love on Repeat* is on the disk.
+                return "generic_play", m.group(1).strip()
+        # Last resort: a leading play verb with something after it. English
+        # «put love on repeat» matches no branch above — the adjacent "put on"
+        # is not there and the phrase does not end in "on" — and without this
+        # the gate would hand the turn to the room without ever asking whether
+        # *Love on Repeat* is on the disk.
         verb = P.get("is_play")
         lead = verb.match(t) if verb else None
         tail = t[lead.end():].strip() if lead else ""
-        return tail or None
+        return ("generic_play", tail) if tail else (None, None)
+
+    def _play_query(self, t: str, P: dict):
+        """The search terms a play would use for ``t``, or ``None`` when ``t``
+        asks for no music at all. The room gate's half of
+        :meth:`_play_branch`."""
+        return self._play_branch(t, P)[1]
 
     def handle_many(self, alternatives, source: str = "tidal", lang: str = "it") -> dict:
         """Try each speech-recognition alternative until one is a hit.
@@ -202,7 +223,12 @@ class Router(ConversationState, IntentTable, SourceChoice):
             # room, sails past the gate and starts the music in the kitchen.
             # The listener never hears the refusal. Same shape for kid-safe:
             # retry the blocked artist until one spelling slips through.
-            if not ok and getattr(speech, "kind", None) == actions.GATE:
+            #
+            # An OFFER ends the turn for the same reason from the other side:
+            # it asked a question, the answer is the next turn's, and routing
+            # the second-best transcription over it would throw the question
+            # away between asking it and reading it out.
+            if not ok and getattr(speech, "kind", None) in (actions.GATE, OFFER):
                 return {"speech": speech, "used": _reportable(alt), "ok": False,
                         "terms": list(getattr(speech, "terms", [])),
                         "choices": self._choices(),
@@ -228,6 +254,8 @@ class Router(ConversationState, IntentTable, SourceChoice):
         self._unmatched = False  # _route sets it on the "non ho capito" path
         self._expire_candidates()
         self._expire_mood()
+        self._expire_offer()
+        self._offered = False
         # A mood lives only while the conversation is still about it, and the
         # rule is: a turn that ACTED on something else ends it; a turn that
         # was not understood does not. The asymmetry is deliberate, and both
@@ -317,6 +345,7 @@ class Router(ConversationState, IntentTable, SourceChoice):
             if self._mood_turn:
                 self.mood_player = None  # a mood started here stays here
             self._settle_mood(result)
+            self._settle_offer(result)
             if overruled:  # _tag itself skips misses and questions
                 result = self._tag(result, msg("read_as_title"))
             return result
@@ -329,4 +358,5 @@ class Router(ConversationState, IntentTable, SourceChoice):
         if self._mood_turn:
             self.mood_player = (target["playerid"], room)
         self._settle_mood(result)
+        self._settle_offer(result)
         return self._tag(result, msg("in_room", room=room))

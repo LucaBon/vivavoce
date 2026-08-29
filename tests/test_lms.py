@@ -276,7 +276,10 @@ def test_find_local_artist(lms, transport):
     transport.responses["artists"] = {"artists_loop": [{"id": 1158, "artist": "Aerosmith"}]}
     assert lms.find_local_artist("aerosmith") == {"id": 1158, "title": "Aerosmith"}
     _p, cmd = transport.last_call()
-    assert cmd == ["artists", "0", "10", "search:aerosmith"]
+    # ``tags:E`` rides along on every local search: it is the ``extid`` that
+    # says a row was imported from a streaming plugin rather than read off a
+    # disk. See test_online_imports.py.
+    assert cmd == ["artists", "0", "10", "search:aerosmith", "tags:E"]
 
 
 def test_find_local_artist_none(lms, transport):
@@ -553,3 +556,45 @@ def test_favorites_playlist_play_is_player_scoped(lms, transport):
     lms.favorites_playlist_play("1.2")
     assert transport.last_call() == ("aa:bb:cc:dd:ee:ff",
                                      ["favorites", "playlist", "play", "item_id:1.2"])
+
+
+def test_artist_candidates_keeps_the_feeds_order(lms, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Artists": "A"},
+        items={"A": [{"id": "A0", "name": "Pink Floyd Tribute Band"},
+                     {"id": "A1", "name": "Pink Floyd"}]},
+    )
+    assert lms.artist_candidates("pink floyd") == [
+        {"id": "A0", "title": "Pink Floyd Tribute Band"},
+        {"id": "A1", "title": "Pink Floyd"},
+    ]
+
+
+def test_play_artist_scores_the_candidates_instead_of_taking_the_first(
+        lms, transport, make_tidal):
+    # find_artist returns the feed's first row and nothing downstream checked
+    # the name for TIDAL or Qobuz — the same shape of defect that played a
+    # lullaby label for a request naming the band, one level up.
+    import actions
+    transport.responses["tidal"] = make_tidal(
+        categories={"Artists": "A"},
+        items={
+            "A": [{"id": "A0", "name": "Pink Floyd Tribute Band"},
+                  {"id": "A1", "name": "Pink Floyd"}],
+            "A0": [{"name": "Top Tracks", "id": "T0"}],
+            "T0": [{"isaudio": 1, "url": "tidal://90.flc", "name": "Cover"}],
+            "A1": [{"name": "Top Tracks", "id": "T1"}],
+            "T1": [{"isaudio": 1, "url": "tidal://91.flc", "name": "Time"}],
+        },
+    )
+    actions.play_artist(lms, "Pink Floyd")
+    assert ["playlist", "play", "tidal://91.flc"] in transport.commands()
+
+
+def test_play_tracks_accepts_rows_that_carry_an_id_instead_of_a_url(lms,
+                                                                    transport):
+    # A row from artist_tracks on a feed that keeps the url one level down.
+    transport.responses["tidal"] = {"item_loop": [
+        {"type": "audio", "text": "tidal://77.flc"}]}
+    lms.play_tracks([{"item_id": "x", "title": "Time"}])
+    assert ["playlist", "play", "tidal://77.flc"] in transport.commands()

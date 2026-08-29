@@ -235,3 +235,39 @@ def test_tidal_titles_not_stripped(lms, transport, make_feed):
         items={"S": [{"isaudio": 1, "url": "tidal://1.flc", "name": "Song (Hi-Res)"}]},
     )
     assert lms.search_tracks("song")[0]["title"] == "Song (Hi-Res)"
+
+
+# -- the artist's children are rendered in the LMS UI language too -------------
+# The search categories have had an alias table since the beginning
+# (``category_aliases``); the artist's child nodes were matched exactly and
+# case-sensitively against the English names in ``artist_children``. On an
+# Italian-language plugin that made every artist unplayable — «non riesco a
+# riprodurre» about a catalogue that had the music.
+def test_an_artists_songs_node_is_found_under_its_italian_name(qobuz, transport,
+                                                               make_feed):
+    transport.responses["qobuz"] = make_feed(
+        search_node="9",
+        categories={"Artisti": "AR"},
+        items={
+            "AR": [{"id": "AR.0", "name": "Pink Floyd"}],
+            "AR.0": [{"id": "AR.0.B", "name": "Brani"}],
+            "AR.0.B": [{"isaudio": 1, "url": "qobuz://5.flac", "name": "Time"}],
+        },
+    )
+    assert qobuz.artist_top_tracks("pink floyd")["tracks"] == \
+        [{"url": "qobuz://5.flac", "title": "Time"}]
+
+
+def test_an_artists_child_node_is_matched_case_insensitively(qobuz, transport,
+                                                             make_feed):
+    transport.responses["qobuz"] = make_feed(
+        search_node="9",
+        categories={"Artists": "AR"},
+        items={
+            "AR": [{"id": "AR.0", "name": "Pink Floyd"}],
+            "AR.0": [{"id": "AR.0.T", "name": "top tracks"}],
+            "AR.0.T": [{"isaudio": 1, "url": "qobuz://6.flac", "name": "Money"}],
+        },
+    )
+    assert qobuz.artist_top_tracks("pink floyd")["tracks"] == \
+        [{"url": "qobuz://6.flac", "title": "Money"}]

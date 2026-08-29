@@ -13,7 +13,7 @@ import re
 from typing import Dict, List, Optional
 
 from guard import Guard, is_blocked_item
-from lms import LMSError
+from lms import LMSError, service_label
 from matching import (GATE, LIST_LIMIT, LOCAL_CONFIDENT, ActionResult, _MODE_KEY,
                       _MODE_SUFFIX, _dedup_by_title_artist, _did_you_mean,
                       _normalize, _score, _strip_lead_filler)
@@ -60,7 +60,12 @@ def top_tracks_list(
     )
     speech = ActionResult(msg("top_tracks", artist=artist, listing=listing),
                           ok=True, kind="list")
-    candidates = [{"title": t["title"], "url": t["url"]} for t in tracks]
+    # ``item_id`` travels beside ``url`` because a feed may carry only one of
+    # them (Spotty keeps the url one level down — see lms.artist_tracks), and
+    # ``_dispatch_play`` resolves it for the ONE row that gets picked rather
+    # than for all five that get read out.
+    candidates = [{k: t[k] for k in ("title", "url", "item_id") if k in t}
+                  for t in tracks]
     return {"speech": speech, "candidates": candidates}
 
 
@@ -80,8 +85,11 @@ def _dispatch_play(lms, candidate: Dict, *, mode: str = "play") -> None:
     kind = _LOCAL_KIND.get(candidate.get("action"))
     if kind:
         getattr(lms, f"{mode}_local_{kind}")(candidate.get("arg"))
-    else:
-        getattr(lms, f"{mode}_url")(candidate.get("arg") or candidate.get("url"))
+        return
+    url = candidate.get("arg") or candidate.get("url")
+    if not url and candidate.get("item_id"):
+        url = lms.track_url(candidate["item_id"])
+    getattr(lms, f"{mode}_url")(url)
 
 
 def choose_from(
@@ -165,15 +173,50 @@ def choose_by_name(
 _LOCAL_KIND_RANK = {"artist": 0, "track": 1, "album": 2}
 
 
-def _local_group(cands, query, kind, action, guard):
+#: The ``kind`` of a local miss that is not a miss: the library HAS what was
+#: asked for, and cannot play it, because the rows were imported by a streaming
+#: plugin that is logged out (see ``LMSClient.blocking_service``). It is its own
+#: kind because the two answers a caller owes are opposite ones — the source
+#: selector moves on to a service that can play it, and someone who asked for
+#: their own library by name has to be told why it went quiet.
+IMPORT_OFFLINE = "import_offline"
+
+
+def _import_offline(query, blocked) -> ActionResult:
+    """The library has it; the plugin that owns the audio is logged out."""
+    return ActionResult(
+        msg("local_import_offline", query=query,
+            service=service_label(sorted(blocked)[0])),
+        ok=False, kind=IMPORT_OFFLINE)
+
+
+def _local_group(lms, cands, query, kind, action, guard, blocked=None):
     """Confident, distinct candidates for one category, each scored by its own name
-    (album/track by title, artist by name) and turned into a choose_from-ready dict."""
+    (album/track by title, artist by name) and turned into a choose_from-ready dict.
+
+    A row whose audio belongs to a streaming plugin that is logged out is left
+    out, and the service that blocked it is added to ``blocked`` — see
+    ``LMSClient.blocking_service``. A library that offers a record it cannot
+    play is worse than one that admits it hasn't got it: the app announced
+    "playing", LMS accepted the command, and the room stayed silent. Dropping
+    it here means the request carries on to a service that CAN play it, and
+    ``blocked`` is what lets the caller say so out loud when the user asked for
+    the library by name.
+
+    The check runs after the score cut on purpose: it is free for a row on a
+    disk and one query for an imported one, so only rows that actually matched
+    the words can cost anything."""
     out = []
     for c in cands:
         if guard and guard.restricted and is_blocked_item(c, guard.blocklist):
             continue
         s = _score(query, c.get("title"))
         if s < LOCAL_CONFIDENT:
+            continue
+        offline = lms.blocking_service(c, kind)
+        if offline:
+            if blocked is not None:
+                blocked.add(offline)
             continue
         cand = {"title": c.get("title"), "action": action, "arg": c["id"], "_kind": kind}
         if c.get("artist"):
@@ -244,14 +287,17 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
     if guard and guard.blocks(query):
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
+        blocked = set()
         groups = [
             g for g in (
-                _local_group(lms.local_album_candidates(query), query, "album", "play_album_id", guard),
-                _local_group(lms.local_artist_candidates(query), query, "artist", "play_artist_id", guard),
-                _local_group(lms.local_track_candidates(query), query, "track", "play_track_id", guard),
+                _local_group(lms, lms.local_album_candidates(query), query, "album", "play_album_id", guard, blocked),
+                _local_group(lms, lms.local_artist_candidates(query), query, "artist", "play_artist_id", guard, blocked),
+                _local_group(lms, lms.local_track_candidates(query), query, "track", "play_track_id", guard, blocked),
             ) if g
         ]
         if not groups:
+            if blocked:
+                return _import_offline(query, blocked)
             return ActionResult(msg("local_not_found", query=query), ok=False)
         # Best-scoring category wins; an exact tie goes to the artist.
         groups.sort(key=lambda g: (-g[0][0],
@@ -269,6 +315,48 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
             else msg("playing_local" + suffix, title=item["title"])
         )
         return ActionResult(speech, ok=True, terms=[item["title"]])
+    except LMSError:
+        return ActionResult(msg("err_unreachable"), ok=False)
+
+
+def play_local_artist(lms, query: Optional[str], *,
+                      guard: Optional[Guard] = None) -> ActionResult:
+    """«metti canzoni di X» against the local library: play the ARTIST.
+
+    :func:`play_local` is the GENERIC resolver — it searches albums, artists
+    and tracks and lets the best-scoring category win — and that is exactly
+    wrong for a request that already said which category it means. A band
+    whose name also matches two tracks got "intendevi?" read back at it
+    instead of its music, which is the defect this exists to close.
+
+    Only artist rows are scored here, so the question is asked only when
+    several ARTISTS are genuinely close, and the answer is the whole
+    discography (``playlistcontrol artist_id:``) rather than one album of it.
+
+    No fallback to :func:`play_local` when no artist matches. The request
+    named a category; answering it with a different one is the mistake above,
+    and ``local_no_artist`` says the true thing instead.
+    """
+    query = _strip_lead_filler(query)
+    if not query:
+        return ActionResult(msg("ask_artist"), ok=False)
+    if guard and guard.blocks(query):
+        return ActionResult(msg("blocked"), ok=False, kind=GATE)
+    try:
+        blocked = set()
+        scored = _local_group(lms, lms.local_artist_candidates(query), query,
+                              "artist", "play_artist_id", guard, blocked)
+        if not scored:
+            if blocked:
+                return _import_offline(query, blocked)
+            return ActionResult(msg("local_no_artist", artist=query), ok=False)
+        distinct = _dedup_by_title_artist([cand for _s, cand in scored])
+        if len(distinct) >= 2:
+            return _did_you_mean(query, distinct)
+        item = distinct[0]
+        _dispatch_play(lms, item)
+        return ActionResult(msg("playing_local", title=item["title"]),
+                            ok=True, terms=[item["title"]])
     except LMSError:
         return ActionResult(msg("err_unreachable"), ok=False)
 

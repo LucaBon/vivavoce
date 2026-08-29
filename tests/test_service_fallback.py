@@ -109,7 +109,10 @@ def test_an_unreachable_server_is_not_a_disconnected_service(router, transport):
 def test_a_named_service_that_is_logged_out_is_named_in_the_answer(
         router, transport):
     # Named outright, so nothing is substituted for it — the user asked about
-    # Qobuz and gets an answer about Qobuz.
+    # Qobuz and gets an answer about Qobuz. Nothing else is connected either
+    # (TIDAL answers no menu at all here), so there is nothing to offer: a
+    # question whose only answer is "no" is not worth asking, and what is left
+    # is the fix. The offer itself is in test_online_imports.py.
     transport.responses["qobuz"] = lambda cmd: LOGGED_OUT
     reply = router.handle("da qobuz metti Time")
     assert str(reply) == ("Qobuz non è collegato. Apri le impostazioni di LMS "
@@ -182,3 +185,130 @@ def test_a_trailing_connector_is_still_an_artist_and_not_a_service(
     )
     assert str(router.handle("metti Comfortably Numb dei Pink Floyd")) == \
         "Riproduco Comfortably Numb di Pink Floyd da TIDAL."
+
+
+# -- naming a service says WHERE, never WHAT ---------------------------------
+# The source-override branch used to hand every phrase to ``play_song``, so
+# «da qobuz metti canzoni dei Pink Floyd» searched Qobuz for a *song* called
+# "canzoni" — nothing matched the title, the artist check was skipped for want
+# of a match to check, and the top row was played regardless: a Traxlab lullaby
+# rendition of Wish You Were Here. Naming a service is a statement about where
+# to look; the ladder that decides what to look FOR is the same one an unnamed
+# request walks.
+@pytest.fixture
+def qobuz_knows_pink_floyd(transport, make_feed):
+    transport.responses["qobuz"] = make_feed(
+        categories={"Songs": "S", "Artists": "A", "Playlists": "P",
+                    "Releases": "R"},
+        items={
+            # What a song search for "canzoni pink floyd" really came back
+            # with, first row first.
+            "S": [{"isaudio": 1, "url": "qobuz://1.flac",
+                   "name": "Wish You Were Here", "artist": "Traxlab"}],
+            "A": [{"type": "outline", "id": "AR", "name": "Pink Floyd"}],
+            "AR": [{"name": "Songs", "id": "TT"}],
+            "TT": [{"isaudio": 1, "url": "qobuz://10.flac", "name": "Time"},
+                   {"isaudio": 1, "url": "qobuz://11.flac", "name": "Money"}],
+            "R": [{"id": "AL", "name": "The Wall"}],
+            "P": [{"id": "PL", "name": "Chill"}],
+        },
+    )
+    return transport
+
+
+def test_a_named_service_still_reaches_the_artist_branch(
+        router, qobuz_knows_pink_floyd):
+    reply = router.handle("da qobuz metti canzoni dei Pink Floyd")
+    assert str(reply) == "Riproduco la musica di Pink Floyd da Qobuz."
+    cmds = qobuz_knows_pink_floyd.commands()
+    assert ["playlist", "play", "qobuz://10.flac"] in cmds
+    assert ["playlist", "add", "qobuz://11.flac"] in cmds
+    # The lullaby is still the first row of the Songs category; nothing asked.
+    assert ["playlist", "play", "qobuz://1.flac"] not in cmds
+    assert not any(p.startswith("search:canzoni") for c in cmds for p in c)
+
+
+def test_a_named_service_still_reaches_the_album_branch(
+        router, qobuz_knows_pink_floyd):
+    assert str(router.handle("da qobuz metti l'album The Wall")) == \
+        "Riproduco l'album The Wall da Qobuz."
+    assert ["qobuz", "playlist", "play", "item_id:AL"] in \
+        qobuz_knows_pink_floyd.commands()
+
+
+def test_a_named_service_still_reaches_the_playlist_branch(
+        router, qobuz_knows_pink_floyd):
+    assert str(router.handle("da qobuz metti la playlist Chill")) == \
+        "Riproduco la playlist Chill da Qobuz."
+    assert ["qobuz", "playlist", "play", "item_id:PL"] in \
+        qobuz_knows_pink_floyd.commands()
+
+
+def test_the_suffix_word_order_reaches_the_album_branch_too(
+        router, qobuz_knows_pink_floyd):
+    # The verb now lives inside the capture, which is what lets the album
+    # pattern — anchored on that verb — read the re-routed phrase.
+    assert str(router.handle("metti l'album The Wall da qobuz")) == \
+        "Riproduco l'album The Wall da Qobuz."
+    assert ["qobuz", "playlist", "play", "item_id:AL"] in \
+        qobuz_knows_pink_floyd.commands()
+
+
+def test_a_play_verb_the_prefix_form_did_not_know_is_not_part_of_the_title(
+        router, qobuz_knows_pink_floyd):
+    # «suona» was in the suffix form's verb list and not the prefix form's, so
+    # the prefix form searched for a song called "suona pink floyd".
+    router.handle("da qobuz suona Pink Floyd")
+    searches = [p for c in qobuz_knows_pink_floyd.commands() for p in c
+                if p.startswith("search:")]
+    assert searches and all(s == "search:Pink Floyd" for s in searches)
+
+
+def test_a_named_service_with_no_verb_at_all_is_still_a_song_request(
+        router, qobuz_knows_pink_floyd):
+    # «da qobuz pink floyd» names no branch: it stays the generic song search
+    # it has always been.
+    assert str(router.handle("da qobuz Wish You Were Here")) == \
+        "Riproduco Wish You Were Here di Traxlab da Qobuz."
+
+
+def test_a_named_but_logged_out_service_is_not_swapped_on_the_artist_branch(
+        router, transport, make_feed):
+    # The regression guard for _resolve_named: a NAMED service is answered
+    # about, never silently replaced — including now that the branch is not
+    # play_song any more. TIDAL is connected here and holds the artist, so it
+    # is offered by name; what must not happen is that it starts playing
+    # because the question was never put.
+    transport.responses["qobuz"] = lambda cmd: LOGGED_OUT
+    transport.responses["tidal"] = make_feed(
+        categories={"Artists": "A"},
+        items={"A": [{"type": "outline", "id": "AR", "name": "Pink Floyd"}],
+               "AR": [{"name": "Top Tracks", "id": "TT"}],
+               "TT": [{"isaudio": 1, "url": "tidal://5.flc", "name": "Time"}]},
+    )
+    assert str(router.handle("da qobuz metti canzoni dei Pink Floyd")) == \
+        "Qobuz non è collegato. Vuoi che la metta da TIDAL?"
+    assert ["playlist", "play", "tidal://5.flc"] not in transport.commands()
+
+
+@pytest.mark.parametrize("lang,phrase,artist", [
+    ("it", "da qobuz metti canzoni dei Pink Floyd", "Pink Floyd"),
+    ("it", "metti le canzoni dei Pink Floyd da qobuz", "Pink Floyd"),
+    ("en", "from qobuz play songs by Pink Floyd", "Pink Floyd"),
+    ("en", "play the music by Pink Floyd on qobuz", "Pink Floyd"),
+    ("de", "von qobuz spiel die Musik von Pink Floyd", "Pink Floyd"),
+    ("de", "spiel die Musik von Pink Floyd auf qobuz", "Pink Floyd"),
+    ("fr", "sur qobuz mets la musique de Pink Floyd", "Pink Floyd"),
+])
+# Not covered, and not by this change: «spiel … auf qobuz ab», with the German
+# separable particle AFTER the service name. The prefix template matches
+# «auf qobuz ab» mid-sentence and reads "ab" as the whole request — it did
+# before this branch was rewritten and it still does. Closing it means
+# teaching both service templates about a trailing particle, which is a
+# question about German word order rather than about which branch answers.
+def test_the_artist_branch_survives_the_service_phrase_in_every_language(
+        lms, qobuz_knows_pink_floyd, lang, phrase, artist):
+    reply = Router(lms).handle(phrase, source="local", lang=lang)
+    assert ["playlist", "play", "qobuz://10.flac"] in \
+        qobuz_knows_pink_floyd.commands(), reply
+    assert artist in str(reply)

@@ -39,6 +39,21 @@ CANDIDATES_GRACE = 30.0
 # whatever the listener is doing now.
 MOOD_TTL = 300.0
 
+# An open offer is the third of them, and the shortest-lived thing here in
+# practice: a question was asked out loud and the answer comes back in the next
+# breath. The window is the list's, for the list's reason — past it, «sì»
+# belongs to whatever the listener is doing now, not to a question from five
+# minutes ago.
+OFFER_TTL = 300.0
+
+# The ``kind`` of a reply that asked a yes/no question. It exists so the turn
+# ends here: ``handle_many`` replays a spoken turn once per recognition
+# alternative and stops at the first that acted, and an offer has not acted —
+# without a kind to stop on, the second-best transcription would be routed
+# straight over the question and the offer nobody answered would be gone before
+# it was read out. Same shape as ``actions.GATE``, same reason.
+OFFER = "offer"
+
 
 class ConversationState:
     """The open-list and open-mood half of the router."""
@@ -86,6 +101,50 @@ class ConversationState:
         """Forget a mood nobody came back to in time (see MOOD_TTL)."""
         if self.mood is not None and self.now() >= self.mood_until:
             self.mood = None
+
+    def _expire_offer(self) -> None:
+        """Forget a question nobody answered in time (see OFFER_TTL)."""
+        if self.offer is not None and self.now() >= self.offer_until:
+            self.offer = None
+
+    def _offer(self, speech, run):
+        """Ask a yes/no question and remember what «sì» would mean.
+
+        ``run`` is a no-argument callable that performs the thing being
+        offered, and it is only ever called from the next turn — which is the
+        whole point of asking. The one caller today is ``sources.py``, where a
+        request has just found out that the service it was aimed at is logged
+        out and that another one is connected: substituting silently would put
+        music on from a service the user did not name, and saying only "TIDAL
+        is not connected" leaves them to say the whole sentence again.
+        """
+        self.offer = run
+        self.offer_until = self.now() + OFFER_TTL
+        self._offered = True
+        return actions.ActionResult(speech, ok=False, kind=OFFER)
+
+    def _answer_offer(self, yes: bool):
+        """Act on the open offer, and close it either way.
+
+        A refusal answers ``ok=True``: nothing is playing, but the turn did
+        exactly what was asked of it, and a "no" that reported itself as a miss
+        would have ``handle_many`` try the next transcription of the word — and
+        a hi-fi that argues with «no» is worse than one that mishears."""
+        run, self.offer = self.offer, None
+        if not yes:
+            return actions.ActionResult(msg("offer_declined"), ok=True)
+        return run()
+
+    def _settle_offer(self, result) -> None:
+        """Record, for the next turn, whether the question is still open.
+
+        The same asymmetry the mood has, for the same two reasons: a turn that
+        ACTED on something else has moved the conversation on, so a later «sì»
+        must not answer a question nobody remembers asking; a turn that missed
+        has not, and ``handle_many`` replaying a badly transcribed alternative
+        must not kill the question before the good alternative arrives."""
+        if not self._offered and getattr(result, "ok", False):
+            self.offer = None
 
     def _settle_mood(self, result) -> None:
         """Record, for the next turn, whether the mood is still the topic."""
@@ -174,13 +233,22 @@ class ConversationState:
         length, so ``/api/v1/command`` states it. It is about THIS turn: an
         open list survives for CANDIDATES_TTL, but only the reply that opened
         it is the one asking."""
-        return bool(self._opened and self.candidates)
+        return bool(self._offered or (self._opened and self.candidates))
 
     def _choices(self) -> list:
-        """Tappable numbered choices for the web app, but only for a reply that
-        just opened a list; ``[]`` otherwise. Reuses ``actions._label`` so the
-        button text matches the spoken '1: Title di Artist' read-out."""
+        """Tappable choices for the web app, but only for a reply that just
+        asked something; ``[]`` otherwise.
+
+        A numbered list reuses ``actions._label``, so the button text matches
+        the spoken '1: Title di Artist' read-out. A yes/no offer carries
+        ``say`` as well: the client sends that phrase verbatim instead of
+        building «metti la N» from the number, because what answers an offer is
+        a word, not a position — and the word has to be one this language's
+        pack parses, which is why it is the catalog that spells it."""
         if not self._needs_choice():
             return []
+        if self._offered:
+            return [{"n": 1, "label": msg("offer_yes"), "say": msg("offer_yes")},
+                    {"n": 2, "label": msg("offer_no"), "say": msg("offer_no")}]
         return [{"n": i + 1, "label": actions._label(c)}
                 for i, c in enumerate(self.candidates)]

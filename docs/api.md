@@ -52,8 +52,8 @@ shape does not narrow when something goes wrong:
 |---|---|---|
 | `speech` | string | What to say to the user, already in `lang`. Ready to hand to a TTS engine or print. |
 | `ok` | bool | Did the request get acted on? A question ("which one?") counts as acted on — it is `true`. |
-| `needs_choice` | bool | This answer read out a numbered list and is **waiting for a pick**. See below. |
-| `choices` | array | The same list, machine-readable: `[{"n": 1, "label": "Love di X"}, …]`. Empty unless `needs_choice` is true. |
+| `needs_choice` | bool | This answer asked something and is **waiting for the reply** — a pick from a numbered list, or yes/no. See below. |
+| `choices` | array | The same question, machine-readable: `[{"n": 1, "label": "Love di X"}, …]`. A yes/no answer also carries `say` — `[{"n": 1, "label": "Sì", "say": "Sì"}, {"n": 2, "label": "No", "say": "No"}]` — the words to send back, already in `lang`, because what answers a yes/no question is a word and not a position. Empty unless `needs_choice` is true. |
 | `used` | string | Which of the `alternatives` was actually executed (the first one when nothing else matched), truncated to 1000 characters — a reply reports what was run, and a body larger than any sentence is not that. |
 | `terms` | string[] | The foreign-language names inside `speech` (song, album, artist). A TTS engine that pronounces "Bohemian Rhapsody" with an Italian voice needs to know which words are not Italian. |
 | `unmatched` | bool | Nothing in the parser matched: this is a **gap in the grammar**, not a failed action. The web app offers a "report this phrase" button on it; a headless client can log it. |
@@ -70,8 +70,18 @@ and waits. That answer carries `needs_choice: true` and a `choices` list. The
 user's next sentence — «la 2», «metti la seconda», or the title itself — picks
 from it, in the **same `conversation_id`**.
 
-`needs_choice` is `true` exactly when the answer just opened a numbered list,
-and it exists so that a client never has to derive that meaning from
+The other question it marks is a yes/no offer. «da TIDAL metti Teddy Swims»
+with the TIDAL plugin logged out is not answered by playing it from somewhere
+else, and not answered by "TIDAL is not connected" alone either:
+
+> «TIDAL non è collegato. Vuoi che la metta da Qobuz?»
+
+The next sentence — «sì», «va bene», «no» — settles it, in the same
+`conversation_id`. Send one of the `say` strings verbatim if you are not
+relaying what a person said.
+
+`needs_choice` is `true` exactly when the answer just asked one of these two
+questions, and it exists so that a client never has to derive that meaning from
 `choices` being non-empty. A blueprint, an automation or an agent reading a
 flag is reading a promise; the same code reading a list's length is reading an
 implementation detail.
@@ -93,6 +103,7 @@ study's question — and an unknown id simply starts a fresh conversation.
 | Open list | **300 s** (`CANDIDATES_TTL`) | How long after a question a pick («la 2») is still understood. |
 | List after a pick | **up to 30 s** (`CANDIDATES_GRACE`) | A picked list stays pickable briefly, so the buttons still on a phone's screen keep working — then it is gone. It is a ceiling, not a duration: the grace is `min(what was left, 30 s)`, so a pick made late in the 300 s window leaves whatever remained of it. |
 | Open mood | **300 s** (`MOOD_TTL`) | How long «un'altra» / "another one" keeps re-rolling a vague request («metti qualcosa di rilassante»). |
+| Open offer | **300 s** (`OFFER_TTL`) | How long a yes/no question stays answerable. Past it «sì» is a sentence about nothing again, and a turn that acts on something else closes the question early — the answer must not land on a question the conversation has moved on from. |
 
 **When a window expires, nothing fails loudly**: the list is simply forgotten,
 and «metti la 2» becomes a sentence about nothing — Vivavoce answers that it

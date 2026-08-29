@@ -508,9 +508,18 @@ _TRANSPORT_CMDS = [["pause", "1"], ["pause", "0"],
 def test_a_named_request_is_never_answered_with_a_transport_command(
         lms, transport, make_tidal, phrase):
     from router import Router
+    # Both categories, because this list holds both shapes: «spiel Radiohead»
+    # is a song search and «von tidal spiel die Musik von Rammstein» names an
+    # artist, and since the source-override branch stopped downgrading an
+    # artist request to a song search the second one walks the Artists chain.
+    # Either route has to end on the same url for the assertion below to mean
+    # "something the phrase named got played".
     transport.responses["tidal"] = make_tidal(
-        categories={"Songs": "S"},
-        items={"S": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Egal"}]},
+        categories={"Songs": "S", "Artists": "A"},
+        items={"S": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Egal"}],
+               "A": [{"type": "outline", "id": "AR", "name": "Rammstein"}],
+               "AR": [{"name": "Top Tracks", "id": "TT"}],
+               "TT": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Egal"}]},
     )
     Router(lms).handle(phrase, source="tidal", lang="de")
     stolen = [c for c in transport.commands() if c in _TRANSPORT_CMDS]
@@ -609,7 +618,12 @@ def test_play_album_de(router, transport, make_tidal):
      "spiel etwas von Pink Floyd",
      "spiel alles von Pink Floyd",
      "spiel die Lieder von Pink Floyd",
-     "spiel den Künstler Pink Floyd"],
+     "spiel den Künstler Pink Floyd",
+     # «alles von X» was here from the start; the same request with the noun
+     # spelled out was not — see lang/it.py.
+     "spiel alle Lieder von Pink Floyd",
+     "spiel ein paar Songs von Pink Floyd",
+     "spiel einige Titel von Pink Floyd"],
 )
 def test_artist_variants_de(router, transport, make_tidal, phrase):
     transport.responses["tidal"] = make_tidal(

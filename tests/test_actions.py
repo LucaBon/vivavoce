@@ -651,3 +651,67 @@ def test_add_block_reports_store_failure():
             raise BlocklistStoreError("boom")
 
     assert "Non riesco a salvare" in actions.add_block(FailStore(), "X", is_owner=True)
+
+
+# -- play_local_artist ------------------------------------------------------
+# The artist branch's local half. play_local is the generic resolver and reads
+# back "intendevi?" whenever the winning category holds two distinct rows; a
+# request that already named a category must not be answered from another one,
+# nor asked about because of one.
+def test_play_local_artist_plays_the_whole_discography(lms, transport):
+    transport.responses["artists"] = {
+        "artists_loop": [{"id": 42, "artist": "Pink Floyd"}]}
+    assert actions.play_local_artist(lms, "Pink Floyd") == \
+        "Riproduco Pink Floyd dalla tua musica."
+    assert ["playlistcontrol", "cmd:load", "artist_id:42"] in transport.commands()
+
+
+def test_play_local_artist_ignores_albums_and_tracks_of_the_same_name(
+        lms, transport):
+    transport.responses["artists"] = {
+        "artists_loop": [{"id": 42, "artist": "Pink Floyd"}]}
+    transport.responses["albums"] = {
+        "albums_loop": [{"id": 7, "album": "Pink Floyd", "artist": "Pink Floyd"}]}
+    transport.responses["titles"] = {"titles_loop": [
+        {"id": 1, "title": "Pink Floyd Medley", "artist": "Various"},
+        {"id": 2, "title": "Pink Floyd Live", "artist": "Various"},
+    ]}
+    assert actions.play_local_artist(lms, "Pink Floyd") == \
+        "Riproduco Pink Floyd dalla tua musica."
+    # Only the artists table was ever asked.
+    assert [c[0] for c in transport.commands()] == ["artists", "playlistcontrol"]
+
+
+def test_play_local_artist_asks_when_two_artists_are_close(lms, transport):
+    transport.responses["artists"] = {"artists_loop": [
+        {"id": 42, "artist": "Pink Floyd"},
+        {"id": 43, "artist": "Pink Floyd Tribute Band"},
+    ]}
+    res = actions.play_local_artist(lms, "Pink Floyd")
+    assert res.kind == "disambiguate" and res.ok
+    assert [c["arg"] for c in res.candidates] == [42, 43]
+    assert all(cmd[0] != "playlistcontrol" for cmd in transport.commands())
+
+
+def test_play_local_artist_not_found(lms, transport):
+    assert actions.play_local_artist(lms, "Pink Floyd") == \
+        "Non ho Pink Floyd nella tua musica."
+    assert all(cmd[0] != "playlistcontrol" for cmd in transport.commands())
+
+
+def test_play_local_artist_missing_slot(lms, transport):
+    assert actions.play_local_artist(lms, "   ") == \
+        "Non ho capito l'artista. Puoi ripetere?"
+    assert transport.calls == []
+
+
+def test_play_local_artist_unreachable(lms, transport):
+    transport.raise_on.add("artists")
+    assert actions.play_local_artist(lms, "Pink Floyd") == \
+        "Non riesco a contattare l'impianto in questo momento. Riprova tra poco."
+
+
+def test_play_local_artist_blocked(lms, transport):
+    assert actions.play_local_artist(
+        lms, "Cantante Vietato", guard=_restricted(["cantante vietato"])) == BLOCK
+    assert transport.calls == []
