@@ -18,6 +18,7 @@ Home Assistant add-on build with a 404.
 |---|---|
 | `engine/` | Business logic: `actions.py`, `lms.py`, `discovery.py`, `messages.py` |
 | `localvoice/` | The web app: `server.py` (HTTP), `router.py` (intents), `index.html` |
+| `localvoice/lmsproxy.py` | Reverse proxy to the LMS: Material Skin framed inside the page |
 | `localvoice/pro/` | Pro features (proprietary): kid-safe, multi-room, local ASR |
 | `tests/` | pytest, no network — a simulated LMS transport throughout |
 

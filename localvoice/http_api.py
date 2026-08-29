@@ -30,6 +30,7 @@ import webguard
 from api_v1 import api_v1_routes
 from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
+from lmsproxy import browse_path, proxy_routes
 from messages import CATALOGS
 from router import Router
 
@@ -61,7 +62,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                  ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
                  kidsafe=None, transcriber=None, multiroom=None,
                  app_version: str = "", wakeword_sessions=None,
-                 allowed_hosts=None):
+                 allowed_hosts=None, proxy_open=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -69,6 +70,11 @@ def make_handler(lms, material_url: str, services, default_service: str,
     routers = collections.OrderedDict()
     lock = threading.Lock()
     services = list(services)
+
+    # Material Skin opens inside the page rather than in another tab, which
+    # needs it served under this origin — see lmsproxy.py, which also decides
+    # whether that is possible at all and what the panel should open.
+    browse = browse_path(material_url, lms.base_url)
 
     def multiroom_ok() -> bool:
         """Multi-room (player selector + «in cucina» targeting) is Pro; the
@@ -102,6 +108,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
     # into _send/_query_params/_read_json_object below.
     class Handler(api_v1_routes(router_for),
                   audio_routes(license_mgr, transcriber, wakeword_sessions),
+                  proxy_routes(lms.base_url, browse, proxy_open),
                   httpbase.RequestBase, BaseHTTPRequestHandler):
         host_policy = webguard.HostPolicy(allowed_hosts)
 
@@ -121,6 +128,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 # json.dumps: the version lands in the inline config script
                 # as a quoted JS string.
                 page = page.replace("__VERSION__", json.dumps(app_version))
+                page = page.replace("__BROWSE__", json.dumps(browse))
                 self._send(200, page, "text/html")
             elif self.path in staticfiles.STATIC:
                 data, ctype = staticfiles.STATIC[self.path]
@@ -131,11 +139,17 @@ def make_handler(lms, material_url: str, services, default_service: str,
                     self._send(200, found[0], found[1])
                 else:
                     self._send(404, "not found", "text/plain")
-            elif self.path == "/ca.pem" and ca_path and os.path.exists(ca_path):
+            elif self.path == "/ca.pem":
                 # La CA locale da installare (una volta) sul telefono/PC: dopo,
-                # lucchetto verde e PWA installabile senza avvisi.
-                with open(ca_path, "rb") as f:
-                    self._send(200, f.read(), "application/x-pem-file")
+                # lucchetto verde e PWA installabile senza avvisi. La rotta è
+                # nostra anche quando non c'è niente da servire (certificato
+                # proprio): il 404 lo diamo qui, non lo va a chiedere all'LMS
+                # attraverso il proxy (lmsproxy.py).
+                if ca_path and os.path.exists(ca_path):
+                    with open(ca_path, "rb") as f:
+                        self._send(200, f.read(), "application/x-pem-file")
+                else:
+                    self._send(404, "not found", "text/plain")
             elif self.path.startswith("/nowplaying"):
                 self._send_nowplaying()
             elif self.path.startswith("/artwork"):
@@ -158,7 +172,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._kidsafe_status()
             elif self.path.startswith("/wakeword"):
                 self._wakeword_status()
-            else:
+            elif not self._proxy():
                 self._send(404, "not found", "text/plain")
 
         def _kidsafe_state(self, client_id: str) -> dict:
@@ -370,7 +384,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
             if self.path.split("?", 1)[0] in ("/api/v1/command", "/command"):
                 self._command()
                 return
-            self._send(404, '{"speech":"non trovato"}')
+            if not self._proxy():
+                self._send(404, '{"speech":"non trovato"}')
 
         def log_message(self, *args):  # keep the console quiet
             pass

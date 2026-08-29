@@ -40,8 +40,11 @@ phone/tablet on your LAN, tap the mic (or type), and say:
   LLM, no cloud in the loop) — audio keeps flowing LMS → player, bit-perfect.
 
 It speaks **Italian and English** (parsing and replies follow the language you
-pick). There's a now-playing card with artwork, but for browsing it
-deliberately links out to Material Skin instead of reinventing it.
+pick). There's a now-playing card with artwork, and for browsing it opens
+**Material Skin inside the page** rather than reinventing it — your own
+installed plugin, framed under the app's address so the microphone stays on
+screen while you browse. Nothing of Material Skin is redistributed, and if
+yours lives elsewhere the app falls back to a plain link to it.
 
 **The honest bits**, because you'd find them anyway:
 
