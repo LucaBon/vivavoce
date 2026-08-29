@@ -69,7 +69,9 @@ export const UI_EN = {
     "<b>Install app</b> / <b>Add to Home Screen</b>: it opens full-screen like a real app.</li>",
   install_ca_note: "The CA is generated in your home and signs only this server: it doesn't " +
     "give anyone else a way to intercept your traffic.",
-  material_link: "Want to browse queue and covers? Open Material Skin ↗",
+  material_link: "Browse the queue, the covers and the library with Material Skin",
+  browse_close: "✕ Back to commands",
+  browse_credit: "Material Skin by Craig Drummond ↗",
   micstate_idle: "tap and speak",
   empty_title: "Try saying or typing:",
   empty_chips: '<button class="choice" data-cmd="play Comfortably Numb by Pink Floyd">play Comfortably Numb by Pink Floyd</button>' +

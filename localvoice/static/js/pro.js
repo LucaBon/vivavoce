@@ -6,6 +6,7 @@
 // into the served HTML: the PWA-cached copy must not carry stale state.
 
 import { $, clientId } from "./util.js";
+import { applyBrowse } from "./browse.js";
 import { ui } from "./i18n.js";
 import { syncVoicePanel } from "./tts.js";
 import { syncWakePhrase } from "./miccapture.js";
@@ -104,6 +105,9 @@ export function showProUpsell() {
 let KS = null;
 
 export function renderKidsafe() {
+  // The way into Material Skin follows the same lock as the voice commands:
+  // a blocked device does not get a screen it can start anything from.
+  applyBrowse(KS);
   const box = $("kidsafebox");
   if (!KS) { box.style.display = "none"; $("kschip").style.display = "none"; return; }
   box.style.display = "";

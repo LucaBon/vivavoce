@@ -4,6 +4,50 @@
 
 ### New
 
+- **Material Skin opens inside the page.** The link at the bottom used to send
+  you to another tab: you got the queue, the covers and the browsing you were
+  after, and you left Vivavoce — to say the next thing you had to notice you
+  were in the wrong tab first. The microphone, which is the product,
+  disappeared behind somebody else's interface. It now opens in a panel over
+  the scrolling area, with the hero — knob, status line, text box — exactly
+  where it was, so browsing and speaking are one visit.
+
+  What makes it possible is a reverse proxy (`localvoice/lmsproxy.py`), and
+  it has to exist: the page is HTTPS because a microphone on another device
+  requires a secure context, the LMS is plain HTTP, and an `<iframe>` pointed
+  straight at it is mixed content that the browser blocks without appeal. The
+  artwork proxy has been solving that one `<img>` at a time since the
+  now-playing card was written; this is the same idea for a whole application.
+
+  Catch-all, not a prefix. Material asks for `/cometd`, `/jsonrpc.js`,
+  `/music/`, `/imageproxy/`, `/plugins/` and `/settings/` by absolute path, so
+  a rewritten prefix would break all of them: what this server does not answer
+  itself is offered to the LMS instead. The guards did not need a line — the
+  Host allow-list already ran ahead of every GET and the cross-site check
+  ahead of every POST, so the proxied requests inherit both, and a page
+  somewhere else that tried to reach `/jsonrpc.js` through here is refused
+  exactly as it was. Two things that used to reach the old catch-all were
+  pinned down first: `/static/` misses stay ours, and so does `/ca.pem` when
+  there is no CA to hand out.
+
+  It switches itself off. The panel appears exactly when the UI it would open
+  lives on the LMS this app already talks to; point `--material-url`
+  anywhere else and both the proxy and the panel go away, leaving the plain
+  external link of before — which is also what a browser with no JavaScript
+  gets. A locked kid-safe device is not shown the way in, the same as the
+  voice commands, and with the same honesty: it is the interface being tidy,
+  not a gate, since whoever knows the address still reaches it. The external
+  link had that hole too, in plain sight.
+
+  The one deliberate 5xx in this server lives here: an unreachable LMS is a
+  502. A 404 would have made "Material isn't installed" and "the hi-fi is
+  switched off" the same answer, and those are different rooms to walk to.
+
+  Material Skin is Craig Drummond's, MIT-licensed, and **not one line of it is
+  redistributed** — the plugin is already on your LMS and this only puts it
+  under an address the page is allowed to frame. Credited in the panel and in
+  `licenses/README.md`.
+
 - **French, the fourth language.** Pick *Français* as the mic language and
   Vivavoce parses and answers in French: «mets Time de Pink Floyd», «coupe la
   musique», «arrête dans 30 minutes», «mets quelque chose de relaxant», «mets

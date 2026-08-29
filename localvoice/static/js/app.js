@@ -12,6 +12,7 @@ import { initPro, applyPro, renderKidsafe, refreshLicense, refreshKidsafe,
 import { initSettings, buildSourceOptions, renderPlayers, setPlayersData,
          syncWakeLabel } from "./settings.js";
 import { initNowPlaying, renderNowPlaying } from "./nowplaying.js";
+import { initBrowse } from "./browse.js";
 import { initMic, refreshAsr, refreshServerWake } from "./mic.js";
 import { initCertSetup, renderCertSetup, certState } from "./certsetup.js";
 
@@ -23,6 +24,7 @@ initTts();
 initPro();
 initSettings();
 initNowPlaying();
+initBrowse();
 initMic();
 
 // Render the UI in the selected language (labels, source options, status line).

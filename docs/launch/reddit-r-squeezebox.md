@@ -36,7 +36,9 @@ tap the mic or type:
   bit-perfect chain is untouched.
 
 Works in English and Italian. Now-playing card with artwork; browsing stays
-Material Skin's job (there's a link, not a clone).
+Material Skin's job — your own installed copy, opened *inside* the page so the
+mic never leaves the screen. Not a clone and not a fork: the app just serves it
+from its own address, because a HTTPS page can't frame a plain-HTTP one.
 
 **Honesty corner:** by default the mic uses the browser's speech engine
 (Chrome → Google, iOS → Apple, transcription only). If that bothers you,

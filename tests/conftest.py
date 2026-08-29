@@ -157,6 +157,25 @@ def reset_lang():
 
 DEFAULT_MATERIAL_URL = "http://lms.local:9000/material/"
 
+# Material Skin on a host that is NOT the LMS we talk to. That switches the
+# reverse proxy and the in-page panel off (see http_api.make_handler), which
+# is the shape this server had before either existed: a path it does not own
+# is a 404 and nothing is forwarded anywhere.
+ELSEWHERE_MATERIAL_URL = "http://other.local:9000/material/"
+
+
+def _no_upstream(request, timeout):
+    """The proxy's transport for every test that did not ask for one.
+
+    The proxy is on by default here (the fake LMS and DEFAULT_MATERIAL_URL
+    share a host), so without this an unrouted path in any test would go and
+    resolve ``lms.local`` for real — and no test in this repo touches the
+    network. Tests about the proxy inject their own; everyone else gets an
+    unreachable hi-fi, i.e. a 502, instantly.
+    """
+    raise OSError("no upstream in tests")
+
+
 
 class Response:
     """One HTTP reply: status, headers, raw body — plus ``.json()``."""
@@ -249,6 +268,7 @@ def live_server(lms):
 
     def start(client=None, material_url=DEFAULT_MATERIAL_URL,
               services=("tidal",), default_service="tidal", **kwargs):
+        kwargs.setdefault("proxy_open", _no_upstream)
         handler = server.make_handler(client or lms, material_url,
                                       list(services), default_service,
                                       **kwargs)
@@ -266,6 +286,59 @@ def live_server(lms):
 
 # -- shared doubles ------------------------------------------------------------
 # Previously copy-pasted into each HTTP test module.
+
+class UpstreamResponse:
+    """What the reverse proxy's ``opener`` hands back.
+
+    Just enough of an ``http.client`` response for ``lmsproxy`` to relay: a
+    status, a header mapping it can iterate, and a body it reads in blocks.
+    """
+
+    def __init__(self, status=200, headers=(), body=b""):
+        import email.message
+        import io
+        self.status = status
+        self.headers = email.message.Message()
+        pairs = headers.items() if hasattr(headers, "items") else headers
+        for name, value in pairs:
+            self.headers[name] = value
+        self._body = io.BytesIO(body)
+        self.closed = False
+
+    def read(self, size=-1):
+        return self._body.read(size)
+
+    def close(self):
+        self.closed = True
+
+
+def material_page(request):
+    """The default upstream: a small page, whatever was asked for."""
+    return UpstreamResponse(200, [("Content-Type", "text/html; charset=utf-8")],
+                            b"<!doctype html><title>Material</title><h1>Material</h1>")
+
+
+class FakeUpstream:
+    """A scriptable LMS behind the reverse proxy, recording every request.
+
+    ``handler`` takes the ``urllib.request.Request`` and returns an
+    :class:`UpstreamResponse` — or raises, which is how "the hi-fi is off"
+    and "upstream said 404" are both written.
+    """
+
+    def __init__(self, handler=None):
+        self.requests = []
+        self.handler = handler or material_page
+
+    def __call__(self, request, timeout):
+        self.requests.append(request)
+        self.timeout = timeout
+        return self.handler(request)
+
+    @property
+    def last(self):
+        return self.requests[-1]
+
 
 class FakeLicense:
     """Just enough of ``LicenseManager`` for the Pro gates."""
