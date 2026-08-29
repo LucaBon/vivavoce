@@ -28,7 +28,8 @@ export const recLang = () => localStorage.getItem("reclang") || "it";
 export const foreignDefault = () => localStorage.getItem("foreign_default") || "en";
 
 // The language the SERVER answers in, which is not the mic language whenever
-// the mic language has no catalog behind it (es/fr today) and is not the page
+// the mic language has no catalog behind it — none today, and the list below
+// is injected so that stays true without an edit here — and is not the page
 // language ever, since the chrome is Italian or English only. Read-back needs
 // this one: the frame of the reply is written in it, so it has to be spoken by
 // its voice. The list is injected by the server — see http_api.REPLY_LANGS.

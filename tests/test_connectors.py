@@ -21,7 +21,7 @@ from connectors import CONNECTORS, for_lang
 from lang import PACKS
 from messages import DEFAULT_LANG
 
-LANGS = ("it", "en", "de", "fr")
+LANGS = ("it", "en", "de", "fr", "es")
 
 
 # -- the registry --------------------------------------------------------------
@@ -35,23 +35,35 @@ def test_every_language_pack_has_connectors():
 def test_an_unknown_language_falls_back_to_the_default():
     # The same fallback ``messages.set_lang`` makes, so the words a request is
     # split with and the words it is answered in agree about "unknown".
-    assert for_lang("es") is CONNECTORS[DEFAULT_LANG]
+    assert for_lang("nl") is CONNECTORS[DEFAULT_LANG]
 
 
 # -- the artist connectors -----------------------------------------------------
-# Each row: the phrasing, and the ONE language it names an artist in.
-@pytest.mark.parametrize("phrase, owner", [
-    ("Comfortably Numb dei Pink Floyd", "it"),
-    ("Comfortably Numb di Pink Floyd", "it"),
-    ("Comfortably Numb by Pink Floyd", "en"),
-    ("Comfortably Numb von Pink Floyd", "de"),
-    ("Comfortably Numb de Pink Floyd", "fr"),
-    ("Comfortably Numb par Pink Floyd", "fr"),
+# Each row: the phrasing, and the language(s) it names an artist in.
+#
+# It was ONE language per row until Spanish arrived, and the change is worth
+# the sentence: «de» is how French names an artist and it is also how Spanish
+# does. That is not the bug this package was built to end — that bug was one
+# table matched by EVERY language at once, so «de» split Italian. Two languages
+# claiming the same word in their own tables costs nothing, because a request
+# is split with the table of the language it was heard in. What the row still
+# asserts is the same claim as before: it splits in these, and in none of the
+# others.
+@pytest.mark.parametrize("phrase, owners", [
+    ("Comfortably Numb dei Pink Floyd", ("it",)),
+    ("Comfortably Numb di Pink Floyd", ("it",)),
+    ("Comfortably Numb by Pink Floyd", ("en",)),
+    ("Comfortably Numb von Pink Floyd", ("de",)),
+    ("Comfortably Numb de Pink Floyd", ("fr", "es")),
+    ("Comfortably Numb par Pink Floyd", ("fr",)),
+    ("Comfortably Numb de los Planetas", ("fr", "es")),
 ])
-def test_an_artist_connector_splits_only_in_its_own_language(phrase, owner):
-    assert parse_song_query(phrase, lang=owner) == {
-        "title": "Comfortably Numb", "artist": "Pink Floyd", "album": None}
-    for other in (lang for lang in LANGS if lang != owner):
+def test_an_artist_connector_splits_only_in_its_own_language(phrase, owners):
+    for owner in owners:
+        got = parse_song_query(phrase, lang=owner)
+        assert got["title"] == "Comfortably Numb", owner
+        assert got["artist"] is not None, owner
+    for other in (lang for lang in LANGS if lang not in owners):
         assert parse_song_query(phrase, lang=other) == {
             "title": phrase, "artist": None, "album": None}, other
 
@@ -64,6 +76,8 @@ def test_an_artist_connector_splits_only_in_its_own_language(phrase, owner):
     ("Time aus dem Album Dark Side", "de"),
     ("Time vom Album Dark Side", "de"),
     ("Time de l'album Dark Side", "fr"),
+    ("Time del álbum Dark Side", "es"),
+    ("Time del disco Dark Side", "es"),
 ])
 def test_an_album_connector_splits_only_in_its_own_language(phrase, owner):
     assert parse_song_query(phrase, lang=owner)["album"] == "Dark Side"
@@ -80,6 +94,8 @@ def test_an_album_connector_splits_only_in_its_own_language(phrase, owner):
     ("den Titel Time", "de"),
     ("la chanson Time", "fr"),
     ("le morceau Time", "fr"),
+    ("la canción Time", "es"),
+    ("el tema Time", "es"),
 ])
 def test_a_lead_filler_is_stripped_only_in_its_own_language(phrase, owner):
     assert parse_song_query(phrase, lang=owner)["title"] == "Time"
@@ -114,6 +130,11 @@ def test_a_phrase_in_the_wrong_language_stays_one_title():
     ("Stand By Me", "en"),
     ("Ein Teil von mir", "de"),
     ("Le Temps de Vivre", "fr"),
+    # Spanish's «più». «La Chica de Ayer» is a record, not a request for a
+    # singer called «ayer» — and «de» is the whole of the Spanish artist side,
+    # so the guard carries more here than it does in Italian.
+    ("La Chica de Ayer", "es"),
+    ("Acuérdate de Mí", "es"),
 ])
 def test_a_connector_before_a_pronoun_is_not_an_artist(title, lang):
     assert parse_song_query(title, lang=lang) == {

@@ -18,6 +18,7 @@ IT = CATALOGS["it"]
 EN = CATALOGS["en"]
 DE = CATALOGS["de"]
 FR = CATALOGS["fr"]
+ES = CATALOGS["es"]
 
 DEFAULT_LANG = "it"
 

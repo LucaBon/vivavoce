@@ -4,7 +4,7 @@
 
 > Say **«metti Comfortably Numb dei Pink Floyd»** — and the *exact* song plays on your hi-fi.
 
-**Hands-free voice control — in Italian, English, French or German — for a [Daphile](https://www.daphile.com/) /
+**Hands-free voice control — in Italian, English, Spanish, French or German — for a [Daphile](https://www.daphile.com/) /
 [Lyrion Music Server](https://lyrion.org/) (LMS / Squeezebox) system — TIDAL and
 Qobuz included.**
 No cloud required, no LLM, no compromise on sound: Vivavoce sends **only control
@@ -130,9 +130,10 @@ uv run python localvoice/server.py          # auto-discovers LMS on the LAN
 # open http://<this-pc-ip>:8730 from a phone/tablet/PC on the same network
 ```
 
-Then say (or type), in Italian — or in English, French or German, after
-picking the mic language on the page (the page labels are Italian or English;
-a French or German session gets its answers inside the English page):
+Then say (or type), in Italian — or in English, Spanish, French or German,
+after picking the mic language on the page (the page labels are Italian or
+English; a Spanish, French or German session gets its answers inside the
+English page):
 
 > «metti Comfortably Numb dei Pink Floyd» · «metti l'album The Wall» ·
 > «dalla mia musica metti Aerosmith» · «da qobuz metti Time» · «metti Time da qobuz» ·
@@ -210,12 +211,12 @@ uv run python tools/probe_lms.py --service qobuz --query "Pink Floyd"
 
 ## Honest caveats
 
-- **The voice interface speaks Italian, English, French and German.** Pick the
-  mic language on the page — commands are parsed and answered in that language.
-  The page labels are Italian or English only, so a French or German session
-  gets its answers inside an English page. Other languages fall back to Italian
-  for now. The French and German phrasings have not yet been reviewed by a
-  native speaker.
+- **The voice interface speaks Italian, English, Spanish, French and German.**
+  Pick the mic language on the page — commands are parsed and answered in that
+  language. The page labels are Italian or English only, so a Spanish, French
+  or German session gets its answers inside an English page. Other languages
+  fall back to Italian for now. The Spanish, French and German phrasings have
+  not yet been reviewed by a native speaker.
 - **Wake-word mode on Android beeps**: the browser plays its own earcon every time
   continuous listening restarts — a platform behaviour Vivavoce can't silence
   (the app warns about it in-page).

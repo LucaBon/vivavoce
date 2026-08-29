@@ -233,6 +233,75 @@ def test_the_new_french_phrases_reach_their_mood(phrase, key):
     assert resolved(phrase, "fr") == key
 
 
+# Spanish, where the adjective agrees and the mood phrase is a «para» phrase
+# far more often than a «de» one. The pattern eats only «de», so every row
+# below that carries «para» is asked about the whole tail — which is the point.
+NEW_PHRASES_ES = [
+    ("pon algo relajante", "relax"),
+    ("pon música tranquila", "relax"),
+    ("pon música para dormir", "sleep"),
+    ("pon música para la fiesta", "party"),
+    ("pon algo alegre", "happy"),
+    ("pon música para trabajar", "focus"),
+    ("pon algo instrumental", "instrumental"),
+    ("pon música sin letra", "instrumental"),
+    ("pon algo triste", "melancholy"),
+    ("pon música para navidad", "christmas"),
+    ("pon algo clásico", "classical"),
+    ("pon un poco de jazz", "jazz"),
+    ("pon música de los años 80", "eighties"),
+    ("pon canciones de los años noventa", "nineties"),
+    ("pon algo veraniego", "summer"),
+    # The politeness tail, which Spanish shares with French: it lands after
+    # the mood word, so «tranquila por favor» is what the table would
+    # otherwise have been asked about.
+    ("pon música tranquila por favor", "relax"),
+    ("pon algo relajante porfa", "relax"),
+]
+
+
+@pytest.mark.parametrize("phrase,key", NEW_PHRASES_ES)
+def test_the_new_spanish_phrases_reach_their_mood(phrase, key):
+    assert resolved(phrase, "es") == key
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    # The anchor and the marker noun, in Spanish. Each of these carries a mood
+    # word and asks for something else entirely; a pattern without ^ or
+    # without the marker starts the music on all four.
+    ["quita la música",
+     "para la música clásica",
+     "no quiero música triste",
+     "bloquea la música triste"],
+)
+def test_a_spanish_phrase_that_is_not_a_request_to_play(phrase):
+    assert resolved(phrase, "es") is None
+
+
+def test_a_spanish_christmas_request_needs_para_not_de():
+    """The mood pattern eats the «de», so «música de navidad» arrives at the
+    table as the bare "navidad" — which is the one entry the table must not
+    have, because «Blanca Navidad» is a title. moods_it.py and moods_fr.py
+    record the same shape for «di natale» and «de Noël». «para navidad» is the
+    form that works."""
+    assert resolved("pon música de navidad", "es") is None
+    assert resolved("pon música para navidad", "es") == "christmas"
+
+
+@pytest.mark.parametrize("phrase", [
+    "pon música de los años 80",
+    "pon música años 80",
+    "pon algo de los 80",
+    "pon canciones de los años ochenta",
+])
+def test_a_spanish_decade_is_reached_with_or_without_its_article(phrase):
+    """The same fact from the other side. The pattern eats «de» and nothing
+    else, so the article is still on the tail when the table is asked — and
+    an entry written "de los anos 80" would never be looked up."""
+    assert resolved(phrase, "es") == "eighties"
+
+
 @pytest.mark.parametrize(
     "phrase",
     # The anchor and the marker noun, in French. Each of these carries a mood

@@ -42,6 +42,16 @@ MAX_COMMAND_CHARS = 1000
 # $-anchored patterns (picks, suffix forms) and leak into the search terms.
 _TRAILING_PUNCT = re.compile(r"[.!?…]+$")
 
+# Spanish opens a question with «¿» and an exclamation with «¡», and the
+# recognisers that write the closing mark write the opening one too. The
+# trailing strip above takes the «?» and leaves the «¿» welded to the first
+# word, where it breaks every ^-anchored pattern at once — the picks, the
+# yes/no answers, the mood steps, the kid-safe verbs. Stripped here rather
+# than absorbed into eleven patterns, because eleven copies of the same
+# character class are what words_de.py records six rounds of review about.
+# Leading only: a mark inside a title is part of the title.
+_LEADING_PUNCT = re.compile(r"^[¿¡]+")
+
 
 def clean_command(text):
     """What was said, ready to route — or ``None`` when there is nothing to
@@ -51,6 +61,7 @@ def clean_command(text):
     different answers: nothing heard, and a body that is not a command.
     """
     t = _TRAILING_PUNCT.sub("", (text or "").strip()).strip()
+    t = _LEADING_PUNCT.sub("", t).strip()
     if not t:
         return None
     return "" if len(t) > MAX_COMMAND_CHARS else t
