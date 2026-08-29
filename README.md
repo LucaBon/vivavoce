@@ -159,10 +159,21 @@ inside the first. Nothing of it is redistributed here, and nothing about how
 it works changes.
 
 That makes this server a front door to your LMS for everything it does not
-answer itself — behind the same Host allow-list and the same cross-site guard
-as every other route (see [`localvoice/lmsproxy.py`](localvoice/lmsproxy.py)).
-Point `--material-url` at a Material somewhere else and both the panel and the
+answer itself, behind the same Host allow-list and cross-site guard as every
+other route — and a stricter one, because the LMS classic interface acts on
+GET, so a cross-site GET arriving here is refused too
+(see [`localvoice/lmsproxy.py`](localvoice/lmsproxy.py)). Point
+`--material-url` at a Material somewhere else and both the panel and the
 forwarding switch off: you get the plain external link this used to be.
+
+**The honest part:** with the panel on, whatever your music server serves also
+answers under this app's address, so its pages are same-origin with the app.
+Framing somebody's interface means trusting the machine behind it as much as
+this one — there is no version of it that doesn't. What the proxy cannot do is
+reach a *different* machine: the target is fixed when the server starts and no
+request can steer it. Long-lived replies (Material's live updates, audio
+played through the panel) each hold one of the 128 connection slots for as
+long as they last, which is a household-sized limit, not a venue-sized one.
 
 ## Repo layout
 

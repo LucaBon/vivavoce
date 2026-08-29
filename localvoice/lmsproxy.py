@@ -28,11 +28,21 @@ request path is appended to it, so there is no way to ask this for a host of
 your choosing.
 
 What it does widen, and this is worth saying out loud: whatever the LMS
-serves now also answers under *this* origin, so a file that machine hands out
-is same-origin with the page. That is a household's own music server on its
-own LAN, already reachable directly by every browser in the house, and the
-proxy adds no way to reach a *different* one — but it is the reason the
-target is a startup constant and never anything a request can influence.
+serves now also answers under *this* origin, so an HTML page that machine
+hands out is same-origin with the app — and ``Sec-Fetch-Site: same-origin``
+is the whole of this server's CSRF defence. Embedding Material Skin *is*
+trusting the music server as much as the app itself; there is no version of
+framing somebody's UI that does not. What the proxy does not add is a way to
+reach a *different* machine: the target is a startup constant and nothing a
+request can influence, and ``nosniff`` below at least stops a body being
+executed as a type it did not claim.
+
+Known limit: a response that stays open holds its handler thread for as long
+as it lasts (``UPSTREAM_TIMEOUT`` bounds one socket operation, not a whole
+reply). CometD's long poll is one per open Material tab, and audio streamed
+through the panel is one per stream, against the 128-connection ceiling in
+``httpbase.BoundedThreadingHTTPServer``. Fine for a household; it is not a
+proxy to put in front of a hundred listeners.
 """
 
 from __future__ import annotations
@@ -61,17 +71,23 @@ MAX_BODY = 4 * 1024 * 1024
 # and it is this origin's own cookie jar: same-origin, sent by the browser to
 # us, meant for the server we are standing in front of.
 REQUEST_HEADERS = frozenset({
-    "accept", "accept-language", "content-type", "cookie", "range",
-    "if-none-match", "if-modified-since",
+    "accept", "accept-language", "authorization", "content-type", "cookie",
+    "range", "if-none-match", "if-modified-since",
 })
 
-# Sent back, lowercased. No Content-Encoding: urllib announces
-# ``Accept-Encoding: identity`` and hands us a decoded body, so forwarding a
-# compression header would describe bytes we no longer have.
+# Sent back, lowercased. WWW-Authenticate is in it because the LMS web
+# interface can be password-protected, and a challenge stripped on the way
+# back is a browser that never asks for the password and a panel that never
+# loads, with nothing on screen to explain why.
+#
+# No Content-Encoding: the stdlib client announces ``Accept-Encoding:
+# identity`` for us (pinned by a test — it is what makes this omission safe),
+# so a body arrives uncompressed and a compression header would describe
+# bytes we do not have.
 RESPONSE_HEADERS = frozenset({
     "content-type", "content-length", "content-range", "content-disposition",
     "accept-ranges", "cache-control", "expires", "etag", "last-modified",
-    "location", "set-cookie", "vary",
+    "location", "set-cookie", "vary", "www-authenticate",
 })
 
 # Statuses that carry no body at all, whatever else the headers say.
@@ -95,6 +111,20 @@ def browse_path(material_url: str, lms_base_url: str) -> str:
     if material.netloc != lms.netloc:
         return ""
     return material.path or "/material/"
+
+
+def _same_origin_location(value: str, base: str) -> str:
+    """An upstream redirect to itself, rewritten to a path under this origin.
+
+    ``http://lms.local:9000/material/`` is the ordinary shape of a
+    trailing-slash redirect, and relaying it verbatim would send the frame
+    straight back to plain HTTP — the mixed-content block this whole module
+    exists to get around. As a path it stays here. A Location pointing
+    anywhere else is left exactly as it is: that one really is somewhere else.
+    """
+    if value == base:
+        return "/"
+    return value[len(base):] if value.startswith(base + "/") else value
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -144,6 +174,24 @@ def proxy_routes(target_base: str, enabled, opener=None):
                 # An absolute-form request line ("GET http://elsewhere/") is
                 # what a client asks a *forward* proxy; this is not one.
                 return False
+            if self.command == "GET" and self._reject_cross_site():
+                # do_POST runs this ahead of every route; do_GET deliberately
+                # does not, because for the routes this server owns a GET is
+                # safe to trigger cross-site — the answer cannot be read. That
+                # reasoning stops at the proxy: the LMS classic interface acts
+                # on GET (`/status.html?p0=power&p1=0`), so a cross-site GET
+                # arriving here is a command, not a read. Worse, it would be a
+                # NEW way in: an https:// page cannot touch the plain-HTTP LMS
+                # at all today, and this origin would hand it the trip.
+                return True
+            if (self.headers.get("Transfer-Encoding") or "").strip():
+                # content_length() cannot size a chunked body, so it would
+                # read as 0 and the bytes would stay in the buffer for the
+                # NEXT request on this keep-alive connection to be parsed out
+                # of — the desync the drain loops in httpbase exist to avoid.
+                self.close_connection = True
+                self._send(411, "length required", "text/plain")
+                return True
             body = self._proxy_body()
             if body is False:
                 return True                    # already refused, see below
@@ -200,7 +248,14 @@ def proxy_routes(target_base: str, enabled, opener=None):
                 if name.lower() not in RESPONSE_HEADERS:
                     continue
                 has_length = has_length or name.lower() == "content-length"
+                if name.lower() == "location":
+                    value = _same_origin_location(value, base)
                 self.send_header(name, value)
+            # Upstream's own type, but never a guess past it: this origin now
+            # serves whatever the music server hands out, and sniffing is one
+            # way a body becomes a document it never claimed to be. The
+            # artwork proxy says the same thing one image at a time.
+            self.send_header("X-Content-Type-Options", "nosniff")
             bodyless = status in NO_BODY
             if not has_length and not bodyless:
                 # HTTP/1.1 with no length has to be delimited by the close

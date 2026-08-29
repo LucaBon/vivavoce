@@ -39,6 +39,25 @@
   not a gate, since whoever knows the address still reaches it. The external
   link had that hole too, in plain sight.
 
+  A review of the first cut moved six things before it shipped, all of them
+  the proxy widening something the app had reasoned about narrowly.
+  `do_GET` skips the cross-site check on the reasoning that triggering a
+  read is harmless because the answer cannot be read back — true of this
+  app's routes, false of a gateway to an interface that *acts* on GET
+  (`/status.html?p0=power&p1=0`), and it would have been a new way in, since
+  an `https://` page cannot reach the plain-HTTP LMS at all today. Proxied
+  GETs are guarded now. Relayed bodies carry `nosniff`, because this origin
+  now serves whatever the music server hands out. `Authorization` travels up
+  and `WWW-Authenticate` comes back, so a password-protected LMS can still
+  ask for its password instead of silently never loading. A redirect the LMS
+  aims at itself is rewritten to a path, or the frame would be sent back to
+  `http://` — the exact block the proxy exists to get around. A chunked
+  request body is refused with a 411 rather than read as empty and left in
+  the buffer for the next request on the connection to be parsed out of. And
+  the panel's close button no longer goes through `history.back()`: browsing
+  inside the frame adds entries to the joint session history, so after a few
+  taps the button would have stepped around inside Material and looked dead.
+
   The one deliberate 5xx in this server lives here: an unreachable LMS is a
   502. A 404 would have made "Material isn't installed" and "the hi-fi is
   switched off" the same answer, and those are different rooms to walk to.

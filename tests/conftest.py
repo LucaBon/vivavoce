@@ -313,9 +313,19 @@ class UpstreamResponse:
 
 
 def material_page(request):
-    """The default upstream: a small page, whatever was asked for."""
-    return UpstreamResponse(200, [("Content-Type", "text/html; charset=utf-8")],
-                            b"<!doctype html><title>Material</title><h1>Material</h1>")
+    """The default upstream: a small page, whatever was asked for.
+
+    It carries a link to a second page of its own, because "browse one level
+    in, then close" is a state the panel has to survive and an empty stub
+    cannot reach (see tests/e2e/test_browse.py).
+    """
+    deeper = "/deeper" in getattr(request, "selector", "") or "deeper" in str(
+        getattr(request, "full_url", ""))
+    title = b"Deeper" if deeper else b"Material"
+    return UpstreamResponse(
+        200, [("Content-Type", "text/html; charset=utf-8")],
+        b"<!doctype html><title>Material</title><h1>" + title +
+        b'</h1><a id="deeper" href="/material/deeper">deeper</a>')
 
 
 class FakeUpstream:

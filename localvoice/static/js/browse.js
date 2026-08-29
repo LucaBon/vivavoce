@@ -37,10 +37,14 @@ export function initBrowse() {
     // than leaving the app — which is what "back" means from in here.
     history.pushState({ browse: true }, "");
   });
-  $("browseclose").onclick = () => {
-    if (history.state && history.state.browse) history.back();
-    else close();
-  };
+  // Closes directly, and deliberately not with history.back(): navigating
+  // inside the iframe adds entries to the JOINT session history while the
+  // parent's own state still reads {browse: true}, so after a few taps into
+  // Material a back() would step around inside the frame and the close button
+  // would look broken. Back still closes, from the other side — the entry
+  // pushed above is what the phone's Back button pops first once the frame
+  // has nowhere left to go.
+  $("browseclose").onclick = close;
   window.addEventListener("popstate", close);
 }
 

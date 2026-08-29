@@ -21,9 +21,11 @@ nothing here touches the network.
 """
 
 import http.client
+import http.server
 import io
 import urllib.error
 import urllib.parse
+import urllib.request
 
 import pytest
 
@@ -230,3 +232,133 @@ def test_the_module_default_transport_is_used_when_none_is_injected(
     srv = live_server(proxy_open=None)
     assert srv.get("/material/").status == 200
     assert upstream.requests
+
+
+# -- the review's findings, each as the thing that went wrong -------------------
+
+def test_a_cross_site_get_is_refused_too(live_server, upstream):
+    # do_GET does not run the cross-site guard, on the reasoning that a GET to
+    # a route of ours is safe to trigger because the answer cannot be read.
+    # That stops dead at the proxy: the LMS classic interface ACTS on GET
+    # (/status.html?p0=power&p1=0), so a cross-site GET arriving here is a
+    # command. And it would be a new way in — an https:// page cannot reach
+    # the plain-HTTP LMS at all today, and this origin would carry it there.
+    srv = live_server(proxy_open=upstream)
+    status, _, _ = raw_get(srv, "/status.html?p0=power&p1=0",
+                           {"Host": "127.0.0.1", "Sec-Fetch-Site": "cross-site"})
+    assert status == 403
+    assert upstream.requests == []
+
+
+def test_the_frame_and_a_typed_address_still_get_through(live_server, upstream):
+    # The two shapes that must keep working: the iframe (same-origin) and
+    # somebody opening the address themselves (Sec-Fetch-Site: none).
+    srv = live_server(proxy_open=upstream)
+    for site in ("same-origin", "none"):
+        status, _, _ = raw_get(srv, "/material/",
+                               {"Host": "127.0.0.1", "Sec-Fetch-Site": site})
+        assert status == 200, site
+    assert len(upstream.requests) == 2
+
+
+def test_a_chunked_body_is_refused_rather_than_silently_dropped(live_server,
+                                                                upstream):
+    # content_length() cannot size a chunked body: it reads as 0, the bytes
+    # stay in the buffer, and the NEXT request on this keep-alive connection
+    # gets parsed out of them.
+    parts = urllib.parse.urlsplit(live_server(proxy_open=upstream).url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=5)
+    try:
+        conn.putrequest("POST", "/jsonrpc.js")
+        conn.putheader("Transfer-Encoding", "chunked")
+        conn.putheader("Content-Type", "application/json")
+        conn.endheaders()
+        conn.send(b"2\r\n{}\r\n0\r\n\r\n")
+        assert conn.getresponse().status == 411
+    finally:
+        conn.close()
+    assert upstream.requests == []
+
+
+def test_a_redirect_back_to_the_music_server_is_kept_on_this_origin(live_server,
+                                                                    upstream):
+    # The ordinary trailing-slash redirect names itself absolutely. Relayed
+    # verbatim it sends the frame to http:// — the very mixed-content block
+    # the proxy exists to get around, so the panel would die on it.
+    upstream.handler = _raiser(urllib.error.HTTPError(
+        "http://lms.local:9000/material", 301, "Moved",
+        {"Location": "http://lms.local:9000/material/?x=1",
+         "Content-Length": "0"}, io.BytesIO(b"")))
+    srv = live_server(material_url="http://lms.local:9000/material",
+                      proxy_open=upstream)
+    _, headers, _ = raw_get(srv, "/material")
+    assert headers["Location"] == "/material/?x=1"
+
+
+def test_a_redirect_somewhere_else_is_left_alone(live_server, upstream):
+    upstream.handler = _raiser(urllib.error.HTTPError(
+        "http://lms.local:9000/x", 302, "Found",
+        {"Location": "https://tidal.com/auth", "Content-Length": "0"},
+        io.BytesIO(b"")))
+    srv = live_server(proxy_open=upstream)
+    _, headers, _ = raw_get(srv, "/x")
+    assert headers["Location"] == "https://tidal.com/auth"
+
+
+def test_nothing_relayed_may_be_sniffed_past_its_type(proxied):
+    # This origin now serves whatever the music server hands out, and
+    # Sec-Fetch-Site: same-origin is the whole CSRF defence — a body that gets
+    # to become a document it never claimed to be is one way in.
+    assert proxied.get("/material/").headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_a_password_protected_lms_can_still_ask_for_the_password(live_server,
+                                                                 upstream):
+    # LMS can password-protect its web interface. A challenge stripped on the
+    # way back is a browser that never prompts and a panel that never loads,
+    # with nothing on screen to say why.
+    upstream.handler = _raiser(urllib.error.HTTPError(
+        "http://lms.local:9000/material/", 401, "Unauthorized",
+        {"WWW-Authenticate": 'Basic realm="LMS"', "Content-Length": "0"},
+        io.BytesIO(b"")))
+    srv = live_server(proxy_open=upstream)
+    status, headers, _ = raw_get(srv, "/material/")
+    assert status == 401
+    assert headers["WWW-Authenticate"] == 'Basic realm="LMS"'
+
+
+def test_the_credentials_the_browser_offers_reach_the_music_server(proxied,
+                                                                   upstream):
+    raw_get(proxied, "/material/", {"Host": "127.0.0.1",
+                                    "Authorization": "Basic dTpw"})
+    assert upstream.last.get_header("Authorization") == "Basic dTpw"
+
+
+def test_the_transport_really_asks_for_an_uncompressed_body():
+    # Load-bearing, and asserted rather than believed: Content-Encoding is
+    # deliberately NOT relayed, which is only safe because the request went
+    # out saying it wanted no compression. Loopback, like live_server itself.
+    import socketserver
+    import threading
+
+    seen = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.update({k.lower(): v for k, v in self.headers.items()})
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    httpd = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/x"
+        lmsproxy._urlopen(urllib.request.Request(url, method="GET"), 5).read()
+    finally:
+        httpd.shutdown()
+    assert seen.get("accept-encoding") == "identity"

@@ -54,6 +54,21 @@ def test_closing_returns_to_the_commands(page, web):
     assert page.is_visible("#empty")   # the suggestions, back where they were
 
 
+def test_the_close_button_still_closes_after_browsing_inside_the_frame(page, web):
+    # The panel is closed directly, not with history.back(): navigating inside
+    # the iframe adds entries to the JOINT session history, so a back() here
+    # would step around inside Material and the button would look dead.
+    page.goto(web().url)
+    page.wait_for_function("!!window.vivavoce")
+    page.click("#material")
+    page.wait_for_selector("#browse:not([hidden])")
+    frame = page.frame_locator("#browseframe")
+    frame.locator("#deeper").click()
+    frame.locator("h1:has-text('Deeper')").wait_for()
+    page.click("#browseclose")
+    page.wait_for_selector("#browse", state="hidden")
+
+
 def test_the_back_button_closes_the_panel(page, web):
     # On a phone this is the gesture people actually use, and without the
     # history entry it would leave the app instead.
