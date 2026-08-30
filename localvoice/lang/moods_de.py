@@ -70,7 +70,7 @@ MOOD_WORDS = {
     "nachdenklich": "melancholy",
     "nachdenkliche": "melancholy", "nachdenkliches": "melancholy",
     "wehmutig": "melancholy", "wehmutige": "melancholy",
-    "zum weinen": "melancholy", "fur einen regentag": "melancholy",
+    "zum weinen": "melancholy", "bittersuss": "melancholy",
     # morning
     "fur den morgen": "morning", "zum aufwachen": "morning",
     "zum fruhstuck": "morning", "furs fruhstuck": "morning",
@@ -112,4 +112,91 @@ MOOD_WORDS = {
     "neunziger": "nineties", "neunziger jahre": "nineties",
     "aus den neunzigern": "nineties", "aus den 90ern": "nineties",
     "90er": "nineties", "die 90er": "nineties",
+
+    # -- die Nuancen (T2.6) ---------------------------------------------------
+    # «traurig» und «frohlich» waren je ein einziger Eimer. Eine Nuance bekommt
+    # nur dann einen eigenen Schlussel, wenn sie in mood_table.py woanders
+    # landet; ein Synonym, das wieder auf `melancholy` fallt, bleibt oben.
+    # «fur einen regentag» ist aus genau diesem Grund umgezogen.
+    "aufmunternd": "uplifting", "aufmunternde": "uplifting",
+    "aufmunterndes": "uplifting", "zum aufmuntern": "uplifting",
+    "aufbauend": "uplifting", "aufbauende": "uplifting",
+    "optimistisch": "uplifting", "optimistische": "uplifting",
+    "hoffnungsvoll": "uplifting",
+    "euphorisch": "euphoric", "euphorische": "euphoric",
+    "euphorisches": "euphoric", "zum abgehen": "euphoric",
+    "zum ausrasten": "euphoric", "mitreissend": "euphoric",
+    "mitreissende": "euphoric",
+    "traumerisch": "dreamy", "traumerische": "dreamy",
+    "traumerisches": "dreamy", "vertraumt": "dreamy",
+    "vertraumte": "dreamy", "spharisch": "dreamy",
+    "schwebend": "dreamy", "schwebende": "dreamy",
+    "fur ein gebrochenes herz": "heartbreak",
+    "nach einer trennung": "heartbreak", "bei liebeskummer": "heartbreak",
+    "fur liebeskummer": "heartbreak", "herzschmerz": "heartbreak",
+    "trennungsschmerz": "heartbreak",
+    "nostalgisch": "nostalgic", "nostalgische": "nostalgic",
+    "nostalgisches": "nostalgic", "von fruher": "nostalgic",
+    "aus alten zeiten": "nostalgic", "retro": "nostalgic",
+    "vintage": "nostalgic", "die erinnerungen weckt": "nostalgic",
+    "duster": "dark", "dustere": "dark", "dusteres": "dark",
+    "dunkel": "dark", "dunkle": "dark", "dunkles": "dark",
+    "finster": "dark", "finstere": "dark", "bedrohlich": "dark",
+    "dark": "dark",
+
+    # -- die Situationen (T2.6) -----------------------------------------------
+    "fur kinder": "kids", "fur die kinder": "kids",
+    "die kindern gefallt": "kids", "kindgerecht": "kids",
+    "kindermusik": "kids", "fur die kleinen": "kids",
+    "zum mitsingen": "singalong", "die man mitsingen kann": "singalong",
+    "zum mitgrolen": "singalong", "mitsingmusik": "singalong",
+    "zum zusammen singen": "singalong",
+    "bekannt": "crowdpleaser", "bekannte": "crowdpleaser",
+    "bekanntes": "crowdpleaser", "beruhmt": "crowdpleaser",
+    "beruhmte": "crowdpleaser", "die allen gefallt": "crowdpleaser",
+    "die jeder kennt": "crowdpleaser",
+    "die grossten hits": "crowdpleaser", "grosste hits": "crowdpleaser",
+    "zum kochen": "cooking", "beim kochen": "cooking",
+    "furs kochen": "cooking", "fur die kuche": "cooking",
+    "fur einen regentag": "rainy", "fur regentage": "rainy",
+    "wenn es regnet": "rainy", "bei regen": "rainy",
+    "regnerisch": "rainy",
+    "furs autofahren": "driving", "zum autofahren": "driving",
+    "fur die autofahrt": "driving", "fur die fahrt": "driving",
+    "fur den roadtrip": "driving", "im auto": "driving",
+    "lang": "longform", "lange": "longform", "langes": "longform",
+    "die lange dauert": "longform",
+    "die nicht gleich vorbei ist": "longform",
+    "episch": "longform", "epische": "longform",
+    "zum meditieren": "meditation", "fur die meditation": "meditation",
+    "zum yoga": "meditation", "furs yoga": "meditation",
+    "meditativ": "meditation", "meditative": "meditation",
+
+    # -- die fehlenden Genres (T2.6) ------------------------------------------
+    # Vier gab es, zwolf nicht — «spiel ein bisschen Reggae» ging deshalb als
+    # TITELsuche los. Der Marker ist es, der das nackte Wort ungefahrlich
+    # macht: das Muster ist verankert und braucht seinen Marker, «spiel Soul»
+    # kommt hier also nie an, «spiel etwas Soul» schon.
+    "pop": "pop",
+    "soul": "soul", "soulig": "soul",
+    "funk": "funk", "funkig": "funk",
+    "reggae": "reggae", "ska": "reggae", "dub": "reggae",
+    "metal": "metal", "heavy metal": "metal", "metallisch": "metal",
+    "punk": "punk",
+    "elektronisch": "electronic", "elektronische": "electronic",
+    "elektro": "electronic", "techno": "electronic", "house": "electronic",
+    "hip hop": "hiphop", "rap": "hiphop",
+    "country": "country",
+    "folk": "folk", "folkmusik": "folk",
+    "latin": "latin", "latino": "latin", "salsa": "latin",
+    "weltmusik": "world", "world music": "world",
+
+    # -- die fehlenden Jahrzehnte (T2.6) --------------------------------------
+    "funfziger": "fifties", "funfziger jahre": "fifties",
+    "aus den funfzigern": "fifties", "aus den 50ern": "fifties",
+    "50er": "fifties", "die 50er": "fifties",
+    "zweitausender": "noughties", "die zweitausender": "noughties",
+    "2000er": "noughties", "die 2000er": "noughties",
+    "aus den 2000ern": "noughties",
+    "2010er": "tens", "die 2010er": "tens", "aus den 2010ern": "tens",
 }

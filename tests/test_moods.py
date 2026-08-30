@@ -1026,3 +1026,196 @@ def test_the_corpus_is_answered_or_knowingly_out_of_reach():
         assert len(covered) / total >= 0.70, (
             f"{lang}: coverage fell to {len(covered)}/{total} — "
             f"still unanswered: {[p for p, _ in residual]}")
+
+
+# -- T2.6: the nuances, the situations, the missing genres and decades --------
+#
+# The complaint this pass answers was not that moods were broken but that they
+# were COARSE: «triste» and «allegro» were one bucket each, and four different
+# situations resolved to the identical genre load. Two kinds of test follow —
+# that each new key is reachable in every language, and that no two keys are
+# secretly the same command.
+
+NEW_PHRASES_T26 = {
+    "it": [
+        ("metti qualcosa che mi tiri su il morale", "uplifting"),
+        ("metti qualcosa di euforico", "euphoric"),
+        ("metti qualcosa di sognante", "dreamy"),
+        ("metti qualcosa per un cuore infranto", "heartbreak"),
+        ("metti qualcosa di nostalgico", "nostalgic"),
+        ("metti qualcosa di cupo", "dark"),
+        ("metti musica per i bambini", "kids"),
+        ("metti qualcosa da cantare insieme", "singalong"),
+        ("metti qualcosa di famoso", "crowdpleaser"),
+        ("metti qualcosa per cucinare", "cooking"),
+        ("metti qualcosa per quando piove", "rainy"),
+        ("metti qualcosa da viaggio", "driving"),
+        ("metti qualcosa di lungo che non finisca subito", "longform"),
+        ("metti qualcosa per meditare", "meditation"),
+        ("metti un po' di reggae", "reggae"),
+        ("metti della musica elettronica", "electronic"),
+        ("metti un po' di soul", "soul"),
+        ("metti qualcosa degli anni 2000", "noughties"),
+        ("metti qualcosa degli anni cinquanta", "fifties"),
+    ],
+    "en": [
+        ("play something to cheer me up", "uplifting"),
+        ("play something euphoric", "euphoric"),
+        ("play something dreamy", "dreamy"),
+        ("play something for a broken heart", "heartbreak"),
+        ("play something nostalgic", "nostalgic"),
+        ("play something dark", "dark"),
+        ("play something for the kids", "kids"),
+        ("play something we can sing along to", "singalong"),
+        ("play something famous", "crowdpleaser"),
+        ("play something for cooking", "cooking"),
+        ("play something for a rainy day", "rainy"),
+        ("play something for a road trip", "driving"),
+        ("play something long", "longform"),
+        ("play something for meditation", "meditation"),
+        ("play some reggae", "reggae"),
+        ("play some hip hop", "hiphop"),
+        ("play something from the 2000s", "noughties"),
+    ],
+    "fr": [
+        ("mets quelque chose qui remonte le moral", "uplifting"),
+        ("mets quelque chose d'euphorique", "euphoric"),
+        ("mets quelque chose de reveur", "dreamy"),
+        ("mets quelque chose pour un coeur brise", "heartbreak"),
+        ("mets quelque chose de nostalgique", "nostalgic"),
+        ("mets quelque chose de sombre", "dark"),
+        ("mets de la musique pour les enfants", "kids"),
+        ("mets quelque chose de connu", "crowdpleaser"),
+        ("mets quelque chose pour cuisiner", "cooking"),
+        ("mets quelque chose pour un jour de pluie", "rainy"),
+        ("mets un peu de reggae", "reggae"),
+        ("mets quelque chose des annees 2000", "noughties"),
+    ],
+    "de": [
+        ("spiel etwas aufmunterndes", "uplifting"),
+        ("spiel etwas euphorisches", "euphoric"),
+        ("spiel etwas traumerisches", "dreamy"),
+        ("spiel etwas bei liebeskummer", "heartbreak"),
+        ("spiel etwas nostalgisches", "nostalgic"),
+        ("spiel etwas dunkles", "dark"),
+        ("spiel musik fur kinder", "kids"),
+        ("spiel etwas zum mitsingen", "singalong"),
+        ("spiel etwas zum kochen", "cooking"),
+        ("spiel etwas fur einen regentag", "rainy"),
+        ("spiel ein bisschen reggae", "reggae"),
+        ("spiel etwas aus den 2000ern", "noughties"),
+    ],
+    "es": [
+        ("pon algo que me anime", "uplifting"),
+        ("pon algo euforico", "euphoric"),
+        ("pon algo onirico", "dreamy"),
+        ("pon algo para un corazon roto", "heartbreak"),
+        ("pon algo nostalgico", "nostalgic"),
+        ("pon algo oscuro", "dark"),
+        ("pon musica para los ninos", "kids"),
+        ("pon algo para cantar juntos", "singalong"),
+        ("pon algo famoso", "crowdpleaser"),
+        ("pon algo para cocinar", "cooking"),
+        ("pon algo para un dia de lluvia", "rainy"),
+        ("pon un poco de reggae", "reggae"),
+        ("pon algo de los anos 2000", "noughties"),
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    "code,phrase,key",
+    [(code, phrase, key)
+     for code, pairs in sorted(NEW_PHRASES_T26.items())
+     for phrase, key in pairs],
+    ids=lambda v: v if isinstance(v, str) else str(v))
+def test_the_t26_phrases_reach_their_mood(code, phrase, key):
+    assert resolved(phrase, code) == key
+
+
+@pytest.mark.parametrize("code", sorted(PACKS))
+def test_every_language_reaches_every_mood(code):
+    # True by hand since the first pass and enforced by nothing, which is how
+    # a language quietly falls behind: a mood added to the table and to four
+    # packs works for four fifths of the users and fails silently for the
+    # fifth. The table is the contract; every pack has to be able to say all
+    # of it.
+    reachable = set(PACKS[code].MOOD_WORDS.values())
+    assert reachable == set(moods.MOODS), (
+        f"{code} cannot reach {sorted(set(moods.MOODS) - reachable)}")
+
+
+def test_no_two_moods_open_on_the_same_genre():
+    # _pick_genre takes the FIRST alias the library has, so two moods sharing a
+    # lead alias are the same command in any library carrying that tag. This is
+    # exactly how relax, sleep, focus and background all became "Ambient":
+    # four different questions, one identical answer. Sharing a later alias is
+    # fine and is what a fallback is for; sharing the lead is not.
+    from actions import _normalize
+    leads = {}
+    for key, mood in moods.MOODS.items():
+        if "genres" not in mood:
+            continue
+        lead = _normalize(mood["genres"][0])
+        assert lead not in leads, (
+            f"{key} opens on {lead!r} and so does {leads[lead]}")
+        leads[lead] = key
+
+
+def test_no_two_moods_lead_with_the_same_playlist():
+    # The same argument one axis over: the service fallback walks the playlist
+    # queries in order, so a shared first query is a shared answer for every
+    # listener whose library came up empty.
+    from actions import _normalize
+    leads = {}
+    for key, mood in moods.MOODS.items():
+        first = _normalize(mood["playlists"][0])
+        assert first not in leads, (
+            f"{key} asks for {first!r} first and so does {leads[first]}")
+        leads[first] = key
+
+
+def test_the_sad_and_happy_families_do_not_collapse_together():
+    # The complaint in one assertion: the shades of sad must not resolve to the
+    # same genres, nor the shades of cheerful. Reading the table directly is
+    # the point here — the phrases reaching these keys are tested above.
+    for family in (("melancholy", "heartbreak", "nostalgic", "dark"),
+                   ("happy", "uplifting", "euphoric", "dreamy")):
+        loads = {k: tuple(moods.MOODS[k]["genres"]) for k in family}
+        assert len(set(loads.values())) == len(family), loads
+        for a in family:
+            for b in family:
+                if a >= b:
+                    continue
+                assert loads[a][0] != loads[b][0], f"{a} and {b} open alike"
+
+
+@pytest.mark.parametrize("phrase", [
+    # The T2.6 vocabulary is mostly bare genre words, which is only safe
+    # because the marker is mandatory: none of these carries one, so none of
+    # them may reach the table. Break the `^` anchor or the marker group and
+    # every line here starts music instead of searching for a title.
+    "metti Pop",
+    "metti l'album Pop",
+    "metti Soul di Seal",
+    "metti la playlist Bambini in Festa",
+    "metti Nostalgia",
+    "metti Country di Anastacia",
+    "ferma la musica country",
+    "togli la musica dark",
+    "non voglio musica triste",
+    # Same shape as the existing «dagli anni ottanta in poi»: the decade is in
+    # there and the phrase means something else.
+    "metti qualcosa dagli anni 2000 in poi",
+])
+def test_the_t26_words_do_not_swallow_a_title_or_a_stop(router, decades,
+                                                        phrase):
+    # A library that can answer every new mood, so a phrase that wrongly became
+    # one would demonstrably start music rather than quietly come up empty.
+    decades.responses["genres"] = {"genres_loop": [
+        {"id": 20, "genre": "Pop"}, {"id": 21, "genre": "Soul"},
+        {"id": 22, "genre": "Country"}, {"id": 23, "genre": "Post-Punk"},
+        {"id": 24, "genre": "Oldies"}, {"id": 25, "genre": "Children's"}]}
+    router.handle(phrase)
+    assert not loads(decades), phrase
+    assert router.mood is None, phrase

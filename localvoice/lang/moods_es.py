@@ -42,8 +42,7 @@ MOOD_WORDS = {
     # -- happy
     "alegre": "happy", "alegres": "happy", "animada": "happy",
     "animado": "happy", "de buen humor": "happy", "divertida": "happy",
-    "que anime": "happy", "para animarme": "happy", "positiva": "happy",
-    "optimista": "happy",
+    "positiva": "happy", "marchosa alegre": "happy",
     # -- energetic
     "energica": "energetic", "energico": "energetic",
     "marchosa para entrenar": "energetic", "para entrenar": "energetic",
@@ -67,8 +66,8 @@ MOOD_WORDS = {
     "sensual": "romantic",
     # -- melancholy
     "melancolica": "melancholy", "melancolico": "melancholy",
-    "triste": "melancholy", "nostalgica": "melancholy",
-    "nostalgico": "melancholy", "desgarradora": "melancholy",
+    "triste": "melancholy", "tristes": "melancholy",
+    "desgarradora": "melancholy", "agridulce": "melancholy",
     "para llorar": "melancholy", "para penas": "melancholy",
     # -- morning
     "para desayunar": "morning", "para despertarme": "morning",
@@ -116,4 +115,92 @@ MOOD_WORDS = {
     "anos noventa": "nineties", "anos 90": "nineties",
     "los anos noventa": "nineties", "los anos 90": "nineties",
     "los noventa": "nineties", "los 90": "nineties",
+
+    # -- los matices (T2.6) ---------------------------------------------------
+    # «triste» y «alegre» eran una sola casilla cada uno. Un matiz solo merece
+    # clave propia si acaba en otro sitio de mood_table.py; un sinonimo que
+    # vuelve a caer en `melancholy` se queda en el bloque de arriba. Por esa
+    # regla se han mudado «nostalgica» y las tres formas de «animar»: pedir
+    # que te levanten el animo nunca fue lo mismo que pedir algo alegre.
+    "que anime": "uplifting", "que me anime": "uplifting",
+    "para animarme": "uplifting",
+    "optimista": "uplifting", "que levante el animo": "uplifting",
+    "para levantar el animo": "uplifting", "esperanzadora": "uplifting",
+    "alentadora": "uplifting",
+    "euforica": "euphoric", "euforico": "euphoric",
+    "desatada": "euphoric", "desatado": "euphoric",
+    "explosiva": "euphoric", "explosivo": "euphoric",
+    "que reviente": "euphoric",
+    "sonadora": "dreamy", "sonador": "dreamy", "onirica": "dreamy",
+    "onirico": "dreamy", "eterea": "dreamy", "etereo": "dreamy",
+    "flotante": "dreamy",
+    "para un corazon roto": "heartbreak", "de desamor": "heartbreak",
+    "para el desamor": "heartbreak",
+    "despues de una ruptura": "heartbreak",
+    "para una ruptura": "heartbreak", "de despecho": "heartbreak",
+    "nostalgica": "nostalgic", "nostalgico": "nostalgic",
+    "de los viejos tiempos": "nostalgic", "de antes": "nostalgic",
+    "que me recuerde": "nostalgic", "vintage": "nostalgic",
+    "retro": "nostalgic",
+    "oscura": "dark", "oscuro": "dark", "sombria": "dark",
+    "sombrio": "dark", "tenebrosa": "dark", "tenebroso": "dark",
+    "inquietante": "dark", "dark": "dark",
+
+    # -- las situaciones (T2.6) -----------------------------------------------
+    "para los ninos": "kids", "para ninos": "kids",
+    "que guste a los ninos": "kids", "para los pequenos": "kids",
+    "infantil": "kids", "para la familia": "kids",
+    "para cantar": "singalong", "que se pueda cantar": "singalong",
+    "para cantar juntos": "singalong",
+    "que podamos cantar": "singalong", "para cantar todos": "singalong",
+    "famosa": "crowdpleaser", "famoso": "crowdpleaser",
+    "famosas": "crowdpleaser", "conocida": "crowdpleaser",
+    "conocido": "crowdpleaser", "popular": "crowdpleaser",
+    "que guste a todos": "crowdpleaser",
+    "que le guste a todos": "crowdpleaser",
+    "los grandes exitos": "crowdpleaser", "grandes exitos": "crowdpleaser",
+    "para cocinar": "cooking", "mientras cocino": "cooking",
+    "para la cocina": "cooking",
+    "para un dia de lluvia": "rainy", "para los dias de lluvia": "rainy",
+    "cuando llueve": "rainy", "para la lluvia": "rainy",
+    "lluviosa": "rainy",
+    "para el viaje": "driving", "para conducir": "driving",
+    "para el coche": "driving", "en el coche": "driving",
+    "para la carretera": "driving", "para viajar": "driving",
+    "larga": "longform", "largo": "longform", "largas": "longform",
+    "que dure": "longform", "que no se acabe enseguida": "longform",
+    "epica": "longform", "epico": "longform",
+    "para meditar": "meditation", "para la meditacion": "meditation",
+    "de meditacion": "meditation", "para el yoga": "meditation",
+    "meditativa": "meditation",
+
+    # -- los generos que faltaban (T2.6) --------------------------------------
+    # Habia cuatro y faltaban doce, asi que «pon un poco de reggae» salia como
+    # busqueda de TITULO. El marcador es lo que hace inofensiva la palabra
+    # desnuda: el patron esta anclado y exige su marcador, de modo que «pon
+    # Soul» no llega nunca aqui y «pon un poco de soul» si.
+    "pop": "pop",
+    "soul": "soul",
+    "funk": "funk", "funky": "funk",
+    "reggae": "reggae", "ska": "reggae", "dub": "reggae",
+    "metal": "metal", "heavy metal": "metal",
+    "punk": "punk",
+    "electronica": "electronic", "electronico": "electronic",
+    "tecno": "electronic", "techno": "electronic", "house": "electronic",
+    "hip hop": "hiphop", "rap": "hiphop",
+    "country": "country",
+    "folk": "folk",
+    "latina": "latin", "latino": "latin", "salsa": "latin",
+    "musica del mundo": "world", "world music": "world",
+
+    # -- las decadas que faltaban (T2.6) --------------------------------------
+    # Cuatro grafias por decada, por lo que explica el bloque de arriba: con
+    # articulo y sin el, escrita y en digitos.
+    "anos cincuenta": "fifties", "anos 50": "fifties",
+    "los anos cincuenta": "fifties", "los anos 50": "fifties",
+    "los cincuenta": "fifties", "los 50": "fifties",
+    "anos dos mil": "noughties", "anos 2000": "noughties",
+    "los anos dos mil": "noughties", "los anos 2000": "noughties",
+    "los dos mil": "noughties", "los 2000": "noughties",
+    "anos 2010": "tens", "los anos 2010": "tens", "los 2010": "tens",
 }
