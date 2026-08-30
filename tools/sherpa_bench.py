@@ -627,8 +627,12 @@ def vosk_oov(model, phrase: str) -> List[str]:
 
     import vosk
 
-    saved = os.dup(2)
+    # The temp file opens *before* the descriptor is saved: dup first and the
+    # saved fd leaks if TemporaryFile then raises, with nothing left holding a
+    # reference to close it. This way the only fd in hand is one that a
+    # try/finally is already responsible for.
     with tempfile.TemporaryFile() as tmp:
+        saved = os.dup(2)
         try:
             os.dup2(tmp.fileno(), 2)
             vosk.SetLogLevel(0)
@@ -790,6 +794,32 @@ def report(results: List[Result]) -> None:
 SWEEP_POINTS = (0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95)
 
 
+def _events(joined: str, phrase: str, threshold: float) -> int:
+    """How many separate times a candidate stream would have fired.
+
+    A detection rate counts *clips*, but a false-trigger rate counts
+    **events** — the summary above counts every fire, and a negative long
+    enough to fire twice has annoyed the household twice. Counting matching
+    candidates instead of matching files is what makes the two comparable;
+    they were not, and grammar mode showed 14 in the summary against 8 here
+    for the same audio.
+
+    Every matching candidate counts, including consecutive ones: the live
+    loop rebuilds the recognizer the moment it fires, so two matches in a row
+    are two separate utterances rather than one seen twice. At the threshold
+    the run was recorded with, this reproduces the summary's count exactly.
+
+    Away from that threshold it is an approximation, and deliberately a
+    pessimistic one. A looser setting can match several partials of one
+    utterance as it grows ("vi", "viva", "vivavoce") where the live detector
+    would have fired once and reset; that inflates the count. Over-reporting
+    false triggers is the safe direction for the number this tool exists to
+    protect — an engine is never adopted because the sweep flattered it.
+    """
+    return sum(1 for text in joined.split(" | ")
+               if phrase_in(text, phrase, threshold))
+
+
 def sweep_report(results: List[Result], phrase: str) -> List[dict]:
     """Detection rate against false triggers per hour, across --fuzzy.
 
@@ -805,6 +835,8 @@ def sweep_report(results: List[Result], phrase: str) -> List[dict]:
     rows = []
     print("\n" + "=" * 72)
     print(f"soglia --fuzzy: rilevamenti / falsi trigger, frase «{phrase}»")
+    print("(un positivo conta una volta; un negativo conta ogni innesco, "
+          "come il riepilogo qui sopra)")
     for res in results:
         if res.skipped or not res.samples:
             note = res.skipped or "nessuna trascrizione (soglia interna al motore)"
@@ -818,15 +850,14 @@ def sweep_report(results: List[Result], phrase: str) -> List[dict]:
         for th in SWEEP_POINTS:
             hits = sum(1 for s in pos
                        if any(phrase_in(t, phrase, th) for t in s[2].split(" | ")))
-            fires = sum(1 for s in neg
-                        if any(phrase_in(t, phrase, th) for t in s[2].split(" | ")))
+            fires = sum(_events(s[2], phrase, th) for s in neg)
             rate = (100.0 * hits / len(pos)) if pos else 0.0
             per_hour = (fires / neg_hours) if neg_hours else None
             tail = f"{fires:3d}  ({per_hour:.1f}/ora)" if per_hour is not None \
                 else f"{fires:3d}  (nessun negativo)"
             print(f"   {th:.2f}    {hits:3d}/{len(pos):-3d} ({rate:3.0f}%)     {tail}")
             rows.append({"config": res.name, "fuzzy": th, "hits": hits,
-                         "positives": len(pos), "false_triggers": fires,
+                         "positives": len(pos), "false_trigger_events": fires,
                          "false_triggers_per_hour": per_hour})
     print("=" * 72)
     return rows

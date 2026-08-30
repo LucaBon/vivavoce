@@ -216,24 +216,41 @@ def generate(args) -> int:
     print(f"{len(names)} voci, {len(texts)} frasi, "
           f"{len(LENGTH_SCALES)} velocita' -> {args.out}")
     written = 0
+    skipped: List[str] = []
+    silent = 0
     for name in names:
         try:
             voice = load_voice(name, args.data_dir)
         except Exception as exc:                     # a voice failing to
             print(f"  {name}: saltata ({exc})")      # download is not fatal
+            skipped.append(name)
             continue
+        before = written
         for speaker in speakers_of(name, voices_json):
             for scale in LENGTH_SCALES:
                 for text in texts:
                     samples, rate = synth(voice, text, scale, speaker)
                     if not samples:
+                        silent += 1        # counted, never just dropped
                         continue
                     stem = (f"{name}_s{speaker if speaker is not None else 0}"
                             f"_l{scale}_{slugify(text)}.wav")
                     write_wav(os.path.join(args.out, stem), samples, rate)
                     written += 1
-        print(f"  {name}: {written} file finora")
+        print(f"  {name}: {written - before} clip")
     print(f"\n{written} clip in {args.out}")
+
+    # The point of this corpus is the *spread* of voices. A run that quietly
+    # lost most of them still writes plausible-looking files and still exits
+    # 0, and the benchmark downstream then measures one accent while claiming
+    # to measure several — so say it here, where it is still cheap to notice.
+    if silent:
+        print(f"ATTENZIONE: {silent} sintesi hanno prodotto audio vuoto e "
+              f"sono state saltate.", file=sys.stderr)
+    if skipped:
+        print(f"ATTENZIONE: {len(skipped)}/{len(names)} voci non si sono "
+              f"caricate ({', '.join(skipped)}): il corpus copre meno "
+              f"pronunce di quante ne chiedevi.", file=sys.stderr)
     if not written:
         # Every voice failing is the same shape as one voice failing, and the
         # difference is the whole run. Do not let it look like a success.
