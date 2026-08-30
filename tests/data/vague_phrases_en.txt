@@ -70,3 +70,31 @@ play something instrumental
 play something without words
 play something long that won't stop soon
 play something that makes me want to cook
+
+# T2.6 — the new families: the shades of sad and happy, the situations, and
+# the genres and decades that were missing. Same rule as the rest of the file:
+# written the way a person speaks, not from MOOD_WORDS.
+play something to cheer me up
+play something euphoric
+play something dreamy
+play something for a broken heart
+play something after a breakup
+play something nostalgic
+play something from the old days
+play something dark
+play something for the kids
+play something to sing along to
+play something famous
+play something everyone knows
+play something for cooking
+play something for a rainy day
+play something for a road trip
+play something epic
+play something for meditation
+play some reggae
+play some soul
+play some hip hop
+play some electronic music
+play some country
+play something from the 2000s
+play something from the fifties

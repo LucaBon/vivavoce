@@ -92,3 +92,38 @@ metti qualcosa di strumentale
 metti qualcosa senza parole
 metti qualcosa di lungo che non finisca subito
 metti qualcosa che mi faccia venire voglia di cucinare
+
+# T2.6 — le famiglie nuove: le sfumature di triste e allegro, le situazioni,
+# i generi e i decenni che mancavano. Scritte con la stessa regola del resto
+# del file: come le direbbe una persona, senza guardare MOOD_WORDS. Quelle che
+# restano scoperte restano scoperte.
+metti qualcosa che mi tiri su il morale
+metti qualcosa di euforico
+metti una cosa scatenata
+metti musica sognante
+metti qualcosa per un cuore infranto
+metti qualcosa dopo una delusione
+metti qualcosa di nostalgico
+metti qualcosa dei vecchi tempi
+metti qualcosa di cupo
+metti musica per i bambini
+metti qualcosa che piaccia ai bambini
+metti qualcosa da cantare tutti insieme
+metti qualcosa di famoso
+metti qualcosa che piaccia a tutti
+metti musica per cucinare
+metti qualcosa per quando piove
+metti qualcosa per il viaggio in macchina
+metti musica da viaggio
+metti qualcosa di epico
+metti musica per meditare
+metti un po' di reggae
+metti un po' di soul
+metti della musica elettronica
+metti un po' di hip hop
+metti della musica country
+metti un po' di folk
+metti della musica latina
+metti qualcosa degli anni 2000
+metti qualcosa degli anni cinquanta
+metti musica anni 2010

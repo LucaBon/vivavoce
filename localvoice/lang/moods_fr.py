@@ -68,9 +68,8 @@ MOOD_WORDS = {
     # -- melancholy
     "triste": "melancholy", "tristes": "melancholy",
     "melancolique": "melancholy", "melancoliques": "melancholy",
-    "nostalgique": "melancholy", "nostalgiques": "melancholy",
-    "pour pleurer": "melancholy", "pour un jour de pluie": "melancholy",
-    "dechirante": "melancholy",
+    "pour pleurer": "melancholy", "dechirante": "melancholy",
+    "douce amere": "melancholy",
     # -- morning
     "pour le matin": "morning", "du matin": "morning", "matinale": "morning",
     "pour le petit dejeuner": "morning", "pour me reveiller": "morning",
@@ -111,4 +110,89 @@ MOOD_WORDS = {
     "annees quatre vingt dix": "nineties",
     "des annees quatre vingt dix": "nineties",
     "annees 90": "nineties", "des annees 90": "nineties",
+
+    # -- les nuances (T2.6) ---------------------------------------------------
+    # «triste» et «joyeux» ne faisaient qu'une case chacun. Seules les nuances
+    # qui aboutissent ailleurs dans mood_table.py meritent une cle; un synonyme
+    # qui retombe sur `melancholy` reste dans le bloc ci-dessus. Deux entrees
+    # ont demenage pour cette raison: «nostalgique» et «pour un jour de pluie»
+    # n'ont jamais ete la meme demande que «triste».
+    "qui remonte le moral": "uplifting",
+    "pour me remonter le moral": "uplifting",
+    "optimiste": "uplifting", "encourageante": "uplifting",
+    "encourageant": "uplifting", "qui donne le sourire": "uplifting",
+    "euphorique": "euphoric", "euphoriques": "euphoric",
+    "survoltee": "euphoric", "survolte": "euphoric",
+    "qui envoie": "euphoric", "explosive": "euphoric",
+    "explosif": "euphoric",
+    "reveuse": "dreamy", "reveur": "dreamy", "onirique": "dreamy",
+    "oniriques": "dreamy", "etheree": "dreamy", "ethere": "dreamy",
+    "planante": "dreamy", "planant": "dreamy",
+    "pour un coeur brise": "heartbreak", "apres une rupture": "heartbreak",
+    "pour une rupture": "heartbreak", "de rupture": "heartbreak",
+    "damour triste": "heartbreak", "de chagrin damour": "heartbreak",
+    "nostalgique": "nostalgic", "nostalgiques": "nostalgic",
+    "du bon vieux temps": "nostalgic", "davant": "nostalgic",
+    "retro": "nostalgic", "vintage": "nostalgic",
+    "qui rappelle des souvenirs": "nostalgic",
+    "sombre": "dark", "sombres": "dark", "dark": "dark",
+    "tenebreuse": "dark", "tenebreux": "dark", "inquietante": "dark",
+    "glauque": "dark",
+
+    # -- les situations (T2.6) ------------------------------------------------
+    "pour les enfants": "kids", "pour enfants": "kids",
+    "que les enfants aiment": "kids", "pour les petits": "kids",
+    "pour la famille": "kids",
+    "pour chanter": "singalong", "a chanter": "singalong",
+    "quon peut chanter": "singalong",
+    "pour chanter ensemble": "singalong",
+    "quon peut chanter ensemble": "singalong",
+    "a reprendre en choeur": "singalong",
+    "connue": "crowdpleaser", "connu": "crowdpleaser",
+    "connues": "crowdpleaser", "celebre": "crowdpleaser",
+    "celebres": "crowdpleaser", "populaire": "crowdpleaser",
+    "qui plaira a tout le monde": "crowdpleaser",
+    "qui plait a tout le monde": "crowdpleaser",
+    "les grands succes": "crowdpleaser", "grands succes": "crowdpleaser",
+    "pour cuisiner": "cooking", "pour la cuisine": "cooking",
+    "en cuisinant": "cooking", "pendant que je cuisine": "cooking",
+    "pour un jour de pluie": "rainy", "pour les jours de pluie": "rainy",
+    "quand il pleut": "rainy", "pour la pluie": "rainy",
+    "pluvieuse": "rainy",
+    "pour la route": "driving", "pour le voyage": "driving",
+    "pour conduire": "driving", "en voiture": "driving",
+    "pour la voiture": "driving", "road trip": "driving",
+    "longue": "longform", "long": "longform", "longues": "longform",
+    "qui dure": "longform", "epique": "longform", "epiques": "longform",
+    "qui ne sarrete pas tout de suite": "longform",
+    "pour mediter": "meditation", "pour la meditation": "meditation",
+    "de meditation": "meditation", "pour le yoga": "meditation",
+    "meditative": "meditation",
+
+    # -- les genres qui manquaient (T2.6) -------------------------------------
+    # Quatre existaient, douze non: «mets un peu de reggae» partait donc en
+    # recherche de TITRE. Le marqueur est ce qui rend le mot nu sans danger —
+    # le motif est ancre et exige son marqueur, donc «mets Soul» n'arrive
+    # jamais ici, contrairement a «mets un peu de soul».
+    "pop": "pop",
+    "soul": "soul",
+    "funk": "funk", "funky": "funk",
+    "reggae": "reggae", "ska": "reggae", "dub": "reggae",
+    "metal": "metal", "heavy metal": "metal",
+    "punk": "punk",
+    "electro": "electronic", "electronique": "electronic",
+    "techno": "electronic", "house": "electronic",
+    "hip hop": "hiphop", "rap": "hiphop",
+    "country": "country",
+    "folk": "folk",
+    "latino": "latin", "latine": "latin", "salsa": "latin",
+    "musique du monde": "world", "musiques du monde": "world",
+    "world": "world",
+
+    # -- les decennies qui manquaient (T2.6) ----------------------------------
+    "annees cinquante": "fifties", "des annees cinquante": "fifties",
+    "annees 50": "fifties", "des annees 50": "fifties",
+    "annees deux mille": "noughties", "des annees deux mille": "noughties",
+    "annees 2000": "noughties", "des annees 2000": "noughties",
+    "annees 2010": "tens", "des annees 2010": "tens",
 }

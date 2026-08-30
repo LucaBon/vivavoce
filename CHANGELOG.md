@@ -4,6 +4,58 @@
 
 ### New
 
+- **Spanish, the fifth language.** The page has offered `es-ES` to the
+  microphone since read-back shipped, and picked a Spanish voice for it, and
+  then answered in Italian. This is the pack (`localvoice/lang/es.py`) and the
+  catalog (`engine/catalogs/es.py`) behind that choice. Three tests were
+  already written against the gap and one of them said so in as many words —
+  «Spanish is the last mic language without a catalog».
+
+  Three things Spanish does that the other four do not, and each one decided a
+  pattern rather than being translated into one.
+
+  «para» is the stop verb and it is also the commonest preposition in the
+  language. «música PARA dormir», «algo PARA cenar», «Para Todos los
+  Públicos» — and the pause step is gated only on ¬is_play, so an unanchored
+  `\bpara\b` paused the hi-fi on any bare phrase carrying the word, typed or
+  picked from an open list. Half the mood vocabulary carries it. The word now
+  lives only inside `DEV()`, where an article and a device noun have to follow
+  it, which no preposition ever is; a lone «para» and «párala» are written out
+  separately, anchored to the whole command.
+
+  The pronoun welds itself onto the verb and moves the accent when it does.
+  «ponme», «ponlo», «pónmelo», «súbelo», «quítala» are one word each, and the
+  stress mark appears only once the clitic is there. French hyphenates and
+  German keeps its particle at a distance; Spanish writes one word. Every verb
+  in the pack is `acc()` plus a clitic cluster, and no verb is spelled twice —
+  a stem written as "every vowel may carry an accent" already matches «súbe».
+
+  The article is the whole difference between asking for music and pressing
+  play. «pon música» is the ordinary way to ask for something to listen to;
+  «pon la música» is ▶. French lets «mets musique» resume and pays for it;
+  here the device builder requires the article and the first falls to the mood
+  step, which is where it belongs.
+
+  Two smaller ones. The inverted question mark survives `clean_command` —
+  which strips a trailing «?» and leaves the «¿» welded to the first word,
+  where it breaks every ^-anchored pattern at once — so it is stripped there,
+  language-neutrally, rather than written into eleven patterns that would
+  drift apart. And «de» now belongs to two languages: it is how French names
+  an artist and how Spanish does. That is not the bug `engine/connectors/`
+  exists for — that bug was one table matched by every language at once — so
+  the two claims cost nothing, and the test that assumed one owner per
+  connector takes a set now.
+
+  What Spanish does not need, recorded because French needed it badly: no
+  negation guard. «no pares», «no quites», «no apagues» are different words
+  from «para», «quita», «apaga», and `\b` keeps them apart for free. Italian
+  escapes the same trap the same way.
+
+  Not included: the page chrome, which is Italian or English only, and the
+  Home Assistant blueprint, whose sentence triggers are still Italian and
+  English. The phrasings have not been reviewed by a native speaker, and no
+  Spanish recogniser has been run against them.
+
 - **Material Skin opens inside the page.** The link at the bottom used to send
   you to another tab: you got the queue, the covers and the browsing you were
   after, and you left Vivavoce — to say the next thing you had to notice you

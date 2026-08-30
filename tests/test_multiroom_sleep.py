@@ -336,6 +336,42 @@ def test_a_french_room_is_found_on_both_sides(lms, phrase, stripped):
     assert left == stripped
 
 
+@pytest.mark.parametrize(
+    "phrase, stripped",
+    [("pon Time en la cocina", "pon Time"),
+     ("pon Time en el salón", "pon Time"),
+     ("pon Time en cocina", "pon Time"),
+     ("en la cocina pon Time", "pon Time")],
+)
+def test_a_spanish_room_is_found_on_both_sides(lms, phrase, stripped):
+    mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cocina"},
+                                 {"playerid": "s:s", "name": "Salón"}])
+    left, player = mr.extract_room(phrase, "es")
+    assert player is not None, phrase
+    assert left == stripped
+
+
+def test_en_is_the_spanish_room_preposition_and_also_the_service_one(lms):
+    """Italian keeps «su» out and German «auf», because those introduce a
+    service and never a room. Spanish cannot: «en» is both — «en la cocina»
+    and «en Spotify» — and there is no second word for the room. It costs
+    nothing, because the word after it still has to name a real player, and a
+    service is not one."""
+    mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cocina"}])
+    assert mr.extract_room("pon Time en Spotify", "es") == (
+        "pon Time en Spotify", None)
+    assert mr.extract_room("pon Time en la cocina", "es")[1] is not None
+
+
+def test_de_is_not_a_spanish_room_preposition(lms):
+    """The Spanish twin of the Italian «da» and French «de» exclusions: «de»
+    introduces the artist, so with a player called «Cueva» «la música de
+    Cueva» must not become a command for that room."""
+    mr = make_multiroom(players=[{"playerid": "c:c", "name": "Cueva"}])
+    phrase = "pon la música de Cueva"
+    assert mr.extract_room(phrase, "es") == (phrase, None)
+
+
 def test_de_and_sur_are_not_french_room_prepositions(lms):
     """The French twins of the Italian «da»/«su» exclusions: «de» introduces
     the artist and «sur» the service, so with a player called «Cave» neither

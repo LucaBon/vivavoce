@@ -134,14 +134,16 @@ def test_the_reply_frame_is_voiced_in_the_language_it_is_written_in(page, web):
     English, so neither the page language nor the UI language is the answer.
     """
     page.goto(web().url)
-    assert page.evaluate("window.VIVAVOCE_CFG.langs") == ["de", "en", "fr", "it"]
+    assert page.evaluate("window.VIVAVOCE_CFG.langs") == [
+        "de", "en", "es", "fr", "it"]
     page.eval_on_selector("#settings", "el => { el.open = true; }")
     for pick, expected in (("de", "de"), ("en", "en"), ("fr", "fr"),
-                           ("es", "it"), ("it", "it")):
+                           ("es", "es"), ("it", "it")):
         page.select_option("#reclang", pick)
-        # es is the mic language with no catalog behind it: the server answers
-        # in Italian, so the frame is Italian — the same fall-back
-        # messages.set_lang makes. French used to be that case and is not.
+        # Every mic language the page offers now has a catalog behind it, so
+        # every row here is an identity. Spanish was the last one that was
+        # not, and French before it: the row that used to read ("es", "it")
+        # is what shipping a language deletes.
         got = page.evaluate(
             "import('/static/js/i18n.js').then(m => m.replyLang())")
         assert got == expected, f"{pick} -> {got}"

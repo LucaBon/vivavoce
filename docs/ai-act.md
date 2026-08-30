@@ -86,10 +86,12 @@ person, which C(2025) 5053 places outside the definition of an AI system:
   with the patterns hand-written per language in `localvoice/lang/`.
 - **Title matching** — `0.6 × containment + 0.4 × difflib.SequenceMatcher`,
   `engine/matching.py`, `_score`, with fixed thresholds.
-- **"Moods"** — `engine/moods.py`'s `MOODS` is a static hand-written dict mapping the
-  words *the user said* onto LMS genre tags and playlist names. It classifies
-  **music**, not the listener. Nothing infers a mood, an emotion or any other
-  attribute of a person.
+- **"Moods"** — `engine/mood_table.py`'s `MOODS` is a static hand-written dict
+  mapping the words *the user said* onto LMS genre tags and playlist names,
+  looked up by `engine/moods.py`. It classifies **music**, not the listener.
+  Nothing infers a mood, an emotion or any other attribute of a person. The
+  table grew from 22 entries to 51 in T2.6 and stayed hand-written, which is
+  the property this claim rests on — not its size.
 - **Kid-safe** — `engine/guard.py`'s `is_blocked` is a whole-word regex match against a
   parent-authored blocklist; the gate itself (`pro/kidsafe.py`, `guard_for`) turns on
   whether *this browser* has entered the PIN in the last fifteen minutes.

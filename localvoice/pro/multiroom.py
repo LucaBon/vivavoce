@@ -54,14 +54,24 @@ CACHE_TTL = 5.0
 #       text box writes the second one every time. Bare "a" is also the verb
 #       *avoir*, which costs nothing: a phrase only gets this far if the word
 #       after it also names a real player.
+#   Spanish repeats both exclusions and has nothing else to add:
+#     "en" is the room preposition («en la cocina») and it is ALSO the service
+#       one («pon Time en Spotify»). It stays, unlike Italian's "su" and
+#       German's "auf", because Spanish has no second word for the room — and
+#       it costs nothing, since the word after it still has to name a real
+#       player before any of this is spent.
+#     "de" introduces the artist («la música de …»), so it stays out for the
+#       same reason "da", "von" and French's "de" do.
 _PREPS = {
     "it": ("in", "nella", "nel", "sulla", "sul"),
     "en": ("in", "on"),
     "de": ("in", "im", "ins"),
     "fr": ("dans", "en", "au", "aux", "à", "a"),
+    "es": ("en",),
 }
 _ARTICLES = ("the ", "la ", "il ", "lo ", "l'", "le ", "gli ",
-             "der ", "die ", "das ", "dem ", "den ", "les ")
+             "der ", "die ", "das ", "dem ", "den ", "les ",
+             "el ", "los ", "las ")
 
 
 def _fold(text: Optional[str]) -> str:

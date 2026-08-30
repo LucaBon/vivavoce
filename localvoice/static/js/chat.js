@@ -78,6 +78,7 @@ const PICK_PHRASE = {
   en: (n) => "play number " + n,
   de: (n) => "spiel Nummer " + n,
   fr: (n) => "mets le numéro " + n,
+  es: (n) => "pon el número " + n,
 };
 
 function renderChoices(afterEl, choices) {
@@ -90,9 +91,9 @@ function renderChoices(afterEl, choices) {
     // that is how a yes/no offer arrives, where «metti la 1» answers nothing.
     // The server writes them in the language it will parse them in.
     btn.textContent = c.say ? c.label : c.n + " · " + c.label;
-    // The pick phrase must match the language the SERVER parses (it/en/de/fr;
-    // es falls back to Italian patterns), not the page chrome language —
-    // which for German is English, and would send a phrase de.py never sees.
+    // The pick phrase must match the language the SERVER parses (it/en/de/fr/
+    // es), not the page chrome language — which for German is English, and
+    // would send a phrase de.py never sees.
     btn.onclick = () => send(c.say || (PICK_PHRASE[recLang()] || PICK_PHRASE.it)(c.n));
     row.appendChild(btn);
   });

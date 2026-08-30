@@ -22,13 +22,14 @@ either one and the request falls through to the existing paths, unchanged. That
 is why «metti qualcosa di Vasco Rossi» — which clears the marker — is still a
 search for Vasco Rossi and not a mood.
 
-The table below is language-neutral on purpose. The *phrases* people say belong
-to a language pack; the mapping from a mood to genres and playlists does not,
-because a music library's genre tags don't follow the UI language — an Italian
-listener's library says "Classical" as often as "Classica", so both are aliases
-of the same mood. This is also the shape T2.5 fills in later: a generated
-``mood_seeds.json`` replaces the source of this data without changing the lookup
-that reads it, and with the file absent the behaviour is what you see here.
+The table itself is next door, in ``mood_table.py``, and is language-neutral on
+purpose. The *phrases* people say belong to a language pack; the mapping from a
+mood to genres and playlists does not, because a music library's genre tags
+don't follow the UI language — an Italian listener's library says "Classical"
+as often as "Classica", so both are aliases of the same mood. That split is
+also the shape T2.5 fills in later: a generated ``mood_seeds.json`` replaces
+the source of this data without changing the lookup here that reads it, and
+with the file absent the behaviour is what you see today.
 
 A genre used to play in library order, so the same mood opened on the same
 track every evening. The obvious fix was rejected and stays rejected: LMS's
@@ -59,11 +60,15 @@ service playlists are the fallback, not the lead.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from actions import ActionResult, Guard, _normalize, is_blocked_item
 from lms import LMSError
 from messages import msg
+# The table lives next door because it is a list, not a program — see
+# mood_table.py. Re-exported here so ``moods.MOODS`` keeps meaning what it has
+# always meant to the tests and to tools/mood_coverage.py.
+from mood_table import MOODS  # noqa: F401
 
 # How many library genres to ask LMS for. A library with more distinct genre
 # tags than this has bigger problems than the tail of the list being ignored.
@@ -72,135 +77,6 @@ GENRE_LIMIT = 200
 YEAR_LIMIT = 200
 # Playlist candidates per service query, as elsewhere in the client.
 PLAYLIST_LIMIT = 20
-
-# mood key -> the library axis that means it, best first, and the playlist
-# searches to try when the library answers nothing on that axis.
-#
-# The axis is ``genres`` for almost every entry and ``years`` for a decade —
-# an entry carries one or the other, never both, and ``play_mood`` branches on
-# which. A decade's ``years`` is the closed interval it covers, because no LMS
-# filter anywhere accepts a range: the year the load asks for is a single year
-# picked out of that interval.
-#
-# Genre aliases are matched against the library's own tags two ways: equal when
-# normalized ("Classica" == "classica"), or present as a whole word inside a
-# longer tag, so "Classic Rock" answers `rock` and "Jazz Vocal" answers `jazz`.
-# Whole-word is what keeps "Rockabilly" from answering `rock` — a tag that
-# starts alike is not the same tag.
-#
-# Playlist queries are English because TIDAL and Qobuz name their curated
-# playlists in English regardless of the account's country.
-# ``Sequence[Any]`` and not ``Sequence[str]``: a decade's ``years`` holds two
-# ints, everything else holds strings.
-MOODS: Dict[str, Dict[str, Sequence[Any]]] = {
-    "relax": {
-        "genres": ("Ambient", "New Age", "Chillout", "Chill Out", "Downtempo",
-                   "Classical", "Classica", "Easy Listening"),
-        "playlists": ("Relaxing", "Calm", "Chill"),
-    },
-    "sleep": {
-        "genres": ("Ambient", "New Age", "Classical", "Classica"),
-        "playlists": ("Sleep", "Calm", "Relaxing"),
-    },
-    "dinner": {
-        "genres": ("Jazz", "Bossa Nova", "Lounge", "Soul", "Easy Listening"),
-        "playlists": ("Dinner", "Dinner Jazz", "Lounge"),
-    },
-    "party": {
-        "genres": ("Dance", "Disco", "Funk", "House", "Electronic",
-                   "Elettronica", "Pop"),
-        "playlists": ("Party", "Dance Party", "Feel Good"),
-    },
-    "happy": {
-        "genres": ("Pop", "Funk", "Soul", "Reggae", "Ska", "Disco"),
-        "playlists": ("Feel Good", "Happy", "Good Mood"),
-    },
-    "energetic": {
-        "genres": ("Rock", "Electronic", "Elettronica", "Dance", "Punk",
-                   "Metal"),
-        "playlists": ("Workout", "Energy", "Running"),
-    },
-    "focus": {
-        "genres": ("Ambient", "Minimal", "Classical", "Classica",
-                   "Electronic", "Elettronica"),
-        "playlists": ("Focus", "Concentration", "Study"),
-    },
-    "background": {
-        "genres": ("Ambient", "Lounge", "Easy Listening", "Jazz", "Classical",
-                   "Classica"),
-        "playlists": ("Background", "Easy Listening", "Chill"),
-    },
-    "romantic": {
-        "genres": ("Soul", "R&B", "Rhythm and Blues", "Jazz", "Bossa Nova",
-                   "Pop"),
-        "playlists": ("Romantic", "Love Songs", "Date Night"),
-    },
-    "melancholy": {
-        "genres": ("Blues", "Folk", "Cantautori", "Singer-Songwriter",
-                   "Indie", "Alternative"),
-        "playlists": ("Melancholy", "Sad Songs", "Rainy Day"),
-    },
-    "morning": {
-        "genres": ("Jazz", "Bossa Nova", "Folk", "Acoustic", "Pop"),
-        "playlists": ("Morning", "Wake Up", "Breakfast"),
-    },
-    # Genre-shaped vague requests ("metti un po' di jazz"). No title, no artist,
-    # nothing for the parser to find — the same gap, answered by the same
-    # lookup, at no extra cost.
-    "classical": {
-        "genres": ("Classical", "Classica", "Baroque", "Barocco", "Opera",
-                   "Lirica"),
-        "playlists": ("Classical", "Classical Essentials"),
-    },
-    "jazz": {
-        "genres": ("Jazz", "Bebop", "Swing", "Bossa Nova"),
-        "playlists": ("Jazz", "Jazz Essentials"),
-    },
-    "rock": {
-        "genres": ("Rock", "Classic Rock", "Hard Rock", "Progressive Rock",
-                   "Rock Progressivo"),
-        "playlists": ("Rock", "Rock Classics"),
-    },
-    "blues": {
-        "genres": ("Blues", "Rhythm and Blues", "R&B"),
-        "playlists": ("Blues", "Blues Essentials"),
-    },
-    # Metadata axes LMS already carries, added in the second pass. Christmas is
-    # a genre tag people really do have; "instrumental" and "summer" are not —
-    # no library has a tag called either — so both are spelled out as the
-    # genres that genuinely ARE that thing.
-    "christmas": {
-        "genres": ("Christmas", "Natale", "Holiday", "Natalizio"),
-        "playlists": ("Christmas", "Christmas Classics"),
-    },
-    "instrumental": {
-        "genres": ("Instrumental", "Strumentale", "Classical", "Classica",
-                   "Ambient", "Post-Rock"),
-        "playlists": ("Instrumental", "Instrumental Focus"),
-    },
-    "summer": {
-        "genres": ("Reggae", "Latin", "Bossa Nova", "Surf", "Ska"),
-        "playlists": ("Summer", "Summer Hits"),
-    },
-    # Decades: the year axis. See the note above on why the value is an
-    # interval and the load is one year out of it.
-    "sixties": {
-        "years": (1960, 1969),
-        "playlists": ("60s", "60s Hits"),
-    },
-    "seventies": {
-        "years": (1970, 1979),
-        "playlists": ("70s", "70s Hits"),
-    },
-    "eighties": {
-        "years": (1980, 1989),
-        "playlists": ("80s", "80s Hits"),
-    },
-    "nineties": {
-        "years": (1990, 1999),
-        "playlists": ("90s", "90s Hits"),
-    },
-}
 
 
 def match_mood(tail: Optional[str], table: Dict[str, str]) -> Optional[str]:
