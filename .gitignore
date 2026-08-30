@@ -24,3 +24,5 @@ tools/shots/
 
 # Modelli scaricati dal banco di misura (tools/sherpa_bench.py)
 .sherpa-models/
+# Voci Piper scaricate da tools/make_wake_corpus.py (dev, non runtime).
+.piper-voices/
