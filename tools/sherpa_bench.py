@@ -194,6 +194,7 @@ def ensure_model(name: str, models_dir: str) -> str:
         return target
     print(f"  estraggo {basename} ...", flush=True)
     with tarfile.open(archive, "r:bz2") as tf:
+        _safe_members(tf, tf.getnames(), models_dir)
         tf.extractall(models_dir)
     os.remove(archive)
     if not os.path.exists(target):
@@ -201,8 +202,25 @@ def ensure_model(name: str, models_dir: str) -> str:
     return target
 
 
+def _safe_members(archive, names, dest: str):
+    """Refuse any member that would land outside ``dest``.
+
+    Python 3.9 predates ``tarfile``'s ``filter=`` argument, so the check is
+    manual. These archives come from known projects over HTTPS, but one of the
+    URLs is version-pinned in a table that gets bumped by hand, and a path
+    traversal costs nothing to rule out (CVE-2007-4559, and the zip
+    equivalent)."""
+    root = os.path.abspath(dest)
+    for name in names:
+        target = os.path.abspath(os.path.join(dest, name))
+        if target != root and not target.startswith(root + os.sep):
+            raise SystemExit(f"archivio sospetto: {name!r} uscirebbe da {dest}")
+    return archive
+
+
 def _download(url: str, dest: str) -> None:
-    with urllib.request.urlopen(url) as resp, open(dest, "wb") as out:
+    with urllib.request.urlopen(url, timeout=60) as resp, \
+            open(dest, "wb") as out:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0
         while True:
@@ -303,7 +321,6 @@ class Result:
         self.negative_seconds = 0.0
         self.audio_seconds = 0.0
         self.compute_seconds = 0.0
-        self.transcripts: List[Tuple[str, str]] = []
         # (kind, filename, transcript, seconds) for every clip a
         # transcript-matching config decoded. Decoding is the expensive part
         # and the threshold is applied to the *text* afterwards, so keeping
@@ -335,19 +352,26 @@ def run_kws(args, models_dir: str, positives: List[str],
             negatives: List[str]) -> Result:
     """Path A: sherpa-onnx keyword spotting, English model, any phrase.
 
-    Measured 2026-08-30, and both numbers matter when reading a result here:
+    Measured 2026-08-30, **after** the tail drain below was fixed. An earlier
+    pass reported that this path "needs speech around the keyword" (76% with a
+    carrier, 2% alone). That was this harness, not the engine: without
+    ``input_finished()`` the finalclip was never decoded, which punishes a
+    bare phrase most because the phrase *is* the end of the clip. Drained,
+    bare English "light up" detects at **90%**. The claim is withdrawn.
 
-    * **It needs speech around the keyword.** English "light up" (the model's
-      own documented example, spelled with its own tokens) detects at **76%**
-      inside a carrier sentence and **2%** spoken alone. A corpus of bare
-      phrases will therefore score this path near zero for a reason that has
-      nothing to do with the phrase — and the app supports the bare style, so
-      that is a product limitation, not only a benchmarking one.
+    What survives, on a harness now proven healthy:
+
     * **An Italian phrase in English BPE does not work at all.** «vivavoce» ->
-      "▁VI V A VO CE" fired on 0 of 72 clips, flat across 12 threshold/boost
-      combinations. Verified against the model's shipped ground truth
-      (``test_wavs/0.wav`` + ``test_keywords.txt``) that the harness itself
-      detects correctly, so this is the engine, not the wiring.
+      "▁VI V A VO CE" fires on **0 of 72** synthetic clips and **0 of 15**
+      real human utterances, while English on the same code path reaches 90%.
+      That gap is the engine's language, not the wiring.
+    * The models are English/Chinese only, so this is expected rather than
+      surprising — but it is now measured rather than assumed.
+
+    A warning for whoever sweeps the knobs next: a threshold/boost sweep that
+    comes out **flat** is far more likely to mean the harness is not producing
+    a result than that the engine is insensitive. The flatness across 12
+    combinations here was exactly that, and it read convincingly as evidence.
     """
     result = Result("A: KWS zipformer (en) su frase libera")
     try:
@@ -390,14 +414,29 @@ def run_kws(args, models_dir: str, positives: List[str],
         stream = spotter.create_stream(keyword)
         fired = 0
         started = time.perf_counter()
-        # 300 ms chunks: what serverwake.js sends today.
-        for chunk in chunks(samples, int(SAMPLE_RATE * 0.3)):
-            stream.accept_waveform(SAMPLE_RATE, list(chunk))
+        def drain() -> None:
+            nonlocal fired
             while spotter.is_ready(stream):
                 spotter.decode_stream(stream)
                 if spotter.get_result(stream):
                     fired += 1
                     spotter.reset_stream(stream)
+
+        # 300 ms chunks: what serverwake.js sends today.
+        for chunk in chunks(samples, int(SAMPLE_RATE * 0.3)):
+            stream.accept_waveform(SAMPLE_RATE, list(chunk))
+            drain()
+        # Then flush the tail. A streaming zipformer needs right-context
+        # before it will emit, so without this the last ~0.6 s of every clip
+        # is fed in and never decoded — and a wake word is exactly the thing
+        # people say at the end of a recording. Measured on the model's own
+        # test_wavs/0.wav truncated so the keyword ends near EOF: 0 detections
+        # undrained, 1 drained, at every threshold and boost. A knob sweep
+        # that comes out flat is the signature of a result the knobs are not
+        # producing, and this harness printed one.
+        stream.accept_waveform(SAMPLE_RATE, [0.0] * int(SAMPLE_RATE * 0.5))
+        stream.input_finished()
+        drain()
         return fired, time.perf_counter() - started, duration
 
     for path in positives:
@@ -479,7 +518,6 @@ def run_vad_asr(args, models_dir: str, positives: List[str],
         result.hits += 1 if hit else 0
         result.compute_seconds += spent
         result.audio_seconds += duration
-        result.transcripts.append((os.path.basename(path), " | ".join(texts)))
         result.samples.append(("pos", os.path.basename(path),
                                " | ".join(texts), duration))
         if args.verbose:
@@ -527,7 +565,6 @@ def run_faster_whisper(args, models_dir: str, positives: List[str],
         result.hits += 1 if hit else 0
         result.compute_seconds += spent
         result.audio_seconds += duration
-        result.transcripts.append((os.path.basename(path), text))
         result.samples.append(("pos", os.path.basename(path), text, duration))
         if args.verbose:
             print(f"    {'ok ' if hit else 'MISS'} {os.path.basename(path)}: {text}")
@@ -581,6 +618,7 @@ def ensure_vosk_model(lang: str, models_dir: str) -> str:
     os.replace(archive + ".part", archive)
     print(f"  estraggo {basename} ...", flush=True)
     with zipfile.ZipFile(archive) as zf:
+        _safe_members(zf, zf.namelist(), models_dir)
         zf.extractall(models_dir)
     os.remove(archive)
     if not os.path.exists(target):
@@ -644,6 +682,17 @@ def vosk_oov(model, phrase: str) -> List[str]:
             os.close(saved)
         tmp.seek(0)
         noise = tmp.read().decode("utf-8", "replace")
+    # An empty capture and a clean phrase both produce no matches, and the
+    # difference is everything: the first means this check is not working and
+    # D1 is about to report 0% for no stated reason, which is the exact
+    # failure this function exists to prevent. A healthy grammar build always
+    # logs something (UpdateGrammarFst is chatty even when nothing is
+    # missing), so silence here is the alarm.
+    if not noise.strip():
+        raise SystemExit(
+            "vosk_oov: niente catturato su fd 2 — il controllo delle parole "
+            "fuori vocabolario non sta funzionando (SetLogLevel? build senza "
+            "log?). Un risultato D1 di questa esecuzione non e' affidabile.")
     return re.findall(r"Ignoring word missing in vocabulary: '([^']*)'", noise)
 
 
@@ -685,6 +734,12 @@ def _run_vosk(args, models_dir: str, positives: List[str],
         samples, duration = read_wav(path)
         rec = (vosk.KaldiRecognizer(model, SAMPLE_RATE, grammar_json)
                if grammar else vosk.KaldiRecognizer(model, SAMPLE_RATE))
+        # Converted before the clock starts: B and C do their format
+        # conversion outside the timed region, and RTF is the number that
+        # decides whether a path is viable at all, so charging Vosk for work
+        # its rivals do for free would not be a comparison.
+        frames = [float_to_int16_bytes(c)
+                  for c in chunks(samples, int(SAMPLE_RATE * 0.3))]
         fired = 0
         seen = ""
         # Every distinct text the recognizer showed, so --fuzzy-sweep can
@@ -694,8 +749,7 @@ def _run_vosk(args, models_dir: str, positives: List[str],
         candidates: List[str] = []
         started = time.perf_counter()
         # 300 ms, matching run_kws and what serverwake.js sends today.
-        for chunk in chunks(samples, int(SAMPLE_RATE * 0.3)):
-            data = float_to_int16_bytes(chunk)
+        for data in frames:
             # A wake word must fire when it is *heard*, not when the speaker
             # stops, so the partial is checked on every chunk — that is the
             # latency the product actually feels.
@@ -718,8 +772,6 @@ def _run_vosk(args, models_dir: str, positives: List[str],
             if phrase_in(final, args.phrase, args.fuzzy):
                 fired += 1
         spent = time.perf_counter() - started
-        if args.verbose:
-            result.transcripts.append((os.path.basename(path), final))
         return fired, spent, duration, candidates
 
     for path in positives:
@@ -809,12 +861,18 @@ def _events(joined: str, phrase: str, threshold: float) -> int:
     are two separate utterances rather than one seen twice. At the threshold
     the run was recorded with, this reproduces the summary's count exactly.
 
-    Away from that threshold it is an approximation, and deliberately a
-    pessimistic one. A looser setting can match several partials of one
-    utterance as it grows ("vi", "viva", "vivavoce") where the live detector
-    would have fired once and reset; that inflates the count. Over-reporting
-    false triggers is the safe direction for the number this tool exists to
-    protect — an engine is never adopted because the sweep flattered it.
+    Away from that threshold it is an approximation, by two separate
+    mechanisms. A looser setting can match several partials of one utterance
+    as it grows ("vi", "viva", "vivavoce") where the live detector fires once
+    and resets; that inflates the count, which is at least the safe direction
+    for a number whose job is to stop a bad engine being adopted. But the
+    candidate stream itself was recorded under the *recorded* threshold's
+    reset points — the recognizer is rebuilt on every fire, so a live run at
+    another threshold would have reset elsewhere and decoded different audio
+    from there on. That second divergence has no guaranteed sign.
+
+    So: read the sweep for the shape of the curve, and re-run at the chosen
+    threshold before quoting a number from it.
     """
     return sum(1 for text in joined.split(" | ")
                if phrase_in(text, phrase, threshold))
@@ -828,9 +886,11 @@ def sweep_report(results: List[Result], phrase: str) -> List[dict]:
     happened, so every extra threshold here costs a string comparison: what
     the model heard is in ``Result.samples`` and only the *matching* changes.
 
-    Configurations whose threshold lives inside the engine (KWS scoring, and
-    Vosk's grammar mode, which has no fuzzy step at all) have nothing to
-    sweep and are listed as such rather than silently shown flat.
+    Configurations that record no transcripts at all (KWS, whose scoring is
+    internal) have nothing to sweep and say so. Vosk's grammar mode *is*
+    swept, and comes out flat: it emits the phrase or nothing, so an exact
+    match either happens or it does not and the fuzzy threshold has no
+    purchase on it. Flat is the honest answer there, not a hidden one.
     """
     rows = []
     print("\n" + "=" * 72)

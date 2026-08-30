@@ -47,6 +47,7 @@ Piper is dev-only tooling and never a runtime dependency of the app:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -116,13 +117,13 @@ def catalogue() -> Dict[str, dict]:
 
     from piper.download_voices import VOICES_JSON
 
-    return json.loads(urlopen(VOICES_JSON).read().decode("utf-8"))
+    with urlopen(VOICES_JSON, timeout=60) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
-def pick_voices(lang: str, accents: bool) -> List[str]:
+def pick_voices(voices: Dict[str, dict], lang: str, accents: bool) -> List[str]:
     """Every Piper voice for ``lang``, plus the accented English models when
     asked — sorted, so a rerun writes the same corpus."""
-    voices = catalogue()
     prefix = LANG_PREFIX.get(lang, lang)
     chosen = sorted(n for n in voices if n.startswith(prefix))
     if not chosen:
@@ -171,11 +172,17 @@ def write_wav(path: str, samples: Sequence[float], rate: int) -> None:
 
     if rate != SAMPLE_RATE:
         samples = sherpa_bench.resample(samples, rate, SAMPLE_RATE)
-    with wave.open(path, "wb") as wf:
+    # Written aside and renamed, the way sherpa_bench.ensure_model downloads.
+    # A WAV truncated by an interrupted run reads back with no error at all —
+    # wave just reports fewer frames — so the bench would score a clip whose
+    # phrase was never written and blame the engine for missing it.
+    part = path + ".part"
+    with wave.open(part, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(sherpa_bench.float_to_int16_bytes(samples))
+    os.replace(part, path)
 
 
 def synth(voice, text: str, length_scale: float,
@@ -200,13 +207,29 @@ def synth(voice, text: str, length_scale: float,
 
 
 def slugify(text: str) -> str:
-    keep = [c if c.isalnum() else "_" for c in text.lower()]
-    return "".join(keep).strip("_")[:40] or "clip"
+    """A filename fragment: ASCII, lowercase, no separators.
+
+    ``str.isalnum`` is Unicode-wide, so an unrestricted version keeps «perché»
+    and 日本語 in filenames — portable enough on Linux, not worth relying on
+    across the filesystems a corpus gets copied to. Truncation gets a short
+    hash because two long carriers sharing a prefix would otherwise write to
+    the same name, and the second would silently overwrite the first while
+    both were counted."""
+    keep = [c if (c.isalnum() and c.isascii()) else "_" for c in text.lower()]
+    slug = "".join(keep).strip("_") or "clip"
+    # A hash whenever the slug is not a faithful rendering of the text —
+    # truncated, or with characters dropped. «caffè» and «caffé» both reduce
+    # to "caff", and two clips writing to one name would overwrite silently
+    # while the counter still claimed both.
+    if len(slug) > 40 or not text.isascii():
+        digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:6]
+        slug = slug[:33].rstrip("_") + "_" + digest
+    return slug
 
 
 def generate(args) -> int:
     voices_json = catalogue()
-    names = pick_voices(args.lang, args.accents)
+    names = pick_voices(voices_json, args.lang, args.accents)
     texts = ([c.format(p=args.phrase)
               for c in CARRIERS.get(args.lang, CARRIERS["en"])]
              if not args.confusables
