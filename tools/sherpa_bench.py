@@ -304,6 +304,12 @@ class Result:
         self.audio_seconds = 0.0
         self.compute_seconds = 0.0
         self.transcripts: List[Tuple[str, str]] = []
+        # (kind, filename, transcript, seconds) for every clip a
+        # transcript-matching config decoded. Decoding is the expensive part
+        # and the threshold is applied to the *text* afterwards, so keeping
+        # these lets --fuzzy-sweep re-score every threshold for free instead
+        # of re-running the model once per point on the curve.
+        self.samples: List[Tuple[str, str, str, float]] = []
 
     @property
     def rtf(self) -> float:
@@ -459,12 +465,16 @@ def run_vad_asr(args, models_dir: str, positives: List[str],
         result.compute_seconds += spent
         result.audio_seconds += duration
         result.transcripts.append((os.path.basename(path), " | ".join(texts)))
+        result.samples.append(("pos", os.path.basename(path),
+                               " | ".join(texts), duration))
         if args.verbose:
             print(f"    {'ok ' if hit else 'MISS'} {os.path.basename(path)}: "
                   f"{' | '.join(texts)}")
     for path in negatives:
         texts, spent, duration = transcribe_segments(path)
         fired = sum(1 for t in texts if phrase_in(t, args.phrase, args.fuzzy))
+        result.samples.append(("neg", os.path.basename(path),
+                               " | ".join(texts), duration))
         result.false_triggers += fired
         result.negative_seconds += duration
         result.compute_seconds += spent
@@ -503,10 +513,12 @@ def run_faster_whisper(args, models_dir: str, positives: List[str],
         result.compute_seconds += spent
         result.audio_seconds += duration
         result.transcripts.append((os.path.basename(path), text))
+        result.samples.append(("pos", os.path.basename(path), text, duration))
         if args.verbose:
             print(f"    {'ok ' if hit else 'MISS'} {os.path.basename(path)}: {text}")
     for path in negatives:
         text, spent, duration = transcribe(path)
+        result.samples.append(("neg", os.path.basename(path), text, duration))
         result.false_triggers += 1 if phrase_in(text, args.phrase, args.fuzzy) else 0
         result.negative_seconds += duration
         result.compute_seconds += spent
@@ -650,12 +662,17 @@ def _run_vosk(args, models_dir: str, positives: List[str],
             return result
         grammar_json = json.dumps([normalize(args.phrase), "[unk]"])
 
-    def scan(path: str) -> Tuple[int, float, float]:
+    def scan(path: str) -> Tuple[int, float, float, List[str]]:
         samples, duration = read_wav(path)
         rec = (vosk.KaldiRecognizer(model, SAMPLE_RATE, grammar_json)
                if grammar else vosk.KaldiRecognizer(model, SAMPLE_RATE))
         fired = 0
         seen = ""
+        # Every distinct text the recognizer showed, so --fuzzy-sweep can
+        # re-score the same candidates this pass actually judged. Vosk fires
+        # on a rolling partial rather than one final transcript, so scoring
+        # only the final would sweep over something the detector never saw.
+        candidates: List[str] = []
         started = time.perf_counter()
         # 300 ms, matching run_kws and what serverwake.js sends today.
         for chunk in chunks(samples, int(SAMPLE_RATE * 0.3)):
@@ -668,6 +685,7 @@ def _run_vosk(args, models_dir: str, positives: List[str],
             else:
                 text = json.loads(rec.PartialResult()).get("partial", "")
             if text and text != seen:
+                candidates.append(text)
                 if phrase_in(text, args.phrase, args.fuzzy):
                     fired += 1
                     rec = (vosk.KaldiRecognizer(model, SAMPLE_RATE, grammar_json)
@@ -676,23 +694,29 @@ def _run_vosk(args, models_dir: str, positives: List[str],
                     continue
                 seen = text
         final = json.loads(rec.FinalResult()).get("text", "")
-        if final and phrase_in(final, args.phrase, args.fuzzy):
-            fired += 1
+        if final:
+            candidates.append(final)
+            if phrase_in(final, args.phrase, args.fuzzy):
+                fired += 1
         spent = time.perf_counter() - started
         if args.verbose:
             result.transcripts.append((os.path.basename(path), final))
-        return fired, spent, duration
+        return fired, spent, duration, candidates
 
     for path in positives:
-        fired, spent, duration = scan(path)
+        fired, spent, duration, cands = scan(path)
         result.positives += 1
         result.hits += 1 if fired else 0
         result.compute_seconds += spent
         result.audio_seconds += duration
+        result.samples.append(("pos", os.path.basename(path),
+                               " | ".join(cands), duration))
         if not fired and args.verbose:
             print(f"    miss: {os.path.basename(path)}")
     for path in negatives:
-        fired, spent, duration = scan(path)
+        fired, spent, duration, cands = scan(path)
+        result.samples.append(("neg", os.path.basename(path),
+                               " | ".join(cands), duration))
         result.false_triggers += fired
         result.negative_seconds += duration
         result.compute_seconds += spent
@@ -748,6 +772,51 @@ def report(results: List[Result]) -> None:
     print("=" * 72)
 
 
+SWEEP_POINTS = (0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95)
+
+
+def sweep_report(results: List[Result], phrase: str) -> List[dict]:
+    """Detection rate against false triggers per hour, across --fuzzy.
+
+    A single threshold is a single point on a curve, and the point that looks
+    best on one corpus is rarely the one to ship. The decoding already
+    happened, so every extra threshold here costs a string comparison: what
+    the model heard is in ``Result.samples`` and only the *matching* changes.
+
+    Configurations whose threshold lives inside the engine (KWS scoring, and
+    Vosk's grammar mode, which has no fuzzy step at all) have nothing to
+    sweep and are listed as such rather than silently shown flat.
+    """
+    rows = []
+    print("\n" + "=" * 72)
+    print(f"soglia --fuzzy: rilevamenti / falsi trigger, frase «{phrase}»")
+    for res in results:
+        if res.skipped or not res.samples:
+            note = res.skipped or "nessuna trascrizione (soglia interna al motore)"
+            print(f"\n{res.name}\n  non applicabile: {note}")
+            continue
+        pos = [s for s in res.samples if s[0] == "pos"]
+        neg = [s for s in res.samples if s[0] == "neg"]
+        neg_hours = sum(s[3] for s in neg) / 3600.0
+        print(f"\n{res.name}")
+        print("  soglia   rilevamenti      falsi trigger")
+        for th in SWEEP_POINTS:
+            hits = sum(1 for s in pos
+                       if any(phrase_in(t, phrase, th) for t in s[2].split(" | ")))
+            fires = sum(1 for s in neg
+                        if any(phrase_in(t, phrase, th) for t in s[2].split(" | ")))
+            rate = (100.0 * hits / len(pos)) if pos else 0.0
+            per_hour = (fires / neg_hours) if neg_hours else None
+            tail = f"{fires:3d}  ({per_hour:.1f}/ora)" if per_hour is not None \
+                else f"{fires:3d}  (nessun negativo)"
+            print(f"   {th:.2f}    {hits:3d}/{len(pos):-3d} ({rate:3.0f}%)     {tail}")
+            rows.append({"config": res.name, "fuzzy": th, "hits": hits,
+                         "positives": len(pos), "false_triggers": fires,
+                         "false_triggers_per_hour": per_hour})
+    print("=" * 72)
+    return rows
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(
         description="Misura sherpa-onnx come motore di parola chiave / ASR.",
@@ -788,6 +857,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "invece di scaricare quello piccolo per --lang")
     ap.add_argument("--whisper-model", default="small",
                     help="modello faster-whisper per il confronto (default: small)")
+    ap.add_argument("--fuzzy-sweep", action="store_true",
+                    help="stampa la curva rilevamenti/falsi trigger al variare "
+                         "di --fuzzy, invece del singolo punto (gratis: usa "
+                         "le trascrizioni gia' fatte)")
     ap.add_argument("--json", help="scrive i risultati anche in questo file")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="stampa ogni file, con la trascrizione")
@@ -816,10 +889,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         results.append(runners[key](args, args.models_dir, positives, negatives))
 
     report(results)
+    sweep = sweep_report(results, args.phrase) if args.fuzzy_sweep else None
     if args.json:
+        payload: Dict[str, object] = {
+            "phrase": args.phrase,
+            "configs": [r.as_dict() for r in results],
+        }
+        if sweep is not None:
+            payload["fuzzy_sweep"] = sweep
         with open(args.json, "w", encoding="utf-8") as fh:
-            json.dump([r.as_dict() for r in results], fh,
-                      indent=2, ensure_ascii=False)
+            json.dump(payload, fh, indent=2, ensure_ascii=False)
         print(f"risultati in {args.json}")
     return 0
 
