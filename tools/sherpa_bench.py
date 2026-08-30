@@ -333,7 +333,22 @@ class Result:
 
 def run_kws(args, models_dir: str, positives: List[str],
             negatives: List[str]) -> Result:
-    """Path A: sherpa-onnx keyword spotting, English model, any phrase."""
+    """Path A: sherpa-onnx keyword spotting, English model, any phrase.
+
+    Measured 2026-08-30, and both numbers matter when reading a result here:
+
+    * **It needs speech around the keyword.** English "light up" (the model's
+      own documented example, spelled with its own tokens) detects at **76%**
+      inside a carrier sentence and **2%** spoken alone. A corpus of bare
+      phrases will therefore score this path near zero for a reason that has
+      nothing to do with the phrase — and the app supports the bare style, so
+      that is a product limitation, not only a benchmarking one.
+    * **An Italian phrase in English BPE does not work at all.** «vivavoce» ->
+      "▁VI V A VO CE" fired on 0 of 72 clips, flat across 12 threshold/boost
+      combinations. Verified against the model's shipped ground truth
+      (``test_wavs/0.wav`` + ``test_keywords.txt``) that the harness itself
+      detects correctly, so this is the engine, not the wiring.
+    """
     result = Result("A: KWS zipformer (en) su frase libera")
     try:
         import sherpa_onnx
