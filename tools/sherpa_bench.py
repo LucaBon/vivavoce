@@ -22,6 +22,15 @@ listening room fires on the music too.
 **C. faster-whisper.** What ``localvoice/pro/asr.py`` already ships, as the
 accuracy/speed reference the other two are judged against.
 
+**D. Vosk.** Kaldi, streaming, one ~50 MB model per language with real
+Italian — the closest fit to the transport ``/wakeword/chunk`` already has.
+Two configurations, because they behave nothing alike: **D1** restricts the
+recognizer to a grammar of the phrase plus ``[unk]``, which turns an
+open-vocabulary ASR into a cheap phrase detector, and **D2** runs free
+recognition and matches the phrase in the transcript. D1 cannot be told to
+listen for a word outside the model's lexicon (see :func:`vosk_oov`); D2 can
+never *output* one either, so for a coined name both lean on the fuzzy match.
+
     uv run python tools/sherpa_bench.py --phrase vivavoce \\
         --positives ~/audio/si --negatives ~/audio/no
 
@@ -505,6 +514,204 @@ def run_faster_whisper(args, models_dir: str, positives: List[str],
     return result
 
 
+# Vosk ships one model per language, as a zip (not the tarballs above).
+# The "small" line is the one that matters here: ~50 MB, built for exactly
+# this job — streaming recognition on a low-power box — where the full
+# models are 1.5 GB and want a server. Names are upstream's own; a 404 here
+# means the version was bumped, so check https://alphacephei.com/vosk/models.
+VOSK_SMALL = "https://alphacephei.com/vosk/models"
+VOSK_MODELS = {
+    "it": f"{VOSK_SMALL}/vosk-model-small-it-0.22.zip",
+    "en": f"{VOSK_SMALL}/vosk-model-small-en-us-0.15.zip",
+    "fr": f"{VOSK_SMALL}/vosk-model-small-fr-0.22.zip",
+    "de": f"{VOSK_SMALL}/vosk-model-small-de-0.15.zip",
+    "es": f"{VOSK_SMALL}/vosk-model-small-es-0.42.zip",
+}
+
+
+def ensure_vosk_model(lang: str, models_dir: str) -> str:
+    """The unpacked Vosk model directory for ``lang``, downloading once.
+
+    Separate from :func:`ensure_model` because Vosk publishes zips on its own
+    site rather than tarballs on the sherpa-onnx releases page."""
+    import zipfile
+
+    if lang not in VOSK_MODELS:
+        raise SystemExit(
+            f"no Vosk model configured for {lang!r} "
+            f"(have: {', '.join(sorted(VOSK_MODELS))}); pass --vosk-model "
+            f"with a directory you unpacked yourself")
+    url = VOSK_MODELS[lang]
+    os.makedirs(models_dir, exist_ok=True)
+    basename = url.rsplit("/", 1)[-1]
+    target = os.path.join(models_dir, basename[:-len(".zip")])
+    if os.path.exists(target):
+        return target
+
+    archive = os.path.join(models_dir, basename)
+    print(f"  scarico {basename} ...", flush=True)
+    _download(url, archive + ".part")
+    os.replace(archive + ".part", archive)
+    print(f"  estraggo {basename} ...", flush=True)
+    with zipfile.ZipFile(archive) as zf:
+        zf.extractall(models_dir)
+    os.remove(archive)
+    if not os.path.exists(target):
+        raise SystemExit(f"{basename} did not unpack to {target}")
+    return target
+
+
+def float_to_int16_bytes(samples: Sequence[float]) -> bytes:
+    """Float samples to the little-endian 16-bit PCM Vosk eats — the same
+    bytes ``static/js/serverwake.js`` already puts on the wire."""
+    try:
+        import numpy as np
+    except ImportError:
+        import struct
+        clipped = [max(-1.0, min(1.0, s)) for s in samples]
+        return struct.pack(f"<{len(clipped)}h",
+                           *[int(s * 32767) for s in clipped])
+    arr = np.clip(np.asarray(samples, dtype="float32"), -1.0, 1.0)
+    return (arr * 32767).astype("<i2").tobytes()
+
+
+def vosk_oov(model, phrase: str) -> List[str]:
+    """Words of ``phrase`` that the Vosk model has no pronunciation for.
+
+    This is the catch that decides whether grammar mode (D1) can serve an
+    arbitrary customer phrase at all: Kaldi can only listen for words in its
+    lexicon, so a genuinely invented name is not something it can be told to
+    expect. Measured against the small Italian model: "vivavoce" passes (it is
+    an ordinary Italian word for speakerphone, and so are "alexa", "sonos" and
+    "jarvis"), while "zorblax" and "qwertzuiop" do not. So the limit is real
+    but narrower than it sounds — it bites on coined names, not on the kind of
+    phrase most households would actually pick.
+
+    Vosk gives no API for this and the small models ship no ``words.txt``, so
+    the only signal is a warning the C++ layer writes to **file descriptor 2**
+    while the grammar is built ("Ignoring word missing in vocabulary: 'x'") —
+    which :func:`_run_vosk` otherwise suppresses with ``SetLogLevel(-1)``.
+    Verified against vosk 0.3.45: an unknown word does not raise, the
+    recognizer constructs happily and then never fires, so without this the
+    result is a silent 0% and no reason given. Hence the fd-level capture:
+    ``contextlib.redirect_stderr`` cannot see writes from C.
+    """
+    import tempfile
+
+    import vosk
+
+    saved = os.dup(2)
+    with tempfile.TemporaryFile() as tmp:
+        try:
+            os.dup2(tmp.fileno(), 2)
+            vosk.SetLogLevel(0)
+            vosk.KaldiRecognizer(model, SAMPLE_RATE,
+                                 json.dumps([normalize(phrase), "[unk]"]))
+        finally:
+            vosk.SetLogLevel(-1)
+            os.dup2(saved, 2)
+            os.close(saved)
+        tmp.seek(0)
+        noise = tmp.read().decode("utf-8", "replace")
+    return re.findall(r"Ignoring word missing in vocabulary: '([^']*)'", noise)
+
+
+def _run_vosk(args, models_dir: str, positives: List[str],
+              negatives: List[str], grammar: bool) -> Result:
+    """Paths D1/D2: Vosk (Kaldi), streaming, one ~50 MB model per language.
+
+    D1 restricts the recognizer to a grammar of just the phrase plus
+    ``[unk]``, which turns an open-vocabulary ASR into a cheap phrase
+    detector; D2 runs free recognition and matches the phrase in the
+    transcript. They cost and mis-fire very differently, which is the whole
+    reason both are measured."""
+    label = "D1: Vosk grammatica ristretta" if grammar else "D2: Vosk libero"
+    result = Result(f"{label} ({args.lang})")
+    try:
+        import vosk
+    except ImportError:
+        result.skipped = "vosk non installato (uv pip install vosk)"
+        return result
+
+    vosk.SetLogLevel(-1)          # the C++ layer is chatty on stderr
+    model_dir = args.vosk_model or ensure_vosk_model(args.lang, models_dir)
+    model = vosk.Model(model_dir)
+
+    grammar_json = None
+    if grammar:
+        missing = vosk_oov(model, args.phrase)
+        if missing:
+            result.skipped = (
+                f"parole fuori vocabolario: {', '.join(missing)} — la "
+                f"grammatica Kaldi puo' ascoltare solo parole che il modello "
+                f"conosce, quindi un nome inventato qui non innesca mai. "
+                f"Scrivilo con parole reali, o misura D2, che non ha questo "
+                f"limite.")
+            return result
+        grammar_json = json.dumps([normalize(args.phrase), "[unk]"])
+
+    def scan(path: str) -> Tuple[int, float, float]:
+        samples, duration = read_wav(path)
+        rec = (vosk.KaldiRecognizer(model, SAMPLE_RATE, grammar_json)
+               if grammar else vosk.KaldiRecognizer(model, SAMPLE_RATE))
+        fired = 0
+        seen = ""
+        started = time.perf_counter()
+        # 300 ms, matching run_kws and what serverwake.js sends today.
+        for chunk in chunks(samples, int(SAMPLE_RATE * 0.3)):
+            data = float_to_int16_bytes(chunk)
+            # A wake word must fire when it is *heard*, not when the speaker
+            # stops, so the partial is checked on every chunk — that is the
+            # latency the product actually feels.
+            if rec.AcceptWaveform(data):
+                text = json.loads(rec.Result()).get("text", "")
+            else:
+                text = json.loads(rec.PartialResult()).get("partial", "")
+            if text and text != seen:
+                if phrase_in(text, args.phrase, args.fuzzy):
+                    fired += 1
+                    rec = (vosk.KaldiRecognizer(model, SAMPLE_RATE, grammar_json)
+                           if grammar else vosk.KaldiRecognizer(model, SAMPLE_RATE))
+                    seen = ""
+                    continue
+                seen = text
+        final = json.loads(rec.FinalResult()).get("text", "")
+        if final and phrase_in(final, args.phrase, args.fuzzy):
+            fired += 1
+        spent = time.perf_counter() - started
+        if args.verbose:
+            result.transcripts.append((os.path.basename(path), final))
+        return fired, spent, duration
+
+    for path in positives:
+        fired, spent, duration = scan(path)
+        result.positives += 1
+        result.hits += 1 if fired else 0
+        result.compute_seconds += spent
+        result.audio_seconds += duration
+        if not fired and args.verbose:
+            print(f"    miss: {os.path.basename(path)}")
+    for path in negatives:
+        fired, spent, duration = scan(path)
+        result.false_triggers += fired
+        result.negative_seconds += duration
+        result.compute_seconds += spent
+        result.audio_seconds += duration
+        if fired and args.verbose:
+            print(f"    {fired} falsi trigger in {os.path.basename(path)}")
+    return result
+
+
+def run_vosk_grammar(args, models_dir: str, positives: List[str],
+                     negatives: List[str]) -> Result:
+    return _run_vosk(args, models_dir, positives, negatives, grammar=True)
+
+
+def run_vosk_free(args, models_dir: str, positives: List[str],
+                  negatives: List[str]) -> Result:
+    return _run_vosk(args, models_dir, positives, negatives, grammar=False)
+
+
 # --------------------------------------------------------------------------
 
 
@@ -553,8 +760,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--negatives",
                     help="cartella (o file) WAV che NON devono mai innescarla — "
                          "includi almeno un brano dell'impianto a volume normale")
-    ap.add_argument("--config", default="all", choices=["all", "A", "B", "C"],
-                    help="quale configurazione misurare (default: tutte)")
+    ap.add_argument("--config", default="all",
+                    choices=["all", "A", "B", "C", "D", "D1", "D2"],
+                    help="quale configurazione misurare (default: tutte). "
+                         "D = D1 + D2")
     ap.add_argument("--models-dir",
                     default=os.path.join(REPO_ROOT, ".sherpa-models"),
                     help="dove scaricare i modelli (default: .sherpa-models/)")
@@ -573,7 +782,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--fuzzy", type=float, default=0.8,
                     help="somiglianza minima frase/trascrizione (default: 0.8)")
     ap.add_argument("--lang", default="it",
-                    help="lingua per faster-whisper (config C, default: it)")
+                    help="lingua per faster-whisper e Vosk (C/D, default: it)")
+    ap.add_argument("--vosk-model",
+                    help="cartella di un modello Vosk gia' scompattato, "
+                         "invece di scaricare quello piccolo per --lang")
     ap.add_argument("--whisper-model", default="small",
                     help="modello faster-whisper per il confronto (default: small)")
     ap.add_argument("--json", help="scrive i risultati anche in questo file")
@@ -590,8 +802,14 @@ def main(argv: Optional[List[str]] = None) -> int:
               "che sono il rischio principale di un microfono acceso vicino a "
               "un impianto hi-fi.")
 
-    runners = {"A": run_kws, "B": run_vad_asr, "C": run_faster_whisper}
-    chosen = list(runners) if args.config == "all" else [args.config]
+    runners = {"A": run_kws, "B": run_vad_asr, "C": run_faster_whisper,
+               "D1": run_vosk_grammar, "D2": run_vosk_free}
+    if args.config == "all":
+        chosen = list(runners)
+    elif args.config == "D":
+        chosen = ["D1", "D2"]
+    else:
+        chosen = [args.config]
     results = []
     for key in chosen:
         print(f"\n--- configurazione {key} ---")
