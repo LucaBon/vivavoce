@@ -246,7 +246,20 @@ class Router(ConversationState, IntentTable, SourceChoice):
                 "needs_choice": self._needs_choice(),
                 "unmatched": primary[3]}
 
+    #: Wall-clock budget for one spoken turn, shared by every LMS call it
+    #: makes (see ``LMSClient.turn_deadline``). Ten seconds is the point past
+    #: which a person has already decided nothing is going to happen: better
+    #: to say "the music server is not answering" and be wrong than to keep
+    #: them waiting and be right. Individual calls stay bounded by the
+    #: client's own ``timeout``; this bounds their sum.
+    TURN_BUDGET = 10.0
+
     def handle(self, text: str, source: str = "tidal", lang: str = "it") -> str:
+        """One turn, bounded (see :attr:`TURN_BUDGET`)."""
+        with self._base_lms.turn_deadline(self.TURN_BUDGET):
+            return self._handle(text, source, lang)
+
+    def _handle(self, text: str, source: str = "tidal", lang: str = "it") -> str:
         # Reset per turn; _remember/_played set it when this turn opens a list.
         # A bare 'metti la N' pick doesn't re-open one, so its reply carries no
         # buttons (the list was already shown on the previous reply).

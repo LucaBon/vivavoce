@@ -42,8 +42,10 @@ LMS UI language changes them.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -275,6 +277,66 @@ class LMSError(Exception):
     """Raised when the LMS server cannot be reached or returns garbage."""
 
 
+#: Consecutive transport failures before a client stops dialling for a while.
+#: Three, because one is noise (a dropped packet, an LMS mid-restart) and the
+#: retry in :meth:`LMSClient._guarded` already absorbs it.
+BREAKER_THRESHOLD = 3
+
+#: How long the breaker stays open. Long enough that an LMS which is simply
+#: off stops costing a socket timeout per call, short enough that one turned
+#: back on is noticed without touching the app.
+BREAKER_COOLDOWN = 15.0
+
+
+class _Breaker:
+    """Consecutive-failure counter that stops a dead LMS being re-dialled.
+
+    A spoken turn issues several calls in a row — a search, then the play,
+    then the now-playing lookup that names what started. With an LMS that is
+    off, each one waits out the full socket timeout before failing, so "the
+    music server is not answering" costs 8 seconds three or four times over
+    and the listener hears nothing at all for half a minute. After
+    ``threshold`` failures the next calls fail immediately instead, until
+    ``cooldown`` has passed and one probe is allowed through.
+
+    Shared by every shallow copy of a client (``for_service``/``for_player``),
+    like the search-node cache and for the same reason: whether the music
+    server is answering is a fact about the server, not about which clone
+    asked.
+
+    Note that the cooldown expiring does not reset the failure count — only a
+    success does. So the probe that follows a cooldown is exactly one call: if
+    it fails the breaker opens again at once, and a household that left the
+    hi-fi off does not pay for the timeout twice a minute.
+    """
+
+    def __init__(self, threshold: int = BREAKER_THRESHOLD,
+                 cooldown: float = BREAKER_COOLDOWN,
+                 now: Callable[[], float] = time.monotonic) -> None:
+        self.threshold = threshold
+        self.cooldown = cooldown
+        self.now = now
+        self._lock = threading.Lock()
+        self._failures = 0
+        self._open_until = 0.0
+
+    def open_for(self) -> float:
+        """Seconds until a call is worth making again; 0.0 when it is now."""
+        with self._lock:
+            return max(0.0, self._open_until - self.now())
+
+    def record_failure(self) -> None:
+        with self._lock:
+            self._failures += 1
+            if self._failures >= self.threshold:
+                self._open_until = self.now() + self.cooldown
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._failures = 0
+            self._open_until = 0.0
+
+
 def find_uri(obj: Any, pattern: "re.Pattern") -> Optional[str]:
     """Recursively search a (possibly nested) OPML item for the first URI
     matching ``pattern``."""
@@ -353,6 +415,15 @@ class LMSClient:
         # "is Qobuz logged in" is a fact about the server, not about which
         # clone asked. See search_node_id.
         self._search_nodes: Dict[str, Tuple[Optional[str], float]] = {}
+        # Shared across those same copies, for the same reason: "the LMS is
+        # not answering" is a fact about the server. Mutable object rather
+        # than a counter attribute, because a shallow copy shares the object
+        # but would not share a rebound attribute.
+        self._breaker = _Breaker()
+        # Per-thread deadline for the current turn (see turn_deadline). One
+        # Router is shared by every request on a conversation, so the budget
+        # cannot live on the instance.
+        self._turn = threading.local()
 
     def for_service(self, name: str) -> "LMSClient":
         """This client re-targeted at another streaming service. Returns a
@@ -380,8 +451,72 @@ class LMSClient:
         return clone
 
     # -- low level ---------------------------------------------------------
+    @contextlib.contextmanager
+    def turn_deadline(self, seconds: float):
+        """Bound every LMS call this thread makes to ``seconds`` in total.
+
+        One spoken turn is several sequential round trips — ``play_song``
+        searches, plays, then asks what started; ``play_local`` runs three
+        library searches plus a probe per candidate. Each is individually
+        bounded by ``timeout``, and nothing bounded the sum: against a slow
+        or half-dead LMS a single sentence could sit there for twenty-five
+        seconds and then answer with one generic "unreachable".
+
+        Inside this block a call gets whatever is left of the budget, never
+        more, and once the budget is gone the remaining calls fail at once.
+        The reply is then wrong-but-fast rather than wrong-but-slow, which is
+        the only choice actually on offer.
+
+        Nested blocks keep the tighter deadline: the budget of an outer turn
+        is never extended by something it called.
+        """
+        previous = getattr(self._turn, "until", None)
+        until = time.monotonic() + seconds
+        self._turn.until = until if previous is None else min(previous, until)
+        try:
+            yield
+        finally:
+            self._turn.until = previous
+
+    def _call_timeout(self) -> float:
+        """The socket timeout for the next call: the configured one, clamped
+        to what is left of the turn's budget (``timeout`` when unbounded)."""
+        until = getattr(self._turn, "until", None)
+        if until is None:
+            return self.timeout
+        return max(0.0, min(self.timeout, until - time.monotonic()))
+
+    def _guarded(self, params: list):
+        """One transport call, behind the breaker and with a single retry.
+
+        Retried once, and only on a transport failure — a refused connection,
+        a dropped socket, an LMS restarted mid-response. A well-formed answer
+        we happen not to like is never retried: asking again gets the same
+        answer, and the caller has already been told what it means.
+        """
+        wait = self._breaker.open_for()
+        if wait > 0:
+            raise LMSError(
+                f"LMS not answering; not dialled again for {wait:.0f}s")
+        if self._call_timeout() <= 0:
+            raise LMSError("LMS request skipped: this turn ran out of time")
+        try:
+            result = self._transport(params)
+        except LMSError:
+            # Retry only while the turn can still pay for a second attempt.
+            if self._call_timeout() <= 0:
+                self._breaker.record_failure()
+                raise
+            try:
+                result = self._transport(params)
+            except LMSError:
+                self._breaker.record_failure()
+                raise
+        self._breaker.record_success()
+        return result
+
     def _rpc(self, player: str, cmd: List[Any]) -> Dict[str, Any]:
-        result = self._transport([player, [str(c) for c in cmd]])
+        result = self._guarded([player, [str(c) for c in cmd]])
         if not isinstance(result, dict):
             raise LMSError(f"Unexpected LMS result type: {type(result)!r}")
         return result
@@ -415,7 +550,7 @@ class LMSClient:
             ).decode("ascii")
             req.add_header("Authorization", "Basic " + token)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self._call_timeout()) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError,
                 http.client.HTTPException) as exc:
@@ -446,13 +581,20 @@ class LMSClient:
         res = self.command(self.service.tag, "items", *params)
         return res.get("loop_loop") or res.get("item_loop") or []
 
-    #: How long a search-node lookup is trusted. It buys two things at once:
-    #: the extra round-trip ``can_search`` would otherwise add to every
-    #: streaming request (the search path asks for the same node moments
-    #: later), and a bound on how long a plugin that has just been logged in
-    #: keeps being reported as offline. Short enough that authenticating in
-    #: LMS and speaking the next sentence works without restarting the app.
+    #: How long a *found* search node is trusted. It buys the extra round-trip
+    #: ``can_search`` would otherwise add to every streaming request: the
+    #: search path asks for the same node moments later.
     SEARCH_NODE_TTL = 30.0
+
+    #: How long a *missing* one is. Deliberately much shorter, because the two
+    #: answers are not worth the same. A found node saves a round trip that is
+    #: about to happen anyway; a missing one saves nothing — the caller gives
+    #: up rather than asking again — and costs the household the one thing the
+    #: cache should never cost them: logging TIDAL into LMS, coming straight
+    #: back, and being told for another half-minute that it is logged out.
+    #: A couple of seconds still collapses the duplicate lookups inside one
+    #: turn, which is all the saving there ever was on this side.
+    SEARCH_NODE_MISS_TTL = 2.0
 
     def search_node_id(self) -> Optional[str]:
         """Id of the plugin's search node (type == 'search'), or None when the
@@ -460,14 +602,32 @@ class LMSClient:
         looks like from here: a TIDAL that is logged out answers its whole
         menu with one 'Please go to Settings/Advanced/TIDAL' textarea.
 
-        Memoized per service for ``SEARCH_NODE_TTL`` seconds (see there)."""
+        Memoized per service, asymmetrically: see the two TTLs above."""
         cached = self._search_nodes.get(self.service.tag)
         if cached is not None and cached[1] > time.monotonic():
             return cached[0]
         node = self._find_search_node()
-        self._search_nodes[self.service.tag] = (
-            node, time.monotonic() + self.SEARCH_NODE_TTL)
+        ttl = self.SEARCH_NODE_TTL if node else self.SEARCH_NODE_MISS_TTL
+        self._search_nodes[self.service.tag] = (node, time.monotonic() + ttl)
         return node
+
+    def _forget_search_node(self) -> None:
+        """Drop the memoized node for this service, so the next call looks
+        again.
+
+        Called when a search *through* that node comes back with nothing at
+        all — not no results, no categories: the node is not behaving like a
+        search node any more, which is what a plugin logged out since we
+        looked at it looks like from here. Without this the client keeps
+        aiming a stale id at a service that has stopped answering for as long
+        as the TTL, and reports the miss as "nothing found" rather than "not
+        connected" — the one distinction ``can_search`` exists to make.
+
+        A genuinely empty answer costs one extra round trip next time. That is
+        the whole price, and it is only ever paid on the path that already
+        failed.
+        """
+        self._search_nodes.pop(self.service.tag, None)
 
     def can_search(self) -> bool:
         """Whether this service can answer a search at all — i.e. whether the
@@ -505,6 +665,8 @@ class LMSClient:
         items = self._app_items(
             "0", str(count), f"item_id:{node}", f"search:{query}"
         )
+        if not items:
+            self._forget_search_node()
         return {it["name"]: it["id"] for it in items if it.get("name") and it.get("id")}
 
     # Canonical category -> accepted names as the plugin may localize them
