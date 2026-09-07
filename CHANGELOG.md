@@ -182,6 +182,117 @@
 
 ### Fixed
 
+- **The app would not start because the Squeezebox was off.** Two of the four
+  ways `main()` could return 1 were not configuration mistakes at all: no LMS
+  discovered on the network, and no player switched on. Both ended the
+  process before it bound anything, so the web app — the only part of this
+  anyone in the house ever looks at — never came up. The person who could
+  have fixed it in ten seconds by reaching over and switching the hi-fi on
+  saw a phone that would not load a page, while the diagnosis
+  (`Nessun player trovato su …`) sat in a terminal on a machine in a
+  cupboard.
+
+  The server now binds first and explains itself second. Where it used to
+  exit there is a small page on the real port
+  (`localvoice/setupserver.py` for the deciding, `setuppage.py` for the
+  saying) that names which of three things is missing — nothing found on the
+  network, an address that does not answer, or an LMS answering with nothing
+  switched on — and offers the address by hand for the first two. It also
+  goes on looking by itself, so switching the player on is the whole repair:
+  the page walks into the app with nobody typing anything.
+
+  Three details that are the difference between this and a spinner. A
+  remembered address is given up on after two silent probes and the network
+  searched again, because a lease expires and an LMS moves — but an address
+  given with `--lms` never is, since hunting the network for a server
+  somebody already named is how you end up controlling the neighbour's. The
+  network search runs on its own much slower clock than the address probe
+  (`DISCOVER_INTERVAL` against `PROBE_INTERVAL`): one is a short connection,
+  the other is a broadcast plus a unicast sweep of every subnet, and this
+  loop can run all night — which is also why only the cheap half runs before
+  the port is bound, so a first-ever start shows «sto cercando…» rather than
+  an unresponsive address for half a minute. And `--player` still means what
+  it always meant — the LMS has to answer, not the list has to be non-empty.
+
+  `wait_for_players` is gone with it. It solved the same problem from the
+  wrong side: it kept the process alive by refusing to return, which is the
+  behaviour that kept the page from existing.
+
+- **One spoken sentence could take twenty-five seconds to fail.** A turn is
+  several sequential LMS round trips — `play_song` searches, plays, then asks
+  what actually started; `play_local` runs three library searches plus a
+  probe per candidate. Each was bounded by the client's 8-second socket
+  timeout and nothing bounded their sum, so against a half-dead LMS a single
+  command sat there through all of them and then answered with one
+  undifferentiated "server unreachable". Against an LMS that was simply
+  switched off it did that again for the next command, and the next, all
+  evening.
+
+  Three changes, in `engine/lms.py`, and each covers a case the others do
+  not. `turn_deadline` gives the whole turn one budget (`Router.TURN_BUDGET`,
+  ten seconds — the point past which a person has already decided nothing is
+  going to happen); calls inside it get what is left, never more, and once it
+  is gone the rest fail at once. A transport failure is retried **once**,
+  because a dropped packet or an LMS caught mid-restart is not an outage — a
+  well-formed answer we happen not to like is never retried, since asking
+  again gets the same answer. And a breaker opens after three failed
+  commands, so "the hi-fi is off" is learned once instead of re-timed-out per
+  call; the cooldown lets exactly one probe through, and only a success
+  resets the count, so a house that left the system off does not pay for the
+  timeout twice a minute. The breaker is shared by `for_service()` and
+  `for_player()` clones for the same reason the search-node cache is:
+  whether the server answers is a fact about the server.
+
+- **A plugin you had just logged in stayed "logged out" for another half a
+  minute.** The search-node lookup was memoized for thirty seconds in both
+  directions, and the two directions are not worth the same. A *found* node
+  saves a round trip that is about to happen anyway — that is what the cache
+  is for. A *missing* one saves nothing, because the caller gives up rather
+  than asking again, and it costs the household the one thing this cache
+  should never cost them: logging TIDAL into LMS, coming straight back, and
+  being told again that it is not connected. Misses now expire in two seconds
+  (`SEARCH_NODE_MISS_TTL`), which still collapses the duplicate lookups
+  inside one turn, which is all the saving there ever was on that side.
+
+  The other direction had no answer at all: a plugin logged out *since* we
+  looked kept being handed a node id that no longer meant anything, and the
+  failure was reported as "nothing found" rather than "not connected" — the
+  one distinction `can_search` exists to make. A search that comes back with
+  no categories at all now forgets the node, so the next call looks again.
+
+- **One misheard letter in an artist's name was answered with "I couldn't
+  find it".** «Comfortably Numb dei Pink Floid» scores 0.66 against Pink
+  Floyd — under the bar for playing somebody's edition unasked, which is
+  right — and the next line turned that into a flat refusal, with the exact
+  record the household asked for sitting first in the results. A dropped
+  diacritic does the same to half the Latin catalogue.
+
+  "Not sure it is them" and "sure it is not them" are different findings, and
+  only the second is a refusal. Between the two bars the candidates are now
+  offered, nearest name first, so «la 1» is the whole repair; below the lower
+  one (`NEAR_ARTIST_SCORE`) they really are other people — Vasco Rossi
+  against The Beatles scores 0.07 — and "I haven't got it" stays the honest
+  answer. Nothing plays without being asked for either way, which was the
+  part that was already right.
+
+- **"Microphone error: audio-capture".** The status line passed the browser's
+  own error codes straight through, inside a translated frame — `network`,
+  `audio-capture`, `not-allowed` — which is a sentence that tells a household
+  nothing they can act on. Continuous listening giving up was worse: it said
+  the code in brackets and then advised checking the microphone *and* the
+  connection, one of which is always irrelevant. The small fixed vocabulary
+  those two APIs actually raise now has a sentence each, in both languages
+  (`static/js/micerrors.js`), naming the thing the person holding the phone
+  could do about it. A code outside the table keeps its raw spelling rather
+  than getting a generic apology: an unexplained code is still something to
+  search for, and a confident wrong explanation is not.
+
+- **The example commands disappeared for whoever needed them most.** The
+  three chips and the source note went away on the first message — including
+  a message that failed. So the person whose first attempt did not work was
+  the one who lost the examples, for the rest of the session, with no way to
+  get them back. They now stay until something has actually worked.
+
 - **Hands-free listening woke itself up and then said it hadn't understood.**
   Switching on continuous listening starts the recogniser and *then* speaks
   the art. 50(1) notice — and that notice used to open with "Vivavoce,",
@@ -265,6 +376,21 @@
   it to read out.
 
 ### Changed
+
+- **`ERR_UNREACHABLE` is gone.** It was computed once at import, in whatever
+  `DEFAULT_LANG` happened to be, while every live path called `msg()` against
+  the per-request language — a self-acknowledged legacy shim that several
+  tests still compared against. Nothing caught it because `ActionResult`
+  subclasses `str`: a comparison against the frozen Italian sentence came
+  back `False` rather than raising, so those tests only passed for as long as
+  nobody switched language first. Callers ask for `msg("err_unreachable")`,
+  and a test now checks the reply really does follow the turn's language
+  through all five catalogs.
+
+- **The remembered LMS address moved to `appdata`**, next to the data
+  directory and the atomic writes it was already using, and `_lms_reachable`
+  went with it — the setup flow probes every address it is handed, so
+  checking the remembered one twice was only a slower way to be wrong.
 
 - **The connectors are per language now** (`engine/connectors/`), instead of
   one pile every language matched against at once. French is what made the
