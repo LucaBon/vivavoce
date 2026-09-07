@@ -7,6 +7,7 @@ cover the new modes plus the standalone queue/favorites/radio actions.
 """
 
 import actions
+from messages import msg
 from actions import BLOCKED_SPEECH
 
 
@@ -175,7 +176,7 @@ def test_clear_queue(lms, transport):
 
 def test_clear_queue_lms_error(lms, transport):
     transport.raise_on.add("playlist")
-    assert actions.clear_queue(lms) == actions.ERR_UNREACHABLE
+    assert actions.clear_queue(lms) == msg("err_unreachable")
 
 
 def test_queue_list_reads_upcoming_tracks(lms, transport):
@@ -197,7 +198,7 @@ def test_queue_list_empty(lms, transport):
 
 def test_queue_list_lms_error(lms, transport):
     transport.raise_on.add("status")
-    assert actions.queue_list(lms) == actions.ERR_UNREACHABLE
+    assert actions.queue_list(lms) == msg("err_unreachable")
 
 
 # -- favorites ----------------------------------------------------------------
@@ -233,7 +234,7 @@ def test_play_favorites_blocked_terms_skipped(lms, transport):
 
 def test_play_favorites_lms_error(lms, transport):
     transport.raise_on.add("favorites")
-    assert actions.play_favorites(lms) == actions.ERR_UNREACHABLE
+    assert actions.play_favorites(lms) == msg("err_unreachable")
 
 
 # -- radio (via favorites) -----------------------------------------------------
@@ -278,4 +279,4 @@ def test_play_radio_blocked(lms, transport):
 
 def test_play_radio_lms_error(lms, transport):
     transport.raise_on.add("favorites")
-    assert actions.play_radio(lms, "jazz") == actions.ERR_UNREACHABLE
+    assert actions.play_radio(lms, "jazz") == msg("err_unreachable")

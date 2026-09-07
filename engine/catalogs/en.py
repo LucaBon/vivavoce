@@ -50,6 +50,7 @@ MESSAGES = {
     "ask_title": "I didn't catch the title. Can you repeat?",
     "no_track_found": "I couldn't find any track for {title}.",
     "no_track_by": "I couldn't find {title} by {artist}.",
+    "no_track_by_offer": "I couldn't find {query} by {artist}. I do have: {listing}. Which one should I play?",
     "playing": "Playing {name}.",
     "playing_by": "Playing {name} by {artist}.",
     "album_not_found": "I couldn't find the album {album}.",

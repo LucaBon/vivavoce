@@ -15,6 +15,7 @@ from typing import Dict, Optional
 from guard import Guard, is_blocked_item
 from lms import LMSError
 from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
+                      near_artist_matches, _resolved_enough, _trusts_ranking,
                       ActionResult, _MODE_KEY, _MODE_KEY_BY, _MODE_SUFFIX,
                       _dedup_by_title_artist, _did_you_mean, _ndistinct_titles,
                       _covers, _normalize, _rank, _score,
@@ -30,29 +31,6 @@ def _undo_play(lms) -> None:
         lms.clear_queue()
     except LMSError:
         pass
-
-
-def _trusts_ranking(lms) -> bool:
-    """Whether "the search returned it first" is evidence of what was asked for.
-
-    It is, for a search that answers *nothing* when nothing matches: TIDAL and
-    Qobuz return no results for «zzzzqqqxyzzy», so results existing at all means
-    something. It is not for Spotify, whose search always answers — see
-    ``ServiceSpec.trust_ranking``. ``getattr`` twice on purpose: this module's
-    contract is "any object with the same methods", not "an LMSClient".
-    """
-    return getattr(getattr(lms, "service", None), "trust_ranking", True)
-
-
-def _resolved_enough(lms, query, item, key: str = "title") -> bool:
-    """Guard for the paths that resolve a request to a *single* first result —
-    an album, an artist, a playlist. ``_resolve_song`` has its own, richer
-    version of this decision; these four had none at all, which meant «metti
-    l'album <anything>» on Spotify played whatever came back first, in silence.
-    """
-    if _trusts_ranking(lms):
-        return True
-    return _score(query, (item or {}).get(key)) >= CONFIDENT_SCORE
 
 
 def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
@@ -146,6 +124,24 @@ def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None,
         # Only when the results carry artists at all — some feeds don't, and
         # then we genuinely cannot tell.
         if any(t.get("artist") for t in strong):
+            # ...but "not sure it is them" and "sure it is not them" are
+            # different findings, and this line used to report both as the
+            # second: «Comfortably Numb dei Pink Floid» scores 0.66 against
+            # Pink Floyd, so one recogniser slip answered "I couldn't find
+            # it" with the exact record sitting first in the results.
+            # Between the two bars, offer rather than refuse — never play
+            # another artist's edition unasked, but do not end the
+            # conversation either, and lead with the nearest name so «la 1»
+            # is the whole repair. Below the lower bar they really are other
+            # people; see NEAR_ARTIST_SCORE for where the gap is.
+            near = near_artist_matches(artist, strong)
+            if guard and guard.restricted:
+                near = [t for t in near
+                        if not is_blocked_item(t, guard.blocklist)]
+            if near:
+                return _did_you_mean(
+                    title, _dedup_by_title_artist(near[:DIDYOUMEAN_LIMIT]),
+                    key="no_track_by_offer", artist=artist)
             return ActionResult(msg("no_track_by", title=title, artist=artist),
                                 ok=False)
     # 2) Exact title match -> play TIDAL's top exact (e.g. "Money" over "Money for
@@ -160,6 +156,10 @@ def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None,
         # Spotify always returns something — «zzzzqqqxyzzy» yields fourteen
         # tracks — and there the same line plays a song nobody asked for without
         # saying so. See ServiceSpec.trust_ranking.
+        #
+        # This is also the path a bare artist name takes — «metti Audioslave»
+        # matches no title by design — so the bet is not only defensible here,
+        # it is the feature.
         if not _trusts_ranking(lms):
             return ActionResult(msg("no_track_found", title=title), ok=False)
         return _play_tidal_track(lms, tracks[0], title, mode=mode, guard=guard)
@@ -366,7 +366,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 # and forgetting it here is the one mistake this file can still make on its
 # own, which is why a test walks the four modules and checks.
 # ruff: noqa: E402, F401
-from matching import (BLOCKLIST, ERR_UNREACHABLE, LIST_LIMIT, _LEAD_FILLER,
+from matching import (BLOCKLIST, LIST_LIMIT, NEAR_ARTIST_SCORE, _LEAD_FILLER,
                       _strip_lead_filler, LOCAL_CONFIDENT, _label,
                       _APOSTROPHES, _FOLD_MAP, _ALBUM_SEP, _ARTIST_SEP,
                       _NOT_AN_ARTIST, _fold, _normalize_apart)
