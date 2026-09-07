@@ -25,8 +25,6 @@ import os
 import platform
 import socket
 import sys
-import time
-import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -37,10 +35,11 @@ import appdata  # noqa: E402
 import discovery  # noqa: E402
 from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
+import setupserver  # noqa: E402
 import tls  # noqa: E402
 import webguard  # noqa: E402
 from http_api import make_handler  # noqa: E402,F401  (re-exported for tests)
-from lms import SERVICES, LMSClient, LMSError  # noqa: E402
+from lms import SERVICES, LMSClient  # noqa: E402
 
 
 def lan_ips() -> list:
@@ -68,65 +67,6 @@ def lan_ips() -> list:
     except OSError:
         pass
     return []
-
-
-def wait_for_players(lms_url: str, delay: float = 5.0, sleep=time.sleep) -> list:
-    """The LMS player list, retrying until the LMS answers.
-
-    Il PC che ospita questo server spesso si risveglia (o fa boot) PRIMA che
-    la rete sia tornata su: un LMS irraggiungibile in quel momento non è un
-    errore fatale ma uno stato transitorio. Invece di morire con un traceback
-    (costringendo a rilanciare a mano finché non va), aspetta e riprova.
-    Ctrl+C esce.
-    """
-    waited = False
-    while True:
-        try:
-            players = LMSClient(lms_url, "0").get_players()
-            if waited:
-                print("LMS raggiunto.")
-            return players
-        except LMSError as exc:
-            if not waited:
-                print(f"LMS non raggiungibile: {exc}")
-                print(f"Aspetto che {lms_url} risponda, riprovo ogni "
-                      f"{delay:g} secondi (Ctrl+C per uscire)...")
-                waited = True
-            sleep(delay)
-
-
-# -- Cache della discovery ----------------------------------------------------
-# L'ultimo LMS trovato viene ricordato nella cartella dati (in Docker: il
-# volume persistente): al riavvio niente broadcast né sweep unicast, il server
-# riparte subito. Se l'LMS non risponde più, la cache viene ignorata e la
-# discovery ricomincia da capo.
-
-def _lms_cache_path(data_dir: str) -> str:
-    return os.path.join(data_dir, "discovery_cache.json")
-
-
-def _cached_lms(data_dir: str) -> str:
-    cached = appdata.read_json(_lms_cache_path(data_dir), {})
-    return (cached.get("lms") or "") if isinstance(cached, dict) else ""
-
-
-def _save_cached_lms(data_dir: str, url: str) -> None:
-    try:
-        appdata.atomic_write_json(_lms_cache_path(data_dir), {"lms": url})
-    except OSError:
-        pass  # cartella read-only: pazienza, si riscopre al prossimo avvio
-
-
-def _lms_reachable(url: str, timeout: float = 2.0) -> bool:
-    parts = urllib.parse.urlsplit(url)
-    if not parts.hostname:
-        return False
-    try:
-        socket.create_connection((parts.hostname, parts.port or 9000),
-                                 timeout=timeout).close()
-        return True
-    except OSError:
-        return False
 
 
 # Solo le fasi che meritano una riga: il passaggio allo sweep (il broadcast non
@@ -160,6 +100,18 @@ def optional_groups_unavailable_here() -> str:
     return (" Su questa macchina non è installabile: il sistema è ARM a 32 bit "
             f"({platform.machine()}) e onnxruntime non pubblica wheel a 32 bit. "
             "Serve un sistema operativo a 64 bit (aarch64) sullo stesso hardware.")
+
+
+def _announce_setup(scheme: str, hosts: list, port: int, line: str) -> None:
+    """Say where the setup page is before blocking on it.
+
+    Printed only when there IS a setup page — i.e. when something is missing.
+    A normal start never reaches here.
+    """
+    print(f"Pronto (configurazione): {scheme}://{hosts[0]}:{port}")
+    for extra in hosts[1:]:
+        print(f"                        {scheme}://{extra}:{port}")
+    print(line)
 
 
 def _discovery_progress(phase: str) -> None:
@@ -279,38 +231,63 @@ def main() -> int:
         print(f"Parola chiave lato server attiva (openWakeWord, modello "
               f"{wakeword_model}): nessun beep durante l'ascolto continuo.")
 
+    # Where the app will be reachable, worked out before anything can fail:
+    # the setup page below is served at this same address, and a household
+    # that cannot be told where to look cannot fix anything.
+    scheme = "https" if (args.cert and args.key) else "http"
+    if args.host not in ("0.0.0.0", "", "::"):
+        hosts = [args.host]
+    else:
+        hosts = lan_ips() or ["<ip-di-questo-pc>"]
+
     lms_url = args.lms
     if not lms_url:
-        cached = _cached_lms(data_dir)
-        if cached and _lms_reachable(cached):
-            lms_url = cached
+        lms_url = appdata.remembered_lms(data_dir)
+        if lms_url:
+            # Not probed here: serve_setup probes every address it is given,
+            # so checking it twice would only be a slower way to be wrong.
             print(f"LMS: {lms_url} (ricordato dall'ultimo avvio)")
-    if not lms_url:
-        print("Cerco un server LMS sulla rete (UDP 3483)...")
-        lms_url = discovery.discover_base_url(on_progress=_discovery_progress)
-        if not lms_url:
-            print("Nessun LMS trovato. Riprova indicando l'indirizzo: "
-                  "--lms http://IP-DEL-SERVER:9000")
-            return 1
-        print(f"LMS trovato: {lms_url}")
-        _save_cached_lms(data_dir, lms_url)
 
-    # Aspetta che l'LMS risponda anche quando --player è già noto: subito dopo
-    # c'è la rilevazione dei servizi streaming, che con la rete giù ripiegherebbe
-    # in silenzio sul solo TIDAL.
+    said = []
+
+    def discover() -> str:
+        # The searching narration is worth one line, not one per round: this
+        # runs on a loop for as long as the LMS stays missing, which can be
+        # all night. The progress phases below are already one-shot per run.
+        if not said:
+            said.append(1)
+            print("Cerco un server LMS sulla rete (UDP 3483)...")
+        found = discovery.discover_base_url(on_progress=_discovery_progress)
+        if found:
+            print(f"LMS trovato: {found}")
+            appdata.remember_lms(data_dir, found)
+        return found or ""
+
+    # Nothing below this point can hard-exit for a missing LMS or a player
+    # switched off. serve_setup looks once — the usual case, where it returns
+    # straight away — and otherwise binds THIS port, serves a page saying
+    # which of the two is missing, and keeps looking until it isn't. Switch
+    # the Squeezebox on and the page walks itself into the app.
+    #
+    # An explicit --player is trusted the way it always was: it means the LMS
+    # has to answer, not that the list has to be non-empty.
     try:
-        players = wait_for_players(lms_url)
+        lms_url, players = setupserver.serve_setup(
+            args.host, args.port, lms_url, discover,
+            pinned=bool(args.lms), require_player=not args.player,
+            allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
+            wrap=(lambda httpd: tls.wrap_server(httpd, args.cert, args.key))
+            if scheme == "https" else None,
+            announce=lambda line: _announce_setup(scheme, hosts, args.port, line))
     except KeyboardInterrupt:
         print("\nStop.")
         return 1
 
     player = args.player
     if not player:
-        if not players:
-            print(f"Nessun player trovato su {lms_url}")
-            return 1
         player = players[0]["playerid"]
         print(f"Player: {players[0].get('name')} ({player})")
+    appdata.remember_lms(data_dir, lms_url)
 
     client = LMSClient(lms_url, player)
     # Multi-stanza (Pro): come il kid-safe, il modulo vive in pro/ e il core
@@ -357,17 +334,11 @@ def main() -> int:
                      allowed_hosts=webguard.parse_hosts(args.allowed_hosts)),
     )
 
-    scheme = "http"
-    if args.cert and args.key:
+    if scheme == "https":
         tls.wrap_server(httpd, args.cert, args.key)
-        scheme = "https"
 
-    # Print the real address to open, not a placeholder. If --host pins a
-    # specific interface, show that; otherwise (0.0.0.0) show this PC's LAN IP.
-    if args.host not in ("0.0.0.0", "", "::"):
-        hosts = [args.host]
-    else:
-        hosts = lan_ips() or ["<ip-di-questo-pc>"]
+    # The real address to open, not a placeholder — worked out above, before
+    # the setup page needed it.
     print(f"Pronto: {scheme}://{hosts[0]}:{args.port}   (LMS {lms_url})")
     for extra in hosts[1:]:
         print(f"        {scheme}://{extra}:{args.port}")

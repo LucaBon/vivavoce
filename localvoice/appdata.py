@@ -186,3 +186,28 @@ def atomic_write_json(path: str, obj: Any, *, mode: Optional[int] = None) -> Non
             pass
         finally:
             os.close(dir_fd)
+
+
+# -- the remembered LMS -------------------------------------------------------
+# The last music server we talked to, kept in the data directory (in Docker:
+# the persistent volume) so a restart does not pay for a broadcast and a
+# unicast sweep before it can do anything. It is a hint, never a promise: the
+# setup flow probes it like any other address and searches the network again
+# when it has stopped answering.
+
+def _lms_cache_path(data_dir: str) -> str:
+    return os.path.join(data_dir, "discovery_cache.json")
+
+
+def remembered_lms(data_dir: str) -> str:
+    """The address discovery found last time, or ``""``."""
+    cached = read_json(_lms_cache_path(data_dir), {})
+    return (cached.get("lms") or "") if isinstance(cached, dict) else ""
+
+
+def remember_lms(data_dir: str, url: str) -> None:
+    """Remember ``url`` for the next start. Best-effort by design."""
+    try:
+        atomic_write_json(_lms_cache_path(data_dir), {"lms": url})
+    except OSError:
+        pass  # read-only directory: it just gets discovered again next time
