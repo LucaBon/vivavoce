@@ -14,6 +14,7 @@ everything else — the page, the endpoints, the audio graph — is real.
 """
 
 
+
 def _wait_visible(page, selector, timeout_ms=5000, interval_ms=100):
     """Poll ``getComputedStyle(el).display`` rather than a CSS attribute
     selector: the inline style Playwright serializes for `el.style.display =
@@ -97,7 +98,7 @@ def test_server_wake_word_streams_audio_and_stops_cleanly(page_with_fake_mic, we
         "#mic", "el => el.classList.contains('listening')")
 
 
-def test_server_wake_error_message_is_not_clobbered(page, web):
+def test_server_wake_error_message_is_not_clobbered(page, web, mic_problem):
     # getUserMedia rejects (permission denied, no device, ...): the reported
     # error must survive being the LAST thing the user sees, not get
     # immediately overwritten by stopServerWake()'s generic idle text in the
@@ -116,13 +117,7 @@ def test_server_wake_error_message_is_not_clobbered(page, web):
     page.check("#wakemode")
     page.check("#serverwake")  # this is what tries to open the microphone
 
-    status = page.locator("#status")
-    for _ in range(20):
-        if "denied by test" in status.inner_text():
-            break
-        page.wait_for_timeout(100)
-    assert "denied by test" in status.inner_text(), (
-        f"error message was clobbered; status shows {status.inner_text()!r}")
+    mic_problem.wait(page)
 
 
 def test_wakemode_preference_restored_without_web_speech(page_with_fake_mic, web):
@@ -387,7 +382,7 @@ def test_wake_panel_shows_the_phrase_and_grammar_of_the_chosen_engine(
 
 
 def test_a_never_started_sessions_end_does_not_erase_the_new_engines_error(
-        page, web):
+        page, web, mic_problem):
     # The deterministic form of the test above, which was a race for a while.
     #
     # Switching engine calls stopAll() on the browser recogniser and then opens
@@ -418,17 +413,11 @@ def test_a_never_started_sessions_end_does_not_erase_the_new_engines_error(
     srv = web(license_mgr=_ProLicense(), wakeword_sessions=FakeSessions())
     _start_server_wake(page, srv)
 
-    status = page.locator("#status")
-    for _ in range(20):
-        if "denied by test" in status.inner_text():
-            break
-        page.wait_for_timeout(50)
-    assert "denied by test" in status.inner_text()
-
+    mic_problem.wait(page)
     page.wait_for_timeout(500)  # well past the dying session's onend
-    assert "denied by test" in status.inner_text(), (
+    assert mic_problem.shown(page), (
         f"the torn-down session's onend erased it; status shows "
-        f"{status.inner_text()!r}")
+        f"{page.locator('#status').inner_text()!r}")
 
 
 # --- switching listening off has to take the capture with it ------------------

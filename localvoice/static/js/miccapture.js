@@ -193,7 +193,7 @@ export async function startServerWake(onCommand) {
         // stop first: it unconditionally resets the status text, and the
         // error message must be the last write, not the one stopped clobbers.
         stopServerWake();
-        statusEl.textContent = ui("mic_error") + ((e && e.message) || e);
+        statusEl.textContent = ui("mic_error")(e);
       },
     });
   } catch (e) {

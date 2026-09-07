@@ -13,6 +13,7 @@ InvalidStateError. mic.js swallowed that throw, so nothing downstream ever
 learned the microphone had stopped working.
 """
 
+
 # `stranded: true` is the dismissed prompt: start() returns, says nothing
 # back, and poisons the object. abort() is the only way out, which is the
 # whole point of the test — the page has to actually call it.
@@ -105,7 +106,7 @@ def test_the_recovery_survives_a_second_dismissal(page, web):
         timeout=3000)
 
 
-def test_a_denied_microphone_leaves_continuous_listening_alone(page, web):
+def test_a_denied_microphone_leaves_continuous_listening_alone(page, web, mic_problem):
     """A denial on tap-to-talk must not untick wake mode.
 
     It used to: the not-allowed branch tore down continuous listening
@@ -123,7 +124,9 @@ def test_a_denied_microphone_leaves_continuous_listening_alone(page, web):
     """)
     page.wait_for_function("() => !!window.__sr.live", timeout=3000)
     page.evaluate("window.__sr.live.onerror({ error: 'not-allowed' })")
-    page.wait_for_function(
-        "() => document.getElementById('status').textContent.includes('not-allowed')",
-        timeout=3000)
+    # The status shows a microphone problem. Matched on the prefix both
+    # languages share (micerrors.js) rather than on the browser's own
+    # 'not-allowed', which the page deliberately no longer repeats at
+    # people: what it says now is what they can do about it.
+    mic_problem.wait(page)
     assert page.evaluate("localStorage.getItem('wakemode')") == "1"

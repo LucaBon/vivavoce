@@ -187,7 +187,7 @@ export function initMic() {
           rec.start();
         } catch (e) {
           // Twice is not a hiccup. Say so instead of leaving a dead button.
-          statusEl.textContent = ui("mic_error") + (e.name || e);
+          statusEl.textContent = ui("mic_error")(e);
           micUI(false);
         }
       }, 200);
@@ -307,7 +307,7 @@ export function initMic() {
         // preference they set deliberately — is no answer to that.
         if (mode === "wake" || $("wakemode").checked) leaveWakeMode();
         else { stopAll(); micUI(false); }
-        statusEl.textContent = ui("mic_error") + e.error;
+        statusEl.textContent = ui("mic_error")(e);
         return;
       }
       if (mode === "wake") {
@@ -320,7 +320,7 @@ export function initMic() {
         statusEl.textContent = ui("wake_gave_up")(e.error);
         return;
       }
-      statusEl.textContent = ui("mic_error") + e.error;
+      statusEl.textContent = ui("mic_error")(e);
     };
     rec.onresult = (e) => {
       if (mode === "wake") { wake.wakeResult(e); return; }

@@ -272,3 +272,35 @@ def trusted_page(browser_trusting_certs):
     yield page
     ctx.close()
     assert errors == [], f"uncaught JS errors on the page: {errors}"
+
+# --- "the status line is showing a microphone problem" ------------------------
+#
+# The page used to repeat the browser's own word for what went wrong — the raw
+# `not-allowed`, or a DOMException message — and three tests pinned it. It now
+# says what the person holding the phone can do instead (micerrors.js), so the
+# check matches the one thing both language tables share: the prefix. That is
+# also the right thing to be asserting. None of those tests was ever about the
+# wording; they are about the error surviving a teardown that used to write
+# over it.
+
+_MIC_PROBLEM = """() => /^(Microfono|Microphone):/.test(
+    document.getElementById('status').textContent.trim())"""
+
+
+class _MicProblem:
+    """Is the status line reporting a microphone problem?"""
+
+    expression = _MIC_PROBLEM
+
+    @staticmethod
+    def shown(page):
+        return page.evaluate(_MIC_PROBLEM)
+
+    @staticmethod
+    def wait(page, timeout_ms=3000):
+        page.wait_for_function(_MIC_PROBLEM, timeout=timeout_ms)
+
+
+@pytest.fixture
+def mic_problem():
+    return _MicProblem

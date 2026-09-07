@@ -11,6 +11,13 @@
 // snapshotted at load (see initI18n), so index.html stays readable as Italian
 // HTML. What is here is every string built at runtime, plus the English side
 // of the labels.
+//
+// One table lives next door: micerrors.js, which turns the browser's own
+// error codes into sentences. Same kind of data, but it is keyed by somebody
+// else's vocabulary rather than by ours, and it is the only thing here that
+// has to be revisited when a browser invents a new code.
+
+import { MIC_WHY_EN, MIC_WHY_IT, micWhy } from "./micerrors.js";
 
 export const UI_EN = {
   h1: "Vivavoce — local voice control",
@@ -112,9 +119,9 @@ export const UI_EN = {
   say_command: "Yes? Tell me the command…",
   tap_mic: "Tap the microphone and speak.",
   tap_to_resume: "Listening stopped — tap the microphone to resume.",
-  wake_gave_up: (e) => "Continuous listening stopped (" + e +
-    "). Check the microphone and the connection, then tap to start again.",
-  mic_error: "Microphone error: ",
+  wake_gave_up: (e) => "Continuous listening stopped: " + micWhy(MIC_WHY_EN, e) +
+    " Tap the microphone to start again.",
+  mic_error: (e) => "Microphone: " + micWhy(MIC_WHY_EN, e),
   cmd_timeout: "No answer from the server. Is it still running?",
   still_working: "Still working on the previous command\u2026",
   asr_working: "Transcribing…",
@@ -252,9 +259,9 @@ export const UI_IT = {
   say_command: "Sì? Dimmi il comando…",
   tap_mic: "Tocca il microfono e parla.",
   tap_to_resume: "Ascolto interrotto \u2014 tocca il microfono per riprendere.",
-  wake_gave_up: (e) => "Ascolto continuo interrotto (" + e +
-    "). Controlla microfono e connessione, poi tocca per ricominciare.",
-  mic_error: "Errore microfono: ",
+  wake_gave_up: (e) => "Ascolto continuo interrotto: " + micWhy(MIC_WHY_IT, e) +
+    " Tocca il microfono per ricominciare.",
+  mic_error: (e) => "Microfono: " + micWhy(MIC_WHY_IT, e),
   cmd_timeout: "Nessuna risposta dal server. \u00c8 ancora acceso?",
   still_working: "Sto ancora eseguendo il comando precedente\u2026",
   asr_working: "Trascrivo…",
