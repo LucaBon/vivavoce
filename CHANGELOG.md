@@ -4,6 +4,62 @@
 
 ### New
 
+- **La parola chiave sul server è di nuovo quella scelta in casa.** Il motore
+  server esisteva per togliere il beep che Android emette a ogni riavvio del
+  riconoscimento continuo, e lo toglieva — ma insieme si portava via la frase:
+  openWakeWord sente solo le poche frasi inglesi per cui spedisce un modello,
+  quindi «niente beep» costava «Hey Jarvis» e il campo di testo spariva. Ora
+  accanto c'è un secondo motore, Vosk a riconoscimento libero
+  (`localvoice/pro/vosk_wake.py`, gruppo `wakeword-vosk`), che trascrive e cerca
+  la frase nel testo: la frase torna a essere quella digitata, e vale per tutta
+  la casa invece che per il singolo browser (`wakeword.json`, `GET`/`POST
+  /wakeword/phrase`). Vosk vince quando è installato e ha un modello su disco;
+  openWakeWord resta come ripiego dove è già in uso.
+
+  Il modello (~47 MB per lingua) si scarica **all'avvio**, una volta, dentro la
+  cartella dati — quindi in Docker finisce nel volume e sopravvive agli
+  aggiornamenti, come quello di Whisper. All'avvio e non al primo uso, a
+  differenza di Whisper, per una ragione precisa: la prima richiesta della
+  parola chiave è un chunk audio da 320 ms dentro un flusso di chunk, e
+  scaricare 47 MB lì dentro manderebbe la richiesta in timeout — un motore
+  lento diventerebbe indistinguibile da uno rotto. Qui invece è una riga di
+  progresso prima che il server accetti qualcosa, e un fallimento è un
+  messaggio invece che un mistero: senza rete l'avvio prosegue, la parola
+  chiave libera resta spenta e il resto non cambia.
+  `--wakeword-no-download` lo disattiva per installazioni offline;
+  `--wakeword-vosk-model` indica una cartella gestita a mano, e su quella non
+  si scarica mai sopra.
+
+  La scelta viene da un banco di misura, non da una preferenza. Sui 40,2 minuti
+  di impianto acceso in sala registrati per l'occasione, la grammatica ristretta
+  di Kaldi — l'idea ovvia, restringere il riconoscitore alla sola frase — ha
+  fatto **21 falsi trigger all'ora**, sette su voce italiana e sette su
+  strumentale: con due sole uscite possibili, l'audio ambiguo viene spinto verso
+  la frase, e chitarra flamenca e Vivaldi diventano «vivavoce». A lessico pieno
+  ce n'è stato **zero**. La grammatica sopravvive solo come oracolo del
+  vocabolario, mai come decodificatore, e il docstring lo dice per iscritto
+  perché è il tipo di cosa che qualcuno ricablerebbe.
+
+  Misurato attraverso l'endpoint vero, in chunk da 320 ms come li manda
+  `serverwake.js`: **15/15** in stanza silenziosa, **15/17** parlando sopra la
+  musica, **0 falsi trigger** in 40 minuti di sala e **0 su 120 clip di
+  quasi-parole** («vivace», «viva la vita», «prova la voce»…). RTF 0,10 e
+  310 MiB — sotto il gate `MIN_RAM_GIB = 3.5` di `pro/asr.py`, quindi la parola
+  chiave gira anche dove la trascrizione locale non ci sta.
+
+- **Una frase che il motore non potrebbe mai sentire viene rifiutata quando la
+  scrivi.** Kaldi produce solo parole del suo lessico, quindi «vivavoce» si
+  attiva nell'83-100% dei casi e un nome inventato come «zorblax» nello **0%** —
+  83 punti di scarto cambiando solo la parola, e nessun sintomo tranne «la
+  parola chiave non funziona benissimo». `POST /wakeword/phrase` ora interroga
+  il lessico prima di salvare e rifiuta dicendo *quale* parola non esiste. Il
+  controllo è possibile solo leggendo un avviso che lo strato C++ scrive sul
+  **file descriptor 2**: Vosk non espone API, i modelli small non spediscono
+  `words.txt`, e una parola sconosciuta non solleva eccezione — il riconoscitore
+  si costruisce contento e poi non si attiva mai. Il rifiuto vale per il motore
+  server; il browser, che di lessico non ne ha, continua a sentire la frase, e
+  infatti resta salvata in locale.
+
 - **Spanish, the fifth language.** The page has offered `es-ES` to the
   microphone since read-back shipped, and picked a Spanish voice for it, and
   then answered in Italian. This is the pack (`localvoice/lang/es.py`) and the
@@ -181,6 +237,34 @@
   yet been reviewed by a native speaker.
 
 ### Fixed
+
+- **«viva voce» non attivava «vivavoce».** L'ascolto continuo confrontava una
+  parola sentita per ogni parola della frase, il che rende una frase di una
+  parola incapace di corrispondere a due — e dove il riconoscitore mette lo
+  spazio non lo decide chi parla. Sulle 32 registrazioni reali usate per il
+  banco la frase è stata trascritta «viva voce» in **6 delle 29** pronunce
+  effettivamente sentite: tutte scartate in silenzio. Contate a parte, sono 27
+  punti in stanza silenziosa (73% → 100%) e 11 sopra la musica (71% → 82%). Ora
+  il confronto si fa anche a parole incollate, nei due versi.
+
+  Con un vincolo che è costato una seconda misura: se il numero di parole
+  cambia, le lettere devono essere esatte. Perdonare *insieme* uno spazio
+  spostato e una lettera sbagliata spende due tolleranze sullo stesso errore, ed
+  è esattamente lì che passa una quasi-parola — sulle 120 clip di confusabili,
+  «la vita e voce» si attivava, perché "vitavoce" dista un'edit da "vivavoce".
+  Con la regola stretta: zero. La stessa regola vive ora in due posti che devono
+  rispondere uguale, `engine/wakematch.py` e `static/js/wakeword.js`, ed è la
+  ragione per cui il modulo Python esiste.
+
+- **`licenses/MODELS.md` attribuiva ai modelli openWakeWord la licenza del suo
+  codice.** Il codice è Apache-2.0; i **modelli pre-addestrati** sono
+  CC-BY-NC-SA 4.0, per ammissione esplicita del progetto a monte («due to the
+  inclusion of datasets with unknown or restrictive licensing as part of the
+  training data»). Non è una sfumatura: quel motore sta dietro il livello Pro,
+  cioè a pagamento. La pagina ora lo dice, con l'avviso in evidenza. Il motore
+  Vosk che lo affianca non ha questo vincolo — `vosk-api` e i modelli small
+  italiano e inglese sono Apache-2.0 — ma la scelta su cosa fare del ripiego
+  resta da prendere, e non la risolve una correzione di documentazione.
 
 - **The app would not start because the Squeezebox was off.** Two of the four
   ways `main()` could return 1 were not configuration mistakes at all: no LMS
@@ -376,6 +460,26 @@
   it to read out.
 
 ### Changed
+
+- **La scelta dei motori audio opzionali vive in `localvoice/audio_engines.py`.**
+  Aggiungere il secondo motore di parola chiave ha spinto `server.py` oltre il
+  tetto di 400 righe che il repo si dà (`tests/test_packaging.py`), e la
+  cucitura è reale e non aritmetica: tutto quel blocco risponde a una domanda
+  sola — *dato quello che è installato su questa macchina, cosa riesce a
+  sentire l'app?* — ogni motore è opzionale, sondato invece che importato,
+  degrada a un default funzionante, e deve dirlo ad alta voce, perché un motore
+  spento in silenzio è il silenzio più caro che questa app possa produrre. Un
+  test nuovo copre la giuntura che la separazione ha creato: la nota
+  sull'architettura a 32 bit ora è un *parametro*, quindi poteva restare in
+  ogni messaggio ed essere vuota su ogni macchina.
+
+- **Il banco misura i frame che il prodotto manda davvero.** `sherpa_bench.py`
+  spezzava l'audio in chunk da 300 ms con un commento che li diceva uguali a
+  quelli di `serverwake.js`, che ne manda **320**. Non è cosmetico: stessa
+  audio, stessa regola, 14/17 a 300 ms e 15/17 a 320, perché il partial che
+  porta la frase cade su un confine di frame diverso. Una pronuncia su
+  diciassette da sola è rumore; un banco che inquadra l'audio diversamente dal
+  prodotto no.
 
 - **`ERR_UNREACHABLE` is gone.** It was computed once at import, in whatever
   `DEFAULT_LANG` happened to be, while every live path called `msg()` against
