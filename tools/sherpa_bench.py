@@ -83,6 +83,22 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # error, so this conversion is not optional.
 SAMPLE_RATE = 16000
 
+# What the browser actually puts on the wire: CHUNK_MS in
+# static/js/serverwake.js is 320, not 300. The 300 used here was described in
+# a comment as "what serverwake.js sends today" and was not, and the gap is
+# not cosmetic — measured on luca-bargein-1613.wav with the shipped matcher,
+# the same audio and the same rule give 14/17 at 300 ms and 15/17 at 320 ms,
+# because the partial that carries the phrase lands on a different frame
+# boundary. One utterance out of seventeen is noise on its own; a benchmark
+# framing the audio differently from the product is not.
+CHUNK_MS = 320
+
+
+def chunk_samples() -> int:
+    """One frame, in samples."""
+    return int(SAMPLE_RATE * CHUNK_MS / 1000)
+
+
 RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 
 # name -> (url, is_tarball). Sizes are the compressed download.
@@ -423,7 +439,7 @@ def run_kws(args, models_dir: str, positives: List[str],
                     spotter.reset_stream(stream)
 
         # 300 ms chunks: what serverwake.js sends today.
-        for chunk in chunks(samples, int(SAMPLE_RATE * 0.3)):
+        for chunk in chunks(samples, chunk_samples()):
             stream.accept_waveform(SAMPLE_RATE, list(chunk))
             drain()
         # Then flush the tail. A streaming zipformer needs right-context
@@ -739,7 +755,7 @@ def _run_vosk(args, models_dir: str, positives: List[str],
         # decides whether a path is viable at all, so charging Vosk for work
         # its rivals do for free would not be a comparison.
         frames = [float_to_int16_bytes(c)
-                  for c in chunks(samples, int(SAMPLE_RATE * 0.3))]
+                  for c in chunks(samples, chunk_samples())]
         fired = 0
         seen = ""
         # Every distinct text the recognizer showed, so --fuzzy-sweep can
@@ -748,7 +764,7 @@ def _run_vosk(args, models_dir: str, positives: List[str],
         # only the final would sweep over something the detector never saw.
         candidates: List[str] = []
         started = time.perf_counter()
-        # 300 ms, matching run_kws and what serverwake.js sends today.
+        # The browser's own frame size — see CHUNK_MS.
         for data in frames:
             # A wake word must fire when it is *heard*, not when the speaker
             # stops, so the partial is checked on every chunk — that is the
