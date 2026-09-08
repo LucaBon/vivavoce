@@ -32,6 +32,17 @@ asr = [
 wakeword = [
     "openwakeword==0.4.0",
 ]
+# Parola chiave LIBERA lato server (/wakeword, Pro): Vosk (Kaldi) a
+# riconoscimento libero, l'unico dei motori misurati che sente la frase
+# scelta in casa invece di una frase inglese fissa. Gruppo ancora SEPARATO,
+# per la stessa ragione per cui "wakeword" e' separato da "asr": un motore
+# opzionale che non si installa non deve portarsi dietro quello che gia'
+# funziona. Il modello (~50 MB per lingua) NON e' un pacchetto: va messo in
+# <dati>/vosk-models/ (vedi licenses/MODELS.md).
+# Installa con: uv sync --group wakeword-vosk
+wakeword-vosk = [
+    "vosk>=0.3.45",
+]
 
 # Questo repo è una raccolta di moduli (engine/ + tests/), non un pacchetto
 # installabile: diciamo a uv di non provare a "buildarlo".

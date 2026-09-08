@@ -45,9 +45,24 @@ export const UI_EN = {
     '<b>wait for the beep</b>, then say the command. The activation phrase is fixed and ' +
     'English, decided by the model on the server: it cannot be customized. The free-text ' +
     'keyword comes back with the other engine.',
+  wakehint_server_free: 'Continuous listening without the beep: the server does the ' +
+    'wake-word detection, and the browser only takes the microphone for the command ' +
+    'itself. It works in <b>two steps</b>: say ' +
+    '“<b><span id="wwlabel_free">vivavoce</span></b>”, <b>wait for the beep</b>, then ' +
+    'say the command. The phrase is the one above and applies to <b>the whole house</b>, ' +
+    'not just this device. <span class="warn">It has to be made of real words: the engine ' +
+    'only produces words it knows, so a made-up name never fires. If you type one, it ' +
+    'says so instead of accepting it.</span>',
   localasr_lbl: "🎙 local speech recognition (Whisper on the server: audio never leaves home)",
-  serverwake_lbl: "🔈 detect the wake word on the server (no Android beep; fixed " +
-    "“Hey Jarvis” phrase, in English)",
+  serverwake_lbl: "🔈 detect the wake word on the server (no Android beep)",
+  // The refusal from POST /wakeword/phrase, and the confirmation. A phrase the
+  // engine has no pronunciation for does not degrade — it never fires at all —
+  // so this is a refusal to state, not a warning to soften.
+  wake_phrase_rejected: (words) =>
+    `“${words.join("”, “")}”: the server engine has no pronunciation for ` +
+    `${words.length > 1 ? "these words" : "this word"}, so it would never hear ` +
+    `it. Choose a phrase made of real words.`,
+  wake_phrase_saved: "Keyword saved for the whole house.",
   readback_lbl: "🔊 read the reply aloud",
   voices_summary: "Voices &amp; languages",
   lbl_foreign: "Default language for foreign titles",
@@ -256,6 +271,14 @@ export const UI_IT = {
   check_text: "Controlla il testo (occhio ai nomi inglesi) e premi Invia.",
   listening: "Ascolto…",
   listening_wake: (w) => "In ascolto… di' «" + w + " …»",
+  // Il rifiuto di POST /wakeword/phrase, e la conferma. Una frase di cui il
+  // motore non ha la pronuncia non peggiora: non si attiva mai. Quindi e' un
+  // rifiuto da dire, non un avviso da addolcire.
+  wake_phrase_rejected: (words) =>
+    "«" + words.join("», «") + "»: il motore sul server non ha la pronuncia "
+    + (words.length > 1 ? "di queste parole" : "di questa parola")
+    + ", quindi non la sentirebbe mai. Scegli una frase fatta di parole vere.",
+  wake_phrase_saved: "Parola chiave salvata per tutta la casa.",
   say_command: "Sì? Dimmi il comando…",
   tap_mic: "Tocca il microfono e parla.",
   tap_to_resume: "Ascolto interrotto \u2014 tocca il microfono per riprendere.",

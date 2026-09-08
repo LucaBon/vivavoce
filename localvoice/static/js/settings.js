@@ -13,11 +13,13 @@ import { refreshNowPlaying } from "./nowplaying.js";
 export const wakeWord = () => ($("wakeword").value || "vivavoce").trim();
 
 // The phrase continuous listening ACTUALLY answers to. Normally the field
-// above — but the server-side engine is fixed to its own English model
+// above — but a FIXED-phrase server engine is locked to its own English model
 // phrase ("hey jarvis", see pro/wakeword.py) and cannot hear the free-text
 // one at all, so showing "vivavoce" in the hint while that engine is
 // selected was simply false: testers read the hint, said "vivavoce", and got
-// nothing. mic.js pushes the override in whenever the engine choice changes.
+// nothing. The Vosk engine hears the typed phrase, so it sets no override and
+// this falls through to the field. miccapture.js pushes the override in
+// whenever the engine choice changes.
 let wakeOverride = "";
 export const activeWakeWord = () => wakeOverride || wakeWord();
 export function setWakeWordOverride(phrase) {
@@ -32,6 +34,10 @@ export function syncWakeLabel() {
   if (label) label.textContent = wakeWord();
   const srvLabel = $("wwlabel_srv");
   if (srvLabel && wakeOverride) srvLabel.textContent = wakeOverride;
+  // The free-phrase server engine has its own hint, and it quotes the field
+  // like the browser one does — there is no override to show there.
+  const freeLabel = $("wwlabel_free");
+  if (freeLabel) freeLabel.textContent = wakeWord();
   // Greyed out while the override holds: the field configures nothing then,
   // and an editable box next to a phrase it can't change invites the mistake.
   const field = $("wakeword");
@@ -100,13 +106,76 @@ async function loadPlayers() {
   } catch (e) { /* static/offline: the row stays hidden */ }
 }
 
+// --- the wake phrase, household-wide ---------------------------------------
+// It used to live only in this browser's localStorage, which was enough while
+// only this browser could hear it. The server engine listens on behalf of
+// every device in the house, so the server holds the answer and localStorage
+// becomes the offline fallback — the browser engine still has to work with
+// the server unreachable, or a network hiccup would take the microphone with
+// it.
+const PHRASE_SAVE_DEBOUNCE_MS = 700;
+let phraseTimer = null;
+
+function showPhraseMessage(text, bad) {
+  const box = $("wakewordmsg");
+  if (!box) return;
+  box.textContent = text || "";
+  box.style.display = text ? "" : "none";
+  box.classList.toggle("warn", !!bad);
+}
+
+async function savePhrase(phrase) {
+  try {
+    const r = await fetch("/wakeword/phrase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    const d = await r.json();
+    if (d.ok) { showPhraseMessage(ui("wake_phrase_saved"), false); return; }
+    if (d.error === "out_of_vocabulary" && (d.words || []).length) {
+      // Kept locally on purpose: the BROWSER engine has no lexicon and hears
+      // this perfectly well. What is refused is the household-wide setting,
+      // and saying which word is the whole value of the refusal.
+      showPhraseMessage(ui("wake_phrase_rejected")(d.words), true);
+      return;
+    }
+    // "unavailable" is the ordinary answer on a box without the engine, and
+    // there is nothing for the user to do about it: stay quiet.
+    showPhraseMessage("", false);
+  } catch (e) {
+    showPhraseMessage("", false);  // offline: the local value still works
+  }
+}
+
+async function loadPhrase() {
+  try {
+    const r = await fetch("/wakeword/phrase");
+    const d = await r.json();
+    if (!d.ok || !d.phrase) return;
+    $("wakeword").value = d.phrase;
+    localStorage.setItem("wakeword", d.phrase);
+    syncWakeLabel();
+  } catch (e) { /* offline: localStorage already filled the field */ }
+}
+
 export function initSettings() {
   $("wakeword").value = localStorage.getItem("wakeword") || "vivavoce";
   syncWakeLabel();
   $("wakeword").oninput = () => {
+    // Local first and unconditionally: the browser engine answers to this
+    // immediately, whatever the server later says about it.
     localStorage.setItem("wakeword", $("wakeword").value);
     syncWakeLabel();
+    showPhraseMessage("", false);
+    clearTimeout(phraseTimer);
+    // Debounced: oninput fires per keystroke, and "v", "vi", "viv" are three
+    // phrases the house would each be told to listen for.
+    const phrase = wakeWord();
+    if (phrase) phraseTimer = setTimeout(() => savePhrase(phrase),
+                                         PHRASE_SAVE_DEBOUNCE_MS);
   };
+  loadPhrase();
 
   buildSourceOptions();
 

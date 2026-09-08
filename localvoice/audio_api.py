@@ -24,7 +24,8 @@ from __future__ import annotations
 import json
 
 
-def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None):
+def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
+                 wake_phrase_store=None):
     """The audio-engine half of the request handler, bound to its engines.
 
     A class rather than a module of functions for the same reason
@@ -90,6 +91,14 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None):
             payload = {"available": ok}
             if ok:
                 payload["model"] = wakeword_sessions.model
+                # Whether THIS engine can hear a phrase the household typed.
+                # The page has to know, because the two are spoken
+                # differently: a fixed-phrase model detects the trigger and
+                # nothing after it (two steps), while a free-phrase one reads
+                # the whole sentence (one breath). Advertised as a capability
+                # rather than left for the page to guess from the model name.
+                payload["free_phrase"] = hasattr(wakeword_sessions,
+                                                 "set_phrase")
             self._send(200, json.dumps(payload))
 
         def _transcribe(self):
@@ -143,6 +152,80 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None):
                 self._send(200, json.dumps({"ok": False, "error": str(exc)}))
                 return
             self._send(200, json.dumps({"ok": True, "triggered": triggered}))
+
+        # A phrase is a couple of words; 4 KB is a generous JSON envelope
+        # around them and refuses a runaway client without buffering it.
+        MAX_PHRASE_BYTES = 4 * 1024
+
+        def _wake_phrase_get(self):
+            # Not Pro-gated, and deliberately so: the phrase is household
+            # configuration, and the FREE engine (Web Speech, in the browser)
+            # answers to it too. The Pro gate belongs on the work that costs
+            # the server's CPU — POST /wakeword/chunk — not on reading back a
+            # setting the free tier also uses.
+            if wake_phrase_store is None:
+                self._send(200, json.dumps({"ok": False,
+                                            "error": "unavailable"}))
+                return
+            self._send(200, json.dumps(
+                {"ok": True, "phrase": wake_phrase_store.get()},
+                ensure_ascii=False))
+
+        def _wake_phrase_set(self):
+            length = self.content_length()
+            if wake_phrase_store is None:
+                self._refuse_audio(length, "unavailable")
+                return
+            if length > self.MAX_PHRASE_BYTES:
+                self._refuse_audio(length, "too_large")
+                return
+            raw = self.rfile.read(length) if length else b""
+            try:
+                phrase = (json.loads(raw or b"{}").get("phrase") or "").strip()
+            except (ValueError, AttributeError):
+                self._send(200, json.dumps({"ok": False, "error": "bad_json"}))
+                return
+            if not phrase:
+                self._send(200, json.dumps({"ok": False, "error": "empty"}))
+                return
+            missing = self._phrase_out_of_vocabulary(phrase)
+            if missing:
+                # Refused, not saved. A phrase the engine has no pronunciation
+                # for does not degrade — it never fires at all (measured: an
+                # invented word detects at 0%, an ordinary one at 83-100%),
+                # and the failure has no symptom except "the wake word doesn't
+                # work very well". Saying so here is the whole point.
+                self._send(200, json.dumps(
+                    {"ok": False, "error": "out_of_vocabulary",
+                     "words": missing}, ensure_ascii=False))
+                return
+            try:
+                wake_phrase_store.set(phrase)
+            except OSError as exc:
+                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
+                return
+            # Every open session carries the old phrase; the engine drops them
+            # so the house answers to the new one without a reload per device.
+            setter = getattr(wakeword_sessions, "set_phrase", None)
+            if setter is not None:
+                setter(phrase)
+            self._send(200, json.dumps({"ok": True, "phrase": phrase},
+                                       ensure_ascii=False))
+
+        def _phrase_out_of_vocabulary(self, phrase):
+            """Words the engine could never hear, or ``[]`` when there is no
+            engine to ask. Advisory by construction: the browser engine has no
+            lexicon limit, so with the server engine absent every phrase is
+            legitimately fine and refusing one would be inventing a rule."""
+            check = getattr(wakeword_sessions, "out_of_vocabulary", None)
+            if check is None or not wakeword_sessions.available():
+                return []
+            try:
+                return check(phrase)
+            except Exception:
+                # The check itself failing must not block the setting: it is a
+                # warning about one engine, not the authority on the phrase.
+                return []
 
         def _wakeword_stop(self):
             # Rilascia il modello del client: senza, la sessione (memoria ONNX)

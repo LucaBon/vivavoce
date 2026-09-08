@@ -64,7 +64,10 @@ def test_wakeword_reports_available_with_model(live_server):
     srv = live_server(wakeword_sessions=FakeSessions())
     resp = srv.get("/wakeword")
     assert resp.status == 200
-    assert resp.json() == {"available": True, "model": "hey_jarvis"}
+    # free_phrase says whether this engine can hear a phrase the household
+    # typed; openWakeWord cannot, so the page keeps showing its fixed one.
+    assert resp.json() == {"available": True, "model": "hey_jarvis",
+                           "free_phrase": False}
 
 
 def test_wakeword_reports_unavailable_without_sessions(live_server):

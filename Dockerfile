@@ -30,6 +30,15 @@ RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper>=1.0"; 
 ARG WAKEWORD=0
 RUN if [ "$WAKEWORD" = "1" ]; then pip install --no-cache-dir "openwakeword==0.4.0"; fi
 
+# Variante parola chiave LIBERA (opzionale, separata anche da WAKEWORD):
+# --build-arg WAKEWORD_VOSK=1 preinstalla vosk, il solo motore misurato che
+# sente la frase scelta in casa invece di una frase inglese fissa. Il modello
+# (~50 MB per lingua) NON e' nell'immagine: va messo in /data/vosk-models/,
+# cioe' nel volume, cosi' sopravvive agli aggiornamenti — come i modelli
+# Whisper e per la stessa ragione.
+ARG WAKEWORD_VOSK=0
+RUN if [ "$WAKEWORD_VOSK" = "1" ]; then pip install --no-cache-dir "vosk>=0.3.45"; fi
+
 WORKDIR /app
 COPY engine/ engine/
 COPY localvoice/ localvoice/

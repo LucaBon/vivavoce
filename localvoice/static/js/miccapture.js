@@ -15,7 +15,7 @@
 
 import { $, clientId } from "./util.js";
 import { ui } from "./i18n.js";
-import { setWakeWordOverride } from "./settings.js";
+import { setWakeWordOverride, activeWakeWord } from "./settings.js";
 import { beep } from "./wakeword.js";
 import { readbackOn, speakAiNotice } from "./tts.js";
 import { startWakeStream } from "./serverwake.js";
@@ -72,10 +72,12 @@ export function micUI(listening) {
 export const LOCALREC_MAX_MS = 30000;
 
 // --- Server-side wake word (Pro): the beep-free alternative to Web Speech's
-// continuous listening (see localvoice/pro/wakeword.py). Fixed to whichever
-// English phrase the server's model detects ("hey jarvis" by default) — NOT
-// the free-text wakeWord() field, which only makes sense for the Web Speech
-// fuzzy-text engine. Offered as an extra choice alongside it, not instead.
+// continuous listening. Two engines can be behind it and they differ in the
+// one thing the panel has to say out loud — whether the phrase is the
+// household's or the model's. pro/vosk_wake.py hears the typed phrase;
+// pro/wakeword.py hears only the English phrase it ships a model for. The
+// server says which in /wakeword (`free_phrase`). Offered as an extra choice
+// alongside the browser engine, not instead of it.
 let SERVERWAKE = { available: false, model: null };
 let serverWakeStream = null;  // the active startWakeStream() handle, or null
 
@@ -95,23 +97,32 @@ function renderServerWakeRow() {
   syncWakePhrase();
 }
 
-// The two engines don't just hear different phrases, they are SPOKEN
-// differently — one sentence ("vivavoce metti i Pink Floyd") for Web Speech,
-// two steps (phrase, beep, command) for the server one, because openWakeWord
-// detects the trigger and nothing after it. One shared hint had testers
-// saying "hey jarvis pausa" in a single breath, which can never work: the
-// command capture only opens once the trigger has fired. So the panel shows
-// the hint for the engine actually selected, and names the phrase that engine
-// can actually hear.
+// Browser and server are SPOKEN differently — one sentence ("vivavoce metti i
+// Pink Floyd") for Web Speech, two steps (phrase, beep, command) for either
+// server engine, which answers "triggered" and nothing after it. One shared
+// hint had testers saying "hey jarvis pausa" in a single breath, which can
+// never work: the command capture only opens once the trigger has fired. So
+// the panel shows the hint for the engine actually selected, and names the
+// phrase that engine can actually hear.
 export function syncWakePhrase() {
   const server = serverWakeOn();
-  setWakeWordOverride(server ? modelDisplayName(SERVERWAKE.model) : "");
+  // Not every server engine has a fixed phrase any more: the Vosk one hears
+  // the phrase the household typed (see localvoice/pro/vosk_wake.py) and says
+  // so in /wakeword as `free_phrase`. Read as a capability rather than
+  // guessed from the model name, so adding an engine does not mean teaching
+  // the page a new string to pattern-match.
+  const fixed = server && !SERVERWAKE.free_phrase;
+  setWakeWordOverride(fixed ? modelDisplayName(SERVERWAKE.model) : "");
   $("wakehint").style.display = server ? "none" : "";
-  $("wakehint_server").style.display = server ? "" : "none";
-  // Not merely greyed: a row labelled "keyword to say" above a box holding
-  // "vivavoce" contradicts the hint next to it, which says the phrase is
-  // fixed. The field comes back, with its value, on switching engine again.
-  $("wakewordrow").style.display = server ? "none" : "";
+  $("wakehint_server").style.display = fixed ? "" : "none";
+  // Still two steps even when the phrase is free — the server answers
+  // "triggered", not "here is the command" — so this is its own hint rather
+  // than the browser one.
+  $("wakehint_server_free").style.display = (server && !fixed) ? "" : "none";
+  // Hidden only for a FIXED-phrase engine: a row labelled "keyword to say"
+  // above a box holding "vivavoce" contradicts a hint saying the phrase is
+  // fixed. With a free-phrase engine the box is the setting, so it stays.
+  $("wakewordrow").style.display = fixed ? "none" : "";
 }
 
 export async function refreshServerWake() {
@@ -214,7 +225,7 @@ export async function startServerWake(onCommand) {
   }
   serverWakeStream = stream;
   micUI(true);
-  statusEl.textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+  statusEl.textContent = ui("listening_wake")(activeWakeWord());
 }
 
 function drainQueuedStart() {
@@ -270,7 +281,7 @@ export function endCommandCapture(keepStatus) {
     serverWakeStream.resume();
     micUI(true);
     if (!keepStatus) {
-      $("status").textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+      $("status").textContent = ui("listening_wake")(activeWakeWord());
     }
   } else {
     micUI(false);

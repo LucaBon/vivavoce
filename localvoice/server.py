@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(ROOT, "engine"))  # actions, lms
 sys.path.insert(0, HERE)  # router, http_api, ...
 
 import appdata  # noqa: E402
+import audio_engines  # noqa: E402
 import discovery  # noqa: E402
 from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
@@ -167,6 +168,19 @@ def main() -> int:
                          "pronte all'uso — non è personalizzabile come la "
                          "parola chiave del browser). Serve il gruppo: "
                          "uv sync --group wakeword")
+    ap.add_argument("--wakeword-lang",
+                    default=appdata.env("WAKEWORD_LANG", "it"),
+                    help="lingua del modello Vosk per la parola chiave libera "
+                         "lato server (it/en/fr/de/es, default: it). Il "
+                         "modello e' una risorsa di processo da ~50 MB, quindi "
+                         "e' scelto qui e non per richiesta come la lingua "
+                         "delle risposte.")
+    ap.add_argument("--wakeword-vosk-model",
+                    default=appdata.env("WAKEWORD_VOSK_MODEL"),
+                    help="cartella del modello Vosk da usare per la parola "
+                         "chiave libera, se non quella predefinita sotto "
+                         "<dati>/vosk-models/. Serve il gruppo: "
+                         "uv sync --group wakeword-vosk")
     args = ap.parse_args()
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
@@ -188,48 +202,11 @@ def main() -> int:
             print(f"Prova Pro: restano {trial['days_left']} giorni.")
     from pro.kidsafe import KidSafe
     kidsafe = KidSafe(data_dir, license_mgr)
-    # Riconoscimento vocale locale (Pro): il modello si carica solo al primo
-    # /transcribe; i modelli finiscono nella cartella dati (in Docker: il
-    # volume persistente), non nell'immagine. Il default è RAM-aware: sotto
-    # ~4 GB resta spento (tiny/base storpiano i titoli inglesi, small non ci
-    # sta) a meno che --asr-model non lo forzi esplicitamente.
-    from pro.asr import (WhisperTranscriber, default_model, total_ram_gib)
-    asr_model = args.asr_model or default_model()
-    transcriber = None
-    if not WhisperTranscriber().available():
-        print("Riconoscimento vocale locale non installato: il microfono usa "
-              "il riconoscimento del browser. Per attivarlo: uv sync --group asr"
-              + optional_groups_unavailable_here())
-    elif asr_model:
-        transcriber = WhisperTranscriber(
-            asr_model, cache_dir=os.path.join(data_dir, "asr-models"))
-        print(f"Riconoscimento vocale locale attivo (faster-whisper, modello "
-              f"{asr_model}): l'audio del microfono resta in casa.")
-    else:
-        print(f"Riconoscimento vocale locale spento: questa macchina ha "
-              f"~{total_ram_gib():.1f} GiB di RAM — il modello 'small' vuole "
-              "~1 GB al picco e quelli più piccoli storpiano i titoli "
-              "inglesi. Per forzarlo comunque: --asr-model tiny "
-              "(o VIVAVOCE_ASR_MODEL).")
-
-    # Parola chiave lato server (Pro): elimina il beep Android della
-    # continua-ascolto del browser, ma solo con poche frasi inglesi pronte
-    # all'uso (non personalizzabile come quella del browser — vedi
-    # pro/wakeword.py). Gruppo opzionale SEPARATO da "asr" apposta (vedi
-    # pro/wakeword.py: openwakeword>=0.5 rompe su Python 3.12+ per una
-    # dipendenza rigida da tflite-runtime).
-    from pro.wakeword import DEFAULT_MODEL as WAKEWORD_DEFAULT_MODEL
-    from pro.wakeword import ServerWakeWordSessions
-    wakeword_model = args.wakeword_model or WAKEWORD_DEFAULT_MODEL
-    wakeword_sessions = ServerWakeWordSessions(wakeword_model)
-    if not wakeword_sessions.available():
-        print("Parola chiave lato server non installata: l'ascolto continuo "
-              "usa il riconoscimento del browser (col beep su Android). "
-              "Per attivarla: uv sync --group wakeword"
-              + optional_groups_unavailable_here())
-    else:
-        print(f"Parola chiave lato server attiva (openWakeWord, modello "
-              f"{wakeword_model}): nessun beep durante l'ascolto continuo.")
+    # The optional audio engines (local ASR, server-side wake word) and
+    # the household's wake phrase, in audio_engines.py — including which
+    # of the two wake-word engines this box can actually run.
+    transcriber, wakeword_sessions, wake_phrase_store = audio_engines.build(
+        args, data_dir, optional_groups_unavailable_here())
 
     # Where the app will be reachable, worked out before anything can fail:
     # the setup page below is served at this same address, and a household
@@ -331,6 +308,7 @@ def main() -> int:
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version(),
                      wakeword_sessions=wakeword_sessions,
+                     wake_phrase_store=wake_phrase_store,
                      allowed_hosts=webguard.parse_hosts(args.allowed_hosts)),
     )
 

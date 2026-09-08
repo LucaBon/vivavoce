@@ -46,7 +46,11 @@ def test_wakeword_unavailable_message_points_at_the_right_group():
     # sits before LMS discovery, but exercising that path for real would mean
     # either a live LMS or mocking discovery/serve_setup in ways that
     # risk hanging on real network calls for no extra safety over this.
-    with open(os.path.join(ROOT, "localvoice", "server.py"), encoding="utf-8") as f:
+    #
+    # audio_engines.py, not server.py: the engine choice moved there when it
+    # pushed server.py past the 400-line ceiling.
+    with open(os.path.join(ROOT, "localvoice", "audio_engines.py"),
+              encoding="utf-8") as f:
         source = f.read()
     marker = "Parola chiave lato server non installata"
     assert marker in source
@@ -87,10 +91,22 @@ def test_both_unavailable_messages_carry_the_architecture_note():
     # Source scan, for the same reason as the test above it: the prints sit
     # before LMS discovery. Whichever engine the user is missing, they must
     # learn on a 32-bit box that the install can't work — not just one of them.
-    with open(os.path.join(ROOT, "localvoice", "server.py"), encoding="utf-8") as f:
+    with open(os.path.join(ROOT, "localvoice", "audio_engines.py"),
+              encoding="utf-8") as f:
         source = f.read()
     for marker in ("Riconoscimento vocale locale non installato",
                    "Parola chiave lato server non installata"):
         assert marker in source
         message = source[source.index(marker):source.index(marker) + 400]
-        assert "optional_groups_unavailable_here()" in message, marker
+        assert "unavailable_note" in message, marker
+
+
+def test_the_architecture_note_actually_reaches_the_engine_messages():
+    # The half the source scan above can no longer see. Those messages append
+    # a note that is now a PARAMETER, so the note can be present in every
+    # message and still be empty on every machine if server.py stops passing
+    # it — a seam that did not exist while both halves were one file.
+    with open(os.path.join(ROOT, "localvoice", "server.py"), encoding="utf-8") as f:
+        source = f.read()
+    call = source[source.index("audio_engines.build("):]
+    assert "optional_groups_unavailable_here()" in call.split(")\n")[0]
