@@ -69,8 +69,20 @@ def build(args, data_dir: str, unavailable_note: str = ""):
     from pro.vosk_wake import ServerVoskWakeSessions
     from pro.vosk_wake import available as vosk_available
     from pro.vosk_wake import models_dir as vosk_models_dir
+    from pro.vosk_wake import resolve_model as vosk_resolve_model
 
     wake_phrase_store = appdata.WakePhraseStore(data_dir)
+    # Fetched here, before the server accepts anything, and only when the
+    # package is installed and the model is genuinely absent — see
+    # pro/vosk_model.py for why this cannot be lazy like the Whisper one.
+    # Never for an explicit --wakeword-vosk-model: that names a directory the
+    # administrator manages, and downloading over it would be answering a
+    # question nobody asked.
+    if (vosk_available() and not args.wakeword_no_download
+            and not args.wakeword_vosk_model
+            and not vosk_resolve_model(args.wakeword_lang, data_dir)):
+        from pro.vosk_model import ensure_model
+        ensure_model(args.wakeword_lang, data_dir)
     vosk_sessions = ServerVoskWakeSessions(
         lang=args.wakeword_lang, data_dir=data_dir,
         phrase=wake_phrase_store.get(),
@@ -92,9 +104,10 @@ def build(args, data_dir: str, unavailable_note: str = ""):
             # 320 ms audio chunk would time the request out and read as a
             # broken engine.
             print(f"Parola chiave libera lato server non attiva: manca il "
-                  f"modello Vosk per «{args.wakeword_lang}». Scaricalo in "
-                  f"{vosk_models_dir(data_dir)} (o indicane uno con "
-                  f"--wakeword-vosk-model).")
+                  f"modello Vosk per «{args.wakeword_lang}» in "
+                  f"{vosk_models_dir(data_dir)} (indicane uno con "
+                  f"--wakeword-vosk-model, o togli "
+                  f"--wakeword-no-download per scaricarlo all'avvio).")
         if not wakeword_sessions.available():
             print("Parola chiave lato server non installata: l'ascolto "
                   "continuo usa il riconoscimento del browser (col beep su "

@@ -181,6 +181,12 @@ def main() -> int:
                          "chiave libera, se non quella predefinita sotto "
                          "<dati>/vosk-models/. Serve il gruppo: "
                          "uv sync --group wakeword-vosk")
+    ap.add_argument("--wakeword-no-download", action="store_true",
+                    default=bool(appdata.env("WAKEWORD_NO_DOWNLOAD")),
+                    help="non scaricare il modello Vosk mancante all'avvio. "
+                         "Per installazioni senza rete o dove il modello lo "
+                         "mette l'amministratore: senza modello la parola "
+                         "chiave libera resta spenta, e nient'altro cambia.")
     args = ap.parse_args()
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
