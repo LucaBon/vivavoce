@@ -196,6 +196,38 @@ def test_wake_word_and_command_in_one_breath_still_works(page, web):
     assert "vivavoce pausa" not in _bubbles(page)
 
 
+def test_the_wake_word_split_into_two_words_still_fires(page, web):
+    # Not a corner case: over the 32 real recordings in
+    # .sherpa-models/positives-human the recogniser wrote "viva voce" instead
+    # of "vivavoce" in 6 of the 29 utterances it heard at all. Matching one
+    # heard token per phrase token, a one-word phrase can never match two
+    # words, so every one of those was dropped in silence — 100% detection
+    # falls to 73% in a quiet room, 82% to 71% over music, purely on where a
+    # recogniser chose to put a space.
+    srv = web(license_mgr=_ProLicense())
+    _start_browser_wake(page, srv)
+
+    _say(page, "viva voce")
+    _say(page, "viva voce pausa")   # cumulative, the way Chrome grows a phrase
+    page.wait_for_function(
+        "() => [...document.querySelectorAll('#log .bubble')]"
+        "        .some(b => b.textContent === 'pausa')", timeout=5000)
+    assert "pausa" in _bubbles(page)
+    # The whole split phrase is stripped, not just the word that matched.
+    assert "voce pausa" not in _bubbles(page)
+
+
+def test_a_split_that_is_not_the_wake_word_is_still_ignored(page, web):
+    # The guard on the rule above: gluing enough words together will
+    # eventually contain the phrase, and that must not count as saying it.
+    srv = web(license_mgr=_ProLicense())
+    _start_browser_wake(page, srv)
+
+    _say(page, "la viva della voce pausa")
+    page.wait_for_timeout(1800)  # well past the 1s command debounce
+    assert _bubbles(page) == []
+
+
 def test_speech_without_the_wake_word_is_ignored(page, web):
     # The flip side of arming: a room talking near the microphone must not
     # have its conversation sent to the LMS as commands.
