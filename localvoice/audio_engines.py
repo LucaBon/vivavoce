@@ -109,10 +109,17 @@ def build(args, data_dir: str, unavailable_note: str = ""):
                   f"--wakeword-vosk-model, o togli "
                   f"--wakeword-no-download per scaricarlo all'avvio).")
         if not wakeword_sessions.available():
+            # NOT `unavailable_note`, and this is not an oversight: that note
+            # speaks for the groups resting on onnxruntime, and vosk ships an
+            # armv7l wheel. On a 32-bit Pi — the machine the note exists for —
+            # this group is the one optional engine that installs, and
+            # appending it there told those users the only thing that works
+            # was impossible. vosk answers for its own platforms.
+            from pro.vosk_wake import wheels_unavailable_here
             print("Parola chiave lato server non installata: l'ascolto "
                   "continuo usa il riconoscimento del browser (col beep su "
                   "Android). Per attivarla: uv sync --group wakeword-vosk"
-                  + unavailable_note)
+                  + wheels_unavailable_here())
         else:
             print(f"Parola chiave lato server attiva (openWakeWord, modello "
                   f"{wakeword_model}): nessun beep durante l'ascolto "

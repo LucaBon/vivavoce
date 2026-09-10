@@ -40,6 +40,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sys
 import threading
 from typing import Dict, List, Optional
 
@@ -72,6 +73,33 @@ def available() -> bool:
     """Whether the optional ``vosk`` package is importable — a pure probe,
     safe to call on every request (no load, no model file access)."""
     return importlib.util.find_spec("vosk") is not None
+
+
+def wheels_unavailable_here() -> str:
+    """Why ``uv sync --group wakeword-vosk`` cannot work here, or ``""``.
+
+    Deliberately NOT ``server.optional_groups_unavailable_here()``, which
+    speaks for the two groups that rest on onnxruntime. Vosk rests on nothing
+    of the sort, and the platforms come out almost opposite:
+
+    * **32-bit ARM**: vosk publishes ``py3-none-linux_armv7l``. So on the Pi
+      running a 32-bit image — where the other note correctly says onnxruntime
+      has never shipped a wheel — this is the *one* optional engine that
+      installs. Appending that note here told those users the only thing that
+      works is impossible, which is worse than saying nothing.
+    * **macOS**: vosk publishes linux and win_amd64 wheels and no macOS one
+      (checked against 0.3.45, the current release), so this is where it
+      genuinely cannot install.
+
+    Checked at 0.3.45. A future release adding a macOS wheel makes this note
+    stale in the safe direction: it would refuse to promise something that
+    works, not promise something that doesn't.
+    """
+    if sys.platform == "darwin":
+        return (" Su macOS non è installabile: vosk non pubblica wheel per "
+                "macOS. Indica un modello già scompattato con "
+                "--wakeword-vosk-model solo se hai compilato vosk a mano.")
+    return ""
 
 
 def models_dir(data_dir: str) -> str:

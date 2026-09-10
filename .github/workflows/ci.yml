@@ -167,6 +167,85 @@ jobs:
       - name: Run the wake-word test suite
         run: uv run --python 3.11 pytest tests/test_wakeword.py tests/test_wakeword_web.py -v
 
+  wakeword-vosk:
+    name: free-phrase wake word (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      # No Python pin, unlike the openwakeword leg above: vosk ships
+      # `py3-none-*` wheels, so this group has no version ceiling at all —
+      # which is half the reason it exists. It also ships an armv7l wheel,
+      # so unlike the other two groups it installs on a 32-bit Pi (see
+      # pro/vosk_wake.wheels_unavailable_here).
+      - name: Sync dependencies (incl. the wakeword-vosk group)
+        run: uv sync --group wakeword-vosk
+
+      # Cached, because the alternative is a 47 MB fetch per run and the
+      # alternative to THAT is the model-dependent tests skipping — and a
+      # skipped test here proves nothing about the one thing worth proving.
+      # phrase_out_of_vocabulary() works by capturing a warning the Kaldi C++
+      # layer writes to file descriptor 2; the day a vosk release stops
+      # writing it, an invented wake word starts being accepted and never
+      # fires, with no error anywhere. Only a real model catches that.
+      - name: Cache the Vosk model
+        id: vosk-cache
+        uses: actions/cache@v4
+        with:
+          path: vosk-ci/vosk-models
+          key: vosk-model-small-it-0.22
+
+      # Through the app's own fetcher rather than curl, so a cache miss also
+      # exercises the start-up download against the real URL — the one thing
+      # tests/test_vosk_model.py deliberately cannot check.
+      - name: Fetch the model
+        if: steps.vosk-cache.outputs.cache-hit != 'true'
+        run: |
+          uv run python -c "
+          import sys
+          sys.path.insert(0, 'engine'); sys.path.insert(0, 'localvoice')
+          from pro.vosk_model import ensure_model
+          assert ensure_model('it', 'vosk-ci'), 'fetch failed'
+          "
+
+      - name: Run the free-phrase wake-word suite
+        env:
+          VIVAVOCE_TEST_VOSK_MODEL: vosk-ci/vosk-models/vosk-model-small-it-0.22
+        run: |
+          uv run pytest tests/test_vosk_wake.py tests/test_vosk_model.py \
+                        tests/test_wakematch.py tests/test_wakeword_phrase.py -v
+
+      # The lexicon check is the safety feature of the whole engine, so its
+      # two answers are asserted here as well as in the suite: a skip that
+      # went unnoticed would look identical to a pass.
+      - name: The lexicon check still knows a real word from an invented one
+        run: |
+          uv run python -c "
+          import sys
+          sys.path.insert(0, 'engine'); sys.path.insert(0, 'localvoice')
+          from pro.vosk_wake import ServerVoskWakeSessions
+          s = ServerVoskWakeSessions(lang='it', data_dir='',
+                                     phrase='vivavoce',
+                                     explicit_model='vosk-ci/vosk-models/vosk-model-small-it-0.22')
+          assert s.available(), 'engine unavailable'
+          assert s.out_of_vocabulary('vivavoce') == [], 'real word rejected'
+          assert s.out_of_vocabulary('zorblax') == ['zorblax'], 'invented word accepted'
+          print('lexicon check alive')
+          "
+
   asr:
     name: local speech recognition (py3.12, ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -261,6 +340,11 @@ jobs:
             args: |
               ASR=0
               WAKEWORD=1
+          - name: wakeword-vosk
+            args: |
+              ASR=0
+              WAKEWORD=0
+              WAKEWORD_VOSK=1
     steps:
       - uses: actions/checkout@v7
 

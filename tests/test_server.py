@@ -87,18 +87,51 @@ def test_sixty_four_bit_machines_get_no_such_note(monkeypatch):
         assert server.optional_groups_unavailable_here() == "", machine
 
 
-def test_both_unavailable_messages_carry_the_architecture_note():
-    # Source scan, for the same reason as the test above it: the prints sit
-    # before LMS discovery. Whichever engine the user is missing, they must
-    # learn on a 32-bit box that the install can't work — not just one of them.
+def _engine_message(marker, span=500):
     with open(os.path.join(ROOT, "localvoice", "audio_engines.py"),
               encoding="utf-8") as f:
         source = f.read()
-    for marker in ("Riconoscimento vocale locale non installato",
-                   "Parola chiave lato server non installata"):
-        assert marker in source
-        message = source[source.index(marker):source.index(marker) + 400]
-        assert "unavailable_note" in message, marker
+    assert marker in source
+    return source[source.index(marker):source.index(marker) + span]
+
+
+def test_the_asr_message_carries_the_architecture_note():
+    # Source scan, for the same reason as the test above it: the prints sit
+    # before LMS discovery. faster-whisper reaches onnxruntime through
+    # CTranslate2, so on a 32-bit box its instruction is a dead end and has
+    # to say so.
+    assert "unavailable_note" in _engine_message(
+        "Riconoscimento vocale locale non installato")
+
+
+def test_the_wake_word_message_does_NOT_carry_the_onnxruntime_note():
+    # The one that used to, and was wrong to. That note speaks for the groups
+    # resting on onnxruntime; the wake word now points at `wakeword-vosk`,
+    # and vosk ships an armv7l wheel. On the 32-bit Pi the note exists for,
+    # appending it announced that the only optional engine that CAN install
+    # there is impossible — a worse answer than silence. It answers for its
+    # own platforms instead.
+    message = _engine_message("Parola chiave lato server non installata")
+    assert "wheels_unavailable_here()" in message
+    assert "unavailable_note" not in message
+
+
+def test_the_two_notes_disagree_about_a_32_bit_pi(monkeypatch):
+    # The behaviour behind the rule above, not just the spelling of it.
+    from pro.vosk_wake import wheels_unavailable_here
+
+    monkeypatch.setattr(server.platform, "machine", lambda: "armv7l")
+    assert server.optional_groups_unavailable_here() != ""   # onnxruntime: no
+    assert wheels_unavailable_here() == ""                   # vosk: yes
+
+
+def test_vosk_says_where_it_really_cannot_install(monkeypatch):
+    from pro import vosk_wake
+
+    monkeypatch.setattr(vosk_wake.sys, "platform", "darwin")
+    assert "macOS" in vosk_wake.wheels_unavailable_here()
+    monkeypatch.setattr(vosk_wake.sys, "platform", "linux")
+    assert vosk_wake.wheels_unavailable_here() == ""
 
 
 def test_the_architecture_note_actually_reaches_the_engine_messages():

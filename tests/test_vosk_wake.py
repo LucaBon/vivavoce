@@ -17,8 +17,13 @@ from pro import vosk_wake
 from pro.vosk_wake import ServerVoskWakeSessions, resolve_model
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Where tools/sherpa_bench.py leaves it. Git-ignored, so absent in CI.
-BENCH_MODEL = os.path.join(ROOT, ".sherpa-models", "vosk-model-small-it-0.22")
+# Where tools/sherpa_bench.py leaves it locally — git-ignored, so absent in a
+# fresh clone. VIVAVOCE_TEST_VOSK_MODEL points at one fetched elsewhere, which
+# is how CI runs the lexicon half for real instead of skipping it: that check
+# reads a warning the Kaldi C++ layer writes to fd 2, and a skipped test would
+# notice nothing the day a vosk release stops writing it.
+BENCH_MODEL = os.environ.get("VIVAVOCE_TEST_VOSK_MODEL") or os.path.join(
+    ROOT, ".sherpa-models", "vosk-model-small-it-0.22")
 
 
 # -- available() must not lie ------------------------------------------------

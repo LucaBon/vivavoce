@@ -81,10 +81,16 @@ _DISCOVERY_PHASES = {
 
 
 def optional_groups_unavailable_here() -> str:
-    """Why neither optional group can be installed on this machine, or ``""``.
+    """Why the onnxruntime-backed optional groups cannot be installed, or ``""``.
 
-    Both rest on onnxruntime — openWakeWord directly, faster-whisper through
-    CTranslate2 — and neither project has *ever* published a 32-bit wheel:
+    ``asr`` and ``wakeword``, not ``wakeword-vosk`` — that third group rests
+    on nothing of the sort and answers for itself in
+    ``pro/vosk_wake.wheels_unavailable_here``, because vosk *does* ship an
+    armv7l wheel and this note would be exactly backwards for it.
+
+    Both of the two rest on onnxruntime — openWakeWord directly,
+    faster-whisper through CTranslate2 — and neither project has *ever*
+    published a 32-bit wheel:
     not on PyPI (checked across every release of both), and not on piwheels
     either, the extra index Raspberry Pi OS configures by default and which
     does carry numpy/scipy/scikit-learn for armv7l. So on a Pi running a
