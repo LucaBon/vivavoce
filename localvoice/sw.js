@@ -15,7 +15,7 @@
 // Nota: Chrome registra il service worker solo su HTTPS *fidato* — quindi con
 // la CA locale installata (vedi /ca.pem), non con il certificato "accettato
 // nonostante l'avviso".
-const VERSION = "vivavoce-v14";
+const VERSION = "vivavoce-v15";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png",
                "/static/css/app.css",
                "/static/js/app.js", "/static/js/browse.js",

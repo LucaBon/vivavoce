@@ -72,7 +72,7 @@ The distinction matters more than the label, so both halves are listed.
 |---|---|---|---|
 | Browser Web Speech API (`static/js/mic.js`, `window.SpeechRecognition`) | The browser vendor's neural ASR | **Off-device** — Google on Chrome/Android, Apple on Safari/iOS | Yes, it is the default microphone |
 | faster-whisper (`pro/asr.py`, `WhisperModel`) | Whisper, CTranslate2, int8 on CPU | On the household's own server | No — optional `asr` install, Pro |
-| openWakeWord (`pro/wakeword.py`, `openwakeword.model.Model`) | Small ONNX keyword classifier, threshold `DETECT_THRESHOLD` 0.5 | On the household's own server | No — optional `wakeword` install, Pro |
+| Vosk (`pro/vosk_wake.py`, `vosk.KaldiRecognizer`) | Streaming Kaldi recognizer; the household's phrase is matched in the transcript (`engine/wakematch.py`) | On the household's own server | No — optional `wakeword-vosk` install, Pro |
 | Browser `speechSynthesis` (`static/js/tts.js`, `speechSynthesis.speak`) | The browser vendor's TTS | On device, sometimes via the vendor's cloud voices | Present, opt-in, off by default |
 
 Vivavoce provides none of these models. It integrates them.

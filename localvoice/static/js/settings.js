@@ -12,36 +12,16 @@ import { refreshNowPlaying } from "./nowplaying.js";
 // --- wake-word field (used by the mic recogniser) ---
 export const wakeWord = () => ($("wakeword").value || "vivavoce").trim();
 
-// The phrase continuous listening ACTUALLY answers to. Normally the field
-// above — but a FIXED-phrase server engine is locked to its own English model
-// phrase ("hey jarvis", see pro/wakeword.py) and cannot hear the free-text
-// one at all, so showing "vivavoce" in the hint while that engine is
-// selected was simply false: testers read the hint, said "vivavoce", and got
-// nothing. The Vosk engine hears the typed phrase, so it sets no override and
-// this falls through to the field. miccapture.js pushes the override in
-// whenever the engine choice changes.
-let wakeOverride = "";
-export const activeWakeWord = () => wakeOverride || wakeWord();
-export function setWakeWordOverride(phrase) {
-  wakeOverride = (phrase || "").trim();
-  syncWakeLabel();
-}
+// Both hints quote the same field, because there is one server engine now and
+// it hears the phrase the household typed. The override this used to carry —
+// a fixed English model phrase the field could not change, which therefore
+// had to grey the field out and replace the hint — went with openWakeWord.
 export function syncWakeLabel() {
-  // One span per hint (only one hint is visible at a time, see syncWakePhrase
-  // in mic.js): the browser one quotes the field, the server one the model's
-  // own phrase. Duplicate ids aren't an option, hence two.
-  const label = $("wwlabel");
-  if (label) label.textContent = wakeWord();
-  const srvLabel = $("wwlabel_srv");
-  if (srvLabel && wakeOverride) srvLabel.textContent = wakeOverride;
-  // The free-phrase server engine has its own hint, and it quotes the field
-  // like the browser one does — there is no override to show there.
-  const freeLabel = $("wwlabel_free");
-  if (freeLabel) freeLabel.textContent = wakeWord();
-  // Greyed out while the override holds: the field configures nothing then,
-  // and an editable box next to a phrase it can't change invites the mistake.
-  const field = $("wakeword");
-  if (field) field.disabled = !!wakeOverride;
+  const phrase = wakeWord();
+  for (const id of ["wwlabel", "wwlabel_srv"]) {
+    const el = $(id);
+    if (el) el.textContent = phrase;
+  }
 }
 
 // --- music source selector (auto / local / streaming services) ---

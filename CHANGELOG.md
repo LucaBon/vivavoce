@@ -577,6 +577,41 @@
   `HassMediaSearchAndPlay` starts the first result without asking, cannot filter
   by artist, and is missing from the Italian intent pack entirely.
 
+### Removed
+
+- **openWakeWord è andato in pensione, e con lui il tetto a Python 3.11.**
+  Stava lì come ripiego dopo l'arrivo del motore Vosk, ed era un ripiego che
+  costava più di quanto rendesse. Sentiva soltanto le poche frasi inglesi per
+  cui spedisce un modello, quindi «ascolto continuo senza beep» significava
+  rinunciare alla frase scelta in casa; il suo pin esatto a
+  `openwakeword==0.4.0` esisteva perché dalla 0.5.0 dipende in modo rigido da
+  `tflite-runtime`, che non pubblica wheel oltre Python 3.11, e quel pin si
+  trascinava dietro un job di CI inchiodato a quella versione; e i suoi modelli
+  pre-addestrati sono **CC-BY-NC-SA** — non Apache-2.0 come questo repo ha
+  sostenuto per mesi — dietro un livello a pagamento.
+
+  Se ne vanno insieme a lui: il gruppo `wakeword` e il pin, la variante Docker
+  `WAKEWORD=1`, il job `server wake word (py3.11, …)`, il flag
+  `--wakeword-model`, `localvoice/pro/wakeword.py` e i suoi test. Il gruppo che
+  resta non ha soffitto di versione — vosk spedisce wheel `py3-none-*` — e ha
+  un wheel `armv7l`, quindi la tabella si è capovolta: sul Raspberry Pi a
+  32 bit, l'unica macchina a cui questo repo diceva «nessuno dei due motori
+  opzionali si installa qui», ora la parola chiave lato server si installa. È
+  il riconoscimento vocale locale a restare a 64 bit.
+
+  Il pannello delle impostazioni si semplifica di conseguenza. C'erano due
+  suggerimenti perché c'erano due grammatiche — una frase libera in un fiato,
+  una frase inglese fissa in due tempi — e il campo di testo spariva quando era
+  attivo il motore che non poteva sentirlo. Ora il campo resta sempre, tutti e
+  due i suggerimenti citano la stessa frase, e l'override che serviva a
+  contraddirlo non c'è più.
+
+  **Cosa si perde**, detto per intero: su macOS vosk non pubblica wheel, quindi
+  lì il motore lato server non c'è più affatto. Il beep che questa funzione
+  esiste per togliere è però un problema dei browser Android, che su un
+  desktop macOS non si presenta: quelle macchine restano sul motore del
+  browser, come prima, senza niente da rimpiangere.
+
 ## 0.4.0 — August 2026
 
 ### New

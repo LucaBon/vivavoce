@@ -63,10 +63,13 @@ class FakeVoskSessions:
         self.phrases.append(phrase)
 
 
-class FakeFixedSessions:
-    """A server engine that cannot: openWakeWord has no lexicon to ask."""
+class FakeSpeechlessSessions:
+    """An engine with no lexicon to ask. No such engine ships any more —
+    openWakeWord was the last one — but audio_api still reaches for the
+    method with getattr rather than assuming, and an assumption nobody
+    exercises is how the next engine gets a surprise."""
 
-    model = "hey_jarvis"
+    model = "somethingelse"
 
     def available(self):
         return True
@@ -104,7 +107,7 @@ def test_get_phrase_is_not_shadowed_by_the_status_route(live_server):
     # Both start with "/wakeword", and the status route matched first, so
     # this endpoint answered {"available": ...} instead of the phrase.
     srv = live_server(wake_phrase_store=FakeStore(),
-                      wakeword_sessions=FakeFixedSessions())
+                      wakeword_sessions=FakeSpeechlessSessions())
     assert "phrase" in srv.json_get("/wakeword/phrase")
     assert "available" in srv.json_get("/wakeword")
 
@@ -145,10 +148,10 @@ def test_post_tells_the_running_engine_about_the_change(live_server):
 
 
 def test_post_survives_an_engine_that_cannot_be_told(live_server):
-    # openWakeWord has no set_phrase; that must not break saving.
+    # An engine with no set_phrase must not break saving.
     store = FakeStore()
     srv = live_server(wake_phrase_store=store,
-                      wakeword_sessions=FakeFixedSessions())
+                      wakeword_sessions=FakeSpeechlessSessions())
     assert srv.json_post("/wakeword/phrase", {"phrase": "vivavoce"})["ok"]
     assert store.writes == ["vivavoce"]
 
@@ -288,14 +291,10 @@ def test_endpoints_never_5xx(live_server):
     assert srv.try_post("/wakeword/phrase", b"\xff\xfe").status == 200
 
 
-def test_status_advertises_a_free_phrase_engine(live_server):
-    # The two engines are SPOKEN differently — one breath for a free-phrase
-    # engine, two steps for a fixed one — so the page has to be told which it
-    # is talking to rather than guessing from the model name.
+def test_status_names_the_engine(live_server):
     srv = live_server(wakeword_sessions=FakeVoskSessions())
     assert srv.json_get("/wakeword") == {"available": True,
-                                         "model": "vosk-it",
-                                         "free_phrase": True}
+                                         "model": "vosk-it"}
 
 
 def test_status_says_nothing_extra_when_no_engine_is_available(live_server):

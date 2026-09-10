@@ -91,14 +91,6 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
             payload = {"available": ok}
             if ok:
                 payload["model"] = wakeword_sessions.model
-                # Whether THIS engine can hear a phrase the household typed.
-                # The page has to know, because the two are spoken
-                # differently: a fixed-phrase model detects the trigger and
-                # nothing after it (two steps), while a free-phrase one reads
-                # the whole sentence (one breath). Advertised as a capability
-                # rather than left for the page to guess from the model name.
-                payload["free_phrase"] = hasattr(wakeword_sessions,
-                                                 "set_phrase")
             self._send(200, json.dumps(payload))
 
         def _transcribe(self):

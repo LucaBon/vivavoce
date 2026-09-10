@@ -23,16 +23,8 @@ ARG ASR=0
 RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper>=1.0"; fi
 
 # Variante parola chiave lato server (opzionale, separata da ASR apposta):
-# --build-arg WAKEWORD=1 preinstalla openwakeword per l'ascolto continuo
-# senza il beep Android (endpoint /wakeword, funzione Pro). Pin ESATTO a
-# 0.4.0: le release successive dipendono da tflite-runtime, che non
-# pubblica wheel per Python 3.12+ — vedi localvoice/pro/wakeword.py.
-ARG WAKEWORD=0
-RUN if [ "$WAKEWORD" = "1" ]; then pip install --no-cache-dir "openwakeword==0.4.0"; fi
-
-# Variante parola chiave LIBERA (opzionale, separata anche da WAKEWORD):
-# --build-arg WAKEWORD_VOSK=1 preinstalla vosk, il solo motore misurato che
-# sente la frase scelta in casa invece di una frase inglese fissa. Il modello
+# --build-arg WAKEWORD_VOSK=1 preinstalla vosk, il motore che sente la frase
+# scelta in casa (endpoint /wakeword, funzione Pro). Il modello
 # (~50 MB per lingua) NON e' nell'immagine: va messo in /data/vosk-models/,
 # cioe' nel volume, cosi' sopravvive agli aggiornamenti — come i modelli
 # Whisper e per la stessa ragione.

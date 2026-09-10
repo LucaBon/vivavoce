@@ -80,17 +80,27 @@ def test_addon_dockerfile_copies_paths_that_exist():
 
 # -- CPU architecture ----------------------------------------------------------
 #
-# Both optional engines rest on onnxruntime (openWakeWord directly,
-# faster-whisper through CTranslate2), and neither has ever published a 32-bit
-# wheel — not on PyPI, not on piwheels. So "armv7 is supported" and "the image
-# installs an optional group" cannot both be true, and today they aren't: the
-# add-on image installs neither group, which is exactly why it can honestly
-# claim all three architectures. Adding one without dropping armv7 would ship
-# an add-on that fails to build for a third of the machines it advertises,
-# during a Supervisor build nothing in this repo would witness.
+# faster-whisper reaches onnxruntime through CTranslate2, and neither has ever
+# published a 32-bit wheel — not on PyPI, not on piwheels. So "armv7 is
+# supported" and "the image installs the asr group" cannot both be true, and
+# today they aren't: the add-on image installs neither optional group, which
+# is exactly why it can honestly claim all three architectures. Adding one
+# without dropping armv7 would ship an add-on that fails to build for a third
+# of the machines it advertises, during a Supervisor build nothing in this
+# repo would witness.
+#
+# `wakeword-vosk` is deliberately NOT in this list and must not be added to
+# it: vosk publishes a py3-none-linux_armv7l wheel, so it is the one optional
+# group a 32-bit Pi can install. It was `wakeword` (openWakeWord, retired)
+# that belonged here.
 
 # The dependency groups whose wheels are 64-bit only (see pyproject.toml).
-SIXTY_FOUR_BIT_ONLY_GROUPS = ("asr", "wakeword")
+SIXTY_FOUR_BIT_ONLY_GROUPS = ("asr",)
+# Every optional engine, whatever its word size — a different question, and
+# the reason the two lists are not one: this one asks "is the aarch64 support
+# DEPLOY.md promises actually exercised", which `wakeword-vosk` needs answered
+# just as much even though it also installs on armv7.
+OPTIONAL_ENGINE_GROUPS = ("asr", "wakeword-vosk")
 THIRTY_TWO_BIT_ARCHES = ("armv7", "armhf", "i386")
 
 
@@ -214,14 +224,14 @@ def test_the_release_workflow_checks_the_tag_against_the_code():
 
 
 def test_ci_proves_the_64_bit_claim_on_real_aarch64():
-    # DEPLOY.md tells a Raspberry Pi 4/5 on a 64-bit image that both optional
+    # DEPLOY.md tells a Raspberry Pi 4/5 on a 64-bit image that the optional
     # engines work there. That started as an inference from wheels existing on
     # PyPI — necessary but not sufficient, since a wheel installing is not the
-    # same as an ONNX model loading and scoring on that CPU. Each group now has
-    # a job that runs it for real on aarch64, and deleting one has to fail here
+    # same as a model loading and scoring on that CPU. Each group now has a job
+    # that runs it for real on aarch64, and deleting one has to fail here
     # rather than quietly turn a tested claim back into an assumed one.
     jobs = _ci_jobs()
-    for group in SIXTY_FOUR_BIT_ONLY_GROUPS:
+    for group in OPTIONAL_ENGINE_GROUPS:
         assert group in jobs, f"no CI job named {group!r} to prove it"
         runners = _job_runners(jobs[group])
         assert any("arm" in label for label in runners), (

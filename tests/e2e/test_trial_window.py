@@ -176,10 +176,10 @@ def test_expiry_puts_the_whole_wake_block_away(page, web, tmp_path):
 
 
 class _WakeSessions:
-    """Enough of pro.wakeword.ServerWakeWordSessions for /wakeword to say the
+    """Enough of pro.vosk_wake.ServerVoskWakeSessions for /wakeword to say the
     server-side engine exists, so the panel can be in its state."""
 
-    model = "hey_jarvis"
+    model = "vosk-it"
 
     def available(self):
         return True
@@ -189,8 +189,8 @@ def test_expiry_hands_the_wake_panel_back_to_the_browser_engine(
         page, web, tmp_path):
     # applyPro() unticks #serverwake directly, without the reconciler that
     # owns what the panel says about the engine — so the panel kept the
-    # server engine's two-step hint and its "the phrase is fixed" hidden
-    # keyword field, while the browser engine was what would actually run.
+    # server engine's two-step hint while the browser engine, spoken in one
+    # breath, was what would actually run.
     page.add_init_script("localStorage.setItem('wakemode', '1');"
                          "localStorage.setItem('serverwake', '1');")
     srv = web(license_mgr=trial_at(tmp_path, day=15),
@@ -205,14 +205,15 @@ def test_expiry_hands_the_wake_panel_back_to_the_browser_engine(
     page.evaluate("document.getElementById('serverwake').checked = true")
     page.evaluate("window.vivavoce.refreshServerWake()")
     page.wait_for_function(
-        "() => document.getElementById('wakewordrow').style.display === 'none'",
+        "() => document.getElementById('wakehint_server').style.display !== 'none'",
         timeout=5000)
 
     page.evaluate("window.vivavoce.refreshLicense()")
     page.wait_for_function(
         "() => !document.getElementById('serverwake').checked", timeout=5000)
     assert page.eval_on_selector(
-        "#wakewordrow", "el => el.style.display") != "none", (
-        "the keyword field stayed hidden for an engine no longer selected")
+        "#wakehint", "el => el.style.display") != "none", (
+        "the panel kept the server engine's hint for an engine no longer "
+        "selected")
     assert page.eval_on_selector(
         "#wakehint_server", "el => el.style.display") == "none"

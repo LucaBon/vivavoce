@@ -132,41 +132,6 @@ jobs:
           VIVAVOCE_REQUIRE_BROWSER: "1"
         run: uv run pytest tests/e2e -v
 
-  wakeword:
-    name: server wake word (py3.11, ${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            arch: x86_64
-          # The claim this leg exists to prove: DEPLOY.md tells a Raspberry Pi
-          # 4/5 on a 64-bit image that the server-side wake word works there.
-          # That rested on onnxruntime publishing aarch64 wheels — true, and
-          # checked, but a wheel existing is not the same as the ONNX model
-          # loading and scoring audio on that CPU. This runs the real
-          # openwakeword against real frames on real aarch64.
-          - runner: ubuntu-24.04-arm
-            arch: aarch64
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-
-      # Pinned to 3.11: openwakeword>=0.5 needs tflite-runtime, which has no
-      # wheel past cp311 (see pro/wakeword.py) — this is the one supported
-      # version where `--group wakeword` actually installs, so it's the only
-      # leg that can run tests/test_wakeword.py for real instead of skipping.
-      - name: Sync dependencies (incl. the wakeword group)
-        run: uv sync --python 3.11 --group wakeword
-
-      - name: Run the wake-word test suite
-        run: uv run --python 3.11 pytest tests/test_wakeword.py tests/test_wakeword_web.py -v
-
   wakeword-vosk:
     name: free-phrase wake word (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -331,19 +296,14 @@ jobs:
           - name: base
             args: |
               ASR=0
-              WAKEWORD=0
+              WAKEWORD_VOSK=0
           - name: asr
             args: |
               ASR=1
-              WAKEWORD=0
-          - name: wakeword
-            args: |
-              ASR=0
-              WAKEWORD=1
+              WAKEWORD_VOSK=0
           - name: wakeword-vosk
             args: |
               ASR=0
-              WAKEWORD=0
               WAKEWORD_VOSK=1
     steps:
       - uses: actions/checkout@v7

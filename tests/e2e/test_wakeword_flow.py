@@ -5,11 +5,11 @@ browser rather than a fake detector: it proves the capture graph
 (getUserMedia -> ScriptProcessorNode -> resample -> Int16 PCM -> fetch) is
 wired correctly end-to-end against the real running HTTP server. What it
 CANNOT prove — because Chromium's fake media device produces synthetic
-silence, never a real spoken phrase — is that "hey jarvis" is actually
+silence, never a real spoken phrase — is that the wake phrase is actually
 detected reliably, or the roadmap's latency/no-beep claims on real Android
 hardware; only real hardware in the user's hands can confirm those.
 
-The wake-word model itself is faked (no openwakeword install needed here);
+The wake-word engine itself is faked (no vosk install needed here);
 everything else — the page, the endpoints, the audio graph — is real.
 """
 
@@ -49,7 +49,7 @@ class FakeSessions:
     the real live_server so the test observes real HTTP traffic, not a
     page.route stub."""
 
-    model = "hey_jarvis"
+    model = "vosk-it"
 
     def __init__(self):
         self.chunk_calls = 0
@@ -257,7 +257,7 @@ def _start_server_wake(page, srv):
 def test_wake_trigger_lends_the_mic_to_the_capture_and_takes_it_back(
         page_with_fake_mic, web):
     # The input device is exclusive: while the wake stream held it, the
-    # command capture heard silence and no command after "hey jarvis" was
+    # command capture heard silence and no command after the wake phrase was
     # ever understood. The stream must release the mic (and stop posting
     # chunks) for the length of one capture, then take it back.
     page = page_with_fake_mic
@@ -341,8 +341,8 @@ def test_wake_panel_shows_the_phrase_and_grammar_of_the_chosen_engine(
     # Two engines, two phrases and two ways of speaking: one sentence for the
     # browser one, "phrase, beep, command" for the server one. The panel
     # advertised the free-text word and the single-sentence grammar for both,
-    # so testers said "hey jarvis pausa" in one breath at a detector that
-    # cannot hear anything after the trigger.
+    # so testers said the phrase and the command in one breath at a detector
+    # that cannot hear anything after the trigger.
     page = page_with_fake_mic
     page.add_init_script(FAKE_SPEECH_RECOGNITION)
     srv = web(license_mgr=_ProLicense(), wakeword_sessions=FakeSessions())
@@ -363,22 +363,26 @@ def test_wake_panel_shows_the_phrase_and_grammar_of_the_chosen_engine(
     assert page.eval_on_selector("#wwlabel", "el => el.textContent") == "vivavoce"
     assert page.eval_on_selector("#wakeword", "el => el.disabled") is False
 
-    # Server engine: the model's own phrase, and the two-step grammar. The
-    # free-text field configures nothing here, so it goes away rather than
-    # contradicting the hint sitting right next to it.
+    # Server engine: the two-step grammar, and the SAME phrase — it hears
+    # what the field says. The field used to be hidden and greyed out here,
+    # because the engine behind it could only hear a fixed English phrase of
+    # its own; the one that replaced it cannot contradict the field, so a row
+    # labelled "keyword to say" above it is finally telling the truth.
     page.check("#serverwake")
     assert page.eval_on_selector("#wakehint", display) == "none"
     assert page.eval_on_selector("#wakehint_server", display) != "none"
-    assert page.eval_on_selector("#wwlabel_srv", "el => el.textContent") == "Hey Jarvis"
-    assert page.eval_on_selector("#wakewordrow", display) == "none"
-    assert page.eval_on_selector("#wakeword", "el => el.disabled") is True
-
-    # ...and comes back, with what was typed in it, on the way out.
-    page.uncheck("#serverwake")
-    assert page.eval_on_selector("#wakehint", display) != "none"
+    assert page.eval_on_selector("#wwlabel_srv", "el => el.textContent") == "vivavoce"
     assert page.eval_on_selector("#wakewordrow", display) != "none"
     assert page.eval_on_selector("#wakeword", "el => el.disabled") is False
-    assert page.eval_on_selector("#wakeword", "el => el.value") == "vivavoce"
+
+    # Typing a new one updates the phrase BOTH hints quote, with no engine
+    # switch in between — the thing two engines made impossible.
+    page.fill("#wakeword", "ciao impianto")
+    page.dispatch_event("#wakeword", "input")
+    assert page.eval_on_selector("#wwlabel_srv", "el => el.textContent") == "ciao impianto"
+    page.uncheck("#serverwake")
+    assert page.eval_on_selector("#wakehint", display) != "none"
+    assert page.eval_on_selector("#wwlabel", "el => el.textContent") == "ciao impianto"
 
 
 def test_a_never_started_sessions_end_does_not_erase_the_new_engines_error(

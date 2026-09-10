@@ -105,24 +105,14 @@
           (ogni pochi secondi), e non si può togliere da qui: sul telefono conviene lasciare questa
           opzione spenta e usare il microfono a tocco (un suono solo per comando). La parola chiave dà
           il meglio su PC/tablet con Chrome.</span></div>
-        <!-- Il motore server si parla in DUE tempi (openWakeWord riconosce solo
-             la frase di attivazione, non le parole dopo): un suggerimento solo
-             per entrambi i motori faceva dire «hey jarvis pausa» tutto attaccato,
-             e il comando andava perso ogni volta. -->
+        <!-- Il motore server si parla in DUE tempi: risponde «innescata», non
+             «ecco il comando», quindi il comando lo cattura il browser dopo il
+             beep. Un suggerimento solo per entrambi i motori faceva dire la
+             frase e il comando tutto attaccato, e il comando andava perso. -->
         <div id="wakehint_server" class="hint" style="display:none; text-align:left" data-i18n="wakehint_server">Ascolto
           continuo senza beep: la parola chiave la riconosce il server, e il browser prende il
           microfono solo per il comando. Si parla in <b>due tempi</b>: di'
-          «<b><span id="wwlabel_srv">Hey Jarvis</span></b>», <b>aspetta il beep</b>, poi di' il comando.
-          La frase di attivazione è fissa e in inglese, decisa dal modello sul server: non è
-          personalizzabile. La parola chiave a testo libero torna scegliendo l'altro motore.</div>
-        <!-- Terzo suggerimento, per il motore server che la frase libera la sente
-             davvero (Vosk, vedi pro/vosk_wake.py). Si parla ancora in due tempi
-             — il server risponde «innescata», non «ecco il comando» — ma la
-             frase è quella scelta in casa, quindi il campo di testo resta. -->
-        <div id="wakehint_server_free" class="hint" style="display:none; text-align:left" data-i18n="wakehint_server_free">Ascolto
-          continuo senza beep: la parola chiave la riconosce il server, e il browser prende il
-          microfono solo per il comando. Si parla in <b>due tempi</b>: di'
-          «<b><span id="wwlabel_free">vivavoce</span></b>», <b>aspetta il beep</b>, poi di' il comando.
+          «<b><span id="wwlabel_srv">vivavoce</span></b>», <b>aspetta il beep</b>, poi di' il comando.
           La frase è quella qui sopra e vale <b>per tutta la casa</b>, non solo per questo dispositivo.
           <span class="warn">Dev'essere fatta di parole vere: il motore sente solo parole che conosce,
           quindi un nome inventato non si attiva mai. Se ne scrivi uno, te lo dice invece di

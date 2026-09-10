@@ -1,12 +1,12 @@
 // Server-side wake-word streaming client: captures the microphone with the
-// Web Audio API, resamples to the 16 kHz mono 16-bit PCM openWakeWord wants
+// Web Audio API, resamples to the 16 kHz mono 16-bit PCM the server wants
 // (see localvoice/pro/wakeword.py), and POSTs small chunks to
 // /wakeword/chunk in a loop until stopped — no beep, no Web Speech restart
 // cycle. Self-contained: no dependency on mic.js's internals, only on
 // getUserMedia + fetch.
 //
 // ScriptProcessorNode is deprecated in favor of AudioWorkletNode, but it's
-// what openWakeWord's own reference web client uses (a worklet would need a
+// what openWakeWord's reference web client used too (a worklet would need a
 // separate file served and loaded through audioWorklet.addModule, for a
 // feature this narrow — one fixed English phrase — that's not worth the
 // extra moving part yet); every browser this app targets still supports it.
@@ -19,7 +19,7 @@ const TARGET_RATE = 16000;
 // Raspberry Pi. Worse, they were fired without waiting, so several were in
 // flight at once and the server received them out of order, scrambling the
 // mel frames across chunk boundaries. Buffering to ~320 ms and sending one
-// at a time fixes both, and openWakeWord is perfectly happy with the larger
+// at a time fixes both, and the recognizer is perfectly happy with the larger
 // window (its own reference client uses 1280-sample chunks in-process).
 const CHUNK_MS = 320;
 
@@ -68,7 +68,7 @@ function floatTo16BitPCM(float32) {
  * follows a trigger (Web Speech, or MediaRecorder for local ASR — see
  * mic.js) cannot both hold the input device: on Android the system speech
  * recogniser takes the mic exclusively, so with this stream still holding it
- * the capture heard silence and *no command after "hey jarvis" was ever
+ * the capture heard silence and *no command after the wake phrase was ever
  * understood*. Hence pause/resume rather than "just keep streaming":
  * mic.js lends the device out for the length of one command and takes it
  * back afterwards. Tearing the whole thing down instead would work too, but

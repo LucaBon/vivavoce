@@ -28,17 +28,39 @@ def test_python_dash_m_entry_point_works():
 
 
 def test_wakeword_help_points_at_the_right_group():
-    # The wake-word feature is gated on its OWN "wakeword" group (not "asr" —
-    # see pro/wakeword.py for why), so every message that tells the user how
-    # to install it must say so; a copy-paste from the ASR messages would
-    # send them to `uv sync --group asr`, which never installs it.
+    # The wake word is gated on its OWN "wakeword-vosk" group (not "asr" — an
+    # optional engine that fails to install must not take a working one down
+    # with it), so every message telling the user how to install it must say
+    # so; a copy-paste from the ASR messages would send them to
+    # `uv sync --group asr`, which never installs it.
     result_help = subprocess.run(
         [sys.executable, "-m", "localvoice", "--help"],
         cwd=ROOT, capture_output=True, text=True, timeout=30)
-    assert "--wakeword-model" in result_help.stdout
-    help_text = result_help.stdout[result_help.stdout.index("--wakeword-model"):]
-    assert "uv sync --group wakeword" in help_text
-    assert "uv sync --group asr" not in help_text.split("\n\n")[0]
+    assert "--wakeword-vosk-model" in result_help.stdout
+    # Whitespace-normalised: argparse wraps help text at the terminal width,
+    # and "uv sync --group wakeword-vosk" is long enough to be split across
+    # two lines — which the old spelling of this assertion was one character
+    # away from hitting too.
+    flat = " ".join(result_help.stdout.split())
+    assert "uv sync --group wakeword-vosk" in flat
+    # The flag's own description, not everything after it: the FIRST mention
+    # is in the usage line at the top, and slicing from there swept in
+    # --asr-model's help — which of course names the asr group.
+    body = flat[flat.rindex("--wakeword-vosk-model"):]
+    body = body[:body.index("--wakeword-no-download")]
+    assert "uv sync --group wakeword-vosk" in body
+    assert "uv sync --group asr" not in body
+
+
+def test_the_retired_openwakeword_flags_are_gone():
+    # --wakeword-model chose between openWakeWord's bundled English models.
+    # A flag that survives the engine it configured is a flag that silently
+    # does nothing, and this one would have sat right next to three that do.
+    result_help = subprocess.run(
+        [sys.executable, "-m", "localvoice", "--help"],
+        cwd=ROOT, capture_output=True, text=True, timeout=30)
+    assert "--wakeword-model" not in result_help.stdout.replace(
+        "--wakeword-vosk-model", "")
 
 
 def test_wakeword_unavailable_message_points_at_the_right_group():
@@ -61,13 +83,16 @@ def test_wakeword_unavailable_message_points_at_the_right_group():
 
 # -- 32-bit machines -----------------------------------------------------------
 #
-# Both optional groups rest on onnxruntime (openWakeWord directly,
-# faster-whisper through CTranslate2), which has never published a 32-bit
-# wheel. On a Raspberry Pi running a 32-bit image, "uv sync --group wakeword"
-# is therefore an instruction that cannot succeed — and that is exactly the
-# machine most likely to read it, since four places in the docs advertise the
-# Pi. The message earns its keep only if it fires on the right machines and
-# stays silent on the rest, so both directions are checked.
+# `asr` reaches onnxruntime through CTranslate2, and onnxruntime has never
+# published a 32-bit wheel. On a Raspberry Pi running a 32-bit image,
+# "uv sync --group asr" is therefore an instruction that cannot succeed — and
+# that is exactly the machine most likely to read it, since four places in the
+# docs advertise the Pi. The message earns its keep only if it fires on the
+# right machines and stays silent on the rest, so both directions are checked.
+#
+# `wakeword-vosk` is the counter-example and has its own note: vosk ships an
+# armv7l wheel, so on that same Pi it installs. The two notes disagreeing is
+# the point, and there is a test below that says so.
 
 def test_thirty_two_bit_arm_is_told_why_the_group_will_not_install(monkeypatch):
     for machine in ("armv7l", "armv6l", "armhf"):

@@ -39,14 +39,8 @@ export const UI_EN = {
     '(every few seconds) and it cannot be silenced from here: on phones, leave this off and ' +
     'use tap-to-talk (one sound per command). The keyword works best on PC/tablet with ' +
     'Chrome.</span>',
-  wakehint_server: 'Continuous listening without the beep: the server does the wake-word ' +
-    'detection, and the browser only takes the microphone for the command itself. It works ' +
-    'in <b>two steps</b>: say “<b><span id="wwlabel_srv">Hey Jarvis</span></b>”, ' +
-    '<b>wait for the beep</b>, then say the command. The activation phrase is fixed and ' +
-    'English, decided by the model on the server: it cannot be customized. The free-text ' +
-    'keyword comes back with the other engine.',
-  wakehint_server_free: 'Continuous listening without the beep: the server does the wake-word detection, and the browser only takes the microphone for the command itself. ' +
-    'It works in <b>two steps</b>: say “<b><span id="wwlabel_free">vivavoce</span></b>”, <b>wait for the beep</b>, then say the command. ' +
+  wakehint_server: 'Continuous listening without the beep: the server does the wake-word detection, and the browser only takes the microphone for the command itself. ' +
+    'It works in <b>two steps</b>: say “<b><span id="wwlabel_srv">vivavoce</span></b>”, <b>wait for the beep</b>, then say the command. ' +
     'The phrase is the one above and applies to <b>the whole house</b>, not just this device. ' +
     '<span class="warn">It has to be made of real words: the engine only produces words it knows, so a made-up name never fires. If you type one, it says so instead of accepting it.</span>',
   localasr_lbl: "🎙 local speech recognition (Whisper on the server: audio never leaves home)",

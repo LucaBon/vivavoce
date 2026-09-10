@@ -54,22 +54,22 @@ def build(args, data_dir: str, unavailable_note: str = ""):
               "(o VIVAVOCE_ASR_MODEL).")
 
     # Parola chiave lato server (Pro): elimina il beep Android dell'ascolto
-    # continuo del browser. Gruppi opzionali SEPARATI da "asr" e fra loro
-    # (vedi pro/wakeword.py: openwakeword>=0.5 rompe su Python 3.12+ per una
-    # dipendenza rigida da tflite-runtime).
+    # continuo del browser, e sente la frase che la casa ha scritto. Gruppo
+    # opzionale SEPARATO da "asr", perché un motore opzionale che non si
+    # installa non deve portarsi dietro quello che già funziona.
     #
-    # Two engines can fill this slot, and they are NOT equivalent: Vosk hears
-    # the phrase the household actually typed, openWakeWord only the English
-    # phrase it ships a model for. So Vosk wins whenever it is installed and
-    # has a model on disk, and openWakeWord stays as the fallback for boxes
-    # that already have it. Both expose the same available()/get_or_create()/
-    # stop() surface, which is why audio_api.py needs to know nothing here.
-    from pro.wakeword import DEFAULT_MODEL as WAKEWORD_DEFAULT_MODEL
-    from pro.wakeword import ServerWakeWordSessions
+    # Un motore solo, ora. openWakeWord stava qui come ripiego e se n'è
+    # andato: sentiva unicamente le poche frasi inglesi per cui spedisce un
+    # modello, e quei modelli sono CC-BY-NC-SA dietro un livello a pagamento.
+    # Dove vosk non si installa (macOS: nessun wheel) non resta un ripiego che
+    # ascolta un'altra frase in un'altra lingua — resta il motore del browser,
+    # che su quelle macchine non ha nemmeno il beep che questa funzione esiste
+    # per togliere.
     from pro.vosk_wake import ServerVoskWakeSessions
     from pro.vosk_wake import available as vosk_available
     from pro.vosk_wake import models_dir as vosk_models_dir
     from pro.vosk_wake import resolve_model as vosk_resolve_model
+    from pro.vosk_wake import wheels_unavailable_here
 
     wake_phrase_store = appdata.WakePhraseStore(data_dir)
     # Fetched here, before the server accepts anything, and only when the
@@ -83,45 +83,32 @@ def build(args, data_dir: str, unavailable_note: str = ""):
             and not vosk_resolve_model(args.wakeword_lang, data_dir)):
         from pro.vosk_model import ensure_model
         ensure_model(args.wakeword_lang, data_dir)
-    vosk_sessions = ServerVoskWakeSessions(
+
+    wakeword_sessions = ServerVoskWakeSessions(
         lang=args.wakeword_lang, data_dir=data_dir,
         phrase=wake_phrase_store.get(),
         explicit_model=args.wakeword_vosk_model)
-    wakeword_model = args.wakeword_model or WAKEWORD_DEFAULT_MODEL
 
-    if vosk_sessions.available():
-        wakeword_sessions = vosk_sessions
+    if wakeword_sessions.available():
         print(f"Parola chiave lato server attiva (Vosk "
               f"{args.wakeword_lang}, frase «{wake_phrase_store.get()}»): "
               f"nessun beep, e la frase è quella scelta in casa.")
+    elif vosk_available():
+        # Il pacchetto c'è ma il modello no: è a un download di distanza, e
+        # dirlo con il percorso esatto è tutta la differenza fra «si sistema»
+        # e «non funziona».
+        print(f"Parola chiave lato server non attiva: manca il modello Vosk "
+              f"per «{args.wakeword_lang}» in {vosk_models_dir(data_dir)} "
+              f"(indicane uno con --wakeword-vosk-model, o togli "
+              f"--wakeword-no-download per scaricarlo all'avvio).")
     else:
-        wakeword_sessions = ServerWakeWordSessions(wakeword_model)
-        if vosk_available() and not vosk_sessions.model_dir:
-            # The package is there but the model is not, which is the one
-            # degraded state worth naming: it is a download away, and the
-            # alternative silently listens for a different phrase in another
-            # language. Not fetched automatically — 50 MB inside the first
-            # 320 ms audio chunk would time the request out and read as a
-            # broken engine.
-            print(f"Parola chiave libera lato server non attiva: manca il "
-                  f"modello Vosk per «{args.wakeword_lang}» in "
-                  f"{vosk_models_dir(data_dir)} (indicane uno con "
-                  f"--wakeword-vosk-model, o togli "
-                  f"--wakeword-no-download per scaricarlo all'avvio).")
-        if not wakeword_sessions.available():
-            # NOT `unavailable_note`, and this is not an oversight: that note
-            # speaks for the groups resting on onnxruntime, and vosk ships an
-            # armv7l wheel. On a 32-bit Pi — the machine the note exists for —
-            # this group is the one optional engine that installs, and
-            # appending it there told those users the only thing that works
-            # was impossible. vosk answers for its own platforms.
-            from pro.vosk_wake import wheels_unavailable_here
-            print("Parola chiave lato server non installata: l'ascolto "
-                  "continuo usa il riconoscimento del browser (col beep su "
-                  "Android). Per attivarla: uv sync --group wakeword-vosk"
-                  + wheels_unavailable_here())
-        else:
-            print(f"Parola chiave lato server attiva (openWakeWord, modello "
-                  f"{wakeword_model}): nessun beep durante l'ascolto "
-                  f"continuo, ma la frase è fissa e in inglese.")
+        # NON `unavailable_note`: quella parla per i gruppi che poggiano su
+        # onnxruntime, e vosk spedisce un wheel armv7l. Su un Pi a 32 bit —
+        # la macchina per cui quella nota esiste — questo gruppo è l'unico
+        # motore opzionale che si installa.
+        print("Parola chiave lato server non installata: l'ascolto continuo "
+              "usa il riconoscimento del browser (col beep su Android). "
+              "Per attivarla: uv sync --group wakeword-vosk"
+              + wheels_unavailable_here())
+
     return transcriber, wakeword_sessions, wake_phrase_store

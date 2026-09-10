@@ -108,13 +108,33 @@ def test_changing_the_phrase_drops_every_open_session(tmp_path):
 
 
 def test_idle_sessions_are_swept(tmp_path):
+    """POST /wakeword/stop is the polite exit and usually arrives — but a tab
+    closed, a phone that slept or a browser killed never sends it, and each
+    abandoned session holds a Kaldi recognizer for good."""
     clock = [1000.0]
     sessions = ServerVoskWakeSessions(lang="it", data_dir=str(tmp_path),
                                       phrase="vivavoce", now=lambda: clock[0])
     sessions._model = _FakeModel()
     first = sessions.get_or_create("phone")
+    assert "phone" in sessions._sessions
+
     clock[0] += vosk_wake.IDLE_SESSION_SECONDS + 1
+    sessions.get_or_create("tablet")         # any later chunk sweeps
+    assert "phone" not in sessions._sessions
+    assert "tablet" in sessions._sessions
     assert sessions.get_or_create("phone") is not first
+
+
+def test_a_session_that_keeps_streaming_is_kept(tmp_path):
+    # The other half: the sweep must not evict a client that is still talking.
+    clock = [1000.0]
+    sessions = ServerVoskWakeSessions(lang="it", data_dir=str(tmp_path),
+                                      phrase="vivavoce", now=lambda: clock[0])
+    sessions._model = _FakeModel()
+    first = sessions.get_or_create("phone")
+    for _ in range(4):
+        clock[0] += vosk_wake.IDLE_SESSION_SECONDS / 2
+        assert sessions.get_or_create("phone") is first
 
 
 # -- with the real engine ----------------------------------------------------

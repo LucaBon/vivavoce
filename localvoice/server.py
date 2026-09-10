@@ -81,16 +81,16 @@ _DISCOVERY_PHASES = {
 
 
 def optional_groups_unavailable_here() -> str:
-    """Why the onnxruntime-backed optional groups cannot be installed, or ``""``.
+    """Why the onnxruntime-backed optional group cannot be installed, or ``""``.
 
-    ``asr`` and ``wakeword``, not ``wakeword-vosk`` — that third group rests
-    on nothing of the sort and answers for itself in
-    ``pro/vosk_wake.wheels_unavailable_here``, because vosk *does* ship an
-    armv7l wheel and this note would be exactly backwards for it.
+    ``asr``, not ``wakeword-vosk`` — that group rests on nothing of the sort
+    and answers for itself in ``pro/vosk_wake.wheels_unavailable_here``,
+    because vosk *does* ship an armv7l wheel and this note would be exactly
+    backwards for it.
 
-    Both of the two rest on onnxruntime — openWakeWord directly,
-    faster-whisper through CTranslate2 — and neither project has *ever*
-    published a 32-bit wheel:
+    One group, since openWakeWord was retired: ``asr``, which reaches
+    onnxruntime through CTranslate2. Neither project has *ever* published a
+    32-bit wheel:
     not on PyPI (checked across every release of both), and not on piwheels
     either, the extra index Raspberry Pi OS configures by default and which
     does carry numpy/scipy/scikit-learn for armv7l. So on a Pi running a
@@ -166,14 +166,6 @@ def main() -> int:
                          "(tiny/base/small/medium...). Default: small, ma su "
                          "macchine sotto ~4 GB di RAM resta spento se non "
                          "indicato qui. Serve il gruppo: uv sync --group asr")
-    ap.add_argument("--wakeword-model",
-                    default=appdata.env("WAKEWORD_MODEL"),
-                    help="modello openWakeWord per la parola chiave lato "
-                         "server, senza il beep Android (default: hey_jarvis; "
-                         "solo poche frasi in inglese sono disponibili "
-                         "pronte all'uso — non è personalizzabile come la "
-                         "parola chiave del browser). Serve il gruppo: "
-                         "uv sync --group wakeword")
     ap.add_argument("--wakeword-lang",
                     default=appdata.env("WAKEWORD_LANG", "it"),
                     help="lingua del modello Vosk per la parola chiave libera "
@@ -191,7 +183,8 @@ def main() -> int:
                     # == "1", like every other boolean env in this repo
                     # (licensing.py): bool("0") is True, so an add-on setting
                     # VIVAVOCE_WAKEWORD_NO_DOWNLOAD=0 to *enable* the fetch
-                    # would have switched it off and got "Hey Jarvis" instead.
+                    # would have switched it off, and the wake word would have
+                    # stayed silently on the browser engine, beep and all.
                     default=appdata.env("WAKEWORD_NO_DOWNLOAD") == "1",
                     help="non scaricare il modello Vosk mancante all'avvio. "
                          "Per installazioni senza rete o dove il modello lo "
