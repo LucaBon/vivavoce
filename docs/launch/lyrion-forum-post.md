@@ -56,10 +56,16 @@ yours lives elsewhere the app falls back to a plain link to it.
   image is not, and DEPLOY.md says exactly why.
 - Wake-word mode on Android used to beep at every listen restart — a browser
   limitation and the most-cited complaint I got. There's now a **server-side
-  wake word** (openWakeWord on the server, CPU only) that has no beep at all.
-  Trade-off stated upfront: it hears a fixed English phrase ("hey jarvis"),
-  not the free-text keyword, so it's offered *alongside* the browser engine
-  rather than replacing it.
+  wake word** (Vosk on the server, CPU only, optional install) with no beep at
+  all, and it answers to the keyword *you* typed — set it once and the whole
+  house answers to it, not just the browser you typed it in. Two trade-offs
+  stated upfront. It's spoken in two steps (say the word, wait for the beep,
+  then the command) where the browser engine takes one breath; and the phrase
+  has to be made of real words, because the engine only ever outputs words in
+  its dictionary — a coined name detects essentially never, so the settings
+  field refuses one and tells you which word it can't say. Both engines are
+  offered, pick either. Unlike local speech recognition this one installs on a
+  32-bit Pi too; there's no macOS build.
 - The mic needs HTTPS, which means a certificate warning on a home LAN. The
   app now walks you through installing the local CA — steps for *your* device
   only, and it checks by itself that it worked. If you already own a domain,

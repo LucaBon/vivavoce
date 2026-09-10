@@ -45,9 +45,11 @@ from its own address, because a HTTPS page can't frame a plain-HTTP one.
 there's a switch for **local speech recognition** — Whisper on your own
 server, audio never leaves the LAN (optional install, needs a 64-bit OS; a
 64-bit Pi 4/5 is fine). Wake-word mode used to beep on every Android restart;
-there's now a **server-side wake word** with no beep, at the cost of a fixed
-English phrase ("hey jarvis") rather than a custom one — both engines are
-offered, pick either. The mic needs HTTPS, so the app walks you through
+there's now a **server-side wake word** with no beep that answers to the
+keyword you typed, house-wide. Costs: it's spoken in two steps rather than one
+breath, and the phrase has to be made of real words — the engine only outputs
+words in its dictionary, so a made-up name would never fire and the settings
+field says so instead of accepting it. Both engines are offered, pick either. The mic needs HTTPS, so the app walks you through
 installing the local CA for *your* device and verifies by itself that it
 worked. No telemetry, no account, nothing leaves your LAN.
 
