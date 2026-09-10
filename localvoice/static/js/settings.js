@@ -132,7 +132,16 @@ async function savePhrase(phrase) {
       body: JSON.stringify({ phrase }),
     });
     const d = await r.json();
-    if (d.ok) { showPhraseMessage(ui("wake_phrase_saved"), false); return; }
+    if (d.ok) {
+      // `unverified` means the lexicon check could not vouch for itself, so
+      // the phrase was saved without being checked. Saying so is the point:
+      // a check that has silently stopped working accepts invented phrases
+      // that then never fire, which is the failure the check exists for.
+      showPhraseMessage(d.unverified ? ui("wake_phrase_unverified")
+                                     : ui("wake_phrase_saved"),
+                        !!d.unverified);
+      return;
+    }
     if (d.error === "out_of_vocabulary" && (d.words || []).length) {
       // Kept locally on purpose: the BROWSER engine has no lexicon and hears
       // this perfectly well. What is refused is the household-wide setting,
@@ -141,7 +150,15 @@ async function savePhrase(phrase) {
       return;
     }
     // "unavailable" is the ordinary answer on a box without the engine, and
-    // there is nothing for the user to do about it: stay quiet.
+    // there is nothing for the user to do about it: stay quiet. Anything
+    // else is a refused write — the server goes out of its way NOT to report
+    // success over one (appdata.set_wake_phrase raises rather than swallow
+    // it), and clearing the box here threw that care away at the last step:
+    // a read-only data directory looked exactly like a save.
+    if (d.error && d.error !== "unavailable") {
+      showPhraseMessage(ui("wake_phrase_failed")(d.error), true);
+      return;
+    }
     showPhraseMessage("", false);
   } catch (e) {
     showPhraseMessage("", false);  // offline: the local value still works
@@ -153,9 +170,23 @@ async function loadPhrase() {
     const r = await fetch("/wakeword/phrase");
     const d = await r.json();
     if (!d.ok || !d.phrase) return;
-    $("wakeword").value = d.phrase;
-    localStorage.setItem("wakeword", d.phrase);
-    syncWakeLabel();
+    // `stored` is the whole reason this is not a plain assignment. An
+    // unconfigured house answers "vivavoce" because that is the DEFAULT, not
+    // because anybody chose it — and before this endpoint existed the phrase
+    // lived only in each browser's localStorage. Overwriting on that answer
+    // silently deleted the only copy of a phrase a household had been using
+    // for months, on the first page load after the update.
+    if (d.stored) {
+      $("wakeword").value = d.phrase;
+      localStorage.setItem("wakeword", d.phrase);
+      syncWakeLabel();
+      return;
+    }
+    // Nobody has chosen yet: this browser's value is the only answer there
+    // is, so it migrates UP instead of being replaced. Once it lands, the
+    // server has it and the rest of the house inherits it.
+    const local = wakeWord();
+    if (local && local !== d.phrase) savePhrase(local);
   } catch (e) { /* offline: localStorage already filled the field */ }
 }
 

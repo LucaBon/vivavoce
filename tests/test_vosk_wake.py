@@ -9,6 +9,7 @@ be shown to actually work: it reads a warning the Kaldi C++ layer writes to
 file descriptor 2, which no fake can reproduce honestly.
 """
 
+import importlib.util
 import os
 
 import pytest
@@ -118,21 +119,30 @@ def test_idle_sessions_are_swept(tmp_path):
 
 # -- with the real engine ----------------------------------------------------
 
-vosk = pytest.importorskip(
-    "vosk", reason="vosk not installed (uv sync --group wakeword-vosk)")
+# Marks, NOT pytest.importorskip at module scope. importorskip raises Skipped
+# during *import*, so it skips the whole file — the nine tests ABOVE it
+# included, which need nothing installed and cover the failure this module
+# exists to prevent: an engine that reports itself available and then fails on
+# every chunk. On any machine without the group they were vanishing in
+# silence while the docstring promised two tiers.
+_HAS_VOSK = importlib.util.find_spec("vosk") is not None
+needs_vosk = pytest.mark.skipif(
+    not _HAS_VOSK,
+    reason="vosk not installed (uv sync --group wakeword-vosk)")
 needs_model = pytest.mark.skipif(
-    not os.path.isdir(BENCH_MODEL),
-    reason=f"no Vosk model at {BENCH_MODEL}")
+    not _HAS_VOSK or not os.path.isdir(BENCH_MODEL),
+    reason=f"no vosk package, or no model at {BENCH_MODEL}")
 
 
+@needs_vosk
 def test_available_is_true_when_the_package_is_installed():
     assert vosk_wake.available() is True
 
 
 @pytest.fixture(scope="module")
 def real_sessions():
-    if not os.path.isdir(BENCH_MODEL):
-        pytest.skip("no model")
+    if not _HAS_VOSK or not os.path.isdir(BENCH_MODEL):
+        pytest.skip("no vosk package, or no model")
     return ServerVoskWakeSessions(lang="it", data_dir="", phrase="vivavoce",
                                   explicit_model=BENCH_MODEL)
 

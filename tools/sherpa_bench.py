@@ -438,7 +438,7 @@ def run_kws(args, models_dir: str, positives: List[str],
                     fired += 1
                     spotter.reset_stream(stream)
 
-        # 300 ms chunks: what serverwake.js sends today.
+        # The browser's own frame size — see CHUNK_MS.
         for chunk in chunks(samples, chunk_samples()):
             stream.accept_waveform(SAMPLE_RATE, list(chunk))
             drain()

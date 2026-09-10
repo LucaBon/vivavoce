@@ -139,6 +139,40 @@ def test_the_model_directory_is_never_partially_published(tmp_path):
         assert not looks_like_model(target)
 
 
+def test_it_publishes_over_a_half_unpacked_leftover(tmp_path):
+    # The case reachable through the recovery this module's own failure
+    # message recommends ("scarica a mano ... in <parent>"): an interrupted
+    # unzip leaves the model directory present but without conf/. It does not
+    # look like a model, so the download runs — and os.replace onto a
+    # non-empty directory raises ENOTEMPTY, so before the fix the publish
+    # failed on EVERY subsequent start-up, reported as "non scaricato" with
+    # nothing pointing at the real cause.
+    leftover = tmp_path / "vosk-models" / MODEL_NAME
+    (leftover / "am").mkdir(parents=True)
+    (leftover / "am" / "half.mdl").write_bytes(b"truncated")
+    assert not looks_like_model(str(leftover))     # the state that starts it
+
+    path, _ = _logged(tmp_path, _opener())
+    assert path == str(leftover)
+    assert looks_like_model(path)
+    # The leftover is gone, not merged into the new model.
+    assert not (leftover / "am" / "half.mdl").exists()
+    assert _leftovers(tmp_path) == [MODEL_NAME]
+
+
+def test_a_complete_model_is_never_re_downloaded_over(tmp_path):
+    # The other side of that rmtree: it must only ever fire on the way to
+    # publishing a model that was actually fetched, never on a good one.
+    good = tmp_path / "vosk-models" / MODEL_NAME
+    (good / "conf").mkdir(parents=True)
+    (good / "conf" / "model.conf").write_bytes(b"mine")
+    opener = _opener()
+    path, _ = _logged(tmp_path, opener)
+    assert opener.calls == []
+    assert (good / "conf" / "model.conf").read_bytes() == b"mine"
+    assert path == str(good)
+
+
 # -- the archive is not trusted ----------------------------------------------
 
 def test_a_member_escaping_the_directory_is_refused(tmp_path):

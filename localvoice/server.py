@@ -188,7 +188,11 @@ def main() -> int:
                          "<dati>/vosk-models/. Serve il gruppo: "
                          "uv sync --group wakeword-vosk")
     ap.add_argument("--wakeword-no-download", action="store_true",
-                    default=bool(appdata.env("WAKEWORD_NO_DOWNLOAD")),
+                    # == "1", like every other boolean env in this repo
+                    # (licensing.py): bool("0") is True, so an add-on setting
+                    # VIVAVOCE_WAKEWORD_NO_DOWNLOAD=0 to *enable* the fetch
+                    # would have switched it off and got "Hey Jarvis" instead.
+                    default=appdata.env("WAKEWORD_NO_DOWNLOAD") == "1",
                     help="non scaricare il modello Vosk mancante all'avvio. "
                          "Per installazioni senza rete o dove il modello lo "
                          "mette l'amministratore: senza modello la parola "

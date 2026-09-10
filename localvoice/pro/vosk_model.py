@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -47,9 +48,15 @@ BASE_URL = "https://alphacephei.com/vosk/models"
 MODEL_URLS = {lang: f"{BASE_URL}/{name}.zip"
               for lang, name in MODEL_DIRNAMES.items()}
 
-# Generous, because it is 50 MB over somebody's home line — but finite, so a
-# hung server on the other end delays start-up instead of preventing it.
+# Two different limits, because urlopen's timeout is not the one that matters
+# here. It bounds each blocking socket operation, so a server trickling one
+# byte every minute never trips it — and this download blocks main() before
+# the listening socket opens, so "slow" and "never starts" are the same thing
+# to whoever is waiting for the app. DEADLINE_SECONDS is wall-clock across the
+# whole transfer, which is what the promise "delays start-up instead of
+# preventing it" actually requires.
 TIMEOUT_SECONDS = 120
+DEADLINE_SECONDS = 600
 
 
 def ensure_model(lang: str, data_dir: str,
@@ -108,6 +115,13 @@ def _fetch_into(url: str, parent: str, target: str, log, opener) -> Optional[str
         unpacked = os.path.join(scratch, os.path.basename(target))
         if not looks_like_model(unpacked):
             raise ValueError(f"l'archivio non contiene {os.path.basename(target)}")
+        # os.replace onto a NON-EMPTY directory raises EEXIST/ENOTEMPTY, and
+        # the way to get one there is the recovery this module's own failure
+        # message recommends: unzip it by hand, interrupt it, and the leftover
+        # directory has no conf/ — so looks_like_model() says "absent", the
+        # download runs, and the publish fails on every start-up afterwards
+        # with a message that names none of that.
+        shutil.rmtree(target, ignore_errors=True)
         os.replace(unpacked, target)      # the one step that publishes it
         return target
     finally:
@@ -130,6 +144,7 @@ def _refuse_escaping_members(names, dest: str) -> None:
 
 
 def _download(url: str, dest: str, log, opener) -> None:
+    started = time.monotonic()
     with opener(url, timeout=TIMEOUT_SECONDS) as resp, open(dest, "wb") as out:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0
@@ -140,6 +155,11 @@ def _download(url: str, dest: str, log, opener) -> None:
                 break
             out.write(block)
             done += len(block)
+            if time.monotonic() - started > DEADLINE_SECONDS:
+                raise ValueError(
+                    f"scaricati solo {done >> 20} MiB in "
+                    f"{DEADLINE_SECONDS // 60} minuti: rinuncio, così l'app "
+                    f"parte comunque")
             # One line per 10 MB rather than a carriage-returned bar: this
             # output goes to a log or a Docker console as often as to a
             # terminal, and a progress bar in a log file is noise nobody can

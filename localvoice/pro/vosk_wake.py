@@ -56,6 +56,15 @@ SAMPLE_RATE = 16000
 # abandoned session holds a Kaldi recognizer.
 IDLE_SESSION_SECONDS = 120.0
 
+# fd 2 belongs to the process, not to the caller. phrase_out_of_vocabulary()
+# redirects it to read a warning only the Kaldi C++ layer can produce, and the
+# HTTP server is threaded: two devices in the house saving a phrase at the
+# same time would interleave as save-real → redirect-A → save-A → redirect-B →
+# restore-real → restore-A, leaving the process's stderr wired to a deleted
+# temp file for the rest of its life. Every traceback after that goes nowhere.
+# One lock, held across the whole dup window, is the entire fix.
+_fd2_lock = threading.Lock()
+
 # The small models: ~50 MB each, enough for a wake phrase, and the ones the
 # bench measured. Not the large ones — this runs continuously next to the
 # music, and the whole point of choosing Vosk over Whisper was 310 MiB
@@ -143,7 +152,8 @@ def phrase_out_of_vocabulary(model, phrase: str) -> List[str]:
     Ported from ``tools/sherpa_bench.py``'s ``vosk_oov()``, where it was
     written and verified against vosk 0.3.45. Vosk exposes no API for this
     and the small models ship no ``words.txt``, so the only signal is a
-    warning the C++ layer writes to **file descriptor 2** ("Ignoring word
+    warning the C++ layer writes to **file descriptor 2** (serialized on
+    :data:`_fd2_lock`, because that descriptor belongs to the process) ("Ignoring word
     missing in vocabulary: 'x'"). ``contextlib.redirect_stderr`` cannot see
     writes from C, hence the fd-level capture.
 
@@ -162,7 +172,7 @@ def phrase_out_of_vocabulary(model, phrase: str) -> List[str]:
     # The temp file opens *before* the descriptor is saved: dup first and the
     # saved fd leaks if TemporaryFile then raises, with nothing left holding
     # a reference to close it.
-    with tempfile.TemporaryFile() as tmp:
+    with _fd2_lock, tempfile.TemporaryFile() as tmp:
         saved = os.dup(2)
         try:
             os.dup2(tmp.fileno(), 2)

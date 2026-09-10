@@ -228,6 +228,23 @@ def _wake_phrase_path(data_dir: str) -> str:
     return os.path.join(data_dir, "wakeword.json")
 
 
+def stored_wake_phrase(data_dir: str) -> Optional[str]:
+    """The phrase the household actually chose, or ``None`` if it never did.
+
+    The distinction :func:`wake_phrase` cannot make, and it decides an
+    upgrade: before this file existed the phrase lived in each browser's
+    localStorage, so a house that typed "ciao impianto" months ago has it
+    there and nowhere else. If the page cannot tell "nobody has chosen" from
+    "somebody chose vivavoce", it adopts the default on first load and
+    overwrites the only copy of their real answer.
+    """
+    stored = read_json(_wake_phrase_path(data_dir), {})
+    if not isinstance(stored, dict):
+        return None
+    phrase = (stored.get("phrase") or "").strip()
+    return phrase or None
+
+
 def wake_phrase(data_dir: str) -> str:
     """The household's wake phrase, or the default when none was chosen.
 
@@ -264,6 +281,9 @@ class WakePhraseStore:
 
     def get(self) -> str:
         return wake_phrase(self.data_dir)
+
+    def stored(self) -> Optional[str]:
+        return stored_wake_phrase(self.data_dir)
 
     def set(self, phrase: str) -> None:
         set_wake_phrase(self.data_dir, phrase)

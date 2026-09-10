@@ -38,7 +38,7 @@ from typing import Optional, Sequence
 # asks for, which is why reads are held to the Host allow-list as well (see
 # httpbase._reject_bad_host).
 JSON_ROUTES = frozenset({"/api/v1/command", "/command", "/kidsafe",
-                         "/license", "/player"})
+                         "/license", "/player", "/wakeword/phrase"})
 
 # Suffixes that only ever resolve on the local network, so they cannot be
 # pointed at us by an attacker who controls a public zone.
