@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vivavoce — voice control for Lyrion Music Server &amp; Daphile</title>
+<meta name="description" content="Hands-free voice control for a Lyrion Music Server or Daphile hi-fi. Say a song and the exact song plays: TIDAL, Qobuz, Spotify, your library. No cloud, no LLM.">
+<link rel="canonical" href="https://lucabon.github.io/vivavoce/">
+<meta name="author" content="Luca Bonura">
+<link rel="icon" href="assets/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Vivavoce">
+<meta property="og:url" content="https://lucabon.github.io/vivavoce/">
+<meta property="og:title" content="Vivavoce — voice control for Lyrion Music Server &amp; Daphile">
+<meta property="og:description" content="Say a song and the exact song plays. Hands-free voice control for an LMS/Squeezebox hi-fi, running on your own LAN. No cloud, no LLM, bit-perfect audio.">
+<meta property="og:image" content="https://lucabon.github.io/vivavoce/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Vivavoce — say a song, the exact song plays">
+<meta property="og:locale" content="en_GB">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Vivavoce — voice control for Lyrion Music Server &amp; Daphile">
+<meta name="twitter:description" content="Say a song and the exact song plays. Hands-free voice control for an LMS/Squeezebox hi-fi, running on your own LAN.">
+<meta name="twitter:image" content="https://lucabon.github.io/vivavoce/assets/og.png">
+
+<style>
+:root{
+  --bg:#0e1311; --bg2:#131a17; --card:#161e1a; --line:#26332c;
+  --fg:#ecf0ed; --muted:#9aa9a1; --green:#3fa45f; --green-deep:#2d7d46; --amber:#e8a33d;
+  --radius:14px; --maxw:1080px;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f6f8f7; --bg2:#eef2f0; --card:#ffffff; --line:#dfe6e2;
+         --fg:#14201a; --muted:#5b6b63; --green:#2d7d46; --green-deep:#24663a; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+img{max-width:100%;height:auto}
+a{color:var(--green);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+section{padding:58px 0;border-top:1px solid var(--line)}
+h1,h2,h3{line-height:1.2;margin:0 0 14px;letter-spacing:-.01em}
+h1{font-size:clamp(2.2rem,6vw,3.4rem);margin-bottom:10px}
+h2{font-size:clamp(1.5rem,3.4vw,2rem);margin-bottom:22px}
+h3{font-size:1.05rem}
+p{margin:0 0 14px}
+.lede{font-size:1.16rem;color:var(--muted);max-width:62ch}
+
+/* hero */
+header.hero{padding:60px 0 54px;background:
+  radial-gradient(900px 420px at 12% -10%, rgba(63,164,95,.16), transparent 60%),
+  linear-gradient(180deg,var(--bg2),var(--bg))}
+.brand{display:flex;align-items:center;gap:16px;margin-bottom:26px}
+.brand img{width:60px;height:60px;border-radius:15px;border:1px solid var(--line)}
+.brand b{font-size:1.28rem}
+.kicker{color:var(--amber);font-weight:600;letter-spacing:.02em;margin:0 0 18px;font-size:1.12rem}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+.btn{display:inline-block;padding:12px 20px;border-radius:11px;font-weight:600;
+  border:1px solid var(--line);color:var(--fg)}
+.btn:hover{text-decoration:none;border-color:var(--green)}
+.btn.primary{background:var(--green-deep);border-color:var(--green-deep);color:#fff}
+.btn.primary:hover{background:var(--green);border-color:var(--green)}
+
+/* dialogue */
+.dialogue{margin-top:34px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);padding:20px 22px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  font-size:.92rem;line-height:1.75;overflow-x:auto}
+.dialogue .you{color:var(--amber)}
+.dialogue .app{color:var(--green)}
+.dialogue span.t{color:var(--muted)}
+
+/* grids */
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+.card p{margin:0;color:var(--muted);font-size:.95rem}
+.card h3{display:flex;align-items:center;gap:9px}
+
+/* shots */
+.shots{display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  align-items:start;margin-top:8px}
+.shot{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:10px;text-align:center}
+.shot img{border-radius:9px;display:block}
+.shot figcaption{color:var(--muted);font-size:.85rem;padding:10px 4px 4px}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:.95rem;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.tbl th,.tbl td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl thead th{background:var(--bg2);font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tbl tr:last-child td{border-bottom:0}
+.scroller{overflow-x:auto}
+
+/* code */
+pre{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px;overflow-x:auto;font-size:.9rem;line-height:1.6;margin:0 0 16px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace}
+p code,li code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:.88em}
+
+/* faq */
+details{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 20px;margin-bottom:12px}
+details summary{cursor:pointer;font-weight:600;list-style:none}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"+";color:var(--green);font-weight:700;margin-right:10px}
+details[open] summary::before{content:"−"}
+details p{margin:12px 0 0;color:var(--muted)}
+
+footer{border-top:1px solid var(--line);padding:38px 0 56px;color:var(--muted);font-size:.9rem}
+footer a{color:var(--muted);text-decoration:underline}
+footer a:hover{color:var(--green)}
+.links{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:18px}
+ul.tight{margin:0 0 14px;padding-left:20px;color:var(--muted)}
+ul.tight li{margin-bottom:7px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">
+      <img src="assets/icon.png" alt="Vivavoce logo" width="60" height="60">
+      <b>Vivavoce</b>
+    </div>
+    <h1>Say a song, the exact song plays.</h1>
+    <p class="kicker">Hands-free voice control for a Lyrion Music Server or Daphile hi-fi.</p>
+    <p class="lede">A local web app for your LMS / Squeezebox system, in Italian, English,
+      Spanish, French and German. It searches your library, TIDAL, Qobuz and Spotify, and it
+      plays the record you asked for. No cloud service, no LLM, no account: Vivavoce sends
+      only control commands, so the audio keeps flowing LMS → Squeezelite → your DAC,
+      bit-perfect.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/LucaBon/vivavoce">Get it on GitHub</a>
+      <a class="btn" href="#quick-start">Quick start</a>
+      <a class="btn" href="https://github.com/LucaBon/vivavoce/blob/main/DEPLOY.md">Home Assistant add-on</a>
+    </div>
+
+    <div class="dialogue">
+      <div><span class="t">You&nbsp;&nbsp;</span><span class="you">«vivavoce, metti Comfortably Numb dei Pink Floyd»</span></div>
+      <div><span class="t">App&nbsp;&nbsp;</span><span class="app">«Riproduco Comfortably Numb di Pink Floyd.»</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t">You&nbsp;&nbsp;</span><span class="you">«metti Love»</span></div>
+      <div><span class="t">App&nbsp;&nbsp;</span><span class="app">«Quale intendi? 1: Love di Lana Del Rey, 2: Love di John Lennon, 3: …»</span></div>
+      <div><span class="t">You&nbsp;&nbsp;</span><span class="you">«la 2»</span> <span class="t">← or tap the “2” button on screen</span></div>
+      <div><span class="t">App&nbsp;&nbsp;</span><span class="app">«Riproduco Love di John Lennon.»</span></div>
+    </div>
+  </div>
+</header>
+
+<section id="why">
+  <div class="wrap">
+    <h2>Why it doesn’t play the wrong song</h2>
+    <p class="lede">Matching is deterministic — rules and scoring, no language model — so the
+      behaviour is testable and repeatable. You get the record you named, or an honest
+      question. Never a silent wrong pick.</p>
+    <div class="grid" style="margin-top:26px">
+      <div class="card">
+        <h3>🧠 It parses title, artist, album</h3>
+        <p>“metti Comfortably Numb <em>dei</em> Pink Floyd” becomes title plus artist;
+          “… <em>dall’album</em> X” becomes an album request.</p>
+      </div>
+      <div class="card">
+        <h3>🎯 Artist-aware ranking</h3>
+        <p>Streaming results are read with the artist attached, so among three
+          “Comfortably Numb” it plays Pink Floyd’s and says so out loud.</p>
+      </div>
+      <div class="card">
+        <h3>❓ “Did you mean”, top three</h3>
+        <p>When genuinely different songs match, it reads back three choices and you answer
+          «metti la 2». The choices are tappable buttons too.</p>
+      </div>
+      <div class="card">
+        <h3>🎼 Four sources, one sentence</h3>
+        <p>Your local library plus TIDAL, Qobuz and Spotify. Say «da qobuz metti …», or let
+          it try your library first and fall back to streaming.</p>
+      </div>
+      <div class="card">
+        <h3>👂 Mishearing resilience</h3>
+        <p>The page walks through the browser’s alternative transcriptions until one hits —
+          the English titles that Italian dictation reliably mangles.</p>
+      </div>
+      <div class="card">
+        <h3>🛋️ Rooms, by voice</h3>
+        <p>«metti Time <em>in cucina</em>», «pausa in salotto». A follow-up choice stays in
+          the room you named.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="screens">
+  <div class="wrap">
+    <h2>It is a web page on your LAN</h2>
+    <p class="lede">Open it from any phone, tablet or PC in the house. Install it as a PWA if
+      you like. There is nothing to sign into.</p>
+    <div class="shots">
+      <figure class="shot">
+        <img src="assets/shot-dark.png" alt="Vivavoce in dark mode: microphone button, text box, and a now-playing card for Wish You Were Here by Pink Floyd" width="780" height="1070" loading="lazy">
+        <figcaption>Tap-to-talk, the text box, now playing with artwork and transport.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/shot-light.png" alt="The same Vivavoce screen in light mode" width="780" height="1070" loading="lazy">
+        <figcaption>Light theme, and the conversation transcript underneath.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="companion">
+  <div class="wrap">
+    <h2>A companion, not a replacement</h2>
+    <p class="lede">Good visual apps for this ecosystem already exist, and Vivavoce
+      deliberately does not reinvent browsing or queueing.</p>
+    <ul class="tight" style="max-width:66ch">
+      <li><b>See and touch</b> with Material Skin or Squeezer — artwork, queue, multi-room.
+        Material Skin opens <em>inside</em> the page, with the microphone still on screen.</li>
+      <li><b>Speak</b> to Vivavoce, which is the one thing those do not do hands-free.</li>
+      <li><b>Or go through Home Assistant:</b> install the add-on, import the Assist
+        blueprint, and talk to a voice satellite. The answer names the song that actually
+        started.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="free-pro">
+  <div class="wrap">
+    <h2>Free and Pro</h2>
+    <p class="lede">The core is free and open source under the AGPL-3.0, forever. A one-time
+      Pro licence per household, with no subscription, unlocks the hands-free features and
+      funds the work. Every install starts with fourteen days of full Pro, microphone
+      included — no key, no card, no account.</p>
+    <div class="scroller" style="margin-top:24px">
+      <table class="tbl">
+        <thead><tr><th>Free</th><th>Pro (one-time licence)</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Typed commands, on every device, over plain HTTP</td>
+            <td>🎙️ Microphone, tap-to-talk</td>
+          </tr>
+          <tr>
+            <td>All search and playback: local library, TIDAL, Qobuz, Spotify, “did you mean”
+              with tappable choices</td>
+            <td>🪄 Wake word — «vivavoce metti Time»</td>
+          </tr>
+          <tr>
+            <td>Transport, volume, sleep timer, now-playing panel with artwork</td>
+            <td>🌍 Multilingual read-back voices</td>
+          </tr>
+          <tr>
+            <td>Docker, Home Assistant add-on or bare Python, HTTPS and PWA install</td>
+            <td>🧒 Kid-safe: PIN-protected blocklist, enforced on the server for every device
+              asking Vivavoce</td>
+          </tr>
+          <tr>
+            <td>Updates</td>
+            <td>🛋️ Multi-room targeting, and 🏠 local speech recognition with Whisper on your
+              own server</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="quick-start">
+  <div class="wrap">
+    <h2>Quick start</h2>
+    <p class="lede">You need an LMS or Daphile on the LAN with at least one active player,
+      and the TIDAL, Qobuz or Spotty plugin logged in if you want streaming.</p>
+    <h3 style="margin-top:26px">With Docker — Linux, NAS, Raspberry Pi</h3>
+    <pre><code>docker compose up -d
+# then open https://&lt;this-host-ip&gt;:8730 from a phone on the same network</code></pre>
+    <h3>Without Docker — Python 3.9 or newer</h3>
+    <pre><code>uv sync
+uv run python localvoice/server.py     # auto-discovers the LMS on the LAN
+# then open http://&lt;this-pc-ip&gt;:8730</code></pre>
+    <p>Then say, or type: «metti Comfortably Numb dei Pink Floyd» · «metti l’album The Wall» ·
+      «da qobuz metti Time» · «quali album ho di Yes» → «metti la 2» · «pausa» ·
+      «alza il volume» · «spegni tra 30 minuti».</p>
+    <p>The browser microphone needs HTTPS when you use it from another device. The Docker
+      image sets that up for you. The text box works everywhere, even on plain HTTP. Full
+      setup notes are in
+      <a href="https://github.com/LucaBon/vivavoce/blob/main/DEPLOY.md">DEPLOY.md</a>.</p>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2>Questions</h2>
+
+    <details>
+      <summary>Does it work with Lyrion Music Server, Logitech Media Server and Daphile?</summary>
+      <p>Yes — they are the same server lineage, and Vivavoce talks to all of them over the
+        LMS JSON-RPC interface. Daphile is a supported target, and so is any LMS or Squeezebox
+        setup on your network. Players can be Squeezelite, piCorePlayer, a Squeezebox Touch or
+        anything else LMS drives.</p>
+    </details>
+
+    <details>
+      <summary>Does my voice go to the cloud?</summary>
+      <p>By default the microphone uses the browser's own speech engine, which means Chrome
+        and Android send the audio to Google, and Safari and iOS to Apple. That is the
+        browser's doing and we say it plainly. The text box is fully local. With the Pro
+        local-speech option, a Whisper model runs on your own server and the audio never
+        leaves the LAN.</p>
+    </details>
+
+    <details>
+      <summary>Which languages does it understand?</summary>
+      <p>Italian, English, Spanish, French and German. You pick the microphone language on
+        the page, and commands are parsed and answered in that language. The page labels
+        themselves are Italian or English, so a Spanish, French or German session gets its
+        answers inside the English page. The Spanish, French and German phrasings have not
+        yet been reviewed by native speakers.</p>
+    </details>
+
+    <details>
+      <summary>Does it affect sound quality?</summary>
+      <p>No. Vivavoce sends control commands only. The audio path stays LMS → Squeezelite →
+        your DAC, untouched and bit-perfect, provided LMS itself is not set to resample for
+        that player.</p>
+    </details>
+
+    <details>
+      <summary>Can I use it with Home Assistant?</summary>
+      <p>Yes. Add the repository under the add-on store, install Vivavoce, then import the
+        Assist blueprint. You can then speak to a voice satellite, the phone app or the
+        dashboard, and the reply names the song that actually started.</p>
+    </details>
+
+    <details>
+      <summary>Does it need an internet connection or an account?</summary>
+      <p>Not for the app itself: no telemetry, no analytics, no account. Streaming services
+        obviously need the internet, and they are reached by LMS, not by Vivavoce. A Pro
+        licence is activated once online and then works offline forever.</p>
+    </details>
+
+    <details>
+      <summary>Is it open source?</summary>
+      <p>The core is AGPL-3.0 and always will be. The Pro features live in a separate
+        directory under a proprietary licence, and the licence check is deliberately simple
+        and unobfuscated. Everything is in the
+        <a href="https://github.com/LucaBon/vivavoce">public repository</a>.</p>
+    </details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/LucaBon/vivavoce">Source code</a>
+      <a href="https://github.com/LucaBon/vivavoce/blob/main/DEPLOY.md">Install guide</a>
+      <a href="https://github.com/LucaBon/vivavoce/blob/main/docs/api.md">HTTP API</a>
+      <a href="https://github.com/LucaBon/vivavoce/blob/main/PRIVACY.md">Privacy</a>
+      <a href="https://github.com/LucaBon/vivavoce/blob/main/SUPPORT.md">Support</a>
+      <a href="https://github.com/LucaBon/vivavoce/issues">Issues</a>
+    </div>
+    <p>Vivavoce is free software under the AGPL-3.0, except <code>localvoice/pro/</code>,
+      which is proprietary. Not affiliated with Lyrion, Daphile, TIDAL, Qobuz, Spotify or
+      Home Assistant. Material Skin is Craig Drummond’s work and nothing of it is
+      redistributed here.</p>
+  </div>
+</footer>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "Vivavoce",
+      "url": "https://lucabon.github.io/vivavoce/",
+      "sameAs": "https://github.com/LucaBon/vivavoce",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Linux, macOS, Windows, Docker, Home Assistant",
+      "description": "Hands-free voice control for a Lyrion Music Server or Daphile hi-fi. Say a song and the exact song plays, from your local library, TIDAL, Qobuz or Spotify. Runs on your own LAN with no cloud service and no language model.",
+      "inLanguage": ["it", "en", "es", "fr", "de"],
+      "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+      "author": { "@type": "Person", "name": "Luca Bonura" },
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Does it work with Lyrion Music Server, Logitech Media Server and Daphile?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. They are the same server lineage, and Vivavoce talks to all of them over the LMS JSON-RPC interface. Players can be Squeezelite, piCorePlayer, a Squeezebox Touch or anything else LMS drives." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does my voice go to the cloud?",
+          "acceptedAnswer": { "@type": "Answer", "text": "By default the microphone uses the browser's speech engine, so Chrome and Android send audio to Google and Safari and iOS to Apple. The text box is fully local, and the Pro local-speech option runs Whisper on your own server so audio never leaves the LAN." }
+        },
+        {
+          "@type": "Question",
+          "name": "Which languages does Vivavoce understand?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Italian, English, Spanish, French and German. You pick the microphone language on the page, and commands are parsed and answered in that language." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does it affect sound quality?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. Vivavoce sends control commands only. The audio path stays LMS to Squeezelite to your DAC, bit-perfect, provided LMS is not resampling for that player." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I use Vivavoce with Home Assistant?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Add the repository to the add-on store, install Vivavoce, then import the Assist blueprint to talk to it from a voice satellite, the phone app or the dashboard." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+</body>
+</html>

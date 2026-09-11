@@ -1,0 +1,21 @@
+# GitHub Pages site for Vivavoce — source: this docs/ folder on main.
+# The site is a single hand-written landing page (index.html); the other
+# markdown files here are repository documentation, not web pages, so they
+# are excluded from the build and stay readable on github.com.
+
+title: Vivavoce
+description: >-
+  Hands-free voice control for a Lyrion Music Server or Daphile hi-fi.
+  Say a song and the exact song plays. No cloud, no LLM.
+url: https://lucabon.github.io
+baseurl: /vivavoce
+lang: en
+
+plugins:
+  - jekyll-sitemap
+
+exclude:
+  - launch/
+  - api.md
+  - ai-act.md
+  - ha-integration-design.md
