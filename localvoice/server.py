@@ -33,14 +33,14 @@ sys.path.insert(0, HERE)  # router, http_api, ...
 
 import appdata  # noqa: E402
 import audio_engines  # noqa: E402
-import discovery  # noqa: E402
 from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
 import setupserver  # noqa: E402
 import tls  # noqa: E402
 import webguard  # noqa: E402
 from http_api import make_handler  # noqa: E402,F401  (re-exported for tests)
-from lms import SERVICES, LMSClient  # noqa: E402
+from lms import SERVICES  # noqa: E402
+from player import registry as player_registry  # noqa: E402
 
 
 def lan_ips() -> list:
@@ -137,6 +137,19 @@ def main() -> int:
                          "(auto-rilevato sulla rete se omesso)")
     ap.add_argument("--player", default=appdata.env("PLAYER"),
                     help="MAC del player; default: il primo trovato")
+    ap.add_argument("--backend", default=appdata.env("BACKEND", "lms"),
+                    help="quale sistema musicale pilotare: "
+                         + ", ".join(sorted(player_registry.BACKENDS))
+                         + " (default: lms). Con un backend diverso da lms "
+                           "servono --backend-url e, dove previsto, "
+                           "--backend-token.")
+    ap.add_argument("--backend-url", default=appdata.env("BACKEND_URL"),
+                    help="indirizzo del backend quando non e' un LMS, es. "
+                         "http://192.168.1.50:8095 per Music Assistant. "
+                         "Per lms usa --lms, che resta il nome documentato.")
+    ap.add_argument("--backend-token", default=appdata.env("BACKEND_TOKEN"),
+                    help="token di accesso del backend, se ne vuole uno. "
+                         "Music Assistant lo crea in Impostazioni -> Profilo.")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=int(appdata.env("PORT", "8730")))
     ap.add_argument("--cert", help="certificato TLS (per il mic da altri device)")
@@ -192,6 +205,18 @@ def main() -> int:
                          "mette l'amministratore: senza modello la parola "
                          "chiave libera resta spenta, e nient'altro cambia.")
     args = ap.parse_args()
+    # Convalidato come --services: un nome sbagliato e' un refuso all'avvio, e
+    # la risposta deve dire cosa si poteva scrivere al suo posto.
+    try:
+        backend = player_registry.get(args.backend)
+    except ValueError as exc:
+        print(exc)
+        return 1
+    backend_url = args.backend_url or (args.lms if backend.name == "lms" else "")
+    if backend.discover is None and not backend_url:
+        print(f"{backend.label} non si annuncia sulla rete: indica dove "
+              f"trovarlo con --backend-url.")
+        return 1
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
     license_mgr.revalidate_async()  # settimanale, best-effort, mai bloccante
@@ -227,8 +252,11 @@ def main() -> int:
     else:
         hosts = lan_ips() or ["<ip-di-questo-pc>"]
 
-    lms_url = args.lms
-    if not lms_url:
+    lms_url = backend_url
+    if not lms_url and backend.name == "lms":
+        # L'indirizzo ricordato e' quello di un LMS: un altro backend non lo
+        # eredita, o il primo avvio con Music Assistant proverebbe a parlare
+        # all'hi-fi dell'avvio precedente.
         lms_url = appdata.remembered_lms(data_dir)
         if lms_url:
             # Not probed here: serve_setup probes every address it is given,
@@ -241,10 +269,12 @@ def main() -> int:
         # The searching narration is worth one line, not one per round: this
         # runs on a loop for as long as the LMS stays missing, which can be
         # all night. The progress phases below are already one-shot per run.
+        if backend.discover is None:
+            return ""  # a system that has to be told where it is
         if not said:
             said.append(1)
             print("Cerco un server LMS sulla rete (UDP 3483)...")
-        found = discovery.discover_base_url(on_progress=_discovery_progress)
+        found = backend.discover(on_progress=_discovery_progress)
         if found:
             print(f"LMS trovato: {found}")
             appdata.remember_lms(data_dir, found)
@@ -261,7 +291,8 @@ def main() -> int:
     try:
         lms_url, players = setupserver.serve_setup(
             args.host, args.port, lms_url, discover,
-            pinned=bool(args.lms), require_player=not args.player,
+            pinned=bool(backend_url), require_player=not args.player,
+            backend=backend.name, token=args.backend_token,
             allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
             wrap=(lambda httpd: tls.wrap_server(httpd, args.cert, args.key))
             if scheme == "https" else None,
@@ -274,9 +305,12 @@ def main() -> int:
     if not player:
         player = players[0]["playerid"]
         print(f"Player: {players[0].get('name')} ({player})")
-    appdata.remember_lms(data_dir, lms_url)
+    if backend.name == "lms":
+        appdata.remember_lms(data_dir, lms_url)
 
-    client = LMSClient(lms_url, player)
+    # The engine talks to whatever this hands back, and has no idea which of
+    # them it got (see engine/player/protocols.py).
+    client = backend.build(lms_url, player, token=args.backend_token)
     # Multi-stanza (Pro): come il kid-safe, il modulo vive in pro/ e il core
     # riceve solo l'oggetto col suo piccolo contratto.
     from pro.multiroom import MultiRoom
@@ -309,7 +343,11 @@ def main() -> int:
         default_service = services[0]
         print(f"--default-service non tra i servizi attivi: uso {default_service}")
 
-    material_url = args.material_url or (lms_url.rstrip("/") + "/material/")
+    # Material Skin is a plugin of the LMS, so only an LMS has one to default
+    # to. Empty switches the in-page panel and its reverse proxy off, which is
+    # what browse_path() already answers for a UI living somewhere else.
+    material_url = args.material_url or (
+        lms_url.rstrip("/") + "/material/" if backend.name == "lms" else "")
     ca_path = tls.find_ca(args.cert)
     httpd = BoundedThreadingHTTPServer(
         (args.host, args.port),

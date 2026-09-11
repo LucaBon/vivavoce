@@ -42,13 +42,19 @@ LMS UI language changes them.
 
 from __future__ import annotations
 
-import contextlib
 import copy
 import re
-import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from player.errors import PlayerError
+# The breaker and the per-turn budget moved to player/resilience.py when a
+# second backend needed them. The three names beside Resilient are unused
+# here and imported on purpose: they were part of this module's surface
+# before the move, and tests/test_lms_resilience.py still reaches for them.
+from player.resilience import (BREAKER_COOLDOWN, BREAKER_THRESHOLD,  # noqa: F401
+                               Breaker as _Breaker, Resilient)
 
 # A transport takes the JSON-RPC ``params`` (``[player_id, [cmd, ...]]``) and
 # returns the parsed ``result`` object from the LMS response.
@@ -273,68 +279,13 @@ def service_label(name: Optional[str]) -> str:
     return (spec.label if spec and spec.label else (name or ""))
 
 
-class LMSError(Exception):
-    """Raised when the LMS server cannot be reached or returns garbage."""
+class LMSError(PlayerError):
+    """Raised when the LMS server cannot be reached or returns garbage.
 
-
-#: Consecutive transport failures before a client stops dialling for a while.
-#: Three, because one is noise (a dropped packet, an LMS mid-restart) and the
-#: retry in :meth:`LMSClient._guarded` already absorbs it.
-BREAKER_THRESHOLD = 3
-
-#: How long the breaker stays open. Long enough that an LMS which is simply
-#: off stops costing a socket timeout per call, short enough that one turned
-#: back on is noticed without touching the app.
-BREAKER_COOLDOWN = 15.0
-
-
-class _Breaker:
-    """Consecutive-failure counter that stops a dead LMS being re-dialled.
-
-    A spoken turn issues several calls in a row — a search, then the play,
-    then the now-playing lookup that names what started. With an LMS that is
-    off, each one waits out the full socket timeout before failing, so "the
-    music server is not answering" costs 8 seconds three or four times over
-    and the listener hears nothing at all for half a minute. After
-    ``threshold`` failures the next calls fail immediately instead, until
-    ``cooldown`` has passed and one probe is allowed through.
-
-    Shared by every shallow copy of a client (``for_service``/``for_player``),
-    like the search-node cache and for the same reason: whether the music
-    server is answering is a fact about the server, not about which clone
-    asked.
-
-    Note that the cooldown expiring does not reset the failure count — only a
-    success does. So the probe that follows a cooldown is exactly one call: if
-    it fails the breaker opens again at once, and a household that left the
-    hi-fi off does not pay for the timeout twice a minute.
+    A :class:`~player.errors.PlayerError`, so the engine catches it with
+    every other backend's failure and still says the one thing it has
+    always said about a hi-fi that is not answering.
     """
-
-    def __init__(self, threshold: int = BREAKER_THRESHOLD,
-                 cooldown: float = BREAKER_COOLDOWN,
-                 now: Callable[[], float] = time.monotonic) -> None:
-        self.threshold = threshold
-        self.cooldown = cooldown
-        self.now = now
-        self._lock = threading.Lock()
-        self._failures = 0
-        self._open_until = 0.0
-
-    def open_for(self) -> float:
-        """Seconds until a call is worth making again; 0.0 when it is now."""
-        with self._lock:
-            return max(0.0, self._open_until - self.now())
-
-    def record_failure(self) -> None:
-        with self._lock:
-            self._failures += 1
-            if self._failures >= self.threshold:
-                self._open_until = self.now() + self.cooldown
-
-    def record_success(self) -> None:
-        with self._lock:
-            self._failures = 0
-            self._open_until = 0.0
 
 
 def find_uri(obj: Any, pattern: "re.Pattern") -> Optional[str]:
@@ -384,7 +335,11 @@ def uri_kind(uri: str) -> Optional[str]:
     return None
 
 
-class LMSClient:
+class LMSClient(Resilient):
+    #: Every round trip this client makes fails as an LMSError, breaker
+    #: and turn budget included (see player/resilience.py).
+    error = LMSError
+
     def __init__(
         self,
         base_url: str,
@@ -407,7 +362,6 @@ class LMSClient:
         self.player_id = player_id
         self.username = username
         self.password = password
-        self.timeout = timeout
         self.service = SERVICES[service]
         self._transport: Transport = transport or self._http_transport
         # service tag -> (search node id or None, when it expires). A dict, so
@@ -415,15 +369,11 @@ class LMSClient:
         # "is Qobuz logged in" is a fact about the server, not about which
         # clone asked. See search_node_id.
         self._search_nodes: Dict[str, Tuple[Optional[str], float]] = {}
-        # Shared across those same copies, for the same reason: "the LMS is
-        # not answering" is a fact about the server. Mutable object rather
-        # than a counter attribute, because a shallow copy shares the object
-        # but would not share a rebound attribute.
-        self._breaker = _Breaker()
-        # Per-thread deadline for the current turn (see turn_deadline). One
-        # Router is shared by every request on a conversation, so the budget
-        # cannot live on the instance.
-        self._turn = threading.local()
+        # timeout, breaker and per-turn budget, all shared with every other
+        # backend. The breaker is deliberately a mutable object the shallow
+        # copies of for_service()/for_player() SHARE, like the search-node
+        # cache above and for the same reason.
+        self._init_resilience(timeout)
 
     def for_service(self, name: str) -> "LMSClient":
         """This client re-targeted at another streaming service. Returns a
@@ -451,70 +401,6 @@ class LMSClient:
         return clone
 
     # -- low level ---------------------------------------------------------
-    @contextlib.contextmanager
-    def turn_deadline(self, seconds: float):
-        """Bound every LMS call this thread makes to ``seconds`` in total.
-
-        One spoken turn is several sequential round trips — ``play_song``
-        searches, plays, then asks what started; ``play_local`` runs three
-        library searches plus a probe per candidate. Each is individually
-        bounded by ``timeout``, and nothing bounded the sum: against a slow
-        or half-dead LMS a single sentence could sit there for twenty-five
-        seconds and then answer with one generic "unreachable".
-
-        Inside this block a call gets whatever is left of the budget, never
-        more, and once the budget is gone the remaining calls fail at once.
-        The reply is then wrong-but-fast rather than wrong-but-slow, which is
-        the only choice actually on offer.
-
-        Nested blocks keep the tighter deadline: the budget of an outer turn
-        is never extended by something it called.
-        """
-        previous = getattr(self._turn, "until", None)
-        until = time.monotonic() + seconds
-        self._turn.until = until if previous is None else min(previous, until)
-        try:
-            yield
-        finally:
-            self._turn.until = previous
-
-    def _call_timeout(self) -> float:
-        """The socket timeout for the next call: the configured one, clamped
-        to what is left of the turn's budget (``timeout`` when unbounded)."""
-        until = getattr(self._turn, "until", None)
-        if until is None:
-            return self.timeout
-        return max(0.0, min(self.timeout, until - time.monotonic()))
-
-    def _guarded(self, params: list):
-        """One transport call, behind the breaker and with a single retry.
-
-        Retried once, and only on a transport failure — a refused connection,
-        a dropped socket, an LMS restarted mid-response. A well-formed answer
-        we happen not to like is never retried: asking again gets the same
-        answer, and the caller has already been told what it means.
-        """
-        wait = self._breaker.open_for()
-        if wait > 0:
-            raise LMSError(
-                f"LMS not answering; not dialled again for {wait:.0f}s")
-        if self._call_timeout() <= 0:
-            raise LMSError("LMS request skipped: this turn ran out of time")
-        try:
-            result = self._transport(params)
-        except LMSError:
-            # Retry only while the turn can still pay for a second attempt.
-            if self._call_timeout() <= 0:
-                self._breaker.record_failure()
-                raise
-            try:
-                result = self._transport(params)
-            except LMSError:
-                self._breaker.record_failure()
-                raise
-        self._breaker.record_success()
-        return result
-
     def _rpc(self, player: str, cmd: List[Any]) -> Dict[str, Any]:
         result = self._guarded([player, [str(c) for c in cmd]])
         if not isinstance(result, dict):

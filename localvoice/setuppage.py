@@ -23,44 +23,136 @@ NO_LMS = "no_lms"
 LMS_DOWN = "lms_down"
 NO_PLAYER = "no_player"
 
+#: The words that are the same whichever music system is being looked for.
+#: ``{label}`` is that system's name, filled in by :func:`strings_for`.
 _STRINGS = {
     "it": {
         "title": "Vivavoce — configurazione",
-        NO_LMS: "Non trovo nessun server musicale (LMS) sulla rete.",
+        NO_LMS: "Non trovo nessun server musicale ({label}) sulla rete.",
         LMS_DOWN: "Conosco l'indirizzo del server musicale, ma non risponde.",
         NO_PLAYER: "Il server musicale risponde, ma non c'è nessun player acceso.",
         "hint_lms": "Se conosci il suo indirizzo, scrivilo qui. Intanto continuo "
                     "a cercarlo da solo.",
         "hint_down": "Controlla che sia acceso e sulla stessa rete. Continuo a "
                      "riprovare da solo; puoi anche indicarne un altro.",
-        "hint_player": "Accendi uno Squeezebox, un Daphile o uno Squeezelite: "
-                       "la pagina va avanti da sola appena lo vede.",
-        "placeholder": "http://192.168.1.50:9000",
         "save": "Prova questo indirizzo",
         "looking": "Sto cercando…",
-        "bad": "A quell'indirizzo non risponde un LMS.",
         "found": "Trovato. Apro l'app…",
         "server": "Server musicale",
     },
     "en": {
         "title": "Vivavoce — setup",
-        NO_LMS: "I can't find a music server (LMS) on this network.",
+        NO_LMS: "I can't find a music server ({label}) on this network.",
         LMS_DOWN: "I know the music server's address, but it isn't answering.",
         NO_PLAYER: "The music server answers, but no player is switched on.",
         "hint_lms": "If you know its address, type it here. I'll keep looking "
                     "on my own in the meantime.",
         "hint_down": "Check it's switched on and on this network. I'll keep "
                      "retrying on my own; you can also point me at another.",
-        "hint_player": "Switch on a Squeezebox, a Daphile or a Squeezelite: "
-                       "this page moves on by itself as soon as it sees one.",
-        "placeholder": "http://192.168.1.50:9000",
         "save": "Try this address",
         "looking": "Looking…",
-        "bad": "Nothing at that address answers like an LMS.",
         "found": "Found it. Opening the app…",
         "server": "Music server",
     },
 }
+
+#: The words that name the system. What you can switch on, what its address
+#: looks like and what it is called are things only the backend knows, and
+#: telling a Music Assistant household to switch on a Squeezebox is worse than
+#: saying nothing: it sends somebody looking for hardware they do not own.
+_BACKEND_STRINGS = {
+    "lms": {
+        "label": "LMS",
+        "it": {
+            "hint_player": "Accendi uno Squeezebox, un Daphile o uno "
+                           "Squeezelite: la pagina va avanti da sola appena "
+                           "lo vede.",
+            "bad": "A quell'indirizzo non risponde un LMS.",
+            "placeholder": "http://192.168.1.50:9000",
+        },
+        "en": {
+            "hint_player": "Switch on a Squeezebox, a Daphile or a "
+                           "Squeezelite: this page moves on by itself as soon "
+                           "as it sees one.",
+            "bad": "Nothing at that address answers like an LMS.",
+            "placeholder": "http://192.168.1.50:9000",
+        },
+    },
+    "musicassistant": {
+        "label": "Music Assistant",
+        "it": {
+            # Non si annuncia sulla rete, quindi questa pagina non lo sta
+            # cercando: server.py si ferma prima se non gli è stato detto
+            # dove guardare. La frase lo dice invece di fingere una ricerca.
+            NO_LMS: "Non so dove trovare Music Assistant.",
+            "hint_lms": "Scrivi qui l'indirizzo del server, porta 8095. "
+                        "Music Assistant non si annuncia sulla rete, quindi "
+                        "non posso trovarlo da solo.",
+            # Un token sbagliato è un rifiuto, non un silenzio, e da qui i due
+            # casi si somigliano troppo perché la pagina non lo dica.
+            "hint_down": "Controlla che sia acceso, sulla stessa rete e che "
+                         "il token di accesso sia ancora valido. Continuo a "
+                         "riprovare da solo.",
+            "hint_player": "Accendi un altoparlante che Music Assistant "
+                           "conosce — DLNA, Chromecast, Sonos, AirPlay o "
+                           "Squeezelite: la pagina va avanti da sola appena "
+                           "lo vede.",
+            "bad": "A quell'indirizzo non risponde Music Assistant.",
+            "placeholder": "http://192.168.1.50:8095",
+        },
+        "en": {
+            NO_LMS: "I don't know where to find Music Assistant.",
+            "hint_lms": "Type the server's address here, port 8095. Music "
+                        "Assistant doesn't announce itself on the network, so "
+                        "I can't find it on my own.",
+            "hint_down": "Check it's switched on, on this network, and that "
+                         "the access token is still valid. I'll keep retrying "
+                         "on my own.",
+            "hint_player": "Switch on a speaker Music Assistant knows — DLNA, "
+                           "Chromecast, Sonos, AirPlay or Squeezelite: this "
+                           "page moves on by itself as soon as it sees one.",
+            "bad": "Nothing at that address answers like Music Assistant.",
+            "placeholder": "http://192.168.1.50:8095",
+        },
+    },
+}
+
+#: What a backend with no words of its own gets. Nothing here is wrong for any
+#: music system; it is only vaguer than words written for one in particular.
+_GENERIC = {
+    "it": {
+        "hint_player": "Accendi un lettore che {label} conosce: la pagina va "
+                       "avanti da sola appena lo vede.",
+        "bad": "A quell'indirizzo non risponde {label}.",
+        "placeholder": "http://192.168.1.50",
+    },
+    "en": {
+        "hint_player": "Switch on a player {label} knows: this page moves on "
+                       "by itself as soon as it sees one.",
+        "bad": "Nothing at that address answers like {label}.",
+        "placeholder": "http://192.168.1.50",
+    },
+}
+
+
+def strings_for(backend: str = "lms", label: str = "") -> dict:
+    """The complete string table for one backend, per language.
+
+    The shared words, with the backend's own written over them, and
+    ``{label}`` filled in everywhere. A backend nobody has written copy for
+    still renders a full card — vaguer, never blank, because a blank card is
+    the original "something is wrong, good luck" wearing a stylesheet.
+    """
+    extra = _BACKEND_STRINGS.get(backend)
+    name = label or (extra or {}).get("label") or backend or "LMS"
+    out = {}
+    for lang, shared in _STRINGS.items():
+        words = dict(shared)
+        words.update((extra or _GENERIC).get(lang, {}))
+        out[lang] = {k: v.format(label=name) if "{label}" in v else v
+                     for k, v in words.items()}
+    return out
+
 
 # Self-contained on purpose: the app's stylesheet and its JS modules assume a
 # resolved player and a services list, neither of which exists yet. Same
@@ -110,7 +202,7 @@ _PAGE = """<!doctype html>
     <p class="hint" id="hint"></p>
     <form id="f" hidden>
       <input id="url" type="url" inputmode="url" autocomplete="off"
-             autocapitalize="off" spellcheck="false" aria-label="LMS">
+             autocapitalize="off" spellcheck="false">
       <button type="submit" id="save"></button>
     </form>
     <p class="status" id="status" role="status" aria-live="polite"></p>
@@ -125,6 +217,7 @@ document.documentElement.lang = lang;
 document.title = T.title;
 $("save").textContent = T.save;
 $("url").placeholder = T.placeholder;
+$("url").setAttribute("aria-label", T.server);
 let busy = false;
 
 function spin(text) { return '<span class="spin"></span>' + text; }
@@ -182,8 +275,14 @@ poll();
 
 
 
-def setup_page() -> str:
-    """The page, with its strings and poll interval baked in."""
+def setup_page(backend: str = "lms", label: str = "") -> str:
+    """The page, with its strings and poll interval baked in.
+
+    The strings are baked rather than fetched because this page has to render
+    before anything is resolved — including which backend answered, which is
+    the one thing it is waiting to find out.
+    """
     return (_PAGE
-            .replace("__STRINGS__", json.dumps(_STRINGS, ensure_ascii=False))
+            .replace("__STRINGS__",
+                     json.dumps(strings_for(backend, label), ensure_ascii=False))
             .replace("__POLL__", str(POLL_INTERVAL_MS)))

@@ -13,11 +13,12 @@ import re
 from typing import Dict, List, Optional
 
 from guard import Guard, is_blocked_item
-from lms import LMSError, service_label
+from lms import service_label
 from matching import (GATE, LIST_LIMIT, LOCAL_CONFIDENT, ActionResult, _MODE_KEY,
                       _MODE_SUFFIX, _dedup_by_title_artist, _did_you_mean,
                       _normalize, _score, _strip_lead_filler)
 from messages import msg
+from player.errors import PlayerError
 
 # -- conversational flow: list -> choose by number ------------------------
 # A list read out loud is an answer, so its speech carries ``ok=True`` — but
@@ -46,7 +47,7 @@ def top_tracks_list(
                 "candidates": []}
     try:
         tracks = lms.artist_top_tracks(artist)["tracks"]
-    except LMSError:
+    except PlayerError:
         return {"speech": ActionResult(msg("err_unreachable"), ok=False),
                 "candidates": []}
     if guard and guard.restricted:  # drop blocked tracks so they can't be chosen
@@ -72,8 +73,7 @@ def top_tracks_list(
 # Candidate 'action' -> the local-library kind it names (album/artist/track),
 # used to pick the right lms.<mode>_local_<kind>() method. The action strings
 # themselves are historical ("play_...") and don't change with mode.
-_LOCAL_KIND = {"play_album_id": "album", "play_artist_id": "artist",
-              "play_track_id": "track"}
+_LOCAL_KIND = {"play_album_id": "album", "play_artist_id": "artist", "play_track_id": "track"}
 
 
 def _dispatch_play(lms, candidate: Dict, *, mode: str = "play") -> None:
@@ -111,7 +111,7 @@ def choose_from(
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         _dispatch_play(lms, chosen, mode=mode)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     key = _MODE_KEY[mode]
     return ActionResult(
@@ -158,7 +158,7 @@ def choose_by_name(
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         _dispatch_play(lms, chosen, mode=mode)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     key = _MODE_KEY[mode]
     return ActionResult(
@@ -256,7 +256,7 @@ def library_candidates(lms, query: Optional[str], *,
         cands = (lms.local_album_candidates(query)
                  + lms.local_artist_candidates(query)
                  + lms.local_track_candidates(query))
-    except LMSError:
+    except PlayerError:
         return []
     keep = [c for c in cands
             if c.get("title") and not (guard and guard.restricted
@@ -315,7 +315,7 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
             else msg("playing_local" + suffix, title=item["title"])
         )
         return ActionResult(speech, ok=True, terms=[item["title"]])
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
 
 
@@ -357,7 +357,7 @@ def play_local_artist(lms, query: Optional[str], *,
         _dispatch_play(lms, item)
         return ActionResult(msg("playing_local", title=item["title"]),
                             ok=True, terms=[item["title"]])
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
 
 
@@ -375,7 +375,7 @@ def local_albums_list(
                 "candidates": []}
     try:
         result = lms.local_albums_by_artist(artist)
-    except LMSError:
+    except PlayerError:
         return {"speech": ActionResult(msg("err_unreachable"), ok=False),
                 "candidates": []}
     if not result["artist"]:

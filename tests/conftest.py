@@ -26,6 +26,8 @@ sys.path.insert(0, LOCALVOICE_DIR)
 import httpbase  # noqa: E402
 import server  # noqa: E402
 from lms import LMSClient, LMSError  # noqa: E402
+from player.ma_transport import MusicAssistantError  # noqa: E402
+from player.musicassistant import MusicAssistantClient  # noqa: E402
 from messages import set_lang  # noqa: E402
 
 
@@ -115,6 +117,66 @@ def make_feed():
 def make_tidal(make_feed):
     """Backward-compatible alias for :func:`make_feed`."""
     return make_feed
+
+
+class FakeMATransport:
+    """The MusicAssistant twin of :class:`FakeTransport`.
+
+    Substitutes ``MusicAssistantClient._transport``, so it sees the request
+    the client would have POSTed to ``/api`` minus the message id, and answers
+    with whatever the test scripted. Usage::
+
+        t = FakeMATransport()
+        t.responses["music/search"] = {"tracks": [...]}
+        t.raise_on.add("players/cmd/pause")
+
+    A command nobody scripted answers ``None``, which is what the server
+    really does for every ``players/cmd/*``: they change something and return
+    nothing.
+    """
+
+    def __init__(self):
+        self.calls = []  # list of (command, args)
+        self.responses = {}
+        self.raise_on = set()
+
+    def __call__(self, request):
+        command = request["command"]
+        args = dict(request.get("args") or {})
+        self.calls.append((command, args))
+        if command in self.raise_on:
+            raise MusicAssistantError(f"simulated failure for {command}")
+        result = self.responses.get(command)
+        return result(args) if callable(result) else result
+
+    # -- convenience assertions -------------------------------------------
+    def commands(self):
+        return [command for command, _ in self.calls]
+
+    def last_call(self):
+        return self.calls[-1]
+
+    def args_for(self, command):
+        """The arguments of the first call to ``command``, or None."""
+        for name, args in self.calls:
+            if name == command:
+                return args
+        return None
+
+
+@pytest.fixture
+def ma_transport():
+    return FakeMATransport()
+
+
+@pytest.fixture
+def ma(ma_transport):
+    return MusicAssistantClient(
+        base_url="http://ma.local:8095",
+        player_id="ma-player-1",
+        token="test-token",
+        transport=ma_transport,
+    )
 
 
 @pytest.fixture

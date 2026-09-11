@@ -21,11 +21,13 @@ import re
 import threading
 import time
 import urllib.parse
+from typing import Optional
 
 import webguard
 from http.server import BaseHTTPRequestHandler
 from httpbase import BoundedThreadingHTTPServer, RequestBase
-from lms import LMSClient, LMSError
+from player.errors import PlayerError
+from player.registry import BACKENDS, get as get_backend
 from setuppage import LMS_DOWN, NO_LMS, NO_PLAYER, setup_page
 
 #: How often the background probe re-checks, in seconds. Fast enough that
@@ -55,14 +57,19 @@ STALE_AFTER = 2
 _HOSTNAME_RE = re.compile(r"\A(?:[A-Za-z0-9._-]+|[0-9A-Fa-f:]+)\Z")
 
 
-def normalize_lms_url(raw: str) -> str:
-    """A typed-in address as an LMS base URL, or ``""`` if it isn't one.
+def normalize_lms_url(raw: str, default_port: int = 9000) -> str:
+    """A typed-in address as a base URL, or ``""`` if it isn't one.
 
     People type ``192.168.1.50``, because that is what the sticker on the
-    router says. Accept it: add the scheme, add the port LMS has always used,
-    and drop a trailing slash so the result concatenates the way the client
-    expects. Anything with a scheme that is not http(s) is refused rather than
-    normalised — a ``file://`` in this field is a mistake, not shorthand.
+    router says. Accept it: add the scheme, add the port the music system
+    answers on, and drop a trailing slash so the result concatenates the way
+    the client expects. Anything with a scheme that is not http(s) is refused
+    rather than normalised — a ``file://`` in this field is a mistake, not
+    shorthand.
+
+    ``default_port`` is the backend's, not a constant: completing a bare IP
+    with 9000 for a Music Assistant on 8095 produces an address that looks
+    right and answers nothing, which is the worst of the three outcomes.
     """
     text = (raw or "").strip()
     if not text:
@@ -81,20 +88,27 @@ def normalize_lms_url(raw: str) -> str:
     if ":" in host:  # IPv6, and urlsplit took the brackets off
         host = f"[{host}]"
     return urllib.parse.urlunsplit(
-        (parts.scheme, f"{host}:{port or 9000}", "", "", ""))
+        (parts.scheme, f"{host}:{port or default_port}", "", "", ""))
 
 
-def probe(lms_url: str, timeout: float = 3.0):
-    """``(ok, players)`` for one address — does an LMS answer, and with what.
+def probe(lms_url: str, timeout: float = 3.0, *, backend: str = "lms",
+          token: Optional[str] = None):
+    """``(ok, players)`` for one address — does it answer, and with what.
 
     A short timeout on purpose: this runs on a loop while somebody watches a
     spinner, and the answer "not yet" is worth having quickly.
     """
     try:
-        players = LMSClient(lms_url, "0", timeout=timeout).get_players()
-    except (LMSError, ValueError):
+        players = get_backend(backend).probe(lms_url, token=token,
+                                             timeout=timeout)
+    except (PlayerError, ValueError):
         return False, []
     return True, players
+
+
+def prober_for(backend: str = "lms", token: Optional[str] = None):
+    """A one-argument :func:`probe` bound to one backend, for the loop below."""
+    return lambda url: probe(url, backend=backend, token=token)
 
 
 class _Resolution:
@@ -112,9 +126,13 @@ class _Resolution:
     def __init__(self, lms_url: str, discover, pinned: bool = False,
                  require_player: bool = True,
                  discover_interval: float = DISCOVER_INTERVAL,
-                 now=time.monotonic):
+                 now=time.monotonic, probe=None):
         self.lock = threading.Lock()
         self.discover = discover
+        # Which music system this is looking for. Defaults to the module
+        # function so every existing caller — and every test — keeps asking
+        # an LMS without saying so.
+        self.probe = probe or globals()["probe"]
         self.discover_interval = discover_interval
         self.now = now
         self.discover_after = 0.0
@@ -148,7 +166,7 @@ class _Resolution:
 
     def offer(self, lms_url: str) -> bool:
         """Try one address. True when it leaves the house controllable."""
-        ok, players = probe(lms_url)
+        ok, players = self.probe(lms_url)
         with self.lock:
             if not ok:
                 if lms_url == self.lms_url:
@@ -209,8 +227,10 @@ def _probe_loop(resolution: _Resolution, interval: float, sleep) -> None:
         sleep(interval)
 
 
-def make_setup_handler(resolution: _Resolution, allowed_hosts=None):
-    page = setup_page()
+def make_setup_handler(resolution: _Resolution, allowed_hosts=None,
+                       backend: str = "lms", label: str = "",
+                       default_port: int = 9000):
+    page = setup_page(backend, label)
 
     class SetupHandler(RequestBase, BaseHTTPRequestHandler):
         host_policy = webguard.HostPolicy(allowed_hosts)
@@ -233,7 +253,8 @@ def make_setup_handler(resolution: _Resolution, allowed_hosts=None):
             if self.path.split("?", 1)[0] != "/setup":
                 self._send(404, '{"ok":false}')
                 return
-            url = normalize_lms_url(self._read_json_object().get("lms") or "")
+            url = normalize_lms_url(
+                self._read_json_object().get("lms") or "", default_port)
             ok = resolution.offer(url) if url else False
             state = resolution.state()
             state["ok"] = ok
@@ -249,16 +270,25 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
                 pinned: bool = False, require_player: bool = True,
                 allowed_hosts=None, wrap=None, interval: float = PROBE_INTERVAL,
                 discover_interval: float = DISCOVER_INTERVAL,
-                sleep=time.sleep, announce=print):
+                sleep=time.sleep, announce=print, backend: str = "lms",
+                token: Optional[str] = None):
     """Serve the setup page until the household is controllable.
 
-    Returns ``(lms_url, players)`` — an LMS that answers and at least one
-    player switched on — for ``server.main`` to build the real app with.
+    Returns ``(lms_url, players)`` — a music server that answers and at least
+    one player switched on — for ``server.main`` to build the real app with.
     ``discover`` is called (repeatedly) only while no address is known;
     ``wrap`` is handed the server to put TLS on it, so the setup page is
     reached at the same scheme and port as the app that replaces it.
+
+    ``backend`` decides both who is asked and what the page says while it
+    waits: telling a Music Assistant household to switch on a Squeezebox
+    sends somebody looking for hardware they do not own.
     """
+    spec = get_backend(backend) if backend in BACKENDS else None
+    label = spec.label if spec else ""
+    default_port = spec.default_port if spec else 9000
     resolution = _Resolution(lms_url, discover, pinned=pinned,
+                             probe=prober_for(backend, token),
                              require_player=require_player,
                              discover_interval=discover_interval)
     # Look once before binding anything — but only the cheap half. A house
@@ -272,7 +302,9 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
         return resolution.lms_url, resolution.players
 
     httpd = BoundedThreadingHTTPServer(
-        (host, port), make_setup_handler(resolution, allowed_hosts))
+        (host, port),
+        make_setup_handler(resolution, allowed_hosts, backend, label,
+                           default_port))
     if wrap:
         wrap(httpd)
     prober = threading.Thread(

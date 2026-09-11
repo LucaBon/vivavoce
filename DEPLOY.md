@@ -243,6 +243,35 @@ uv run python localvoice/server.py            # auto-discovers LMS on the LAN
 Open `http://<this-pc-ip>:8730` from a phone/tablet/PC on the same network → tap the mic
 and speak, or type. The player is auto-detected (override with `--player <MAC>`).
 
+### Driving Music Assistant instead of an LMS
+
+```bash
+uv run python localvoice/server.py \
+    --backend musicassistant \
+    --backend-url http://<IP-MUSIC-ASSISTANT>:8095 \
+    --backend-token <token>
+```
+
+The token is made in Music Assistant under **Settings → Profile**. The address
+is not optional: Music Assistant does not answer the UDP broadcast an LMS
+does, so there is nothing to discover and the server says so and stops rather
+than searching a network that will never reply.
+
+Worth doing even if your speakers are not Squeezeboxes — Music Assistant
+drives DLNA, Chromecast, Sonos and AirPlay players itself, so those become
+players you can talk to, with nothing else to install. Vivavoce still does the
+part it exists for: «metti Comfortably Numb dei Pink Floyd» starts *that*
+record, and «metti Yesterday di Vasco Rossi» says it could not find it instead
+of playing the Beatles.
+
+Two things are missing compared with an LMS, and both are absences rather than
+bugs. There is no Material Skin panel in the page, because Material Skin is an
+LMS plugin. And there is no index by year, so «musica degli anni '80» falls
+back to a streaming playlist instead of loading the library by decade.
+
+`--backend`, `--backend-url` and `--backend-token` have the usual environment
+twins: `VIVAVOCE_BACKEND`, `VIVAVOCE_BACKEND_URL`, `VIVAVOCE_BACKEND_TOKEN`.
+
 ### Microphone from other devices = HTTPS required
 
 The browser mic works without a certificate only on `localhost`. From a phone the browser

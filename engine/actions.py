@@ -13,7 +13,6 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from guard import Guard, is_blocked_item
-from lms import LMSError
 from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
                       near_artist_matches, _resolved_enough, _trusts_ranking,
                       ActionResult, _MODE_KEY, _MODE_KEY_BY, _MODE_SUFFIX,
@@ -21,6 +20,7 @@ from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
                       _covers, _normalize, _rank, _score,
                       parse_song_query)
 from messages import msg
+from player.errors import PlayerError
 
 
 def _undo_play(lms) -> None:
@@ -29,7 +29,7 @@ def _undo_play(lms) -> None:
     blocked and we learn it only from the now-playing status."""
     try:
         lms.clear_queue()
-    except LMSError:
+    except PlayerError:
         pass
 
 
@@ -89,7 +89,7 @@ def play_song(lms, query: Optional[str], *, mode: str = "play",
             return ActionResult(msg("no_track_found", title=title), ok=False)
         return _resolve_song(lms, tracks, title, artist, mode=mode, guard=guard,
                              whole=_strip_lead_filler(query))
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
 
 
@@ -186,7 +186,7 @@ def _confirm_song(lms, track: Dict, fallback_title: Optional[str]):
     if not artist and name:
         try:
             now = lms.now_playing_info()
-        except LMSError:
+        except PlayerError:
             now = None
         if now and _normalize(now.get("title")) == _normalize(name):
             artist = now.get("artist")
@@ -247,7 +247,7 @@ def play_album(lms, album: Optional[str], *, guard: Optional[Guard] = None) -> A
         if guard and guard.blocks_item(item):
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     name = item["title"] or album
     return ActionResult(msg("playing_album", album=name), ok=True, terms=[name])
@@ -276,7 +276,7 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
         if not tracks:
             return ActionResult(msg("artist_unplayable", artist=artist), ok=False)
         lms.play_tracks(tracks)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("playing_artist", artist=artist), ok=True, terms=[artist])
 
@@ -297,7 +297,7 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
         if guard and guard.blocks_item(item):
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("playing_playlist", name=name), ok=True, terms=[name])
 
@@ -307,7 +307,7 @@ def play_favorites(lms, *, guard: Optional[Guard] = None) -> ActionResult:
     """"riproduci i preferiti": play the first playable saved favorite."""
     try:
         items = lms.favorites_items()
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     cands = [it for it in items if it.get("id") and it.get("name")]
     if guard and guard.restricted:
@@ -317,7 +317,7 @@ def play_favorites(lms, *, guard: Optional[Guard] = None) -> ActionResult:
     chosen = cands[0]
     try:
         lms.favorites_playlist_play(chosen["id"])
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("playing_favorites"), ok=True, terms=[chosen["name"]])
 
@@ -334,7 +334,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
         items = lms.favorites_items(query=name)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     cands = [{"title": it.get("name"), "id": it.get("id")}
              for it in items if it.get("id") and it.get("name")]
@@ -347,7 +347,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
         return ActionResult(msg("radio_not_found", name=name), ok=False)
     try:
         lms.favorites_playlist_play(best["id"])
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("playing_radio", name=best["title"]), ok=True,
                         terms=[best["title"]])

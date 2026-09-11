@@ -17,17 +17,24 @@ Home Assistant add-on build with a 404.
 | Path | What |
 |---|---|
 | `engine/` | Business logic: `actions.py`, `lms.py`, `discovery.py`, `messages.py` |
+| `engine/player/` | The player layer: `protocols.py` (what the engine needs), `registry.py`, one module per backend |
 | `localvoice/` | The web app: `server.py` (HTTP), `router.py` (intents), `index.html` |
 | `localvoice/lmsproxy.py` | Reverse proxy to the LMS: Material Skin framed inside the page |
 | `localvoice/pro/` | Pro features (proprietary): kid-safe, multi-room, local ASR |
-| `tests/` | pytest, no network — a simulated LMS transport throughout |
+| `tests/` | pytest, no network — a simulated transport per backend |
 
 ## Constraints worth knowing
 
 - **The core is stdlib-only.** `engine/` and `localvoice/` import nothing
   third-party; optional extras (`cryptography`, `faster-whisper`) are lazy
   imports guarded by try/except. Keep it that way — it is why the app installs
-  anywhere.
+  anywhere. Backends included: Music Assistant is driven over its plain
+  `POST /api`, not its websocket, precisely so this stays true.
+- **The engine never names a backend.** `engine/` calls methods on whatever
+  object it is handed — see `engine/player/protocols.py`, and
+  `engine/matching.py` for the older comment that says the same thing. A
+  feature a backend may not have is gated on `Capabilities`, never on
+  `isinstance` or a backend name.
 - **Python 3.9 is the supported floor** (`requires-python`), and CI enforces it.
   Every module carries `from __future__ import annotations`.
 - **No test may touch the network.** `LicenseManager` takes an injectable
@@ -47,6 +54,11 @@ handler on an ephemeral port and returns a client with
 `get`/`post`/`json_get`/`json_post` (plus `try_*` variants that keep a 4xx
 instead of raising). Use it rather than standing up a `ThreadingHTTPServer` by
 hand.
+
+`tests/test_player_protocol.py` holds every registered backend to the
+protocols and to its own declared capabilities — a capability set to True with
+no method behind it is how a clean "this player cannot search" turns into an
+`AttributeError` reported as "the hi-fi is not answering".
 
 `tests/test_packaging.py` guards what the suite otherwise cannot see: Dockerfile
 `COPY` sources exist, the two version files agree, and the add-on installs a

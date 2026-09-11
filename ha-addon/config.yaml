@@ -30,3 +30,11 @@ schema:
   player: str?
   cert_hosts: str?
   material_url: str?
+  # Quale sistema musicale pilotare: lms (default) o musicassistant.
+  backend: str?
+  # Dove trovarlo, quando non e' un LMS: Music Assistant non si annuncia su
+  # UDP 3483, quindi va indicato. Es. http://192.168.1.50:8095
+  backend_url: str?
+  # "password" e non "str": il token non va mostrato in chiaro nel pannello
+  # delle opzioni ne' finire nei log del Supervisor.
+  backend_token: password?

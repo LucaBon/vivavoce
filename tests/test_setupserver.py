@@ -18,21 +18,29 @@ import pytest
 import setuppage
 import setupserver
 from lms import LMSError
+from player.registry import BACKENDS
 
 
 class FakeProbe:
     """A scriptable stand-in for :func:`setupserver.probe`.
 
-    ``answers`` maps an address to what an LMS there would say: a list of
-    players, or ``None`` for "nothing answers".
+    ``answers`` maps an address to what a music server there would say: a list
+    of players, or ``None`` for "nothing answers".
+
+    The signature mirrors the real one, keyword arguments included: since the
+    player layer, which backend is being asked (and with which token) is part
+    of the question, and ``asked`` records it so a test can check the setup
+    loop is talking to the system it was pointed at.
     """
 
     def __init__(self, answers=None):
         self.answers = answers or {}
         self.calls = []
+        self.asked = []
 
-    def __call__(self, url, timeout=3.0):
+    def __call__(self, url, timeout=3.0, *, backend="lms", token=None):
         self.calls.append(url)
+        self.asked.append((backend, token))
         players = self.answers.get(url)
         return (False, []) if players is None else (True, players)
 
@@ -393,12 +401,67 @@ def test_the_page_carries_no_unrendered_placeholders():
     assert str(setuppage.POLL_INTERVAL_MS) in page
 
 
-def test_both_languages_answer_every_reason():
+def test_a_bare_address_is_completed_with_the_backends_own_port():
+    # A bare IP completed with 9000 for a Music Assistant on 8095 produces an
+    # address that looks right and answers nothing, which is worse than
+    # refusing it: the household has no way to see what is wrong.
+    assert setupserver.normalize_lms_url("192.168.1.50", 8095) == \
+        "http://192.168.1.50:8095"
+    assert setupserver.normalize_lms_url("192.168.1.50") == \
+        "http://192.168.1.50:9000"
+    # A port that was typed is never overridden.
+    assert setupserver.normalize_lms_url("192.168.1.50:9999", 8095) == \
+        "http://192.168.1.50:9999"
+
+
+def test_the_setup_loop_asks_the_backend_it_was_pointed_at(probe):
+    # The address box and the page copy are one half; the other is that the
+    # probe behind them is talking to the system the user chose, with the
+    # token they gave, rather than looking for an LMS that is not there.
+    probe.answers["http://ma:8095"] = SALA
+    setupserver.serve_setup("127.0.0.1", 0, "http://ma:8095", lambda: "",
+                            backend="musicassistant", token="sekrit",
+                            announce=lambda _l: None)
+    assert probe.asked == [("musicassistant", "sekrit")]
+
+
+KEYS = ("title", "hint_lms", "hint_down", "hint_player", "save", "looking",
+        "bad", "found", "placeholder", "server", setupserver.NO_LMS,
+        setupserver.LMS_DOWN, setupserver.NO_PLAYER)
+
+
+@pytest.mark.parametrize("backend", sorted(BACKENDS))
+def test_both_languages_answer_every_reason(backend):
     # A reason with no sentence renders an empty card, which is the original
-    # failure ("something is wrong, good luck") wearing a stylesheet.
-    keys = ("title", "hint_lms", "hint_down", "hint_player", "save", "looking",
-            "bad", "found", setupserver.NO_LMS, setupserver.LMS_DOWN,
-            setupserver.NO_PLAYER)
+    # failure ("something is wrong, good luck") wearing a stylesheet. Every
+    # backend gets its own words, so every backend can lose one.
+    words = setuppage.strings_for(backend)
     for lang in ("it", "en"):
-        for key in keys:
-            assert setuppage._STRINGS[lang].get(key), f"{lang}/{key}"
+        for key in KEYS:
+            assert words[lang].get(key), f"{backend}/{lang}/{key}"
+
+
+def test_a_backend_nobody_wrote_words_for_still_fills_the_card():
+    # Vaguer, never blank: the generic copy names the system and says the same
+    # things, so adding a backend cannot silently produce an empty page.
+    words = setuppage.strings_for("newthing", label="New Thing")
+    for lang in ("it", "en"):
+        for key in KEYS:
+            assert words[lang].get(key), f"{lang}/{key}"
+        assert "New Thing" in words[lang]["bad"]
+
+
+def test_the_page_never_tells_the_wrong_household_what_to_switch_on():
+    # The bug this fixes: a Music Assistant household was told to switch on a
+    # Squeezebox, which sends somebody looking for hardware they do not own.
+    ma = setuppage.strings_for("musicassistant")
+    assert "Squeezebox" not in ma["it"]["hint_player"]
+    assert "Music Assistant" in ma["it"]["hint_player"]
+    assert "8095" in ma["it"]["placeholder"]
+    assert "Squeezebox" in setuppage.strings_for("lms")["it"]["hint_player"]
+
+
+def test_the_page_is_built_for_the_backend_it_was_given():
+    assert "8095" in setuppage.setup_page("musicassistant")
+    assert "Music Assistant" in setuppage.setup_page("musicassistant")
+    assert "Squeezebox" in setuppage.setup_page("lms")
