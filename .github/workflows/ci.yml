@@ -151,11 +151,10 @@ jobs:
         with:
           enable-cache: true
 
-      # No Python pin, unlike the openwakeword leg above: vosk ships
+      # No Python pin, unlike the openwakeword leg this replaced: vosk ships
       # `py3-none-*` wheels, so this group has no version ceiling at all —
-      # which is half the reason it exists. It also ships an armv7l wheel,
-      # so unlike the other two groups it installs on a 32-bit Pi (see
-      # pro/vosk_wake.wheels_unavailable_here).
+      # which is half the reason it exists. It also ships an armv7l wheel, so
+      # unlike `asr` it installs on a 32-bit Pi.
       - name: Sync dependencies (incl. the wakeword-vosk group)
         run: uv sync --group wakeword-vosk
 
@@ -210,6 +209,48 @@ jobs:
           assert s.out_of_vocabulary('zorblax') == ['zorblax'], 'invented word accepted'
           print('lexicon check alive')
           "
+
+  wakeword-vosk-macos:
+    name: free-phrase wake word (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      # The claim this leg exists to prove. DEPLOY.md tells macOS users the
+      # group installs there, and that rests on a version marker: vosk 0.3.45
+      # dropped the macOS wheel, so pyproject pins Darwin to 0.3.44 instead.
+      # A wheel existing on PyPI is not the same as the resolver picking it —
+      # `>=0.3.44` alone did NOT, because uv resolves one version across all
+      # platforms and chose 0.3.45. That was caught by reading the lockfile;
+      # this is what catches it next time.
+      - name: Sync dependencies (incl. the wakeword-vosk group)
+        run: uv sync --group wakeword-vosk
+
+      - name: The resolver really picked the version that has a macOS wheel
+        run: |
+          uv run python -c "
+          import importlib.metadata as md, sys
+          v = md.version('vosk')
+          print('vosk', v)
+          assert v != '0.3.45', 'resolved the one release with no macOS wheel'
+          import vosk  # the wheel's native library actually loads
+          sys.path.insert(0, 'engine'); sys.path.insert(0, 'localvoice')
+          from pro.vosk_wake import available
+          assert available(), 'the package is installed but not importable'
+          print('engine importable on macOS')
+          "
+
+      # No model here: the download and the lexicon check are covered on Linux
+      # and aarch64, and 47 MB per run to re-prove platform-independent logic
+      # would be paying for the wrong thing. What macOS has to answer is
+      # "does this install and load at all", and that is answered above.
+      - name: Run the platform-independent half of the suite
+        run: uv run pytest tests/test_vosk_wake.py tests/test_vosk_model.py tests/test_wakematch.py -q
 
   asr:
     name: local speech recognition (py3.12, ${{ matrix.arch }})

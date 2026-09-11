@@ -125,7 +125,8 @@ def test_addon_declares_only_arches_it_can_actually_build_for():
 # a typo'd label doesn't fail loudly, the job just never gets picked up, and a
 # green tick on a workflow that silently skipped a leg is the worst outcome
 # available here.
-KNOWN_RUNNERS = {"ubuntu-latest", "windows-latest", "ubuntu-24.04-arm"}
+KNOWN_RUNNERS = {"ubuntu-latest", "windows-latest", "ubuntu-24.04-arm",
+                 "macos-latest"}
 
 
 def _workflow_jobs(name="ci.yml"):

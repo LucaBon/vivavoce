@@ -64,8 +64,8 @@ yours lives elsewhere the app falls back to a plain link to it.
   has to be made of real words, because the engine only ever outputs words in
   its dictionary — a coined name detects essentially never, so the settings
   field refuses one and tells you which word it can't say. Both engines are
-  offered, pick either. Unlike local speech recognition this one installs on a
-  32-bit Pi too; there's no macOS build.
+  offered, pick either. Unlike local speech recognition, this one installs on
+  a 32-bit Pi too.
 - The mic needs HTTPS, which means a certificate warning on a home LAN. The
   app now walks you through installing the local CA — steps for *your* device
   only, and it checks by itself that it worked. If you already own a domain,

@@ -38,6 +38,10 @@ Off by default.
   models were CC-BY-NC-SA behind a paid tier — a licence this one does not
   carry, which is half the reason for the swap.
 - Runtime: [vosk-api](https://github.com/alphacep/vosk-api), Apache-2.0.
+  `>=0.3.45` everywhere except macOS, which is held at 0.3.44 because 0.3.45
+  is the one release with no macOS wheel — see DEPLOY.md. Lowering the floor
+  instead of excluding that version resolves to 0.3.45 on every platform and
+  leaves macOS with nothing to install.
 - Weights: the **small** model for the configured language, Apache-2.0 for
   `it` and `en-us` — check [the model list](https://alphacephei.com/vosk/models)
   before adding a language, because a few entries there (some French ones)

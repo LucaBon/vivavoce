@@ -415,14 +415,29 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
   yourself, which is never downloaded over. `--wakeword-lang` picks the
   language (it/en/fr/de/es, default `it`) — it is a process-wide 47 MB
   resource, so it is chosen here rather than per request like reply language.
-- **Runs on a 32-bit Pi too**, unlike local speech recognition: vosk publishes
-  a `py3-none-linux_armv7l` wheel, so Raspberry Pi OS's 32-bit image — still
-  the default download for older Pis — can install this group even though it
-  can't install `asr`. x86-64 and aarch64 are covered by CI on every push,
-  running the real engine against a real model. **macOS is the exception**:
-  vosk publishes no macOS wheel, the server says so at start-up, and those
-  machines keep the browser's own wake word (which on a desktop has no beep
-  to complain about anyway).
+- **Runs everywhere the app does**, including where local speech recognition
+  can't. vosk publishes a `py3-none-linux_armv7l` wheel, so Raspberry Pi OS's
+  32-bit image — still the default download for older Pis — can install this
+  group even though it can't install `asr`. x86-64 and aarch64 are covered by
+  CI on every push, running the real engine against a real model; macOS has a
+  leg of its own that runs the same lexicon check against the version macOS
+  actually resolves, which is the only thing that differs there.
+- **One version nuance, on macOS.** `pyproject.toml` asks for two versions
+  behind environment markers — `>=0.3.45` everywhere, `>=0.3.44,!=0.3.45` on
+  Darwin — because 0.3.45 stopped publishing the macOS `universal2` wheel that
+  0.3.44 has, an open upstream regression
+  ([#1316](https://github.com/alphacep/vosk-api/issues/1316),
+  [#2013](https://github.com/alphacep/vosk-api/issues/2013)) rather than a
+  decision. Markers and not just a lower floor: uv resolves one version across
+  all platforms, so `>=0.3.44` on its own would still have locked 0.3.45 and
+  left macOS with nothing to install. The two releases were measured side by
+  side on the same recordings and came out identical — same vocabulary
+  warning, 15/15 in a quiet room, 15/17 over music, zero false triggers — so
+  the older one costs nothing today. It excludes that one release rather than
+  capping below it, which is the difference between a bridge and a dead end: a
+  future 0.3.46 carrying a macOS wheel is picked up on its own, and one that
+  still doesn't fails the macOS CI leg loudly instead of freezing those
+  machines in silence.
 - **Why its own dependency group.** An optional engine that fails to install
   must not take a working one down with it, which is exactly what happened
   the last time two shared a group. `wakeword-vosk` carries no Python version

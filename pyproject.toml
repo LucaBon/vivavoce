@@ -27,9 +27,29 @@ asr = [
 # opzionale che non si installa non deve portarsi dietro quello che gia'
 # funziona. Il modello (~50 MB per lingua) NON e' un pacchetto: va messo in
 # <dati>/vosk-models/ (vedi licenses/MODELS.md).
+# Due righe e non una, con i marker espliciti, e la ragione e' che abbassare e
+# basta il floor NON funziona: uv risolve un'unica versione per tutte le
+# piattaforme, quindi con ">=0.3.44" il lock sceglierebbe comunque la 0.3.45 e
+# macOS resterebbe senza wheel. Il marker e' l'unico modo di dire "qui una
+# versione, li' un'altra".
+#
+# Perche' macOS vuole la 0.3.44: la 0.3.45 ha smesso di pubblicare la wheel
+# macOS universal2 che c'era fino alla 0.3.44, ed e' una regressione upstream
+# aperta (alphacep/vosk-api#1316, #2013), non una scelta. Le due versioni sono
+# state misurate fianco a fianco sulle stesse registrazioni: stesso avviso di
+# vocabolario su fd 2, 15/15 in stanza silenziosa, 15/17 in barge-in, 0 falsi
+# trigger su 40 minuti di sala.
+#
+# Su Darwin e' `!=0.3.45` e non `<0.3.45`, apposta: il fatto vero e' che QUELLA
+# release non ha la wheel, non che nulla oltre la 0.3.44 vada bene. Un tappo
+# congelerebbe macOS sulla 0.3.44 per sempre e in silenzio anche il giorno che
+# a monte riparano; con l'esclusione una 0.3.46 con wheel macOS viene presa da
+# sola, e una 0.3.46 ancora rotta fa fallire rumorosamente la gamba macOS in
+# CI, che esiste apposta. Il silenzio era l'unica opzione senza un segnale.
 # Installa con: uv sync --group wakeword-vosk
 wakeword-vosk = [
-    "vosk>=0.3.45",
+    "vosk>=0.3.45; sys_platform != 'darwin'",
+    "vosk>=0.3.44,!=0.3.45; sys_platform == 'darwin'",
 ]
 
 # Questo repo è una raccolta di moduli (engine/ + tests/), non un pacchetto

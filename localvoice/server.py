@@ -83,10 +83,11 @@ _DISCOVERY_PHASES = {
 def optional_groups_unavailable_here() -> str:
     """Why the onnxruntime-backed optional group cannot be installed, or ``""``.
 
-    ``asr``, not ``wakeword-vosk`` — that group rests on nothing of the sort
-    and answers for itself in ``pro/vosk_wake.wheels_unavailable_here``,
-    because vosk *does* ship an armv7l wheel and this note would be exactly
-    backwards for it.
+    ``asr``, not ``wakeword-vosk`` — that group rests on nothing of the sort.
+    vosk ships wheels for linux x86_64/aarch64/**armv7l**, win_amd64 and
+    macOS universal2, so there is no supported platform it cannot install on
+    and this note would be exactly backwards for it: it would tell a 32-bit
+    Pi that the one optional engine which works there is impossible.
 
     One group, since openWakeWord was retired: ``asr``, which reaches
     onnxruntime through CTranslate2. Neither project has *ever* published a

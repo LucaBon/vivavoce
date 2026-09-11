@@ -90,9 +90,11 @@ def test_wakeword_unavailable_message_points_at_the_right_group():
 # docs advertise the Pi. The message earns its keep only if it fires on the
 # right machines and stays silent on the rest, so both directions are checked.
 #
-# `wakeword-vosk` is the counter-example and has its own note: vosk ships an
-# armv7l wheel, so on that same Pi it installs. The two notes disagreeing is
-# the point, and there is a test below that says so.
+# `wakeword-vosk` is the counter-example: vosk ships an armv7l wheel, so on
+# that same Pi it installs, and it must NOT carry this note. It has no note of
+# its own — there is no supported platform it fails on — so what is checked
+# below is the targeting: the asr message carries the note, the wake-word
+# message does not, and the note itself really fires on armv7l.
 
 def test_thirty_two_bit_arm_is_told_why_the_group_will_not_install(monkeypatch):
     for machine in ("armv7l", "armv6l", "armhf"):
@@ -137,26 +139,21 @@ def test_the_wake_word_message_does_NOT_carry_the_onnxruntime_note():
     # there is impossible — a worse answer than silence. It answers for its
     # own platforms instead.
     message = _engine_message("Parola chiave lato server non installata")
-    assert "wheels_unavailable_here()" in message
     assert "unavailable_note" not in message
 
 
-def test_the_two_notes_disagree_about_a_32_bit_pi(monkeypatch):
-    # The behaviour behind the rule above, not just the spelling of it.
-    from pro.vosk_wake import wheels_unavailable_here
-
+def test_the_onnxruntime_note_still_fires_where_it_should(monkeypatch):
+    # The other half of the rule above, as behaviour rather than spelling: the
+    # note the wake word must NOT carry is a real note that really fires, so
+    # the assertion above is about targeting, not about a dead string.
+    #
+    # There is no counterpart for vosk any more. It used to have one, saying
+    # "no macOS wheel" — true of 0.3.45 and of nothing else, since the floor
+    # dropped to 0.3.44 where the universal2 wheel still exists. A function
+    # enumerating the platforms a package cannot install on, with no members
+    # left in it, is a comment pretending to be code.
     monkeypatch.setattr(server.platform, "machine", lambda: "armv7l")
-    assert server.optional_groups_unavailable_here() != ""   # onnxruntime: no
-    assert wheels_unavailable_here() == ""                   # vosk: yes
-
-
-def test_vosk_says_where_it_really_cannot_install(monkeypatch):
-    from pro import vosk_wake
-
-    monkeypatch.setattr(vosk_wake.sys, "platform", "darwin")
-    assert "macOS" in vosk_wake.wheels_unavailable_here()
-    monkeypatch.setattr(vosk_wake.sys, "platform", "linux")
-    assert vosk_wake.wheels_unavailable_here() == ""
+    assert server.optional_groups_unavailable_here() != ""
 
 
 def test_the_architecture_note_actually_reaches_the_engine_messages():

@@ -579,6 +579,41 @@
 
 ### Removed
 
+- **macOS riprende la parola chiave lato server.** Ritirando openWakeWord si
+  era perso l'unico motore che su macOS si installava, e la spiegazione che ho
+  scritto allora — «vosk non pubblica wheel per macOS» — era vera della 0.3.45
+  e di nient'altro: le wheel `universal2` sono esistite **fino alla 0.3.44**, e
+  la 0.3.45 le ha tolte per una regressione upstream aperta
+  ([#1316](https://github.com/alphacep/vosk-api/issues/1316),
+  [#2013](https://github.com/alphacep/vosk-api/issues/2013)). `pyproject.toml`
+  chiede ora due versioni dietro marker d'ambiente: `>=0.3.45` ovunque,
+  `>=0.3.44,!=0.3.45` su Darwin — l'esclusione e non un tappo, così una
+  0.3.46 che ripari macOS viene presa da sola invece di restare fuori in
+  silenzio. I marker e non un floor più basso, perché uv
+  risolve **una** versione per tutte le piattaforme — con `>=0.3.44` e basta il
+  lock avrebbe scelto comunque la 0.3.45, lasciando macOS senza niente da
+  installare. Con i marker il lock porta due voci, e per Darwin l'unica wheel
+  elencata è la `universal2`.
+
+  Le due versioni sono state misurate fianco a fianco sulle stesse
+  registrazioni prima di sceglierlo, perché «probabilmente uguale» non è un
+  numero: stesso avviso di vocabolario su `fd 2` carattere per carattere,
+  15/15 in stanza silenziosa, 15/17 sopra la musica, 0 falsi trigger su 40
+  minuti di sala. La release vecchia oggi non costa niente — ma è un ponte, non
+  una destinazione: se macOS non torna a monte, quelle macchine restano su una
+  versione che non si muove più.
+
+  In CI c'è ora una gamba macOS, perché «su macOS si installa» era
+  un'inferenza da PyPI che niente verificava. Fa girare il **controllo del
+  lessico** sulla versione che macOS risolve davvero: la prima stesura lo
+  saltava dicendo che era «coperto su Linux», e non lo era — Linux gira la
+  0.3.45, e la 0.3.44 è l'unica cosa che quella gamba debba provare.
+
+  Cade con questo `wheels_unavailable_here()`, la funzione che spiegava dove
+  vosk non si installa. Non le resta nessun membro — wheel per linux
+  x86_64/aarch64/armv7l, win_amd64 e macOS universal2 — e una funzione che
+  elenca un insieme vuoto è un commento travestito da codice.
+
 - **openWakeWord è andato in pensione, e con lui il tetto a Python 3.11.**
   Stava lì come ripiego dopo l'arrivo del motore Vosk, ed era un ripiego che
   costava più di quanto rendesse. Sentiva soltanto le poche frasi inglesi per

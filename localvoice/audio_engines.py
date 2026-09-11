@@ -61,15 +61,14 @@ def build(args, data_dir: str, unavailable_note: str = ""):
     # Un motore solo, ora. openWakeWord stava qui come ripiego e se n'è
     # andato: sentiva unicamente le poche frasi inglesi per cui spedisce un
     # modello, e quei modelli sono CC-BY-NC-SA dietro un livello a pagamento.
-    # Dove vosk non si installa (macOS: nessun wheel) non resta un ripiego che
-    # ascolta un'altra frase in un'altra lingua — resta il motore del browser,
-    # che su quelle macchine non ha nemmeno il beep che questa funzione esiste
-    # per togliere.
+    # Non resta un ripiego, e non serve: vosk copre ogni piattaforma
+    # supportata, macOS compreso (con un pin di versione — vedi pyproject.toml
+    # e il commento più sotto, che spiega perché la nota sui 32 bit NON va
+    # appesa a questo gruppo).
     from pro.vosk_wake import ServerVoskWakeSessions
     from pro.vosk_wake import available as vosk_available
     from pro.vosk_wake import models_dir as vosk_models_dir
     from pro.vosk_wake import resolve_model as vosk_resolve_model
-    from pro.vosk_wake import wheels_unavailable_here
 
     wake_phrase_store = appdata.WakePhraseStore(data_dir)
     # Fetched here, before the server accepts anything, and only when the
@@ -102,13 +101,15 @@ def build(args, data_dir: str, unavailable_note: str = ""):
               f"(indicane uno con --wakeword-vosk-model, o togli "
               f"--wakeword-no-download per scaricarlo all'avvio).")
     else:
-        # NON `unavailable_note`: quella parla per i gruppi che poggiano su
-        # onnxruntime, e vosk spedisce un wheel armv7l. Su un Pi a 32 bit —
-        # la macchina per cui quella nota esiste — questo gruppo è l'unico
-        # motore opzionale che si installa.
+        # Senza nota sull'architettura, e non per dimenticanza: `unavailable_note`
+        # parla per i gruppi che poggiano su onnxruntime, e vosk non ci poggia.
+        # Spedisce wheel per linux x86_64/aarch64/armv7l, win_amd64 e — col
+        # floor a 0.3.44 — macOS universal2: non resta una piattaforma
+        # supportata su cui questo gruppo non si installi, quindi non c'è
+        # niente da spiegare qui. Aggiungere quella nota direbbe al Pi a 32
+        # bit che l'unico motore opzionale che gli funziona è impossibile.
         print("Parola chiave lato server non installata: l'ascolto continuo "
               "usa il riconoscimento del browser (col beep su Android). "
-              "Per attivarla: uv sync --group wakeword-vosk"
-              + wheels_unavailable_here())
+              "Per attivarla: uv sync --group wakeword-vosk")
 
     return transcriber, wakeword_sessions, wake_phrase_store
