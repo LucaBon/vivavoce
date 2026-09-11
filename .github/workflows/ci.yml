@@ -245,11 +245,49 @@ jobs:
           print('engine importable on macOS')
           "
 
-      # No model here: the download and the lexicon check are covered on Linux
-      # and aarch64, and 47 MB per run to re-prove platform-independent logic
-      # would be paying for the wrong thing. What macOS has to answer is
-      # "does this install and load at all", and that is answered above.
-      - name: Run the platform-independent half of the suite
+      # The model IS fetched here, and the first draft of this job skipped it
+      # on the grounds that the lexicon check is "covered on Linux". It isn't:
+      # Linux runs 0.3.45 and this leg is the only place 0.3.44 ever runs, so
+      # the one code path that differs between the two was the one not being
+      # exercised. If 0.3.44's Kaldi worded its fd-2 warning differently, the
+      # capture would be non-empty (so no RuntimeError), the scan would match
+      # nothing, and an invented wake phrase would be accepted on macOS and
+      # then detect at 0% with no error anywhere.
+      - name: Cache the Vosk model
+        id: vosk-cache
+        uses: actions/cache@v4
+        with:
+          path: vosk-ci/vosk-models
+          key: vosk-model-small-it-0.22-macos
+
+      - name: Fetch the model
+        if: steps.vosk-cache.outputs.cache-hit != 'true'
+        run: |
+          uv run python -c "
+          import sys
+          sys.path.insert(0, 'engine'); sys.path.insert(0, 'localvoice')
+          from pro.vosk_model import ensure_model
+          assert ensure_model('it', 'vosk-ci'), 'fetch failed'
+          "
+
+      - name: The lexicon check works on the version macOS actually gets
+        run: |
+          uv run python -c "
+          import sys
+          sys.path.insert(0, 'engine'); sys.path.insert(0, 'localvoice')
+          from pro.vosk_wake import ServerVoskWakeSessions
+          s = ServerVoskWakeSessions(lang='it', data_dir='',
+                                     phrase='vivavoce',
+                                     explicit_model='vosk-ci/vosk-models/vosk-model-small-it-0.22')
+          assert s.available(), 'engine unavailable'
+          assert s.out_of_vocabulary('vivavoce') == [], 'real word rejected'
+          assert s.out_of_vocabulary('zorblax') == ['zorblax'], 'invented word accepted'
+          print('lexicon check alive on the Darwin pin')
+          "
+
+      - name: Run the wake-word suite
+        env:
+          VIVAVOCE_TEST_VOSK_MODEL: vosk-ci/vosk-models/vosk-model-small-it-0.22
         run: uv run pytest tests/test_vosk_wake.py tests/test_vosk_model.py tests/test_wakematch.py -q
 
   asr:
