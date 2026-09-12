@@ -57,6 +57,37 @@ function tokEq(a, b) {
   return edits + (a.length - i) + (b.length - j) <= 1;
 }
 
+// How many heard words, starting at `i`, spell the phrase once glued
+// together — or 0 if none do.
+//
+// The case token-for-token matching cannot see, and it is not a corner case:
+// measured over the 32 real recordings in .sherpa-models/positives-human, the
+// recogniser wrote the phrase as two words ("viva voce") in 6 of the 29 it
+// heard at all. Token-for-token, a one-word phrase can never match two words,
+// so all 6 were dropped — 100% falls to 73% in a quiet room and 82% to 71%
+// over music, entirely on where a recogniser chose to put a space.
+//
+// Compared glued-to-glued so it works both ways round (a two-word phrase
+// heard as one, too). Shortest run wins, so the command that follows stays
+// whole. Mirrors _run_length_matching() in engine/wakematch.py — the server
+// engine answers the same question and must not answer it differently.
+function gluedRunLength(nw, ww, start) {
+  const glued = ww.join("");
+  // A recogniser splits a word in two, not in five; this bound keeps the
+  // loop cheap on a long transcript.
+  const limit = Math.min(nw.length - start, 2 * ww.length + 1);
+  for (let len = 1; len <= limit; len++) {
+    if (len === ww.length) continue;   // same word count: the token rule's job
+    // A different word count means a space moved, which is already one thing
+    // forgiven — so the letters then have to be exactly right. Measured over
+    // 120 near-miss clips: allowing an edit on top of the glue as well let
+    // «la vita e voce» fire, because "vitavoce" is one edit from "vivavoce".
+    // «viva voce» is unaffected: glued, it IS the word.
+    if (nw.slice(start, start + len).join("") === glued) return len;
+  }
+  return 0;
+}
+
 // The command is the words AFTER the wake phrase; returns null if the wake
 // phrase isn't present (accent/case-insensitive, fuzzy per token).
 export function commandAfterWake(text) {
@@ -64,10 +95,14 @@ export function commandAfterWake(text) {
   if (!ww.length) return null;
   const words = (text || "").trim().split(/\s+/);
   const nw = words.map(norm);
-  for (let i = 0; i + ww.length <= nw.length; i++) {
-    let hit = true;
-    for (let j = 0; j < ww.length; j++) if (!tokEq(nw[i + j], ww[j])) { hit = false; break; }
-    if (hit) return words.slice(i + ww.length).join(" ");
+  for (let i = 0; i < nw.length; i++) {
+    if (i + ww.length <= nw.length) {
+      let hit = true;
+      for (let j = 0; j < ww.length; j++) if (!tokEq(nw[i + j], ww[j])) { hit = false; break; }
+      if (hit) return words.slice(i + ww.length).join(" ");
+    }
+    const run = gluedRunLength(nw, ww, i);
+    if (run) return words.slice(i + run).join(" ");
   }
   return null;
 }

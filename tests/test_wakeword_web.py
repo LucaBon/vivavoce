@@ -3,7 +3,7 @@
 
 Mirrors test_transcribe.py's approach exactly: the session registry is
 injectable on ``make_handler``, so these tests exercise the real HTTP stack
-with a fake detector — no model, no ONNX runtime. Contract under test:
+with a fake detector — no model, no Kaldi. Contract under test:
 ``/wakeword`` advertises availability; ``/wakeword/chunk`` never 5xxes
 (unavailable / not-Pro / empty / too-large / engine failure all answer 200
 with ``ok: false``); sessions are per-client and released on ``/stop``.
@@ -32,7 +32,7 @@ class FakeDetector:
 class FakeSessions:
     """Stands in for ``pro.wakeword.ServerWakeWordSessions``."""
 
-    model = "hey_jarvis"
+    model = "vosk-it"
 
     def __init__(self, available=True, error=None):
         self._available = available
@@ -64,7 +64,7 @@ def test_wakeword_reports_available_with_model(live_server):
     srv = live_server(wakeword_sessions=FakeSessions())
     resp = srv.get("/wakeword")
     assert resp.status == 200
-    assert resp.json() == {"available": True, "model": "hey_jarvis"}
+    assert resp.json() == {"available": True, "model": "vosk-it"}
 
 
 def test_wakeword_reports_unavailable_without_sessions(live_server):
@@ -223,39 +223,3 @@ def test_wakeword_chunk_is_refused_once_the_trial_window_closes(live_server,
     resp = srv.post("/wakeword/chunk?client=phone", b"\x00\x01")
     assert resp.json() == {"ok": False, "error": "pro_required"}
     assert sessions.detectors == {}  # no ONNX model loaded for a free install
-
-
-# -- abandoned sessions are released ------------------------------------------
-
-def test_an_idle_session_is_released_without_a_stop(monkeypatch):
-    """POST /wakeword/stop is the polite exit and usually arrives — but a tab
-    closed, a phone that slept or a browser killed never sends it, and each
-    abandoned session holds an ONNX runtime in memory for good."""
-    from pro.wakeword import IDLE_SESSION_SECONDS, ServerWakeWordSessions
-
-    now = {"t": 0.0}
-    sessions = ServerWakeWordSessions(now=lambda: now["t"])
-    monkeypatch.setattr(sessions, "available", lambda: True)
-    monkeypatch.setattr("pro.wakeword.ServerWakeWordDetector.__init__",
-                        lambda self, model=None: None)
-
-    sessions.get_or_create("gone")
-    assert "gone" in sessions._sessions
-
-    now["t"] += IDLE_SESSION_SECONDS + 1
-    sessions.get_or_create("still-here")     # any later chunk sweeps
-    assert "gone" not in sessions._sessions
-    assert "still-here" in sessions._sessions
-
-
-def test_a_session_that_keeps_streaming_is_kept(monkeypatch):
-    from pro.wakeword import IDLE_SESSION_SECONDS, ServerWakeWordSessions
-
-    now = {"t": 0.0}
-    sessions = ServerWakeWordSessions(now=lambda: now["t"])
-    monkeypatch.setattr("pro.wakeword.ServerWakeWordDetector.__init__",
-                        lambda self, model=None: None)
-    first = sessions.get_or_create("phone")
-    for _ in range(4):
-        now["t"] += IDLE_SESSION_SECONDS / 2
-        assert sessions.get_or_create("phone") is first

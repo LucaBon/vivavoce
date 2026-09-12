@@ -84,7 +84,7 @@ export async function startLocalRec() {
     // but deaf — until the capture watchdog fires half a minute later.
     // endCommandCapture() rewrites the status line, so the error goes last.
     endCommandCapture();
-    $("status").textContent = ui("mic_error") + (e.name || e);
+    $("status").textContent = ui("mic_error")(e);
     return;
   } finally {
     localRecStarting = false;

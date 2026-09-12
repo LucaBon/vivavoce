@@ -181,13 +181,15 @@ long as they last, which is a household-sized limit, not a venue-sized one.
 | Path | What |
 |---|---|
 | `engine/actions.py` | Voice-action business logic (matching, ranking, did-you-mean) |
-| `engine/lms.py` | LMS JSON-RPC client + TIDAL search/playback |
+| `engine/player/` | What the engine needs from a music system, and who provides it |
+| `engine/lms.py` | LMS JSON-RPC client + TIDAL search/playback (one backend) |
+| `engine/player/musicassistant.py` | Music Assistant client (the other backend) |
 | `engine/discovery.py` | LMS LAN auto-discovery (UDP) |
 | `engine/blocklist_store.py` | Kid-safe blocklist (store contract) |
 | `localvoice/` | Local web app: `server.py`, `router.py`, `index.html` |
 | `localvoice/lmsproxy.py` | Reverse proxy to the LMS — what puts Material Skin inside the page |
 | `tools/probe_lms.py` | Validate search/playback against a real LMS |
-| `tests/` | pytest suite (simulated LMS transport, no network) |
+| `tests/` | pytest suite (a simulated transport per backend, no network) |
 | `RELEASING.md` | How to cut a release (the version lives in two files + a tag) |
 | `docs/api.md` | The HTTP API: `POST /api/v1/command` for external clients, and what every other route is |
 | `tests/conftest.py` | Shared fakes + `live_server` (the real handler on a port) |
@@ -195,7 +197,7 @@ long as they last, which is a household-sized limit, not a venue-sized one.
 ## Tests
 
 ```bash
-uv run pytest        # 531 tests, no network — uses a simulated LMS transport
+uv run pytest        # no network — a simulated transport stands in for each backend
 ```
 
 Every push and pull request runs the suite on Python 3.9–3.14 (plus one Windows
@@ -241,6 +243,14 @@ uv run python tools/probe_lms.py --service qobuz --query "Pink Floyd"
   return nothing. So on Spotify Vivavoce never falls back to "play the top
   result" — for a song, an album, an artist or a playlist alike. If nothing
   matches your words it says so instead of guessing.
+- **A 32-bit OS cannot run the two optional engines.** Local speech
+  recognition and the server-side wake word both rest on onnxruntime, which
+  has never published a 32-bit wheel — not on PyPI, not on piwheels. So on a
+  Raspberry Pi running the 32-bit image (still the default on older models)
+  those two Pro features are not installable at all, and the app says so
+  rather than sending you into a source build that cannot succeed. The same
+  hardware with a 64-bit OS has wheels for everything. Nothing else is
+  affected: the rest of Vivavoce is stdlib-only and runs anywhere.
 - Bit-perfect: Vivavoce sends **only commands**; ensure LMS doesn't resample to the player.
 
 ## Privacy, honestly

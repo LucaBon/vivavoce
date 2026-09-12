@@ -186,3 +186,104 @@ def atomic_write_json(path: str, obj: Any, *, mode: Optional[int] = None) -> Non
             pass
         finally:
             os.close(dir_fd)
+
+
+# -- the remembered LMS -------------------------------------------------------
+# The last music server we talked to, kept in the data directory (in Docker:
+# the persistent volume) so a restart does not pay for a broadcast and a
+# unicast sweep before it can do anything. It is a hint, never a promise: the
+# setup flow probes it like any other address and searches the network again
+# when it has stopped answering.
+
+def _lms_cache_path(data_dir: str) -> str:
+    return os.path.join(data_dir, "discovery_cache.json")
+
+
+def remembered_lms(data_dir: str) -> str:
+    """The address discovery found last time, or ``""``."""
+    cached = read_json(_lms_cache_path(data_dir), {})
+    return (cached.get("lms") or "") if isinstance(cached, dict) else ""
+
+
+def remember_lms(data_dir: str, url: str) -> None:
+    """Remember ``url`` for the next start. Best-effort by design."""
+    try:
+        atomic_write_json(_lms_cache_path(data_dir), {"lms": url})
+    except OSError:
+        pass  # read-only directory: it just gets discovered again next time
+
+
+# --- the wake phrase --------------------------------------------------------
+# Household-wide, not per-browser. The phrase used to live only in each
+# device's localStorage, which was fine while only the browser engine could
+# hear it — the phone that stored it was the phone that listened. The
+# server-side engine (pro/vosk_wake.py) listens on behalf of every device in
+# the house, so it needs one answer, and a phrase set on the tablet has to be
+# the phrase the kitchen speaker answers to.
+
+DEFAULT_WAKE_PHRASE = "vivavoce"
+
+
+def _wake_phrase_path(data_dir: str) -> str:
+    return os.path.join(data_dir, "wakeword.json")
+
+
+def stored_wake_phrase(data_dir: str) -> Optional[str]:
+    """The phrase the household actually chose, or ``None`` if it never did.
+
+    The distinction :func:`wake_phrase` cannot make, and it decides an
+    upgrade: before this file existed the phrase lived in each browser's
+    localStorage, so a house that typed "ciao impianto" months ago has it
+    there and nowhere else. If the page cannot tell "nobody has chosen" from
+    "somebody chose vivavoce", it adopts the default on first load and
+    overwrites the only copy of their real answer.
+    """
+    stored = read_json(_wake_phrase_path(data_dir), {})
+    if not isinstance(stored, dict):
+        return None
+    phrase = (stored.get("phrase") or "").strip()
+    return phrase or None
+
+
+def wake_phrase(data_dir: str) -> str:
+    """The household's wake phrase, or the default when none was chosen.
+
+    Reads fail open, like the blocklist: a storage hiccup must leave the
+    house answering to "vivavoce", never to nothing at all — a wake word that
+    silently becomes empty is an app that has stopped listening with no
+    symptom to see.
+    """
+    stored = read_json(_wake_phrase_path(data_dir), {})
+    if not isinstance(stored, dict):
+        return DEFAULT_WAKE_PHRASE
+    return (stored.get("phrase") or "").strip() or DEFAULT_WAKE_PHRASE
+
+
+def set_wake_phrase(data_dir: str, phrase: str) -> None:
+    """Store the household's wake phrase. Raises ``OSError`` if it cannot be
+    written — unlike ``remember_lms``, this one is a choice somebody just
+    made, and reporting success over a discarded write would have them
+    saying a phrase nothing is listening for."""
+    atomic_write_json(_wake_phrase_path(data_dir),
+                      {"phrase": (phrase or "").strip()})
+
+
+class WakePhraseStore:
+    """The wake phrase as one injectable object, for the HTTP layer.
+
+    ``audio_api.py`` gets its engines handed to it rather than reaching for
+    globals, so it gets this the same way — and the tests get to hand it a
+    fake instead of a data directory.
+    """
+
+    def __init__(self, data_dir: str) -> None:
+        self.data_dir = data_dir
+
+    def get(self) -> str:
+        return wake_phrase(self.data_dir)
+
+    def stored(self) -> Optional[str]:
+        return stored_wake_phrase(self.data_dir)
+
+    def set(self, phrase: str) -> None:
+        set_wake_phrase(self.data_dir, phrase)

@@ -34,7 +34,7 @@ volumes:
   vivavoce-data:
 ```
 
-Pin a version (`:0.4.0`, or `:0.4` to follow patches) instead of `:latest` if
+Pin a version (`:0.5.0`, or `:0.5` to follow patches) instead of `:latest` if
 you would rather choose when to move.
 
 > [!NOTE]
@@ -87,9 +87,10 @@ Everything is configured via environment variables (all optional; the pre-rename
 > **Architecture.** The published image covers amd64 and arm64; the app itself
 > is stdlib-only, so building it from source runs anywhere Python does —
 > including a 32-bit Raspberry Pi, which has no published image and needs
-> `docker build` (or the no-Docker route below). The two *optional* Pro engines (local speech recognition, server-side
-> wake word) need a **64-bit** OS; see their sections below for why, and what
-> a 32-bit box gets instead.
+> `docker build` (or the no-Docker route below). Of the two *optional* Pro
+> engines, **local speech recognition** needs a **64-bit** OS; the
+> **server-side wake word** does not — vosk publishes an armv7l wheel, so a
+> 32-bit Pi can install it. See their sections below.
 
 ### Home Assistant app
 
@@ -242,6 +243,35 @@ uv run python localvoice/server.py            # auto-discovers LMS on the LAN
 Open `http://<this-pc-ip>:8730` from a phone/tablet/PC on the same network → tap the mic
 and speak, or type. The player is auto-detected (override with `--player <MAC>`).
 
+### Driving Music Assistant instead of an LMS
+
+```bash
+uv run python localvoice/server.py \
+    --backend musicassistant \
+    --backend-url http://<IP-MUSIC-ASSISTANT>:8095 \
+    --backend-token <token>
+```
+
+The token is made in Music Assistant under **Settings → Profile**. The address
+is not optional: Music Assistant does not answer the UDP broadcast an LMS
+does, so there is nothing to discover and the server says so and stops rather
+than searching a network that will never reply.
+
+Worth doing even if your speakers are not Squeezeboxes — Music Assistant
+drives DLNA, Chromecast, Sonos and AirPlay players itself, so those become
+players you can talk to, with nothing else to install. Vivavoce still does the
+part it exists for: «metti Comfortably Numb dei Pink Floyd» starts *that*
+record, and «metti Yesterday di Vasco Rossi» says it could not find it instead
+of playing the Beatles.
+
+Two things are missing compared with an LMS, and both are absences rather than
+bugs. There is no Material Skin panel in the page, because Material Skin is an
+LMS plugin. And there is no index by year, so «musica degli anni '80» falls
+back to a streaming playlist instead of loading the library by decade.
+
+`--backend`, `--backend-url` and `--backend-token` have the usual environment
+twins: `VIVAVOCE_BACKEND`, `VIVAVOCE_BACKEND_URL`, `VIVAVOCE_BACKEND_TOKEN`.
+
 ### Microphone from other devices = HTTPS required
 
 The browser mic works without a certificate only on `localhost`. From a phone the browser
@@ -379,60 +409,82 @@ The default "activate with a keyword" mode listens continuously through the
 browser's speech engine — which on Android plays an audible tone every few
 seconds when the recognizer restarts, the single most-cited complaint in
 launch feedback, and a browser limitation the default mode can't route
-around. Installing the optional **wakeword** group offers an alternative:
-the browser streams raw microphone audio to the server, which runs
-[openWakeWord](https://github.com/dscripka/openWakeWord) (CPU, a tiny ONNX
-model, no GPU) continuously — no restart cycle, no beep, and the audio never
-leaves the LAN either (an improvement over the default mode, which — like
-the browser mic elsewhere in the app — sends audio to Google/Apple). A new
-settings switch («🔈 parola chiave lato server») appears once the server
-reports the engine installed.
+around. Installing the optional **wakeword-vosk** group offers an
+alternative: the browser streams raw microphone audio to the server, which
+runs [Vosk](https://alphacephei.com/vosk/) (Kaldi, CPU, no GPU) continuously
+— no restart cycle, no beep, and the audio never leaves the LAN either (an
+improvement over the default mode, which — like the browser mic elsewhere in
+the app — sends audio to Google/Apple). A settings switch («🔈 parola chiave
+lato server») appears once the server reports the engine installed.
 
 ```bash
-uv sync --group wakeword                 # deliberately its own group, not "asr" — see below
+uv sync --group wakeword-vosk            # deliberately its own group, not "asr" — see below
 uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 ```
 
-- **Needs a 64-bit OS.** x86-64 and **aarch64** (a Raspberry Pi 4/5 running a
-  64-bit image) are fine. On a **32-bit** system — Raspberry Pi OS's 32-bit
-  image, still the default download for older Pis — this group **cannot be
-  installed at all**: openWakeWord rests on onnxruntime, which has never
-  published a 32-bit wheel on any release. [piwheels](https://www.piwheels.org),
-  the extra index Raspberry Pi OS configures by default, doesn't save it
-  either: it carries armv7l builds of scipy and scikit-learn (openWakeWord's
-  other compiled dependencies) but none of onnxruntime. `uv sync --group
-  wakeword` fails outright rather than degrading quietly, and the server says
-  why at startup. Same hardware with a 64-bit image: everything works —
-  CI runs the real openWakeWord model against real audio frames on an aarch64
-  runner on every push — and a 32-bit box still gets the browser's own wake
-  word, beep and all.
-- **Fixed phrase, English only.** openWakeWord ships pretrained models for a
-  handful of English phrases; it has no support for an arbitrary typed
-  phrase like the default mode's free-text field, and training a custom
-  model (e.g. an Italian "vivavoce") needs a separate offline pipeline this
-  project doesn't provide today. The default and only currently supported
-  phrase is **"hey jarvis"** (`--wakeword-model` / `VIVAVOCE_WAKEWORD_MODEL`
-  if a future release ships another bundled model). This is offered as an
-  *additional* choice next to the free-text browser wake word, not a
-  replacement — pick whichever trade-off fits: your own phrase with the
-  Android beep, or a fixed English phrase without it.
-- **Why its own dependency group.** `openwakeword` is pinned to an exact,
-  deliberately old version (`0.4.0`): every release from 0.5.0 on requires
-  `tflite-runtime` on Linux, which has no published wheel past Python 3.11 —
-  bundling it into the `asr` group would have broken `uv sync --group asr`
-  (and the already-working local-ASR feature with it) for anyone on a
-  current Python. Kept separate, a failure here can't touch that.
+- **It hears the phrase you typed.** The same free-text field the browser
+  engine uses, and the phrase now applies to the **whole house** rather than
+  to one browser's local storage: set it on the tablet and the kitchen
+  answers to it. Speaking is still two steps — say the phrase, wait for the
+  beep, then say the command — because the server reports "triggered", not
+  "here is what they said".
+- **It has to be made of real words.** Kaldi only ever outputs words in its
+  lexicon, so the limit is real and worth stating: measured on real
+  recordings, "vivavoce" detects 83-100% of the time and a coined name like
+  "zorblax" **0%**, with no symptom in between. The settings field therefore
+  *refuses* a phrase the engine has no pronunciation for, naming the word,
+  instead of accepting one that would never fire.
+- **The model is fetched once, at start-up** (~47 MB per language) into
+  `<data_dir>/vosk-models/`, so in Docker it lands in the persistent volume
+  and survives image updates. At start-up rather than on first use, unlike
+  the Whisper model: the wake word's first request is a 320 ms audio chunk in
+  a stream of them, and a 47 MB fetch inside it would time the request out
+  and read as a broken engine. `--wakeword-no-download` skips it for an
+  offline install; `--wakeword-vosk-model` points at a directory you unpacked
+  yourself, which is never downloaded over. `--wakeword-lang` picks the
+  language (it/en/fr/de/es, default `it`) — it is a process-wide 47 MB
+  resource, so it is chosen here rather than per request like reply language.
+- **Runs everywhere the app does**, including where local speech recognition
+  can't. vosk publishes a `py3-none-linux_armv7l` wheel, so Raspberry Pi OS's
+  32-bit image — still the default download for older Pis — can install this
+  group even though it can't install `asr`. x86-64 and aarch64 are covered by
+  CI on every push, running the real engine against a real model; macOS has a
+  leg of its own that runs the same lexicon check against the version macOS
+  actually resolves, which is the only thing that differs there.
+- **One version nuance, on macOS.** `pyproject.toml` asks for two versions
+  behind environment markers — `>=0.3.45` everywhere, `>=0.3.44,!=0.3.45` on
+  Darwin — because 0.3.45 stopped publishing the macOS `universal2` wheel that
+  0.3.44 has, an open upstream regression
+  ([#1316](https://github.com/alphacep/vosk-api/issues/1316),
+  [#2013](https://github.com/alphacep/vosk-api/issues/2013)) rather than a
+  decision. Markers and not just a lower floor: uv resolves one version across
+  all platforms, so `>=0.3.44` on its own would still have locked 0.3.45 and
+  left macOS with nothing to install. The two releases were measured side by
+  side on the same recordings and came out identical — same vocabulary
+  warning, 15/15 in a quiet room, 15/17 over music, zero false triggers — so
+  the older one costs nothing today. It excludes that one release rather than
+  capping below it, which is the difference between a bridge and a dead end: a
+  future 0.3.46 carrying a macOS wheel is picked up on its own, and one that
+  still doesn't fails the macOS CI leg loudly instead of freezing those
+  machines in silence.
+- **Why its own dependency group.** An optional engine that fails to install
+  must not take a working one down with it, which is exactly what happened
+  the last time two shared a group. `wakeword-vosk` carries no Python version
+  ceiling — vosk ships `py3-none-*` wheels — so unlike its predecessor it
+  constrains nothing.
 - **Docker**: build the variant with
-  `docker build --build-arg WAKEWORD=1 -t vivavoce:wakeword .`. The standard
-  image ships without it and reports `/wakeword` as unavailable; combine
-  with `--build-arg ASR=1` if you want both.
+  `docker build --build-arg WAKEWORD_VOSK=1 -t vivavoce:wakeword .`. The
+  standard image ships without it and reports `/wakeword` as unavailable;
+  combine with `--build-arg ASR=1` if you want both. The model is not baked
+  into the image — it is fetched into `/data` on first start.
 - **Not available on the Home Assistant app**, for the same reason local
   ASR isn't (see above).
-- **What this hasn't been tested against**: the browser-to-server audio
-  pipeline is covered by the test suite (including a real headless-browser
-  capture test), but real acoustic detection accuracy, the sub-second
-  wake-to-listening latency, and "truly no beep" can only be confirmed on
-  real Android hardware — try it and see how it holds up on yours.
+- **What this hasn't been tested against**: detection was measured on 40
+  minutes of a hi-fi playing in a real listening room and 32 spoken takes —
+  15/15 in a quiet room, 15/17 talking over music, zero false triggers — but
+  by **one speaker**, and the real-time factor was measured on a laptop, not
+  on a Raspberry Pi 5. "Truly no beep" can only be confirmed on real Android
+  hardware — try it and see how it holds up on yours.
 
 ### Autostart
 

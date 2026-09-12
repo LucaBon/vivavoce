@@ -25,8 +25,6 @@ import os
 import platform
 import socket
 import sys
-import time
-import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -34,13 +32,15 @@ sys.path.insert(0, os.path.join(ROOT, "engine"))  # actions, lms
 sys.path.insert(0, HERE)  # router, http_api, ...
 
 import appdata  # noqa: E402
-import discovery  # noqa: E402
+import audio_engines  # noqa: E402
 from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
+import setupserver  # noqa: E402
 import tls  # noqa: E402
 import webguard  # noqa: E402
 from http_api import make_handler  # noqa: E402,F401  (re-exported for tests)
-from lms import SERVICES, LMSClient, LMSError  # noqa: E402
+from lms import SERVICES  # noqa: E402
+from player import registry as player_registry  # noqa: E402
 
 
 def lan_ips() -> list:
@@ -70,65 +70,6 @@ def lan_ips() -> list:
     return []
 
 
-def wait_for_players(lms_url: str, delay: float = 5.0, sleep=time.sleep) -> list:
-    """The LMS player list, retrying until the LMS answers.
-
-    Il PC che ospita questo server spesso si risveglia (o fa boot) PRIMA che
-    la rete sia tornata su: un LMS irraggiungibile in quel momento non è un
-    errore fatale ma uno stato transitorio. Invece di morire con un traceback
-    (costringendo a rilanciare a mano finché non va), aspetta e riprova.
-    Ctrl+C esce.
-    """
-    waited = False
-    while True:
-        try:
-            players = LMSClient(lms_url, "0").get_players()
-            if waited:
-                print("LMS raggiunto.")
-            return players
-        except LMSError as exc:
-            if not waited:
-                print(f"LMS non raggiungibile: {exc}")
-                print(f"Aspetto che {lms_url} risponda, riprovo ogni "
-                      f"{delay:g} secondi (Ctrl+C per uscire)...")
-                waited = True
-            sleep(delay)
-
-
-# -- Cache della discovery ----------------------------------------------------
-# L'ultimo LMS trovato viene ricordato nella cartella dati (in Docker: il
-# volume persistente): al riavvio niente broadcast né sweep unicast, il server
-# riparte subito. Se l'LMS non risponde più, la cache viene ignorata e la
-# discovery ricomincia da capo.
-
-def _lms_cache_path(data_dir: str) -> str:
-    return os.path.join(data_dir, "discovery_cache.json")
-
-
-def _cached_lms(data_dir: str) -> str:
-    cached = appdata.read_json(_lms_cache_path(data_dir), {})
-    return (cached.get("lms") or "") if isinstance(cached, dict) else ""
-
-
-def _save_cached_lms(data_dir: str, url: str) -> None:
-    try:
-        appdata.atomic_write_json(_lms_cache_path(data_dir), {"lms": url})
-    except OSError:
-        pass  # cartella read-only: pazienza, si riscopre al prossimo avvio
-
-
-def _lms_reachable(url: str, timeout: float = 2.0) -> bool:
-    parts = urllib.parse.urlsplit(url)
-    if not parts.hostname:
-        return False
-    try:
-        socket.create_connection((parts.hostname, parts.port or 9000),
-                                 timeout=timeout).close()
-        return True
-    except OSError:
-        return False
-
-
 # Solo le fasi che meritano una riga: il passaggio allo sweep (il broadcast non
 # esce dai bridge Docker, è il caso normale in container) e l'ultima risorsa.
 _DISCOVERY_PHASES = {
@@ -140,10 +81,17 @@ _DISCOVERY_PHASES = {
 
 
 def optional_groups_unavailable_here() -> str:
-    """Why neither optional group can be installed on this machine, or ``""``.
+    """Why the onnxruntime-backed optional group cannot be installed, or ``""``.
 
-    Both rest on onnxruntime — openWakeWord directly, faster-whisper through
-    CTranslate2 — and neither project has *ever* published a 32-bit wheel:
+    ``asr``, not ``wakeword-vosk`` — that group rests on nothing of the sort.
+    vosk ships wheels for linux x86_64/aarch64/**armv7l**, win_amd64 and
+    macOS universal2, so there is no supported platform it cannot install on
+    and this note would be exactly backwards for it: it would tell a 32-bit
+    Pi that the one optional engine which works there is impossible.
+
+    One group, since openWakeWord was retired: ``asr``, which reaches
+    onnxruntime through CTranslate2. Neither project has *ever* published a
+    32-bit wheel:
     not on PyPI (checked across every release of both), and not on piwheels
     either, the extra index Raspberry Pi OS configures by default and which
     does carry numpy/scipy/scikit-learn for armv7l. So on a Pi running a
@@ -162,6 +110,18 @@ def optional_groups_unavailable_here() -> str:
             "Serve un sistema operativo a 64 bit (aarch64) sullo stesso hardware.")
 
 
+def _announce_setup(scheme: str, hosts: list, port: int, line: str) -> None:
+    """Say where the setup page is before blocking on it.
+
+    Printed only when there IS a setup page — i.e. when something is missing.
+    A normal start never reaches here.
+    """
+    print(f"Pronto (configurazione): {scheme}://{hosts[0]}:{port}")
+    for extra in hosts[1:]:
+        print(f"                        {scheme}://{extra}:{port}")
+    print(line)
+
+
 def _discovery_progress(phase: str) -> None:
     line = _DISCOVERY_PHASES.get(phase)
     if line:
@@ -177,6 +137,19 @@ def main() -> int:
                          "(auto-rilevato sulla rete se omesso)")
     ap.add_argument("--player", default=appdata.env("PLAYER"),
                     help="MAC del player; default: il primo trovato")
+    ap.add_argument("--backend", default=appdata.env("BACKEND", "lms"),
+                    help="quale sistema musicale pilotare: "
+                         + ", ".join(sorted(player_registry.BACKENDS))
+                         + " (default: lms). Con un backend diverso da lms "
+                           "servono --backend-url e, dove previsto, "
+                           "--backend-token.")
+    ap.add_argument("--backend-url", default=appdata.env("BACKEND_URL"),
+                    help="indirizzo del backend quando non e' un LMS, es. "
+                         "http://192.168.1.50:8095 per Music Assistant. "
+                         "Per lms usa --lms, che resta il nome documentato.")
+    ap.add_argument("--backend-token", default=appdata.env("BACKEND_TOKEN"),
+                    help="token di accesso del backend, se ne vuole uno. "
+                         "Music Assistant lo crea in Impostazioni -> Profilo.")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=int(appdata.env("PORT", "8730")))
     ap.add_argument("--cert", help="certificato TLS (per il mic da altri device)")
@@ -207,15 +180,43 @@ def main() -> int:
                          "(tiny/base/small/medium...). Default: small, ma su "
                          "macchine sotto ~4 GB di RAM resta spento se non "
                          "indicato qui. Serve il gruppo: uv sync --group asr")
-    ap.add_argument("--wakeword-model",
-                    default=appdata.env("WAKEWORD_MODEL"),
-                    help="modello openWakeWord per la parola chiave lato "
-                         "server, senza il beep Android (default: hey_jarvis; "
-                         "solo poche frasi in inglese sono disponibili "
-                         "pronte all'uso — non è personalizzabile come la "
-                         "parola chiave del browser). Serve il gruppo: "
-                         "uv sync --group wakeword")
+    ap.add_argument("--wakeword-lang",
+                    default=appdata.env("WAKEWORD_LANG", "it"),
+                    help="lingua del modello Vosk per la parola chiave libera "
+                         "lato server (it/en/fr/de/es, default: it). Il "
+                         "modello e' una risorsa di processo da ~50 MB, quindi "
+                         "e' scelto qui e non per richiesta come la lingua "
+                         "delle risposte.")
+    ap.add_argument("--wakeword-vosk-model",
+                    default=appdata.env("WAKEWORD_VOSK_MODEL"),
+                    help="cartella del modello Vosk da usare per la parola "
+                         "chiave libera, se non quella predefinita sotto "
+                         "<dati>/vosk-models/. Serve il gruppo: "
+                         "uv sync --group wakeword-vosk")
+    ap.add_argument("--wakeword-no-download", action="store_true",
+                    # == "1", like every other boolean env in this repo
+                    # (licensing.py): bool("0") is True, so an add-on setting
+                    # VIVAVOCE_WAKEWORD_NO_DOWNLOAD=0 to *enable* the fetch
+                    # would have switched it off, and the wake word would have
+                    # stayed silently on the browser engine, beep and all.
+                    default=appdata.env("WAKEWORD_NO_DOWNLOAD") == "1",
+                    help="non scaricare il modello Vosk mancante all'avvio. "
+                         "Per installazioni senza rete o dove il modello lo "
+                         "mette l'amministratore: senza modello la parola "
+                         "chiave libera resta spenta, e nient'altro cambia.")
     args = ap.parse_args()
+    # Convalidato come --services: un nome sbagliato e' un refuso all'avvio, e
+    # la risposta deve dire cosa si poteva scrivere al suo posto.
+    try:
+        backend = player_registry.get(args.backend)
+    except ValueError as exc:
+        print(exc)
+        return 1
+    backend_url = args.backend_url or (args.lms if backend.name == "lms" else "")
+    if backend.discover is None and not backend_url:
+        print(f"{backend.label} non si annuncia sulla rete: indica dove "
+              f"trovarlo con --backend-url.")
+        return 1
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
     license_mgr.revalidate_async()  # settimanale, best-effort, mai bloccante
@@ -236,83 +237,80 @@ def main() -> int:
             print(f"Prova Pro: restano {trial['days_left']} giorni.")
     from pro.kidsafe import KidSafe
     kidsafe = KidSafe(data_dir, license_mgr)
-    # Riconoscimento vocale locale (Pro): il modello si carica solo al primo
-    # /transcribe; i modelli finiscono nella cartella dati (in Docker: il
-    # volume persistente), non nell'immagine. Il default è RAM-aware: sotto
-    # ~4 GB resta spento (tiny/base storpiano i titoli inglesi, small non ci
-    # sta) a meno che --asr-model non lo forzi esplicitamente.
-    from pro.asr import (WhisperTranscriber, default_model, total_ram_gib)
-    asr_model = args.asr_model or default_model()
-    transcriber = None
-    if not WhisperTranscriber().available():
-        print("Riconoscimento vocale locale non installato: il microfono usa "
-              "il riconoscimento del browser. Per attivarlo: uv sync --group asr"
-              + optional_groups_unavailable_here())
-    elif asr_model:
-        transcriber = WhisperTranscriber(
-            asr_model, cache_dir=os.path.join(data_dir, "asr-models"))
-        print(f"Riconoscimento vocale locale attivo (faster-whisper, modello "
-              f"{asr_model}): l'audio del microfono resta in casa.")
-    else:
-        print(f"Riconoscimento vocale locale spento: questa macchina ha "
-              f"~{total_ram_gib():.1f} GiB di RAM — il modello 'small' vuole "
-              "~1 GB al picco e quelli più piccoli storpiano i titoli "
-              "inglesi. Per forzarlo comunque: --asr-model tiny "
-              "(o VIVAVOCE_ASR_MODEL).")
+    # The optional audio engines (local ASR, server-side wake word) and
+    # the household's wake phrase, in audio_engines.py — including which
+    # of the two wake-word engines this box can actually run.
+    transcriber, wakeword_sessions, wake_phrase_store = audio_engines.build(
+        args, data_dir, optional_groups_unavailable_here())
 
-    # Parola chiave lato server (Pro): elimina il beep Android della
-    # continua-ascolto del browser, ma solo con poche frasi inglesi pronte
-    # all'uso (non personalizzabile come quella del browser — vedi
-    # pro/wakeword.py). Gruppo opzionale SEPARATO da "asr" apposta (vedi
-    # pro/wakeword.py: openwakeword>=0.5 rompe su Python 3.12+ per una
-    # dipendenza rigida da tflite-runtime).
-    from pro.wakeword import DEFAULT_MODEL as WAKEWORD_DEFAULT_MODEL
-    from pro.wakeword import ServerWakeWordSessions
-    wakeword_model = args.wakeword_model or WAKEWORD_DEFAULT_MODEL
-    wakeword_sessions = ServerWakeWordSessions(wakeword_model)
-    if not wakeword_sessions.available():
-        print("Parola chiave lato server non installata: l'ascolto continuo "
-              "usa il riconoscimento del browser (col beep su Android). "
-              "Per attivarla: uv sync --group wakeword"
-              + optional_groups_unavailable_here())
+    # Where the app will be reachable, worked out before anything can fail:
+    # the setup page below is served at this same address, and a household
+    # that cannot be told where to look cannot fix anything.
+    scheme = "https" if (args.cert and args.key) else "http"
+    if args.host not in ("0.0.0.0", "", "::"):
+        hosts = [args.host]
     else:
-        print(f"Parola chiave lato server attiva (openWakeWord, modello "
-              f"{wakeword_model}): nessun beep durante l'ascolto continuo.")
+        hosts = lan_ips() or ["<ip-di-questo-pc>"]
 
-    lms_url = args.lms
-    if not lms_url:
-        cached = _cached_lms(data_dir)
-        if cached and _lms_reachable(cached):
-            lms_url = cached
+    lms_url = backend_url
+    if not lms_url and backend.name == "lms":
+        # L'indirizzo ricordato e' quello di un LMS: un altro backend non lo
+        # eredita, o il primo avvio con Music Assistant proverebbe a parlare
+        # all'hi-fi dell'avvio precedente.
+        lms_url = appdata.remembered_lms(data_dir)
+        if lms_url:
+            # Not probed here: serve_setup probes every address it is given,
+            # so checking it twice would only be a slower way to be wrong.
             print(f"LMS: {lms_url} (ricordato dall'ultimo avvio)")
-    if not lms_url:
-        print("Cerco un server LMS sulla rete (UDP 3483)...")
-        lms_url = discovery.discover_base_url(on_progress=_discovery_progress)
-        if not lms_url:
-            print("Nessun LMS trovato. Riprova indicando l'indirizzo: "
-                  "--lms http://IP-DEL-SERVER:9000")
-            return 1
-        print(f"LMS trovato: {lms_url}")
-        _save_cached_lms(data_dir, lms_url)
 
-    # Aspetta che l'LMS risponda anche quando --player è già noto: subito dopo
-    # c'è la rilevazione dei servizi streaming, che con la rete giù ripiegherebbe
-    # in silenzio sul solo TIDAL.
+    said = []
+
+    def discover() -> str:
+        # The searching narration is worth one line, not one per round: this
+        # runs on a loop for as long as the LMS stays missing, which can be
+        # all night. The progress phases below are already one-shot per run.
+        if backend.discover is None:
+            return ""  # a system that has to be told where it is
+        if not said:
+            said.append(1)
+            print("Cerco un server LMS sulla rete (UDP 3483)...")
+        found = backend.discover(on_progress=_discovery_progress)
+        if found:
+            print(f"LMS trovato: {found}")
+            appdata.remember_lms(data_dir, found)
+        return found or ""
+
+    # Nothing below this point can hard-exit for a missing LMS or a player
+    # switched off. serve_setup looks once — the usual case, where it returns
+    # straight away — and otherwise binds THIS port, serves a page saying
+    # which of the two is missing, and keeps looking until it isn't. Switch
+    # the Squeezebox on and the page walks itself into the app.
+    #
+    # An explicit --player is trusted the way it always was: it means the LMS
+    # has to answer, not that the list has to be non-empty.
     try:
-        players = wait_for_players(lms_url)
+        lms_url, players = setupserver.serve_setup(
+            args.host, args.port, lms_url, discover,
+            pinned=bool(backend_url), require_player=not args.player,
+            backend=backend.name, token=args.backend_token,
+            allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
+            wrap=(lambda httpd: tls.wrap_server(httpd, args.cert, args.key))
+            if scheme == "https" else None,
+            announce=lambda line: _announce_setup(scheme, hosts, args.port, line))
     except KeyboardInterrupt:
         print("\nStop.")
         return 1
 
     player = args.player
     if not player:
-        if not players:
-            print(f"Nessun player trovato su {lms_url}")
-            return 1
         player = players[0]["playerid"]
         print(f"Player: {players[0].get('name')} ({player})")
+    if backend.name == "lms":
+        appdata.remember_lms(data_dir, lms_url)
 
-    client = LMSClient(lms_url, player)
+    # The engine talks to whatever this hands back, and has no idea which of
+    # them it got (see engine/player/protocols.py).
+    client = backend.build(lms_url, player, token=args.backend_token)
     # Multi-stanza (Pro): come il kid-safe, il modulo vive in pro/ e il core
     # riceve solo l'oggetto col suo piccolo contratto.
     from pro.multiroom import MultiRoom
@@ -345,7 +343,11 @@ def main() -> int:
         default_service = services[0]
         print(f"--default-service non tra i servizi attivi: uso {default_service}")
 
-    material_url = args.material_url or (lms_url.rstrip("/") + "/material/")
+    # Material Skin is a plugin of the LMS, so only an LMS has one to default
+    # to. Empty switches the in-page panel and its reverse proxy off, which is
+    # what browse_path() already answers for a UI living somewhere else.
+    material_url = args.material_url or (
+        lms_url.rstrip("/") + "/material/" if backend.name == "lms" else "")
     ca_path = tls.find_ca(args.cert)
     httpd = BoundedThreadingHTTPServer(
         (args.host, args.port),
@@ -354,20 +356,15 @@ def main() -> int:
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version(),
                      wakeword_sessions=wakeword_sessions,
+                     wake_phrase_store=wake_phrase_store,
                      allowed_hosts=webguard.parse_hosts(args.allowed_hosts)),
     )
 
-    scheme = "http"
-    if args.cert and args.key:
+    if scheme == "https":
         tls.wrap_server(httpd, args.cert, args.key)
-        scheme = "https"
 
-    # Print the real address to open, not a placeholder. If --host pins a
-    # specific interface, show that; otherwise (0.0.0.0) show this PC's LAN IP.
-    if args.host not in ("0.0.0.0", "", "::"):
-        hosts = [args.host]
-    else:
-        hosts = lan_ips() or ["<ip-di-questo-pc>"]
+    # The real address to open, not a placeholder — worked out above, before
+    # the setup page needed it.
     print(f"Pronto: {scheme}://{hosts[0]}:{args.port}   (LMS {lms_url})")
     for extra in hosts[1:]:
         print(f"        {scheme}://{extra}:{args.port}")

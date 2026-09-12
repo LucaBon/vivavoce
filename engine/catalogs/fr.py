@@ -54,6 +54,7 @@ MESSAGES = {
     "ask_title": "Je n'ai pas saisi le titre. Tu peux répéter ?",
     "no_track_found": "Je n'ai trouvé aucun morceau pour {title}.",
     "no_track_by": "Je n'ai pas trouvé {title} de {artist}.",
+    "no_track_by_offer": "Je n'ai pas {query} de {artist}. J'ai ceux-ci : {listing}. Lequel je mets ?",
     "playing": "Je mets {name}.",
     "playing_by": "Je mets {name} de {artist}.",
     "album_not_found": "Je n'ai pas trouvé l'album {album}.",

@@ -20,7 +20,7 @@ router's own configuration (``services``, ``default_service``) and its client.
 from __future__ import annotations
 
 import actions
-from lms import LMSError
+from player.errors import PlayerError
 from messages import msg
 from parsing import _service_label, _source_suffix
 
@@ -57,7 +57,7 @@ class SourceChoice:
             for name in self.services:
                 if name != nominal and self.lms.for_service(name).can_search():
                     return name
-        except LMSError:
+        except PlayerError:
             # The server did not answer at all, which is not the same fact as
             # "no service is connected" and must not be reported as it. Hand
             # the request on to the service it was going to: the action makes
@@ -111,7 +111,7 @@ class SourceChoice:
             for name in self.services:
                 if name != exclude and self.lms.for_service(name).can_search():
                     return name
-        except LMSError:
+        except PlayerError:
             return None
         return None
 

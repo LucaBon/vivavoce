@@ -60,6 +60,7 @@ MESSAGES = {
     "ask_title": "No he entendido el título. ¿Puedes repetirlo?",
     "no_track_found": "No he encontrado ningún tema de {title}.",
     "no_track_by": "No he encontrado {title} de {artist}.",
+    "no_track_by_offer": "No tengo {query} de {artist}. Tengo estos: {listing}. ¿Cuál pongo?",
     "playing": "Pongo {name}.",
     "playing_by": "Pongo {name} de {artist}.",
     "album_not_found": "No he encontrado el álbum {album}.",

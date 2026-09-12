@@ -62,6 +62,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                  ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
                  kidsafe=None, transcriber=None, multiroom=None,
                  app_version: str = "", wakeword_sessions=None,
+                 wake_phrase_store=None,
                  allowed_hosts=None, proxy_open=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
@@ -107,7 +108,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
     # api_v1.py; here is the only place the halves meet, and they call back
     # into _send/_query_params/_read_json_object below.
     class Handler(api_v1_routes(router_for),
-                  audio_routes(license_mgr, transcriber, wakeword_sessions),
+                  audio_routes(license_mgr, transcriber, wakeword_sessions,
+                               wake_phrase_store),
                   proxy_routes(lms.base_url, browse, proxy_open),
                   httpbase.RequestBase, BaseHTTPRequestHandler):
         host_policy = webguard.HostPolicy(allowed_hosts)
@@ -170,6 +172,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._asr_status()
             elif self.path.startswith("/kidsafe"):
                 self._kidsafe_status()
+            elif self.path.startswith("/wakeword/phrase"):
+                self._wake_phrase_get()
             elif self.path.startswith("/wakeword"):
                 self._wakeword_status()
             elif not self._proxy():
@@ -368,6 +372,9 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 return
             if self.path.startswith("/wakeword/stop"):
                 self._wakeword_stop()
+                return
+            if self.path.startswith("/wakeword/phrase"):
+                self._wake_phrase_set()
                 return
             # Both spellings of the same route: /api/v1/command is the
             # contract external clients get to rely on, /command the original

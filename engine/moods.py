@@ -63,7 +63,7 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from actions import ActionResult, Guard, _normalize, is_blocked_item
-from lms import LMSError
+from player.errors import PlayerError
 from messages import msg
 # The table lives next door because it is a list, not a program — see
 # mood_table.py. Re-exported here so ``moods.MOODS`` keeps meaning what it has
@@ -195,13 +195,13 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
     if "years" in mood:
         try:
             years = lms.local_years(YEAR_LIMIT)
-        except LMSError:
+        except PlayerError:
             return ActionResult(msg("err_unreachable"), ok=False)
         year, offered = _pick_year(years, mood["years"], exclude)
         if year is not None:
             try:
                 lms.play_local_year(year)
-            except LMSError:
+            except PlayerError:
                 return ActionResult(msg("err_unreachable"), ok=False)
             # `label`, not `terms`: the re-roll has to remember this year,
             # and `terms` are the FOREIGN names in the sentence, which the web
@@ -214,7 +214,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
     else:
         try:
             genres = lms.local_genres(GENRE_LIMIT)
-        except LMSError:
+        except PlayerError:
             return ActionResult(msg("err_unreachable"), ok=False)
         if guard and guard.restricted:
             genres = [g for g in genres
@@ -223,7 +223,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
         if chosen is not None:
             try:
                 lms.play_local_genre(chosen["id"])
-            except LMSError:
+            except PlayerError:
                 return ActionResult(msg("err_unreachable"), ok=False)
             name = chosen.get("title") or ""
             return ActionResult(msg("playing_mood_genre", genre=name), ok=True,
@@ -236,7 +236,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
         for query in mood["playlists"]:
             try:
                 cands = stream.playlist_candidates(query, PLAYLIST_LIMIT)
-            except LMSError:
+            except PlayerError:
                 return ActionResult(msg("err_unreachable"), ok=False)
             if guard and guard.restricted:
                 cands = [c for c in cands
@@ -249,7 +249,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
                     continue
                 try:
                     stream.play_browse_item(cand["id"])
-                except LMSError:
+                except PlayerError:
                     return ActionResult(msg("err_unreachable"), ok=False)
                 name = cand.get("title") or query
                 return ActionResult(msg("playing_mood_playlist", name=name),

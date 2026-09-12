@@ -48,6 +48,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from player.errors import PlayerError
+# The breaker and the per-turn budget moved to player/resilience.py when a
+# second backend needed them. The three names beside Resilient are unused
+# here and imported on purpose: they were part of this module's surface
+# before the move, and tests/test_lms_resilience.py still reaches for them.
+from player.resilience import (BREAKER_COOLDOWN, BREAKER_THRESHOLD,  # noqa: F401
+                               Breaker as _Breaker, Resilient)
+
 # A transport takes the JSON-RPC ``params`` (``[player_id, [cmd, ...]]``) and
 # returns the parsed ``result`` object from the LMS response.
 Transport = Callable[[list], Dict[str, Any]]
@@ -271,8 +279,13 @@ def service_label(name: Optional[str]) -> str:
     return (spec.label if spec and spec.label else (name or ""))
 
 
-class LMSError(Exception):
-    """Raised when the LMS server cannot be reached or returns garbage."""
+class LMSError(PlayerError):
+    """Raised when the LMS server cannot be reached or returns garbage.
+
+    A :class:`~player.errors.PlayerError`, so the engine catches it with
+    every other backend's failure and still says the one thing it has
+    always said about a hi-fi that is not answering.
+    """
 
 
 def find_uri(obj: Any, pattern: "re.Pattern") -> Optional[str]:
@@ -322,7 +335,11 @@ def uri_kind(uri: str) -> Optional[str]:
     return None
 
 
-class LMSClient:
+class LMSClient(Resilient):
+    #: Every round trip this client makes fails as an LMSError, breaker
+    #: and turn budget included (see player/resilience.py).
+    error = LMSError
+
     def __init__(
         self,
         base_url: str,
@@ -345,7 +362,6 @@ class LMSClient:
         self.player_id = player_id
         self.username = username
         self.password = password
-        self.timeout = timeout
         self.service = SERVICES[service]
         self._transport: Transport = transport or self._http_transport
         # service tag -> (search node id or None, when it expires). A dict, so
@@ -353,6 +369,11 @@ class LMSClient:
         # "is Qobuz logged in" is a fact about the server, not about which
         # clone asked. See search_node_id.
         self._search_nodes: Dict[str, Tuple[Optional[str], float]] = {}
+        # timeout, breaker and per-turn budget, all shared with every other
+        # backend. The breaker is deliberately a mutable object the shallow
+        # copies of for_service()/for_player() SHARE, like the search-node
+        # cache above and for the same reason.
+        self._init_resilience(timeout)
 
     def for_service(self, name: str) -> "LMSClient":
         """This client re-targeted at another streaming service. Returns a
@@ -381,7 +402,7 @@ class LMSClient:
 
     # -- low level ---------------------------------------------------------
     def _rpc(self, player: str, cmd: List[Any]) -> Dict[str, Any]:
-        result = self._transport([player, [str(c) for c in cmd]])
+        result = self._guarded([player, [str(c) for c in cmd]])
         if not isinstance(result, dict):
             raise LMSError(f"Unexpected LMS result type: {type(result)!r}")
         return result
@@ -415,7 +436,7 @@ class LMSClient:
             ).decode("ascii")
             req.add_header("Authorization", "Basic " + token)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self._call_timeout()) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError,
                 http.client.HTTPException) as exc:
@@ -446,13 +467,20 @@ class LMSClient:
         res = self.command(self.service.tag, "items", *params)
         return res.get("loop_loop") or res.get("item_loop") or []
 
-    #: How long a search-node lookup is trusted. It buys two things at once:
-    #: the extra round-trip ``can_search`` would otherwise add to every
-    #: streaming request (the search path asks for the same node moments
-    #: later), and a bound on how long a plugin that has just been logged in
-    #: keeps being reported as offline. Short enough that authenticating in
-    #: LMS and speaking the next sentence works without restarting the app.
+    #: How long a *found* search node is trusted. It buys the extra round-trip
+    #: ``can_search`` would otherwise add to every streaming request: the
+    #: search path asks for the same node moments later.
     SEARCH_NODE_TTL = 30.0
+
+    #: How long a *missing* one is. Deliberately much shorter, because the two
+    #: answers are not worth the same. A found node saves a round trip that is
+    #: about to happen anyway; a missing one saves nothing — the caller gives
+    #: up rather than asking again — and costs the household the one thing the
+    #: cache should never cost them: logging TIDAL into LMS, coming straight
+    #: back, and being told for another half-minute that it is logged out.
+    #: A couple of seconds still collapses the duplicate lookups inside one
+    #: turn, which is all the saving there ever was on this side.
+    SEARCH_NODE_MISS_TTL = 2.0
 
     def search_node_id(self) -> Optional[str]:
         """Id of the plugin's search node (type == 'search'), or None when the
@@ -460,14 +488,32 @@ class LMSClient:
         looks like from here: a TIDAL that is logged out answers its whole
         menu with one 'Please go to Settings/Advanced/TIDAL' textarea.
 
-        Memoized per service for ``SEARCH_NODE_TTL`` seconds (see there)."""
+        Memoized per service, asymmetrically: see the two TTLs above."""
         cached = self._search_nodes.get(self.service.tag)
         if cached is not None and cached[1] > time.monotonic():
             return cached[0]
         node = self._find_search_node()
-        self._search_nodes[self.service.tag] = (
-            node, time.monotonic() + self.SEARCH_NODE_TTL)
+        ttl = self.SEARCH_NODE_TTL if node else self.SEARCH_NODE_MISS_TTL
+        self._search_nodes[self.service.tag] = (node, time.monotonic() + ttl)
         return node
+
+    def _forget_search_node(self) -> None:
+        """Drop the memoized node for this service, so the next call looks
+        again.
+
+        Called when a search *through* that node comes back with nothing at
+        all — not no results, no categories: the node is not behaving like a
+        search node any more, which is what a plugin logged out since we
+        looked at it looks like from here. Without this the client keeps
+        aiming a stale id at a service that has stopped answering for as long
+        as the TTL, and reports the miss as "nothing found" rather than "not
+        connected" — the one distinction ``can_search`` exists to make.
+
+        A genuinely empty answer costs one extra round trip next time. That is
+        the whole price, and it is only ever paid on the path that already
+        failed.
+        """
+        self._search_nodes.pop(self.service.tag, None)
 
     def can_search(self) -> bool:
         """Whether this service can answer a search at all — i.e. whether the
@@ -505,6 +551,8 @@ class LMSClient:
         items = self._app_items(
             "0", str(count), f"item_id:{node}", f"search:{query}"
         )
+        if not items:
+            self._forget_search_node()
         return {it["name"]: it["id"] for it in items if it.get("name") and it.get("id")}
 
     # Canonical category -> accepted names as the plugin may localize them

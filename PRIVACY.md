@@ -22,11 +22,11 @@ If you don't want any audio leaving your home:
   **not** change how the wake word itself is *detected* — see the next
   bullet for that;
 - turn on **server-side wake word** (Pro, a separate optional install, see
-  DEPLOY.md — a fixed English phrase, not the free-text one): this is the
-  one that changes wake-word *detection* specifically — the continuous-
-  listening audio goes to *your* server instead of the browser's speech
-  engine. Every model it uses ships inside the package, so there is no
-  download at all, not even a one-time one.
+  DEPLOY.md): this is the one that changes wake-word *detection*
+  specifically — the continuous-listening audio goes to *your* server
+  instead of the browser's speech engine, and it answers to the phrase you
+  typed. The only network touch is the one-time model download at first
+  start-up (~47 MB, listed below); after that it needs no network.
 
 Without the server-side wake word install specifically, the wake word's
 continuous listening relies on the browser engine (Google/Apple, as above)

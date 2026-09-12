@@ -15,6 +15,10 @@ CERT_HOSTS="${VIVAVOCE_CERT_HOSTS:-${SQUEEZESAY_CERT_HOSTS:-}}"
 LMS_URL="${VIVAVOCE_LMS:-${SQUEEZESAY_LMS:-}}"
 PLAYER="${VIVAVOCE_PLAYER:-${SQUEEZESAY_PLAYER:-}}"
 MATERIAL_URL="${VIVAVOCE_MATERIAL_URL:-${SQUEEZESAY_MATERIAL_URL:-}}"
+# Nessun gemello SQUEEZESAY_: queste opzioni sono nate dopo il rebrand.
+BACKEND="${VIVAVOCE_BACKEND:-}"
+BACKEND_URL="${VIVAVOCE_BACKEND_URL:-}"
+BACKEND_TOKEN="${VIVAVOCE_BACKEND_TOKEN:-}"
 
 mkdir -p "$DATA_DIR"
 
@@ -55,6 +59,9 @@ fi
 
 [ -n "$LMS_URL" ] && set -- "$@" --lms "$LMS_URL"
 [ -n "$PLAYER" ] && set -- "$@" --player "$PLAYER"
+[ -n "$BACKEND" ] && set -- "$@" --backend "$BACKEND"
+[ -n "$BACKEND_URL" ] && set -- "$@" --backend-url "$BACKEND_URL"
+[ -n "$BACKEND_TOKEN" ] && set -- "$@" --backend-token "$BACKEND_TOKEN"
 [ -n "$MATERIAL_URL" ] && set -- "$@" --material-url "$MATERIAL_URL"
 
 # exec: python diventa PID 1, così docker stop arriva pulito al server.

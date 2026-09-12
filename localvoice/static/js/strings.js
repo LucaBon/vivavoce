@@ -11,6 +11,13 @@
 // snapshotted at load (see initI18n), so index.html stays readable as Italian
 // HTML. What is here is every string built at runtime, plus the English side
 // of the labels.
+//
+// One table lives next door: micerrors.js, which turns the browser's own
+// error codes into sentences. Same kind of data, but it is keyed by somebody
+// else's vocabulary rather than by ours, and it is the only thing here that
+// has to be revisited when a browser invents a new code.
+
+import { MIC_WHY_EN, MIC_WHY_IT, micWhy } from "./micerrors.js";
 
 export const UI_EN = {
   h1: "Vivavoce — local voice control",
@@ -32,15 +39,20 @@ export const UI_EN = {
     '(every few seconds) and it cannot be silenced from here: on phones, leave this off and ' +
     'use tap-to-talk (one sound per command). The keyword works best on PC/tablet with ' +
     'Chrome.</span>',
-  wakehint_server: 'Continuous listening without the beep: the server does the wake-word ' +
-    'detection, and the browser only takes the microphone for the command itself. It works ' +
-    'in <b>two steps</b>: say “<b><span id="wwlabel_srv">Hey Jarvis</span></b>”, ' +
-    '<b>wait for the beep</b>, then say the command. The activation phrase is fixed and ' +
-    'English, decided by the model on the server: it cannot be customized. The free-text ' +
-    'keyword comes back with the other engine.',
+  wakehint_server: 'Continuous listening without the beep: the server does the wake-word detection, and the browser only takes the microphone for the command itself. ' +
+    'It works in <b>two steps</b>: say “<b><span id="wwlabel_srv">vivavoce</span></b>”, <b>wait for the beep</b>, then say the command. ' +
+    'The phrase is the one above and applies to <b>the whole house</b>, not just this device. ' +
+    '<span class="warn">It has to be made of real words: the engine only produces words it knows, so a made-up name never fires. If you type one, it says so instead of accepting it.</span>',
   localasr_lbl: "🎙 local speech recognition (Whisper on the server: audio never leaves home)",
-  serverwake_lbl: "🔈 detect the wake word on the server (no Android beep; fixed " +
-    "“Hey Jarvis” phrase, in English)",
+  serverwake_lbl: "🔈 detect the wake word on the server (no Android beep)",
+  // The refusal from POST /wakeword/phrase, and the confirmation. A phrase the
+  // engine has no pronunciation for does not degrade — it never fires at all —
+  // so this is a refusal to state, not a warning to soften.
+  wake_phrase_rejected: (words) => `“${words.join("”, “")}”: the server engine has no pronunciation for ` +
+    `${words.length > 1 ? "these words" : "this word"}, so it would never hear it. Choose a phrase made of real words.`,
+  wake_phrase_saved: "Keyword saved for the whole house.",
+  wake_phrase_unverified: "Saved, but not checked against the server engine's vocabulary: if it is not a real word it may never trigger.",
+  wake_phrase_failed: (why) => `NOT saved for the house (${why}). This device still answers to it; the others will not.`,
   readback_lbl: "🔊 read the reply aloud",
   voices_summary: "Voices &amp; languages",
   lbl_foreign: "Default language for foreign titles",
@@ -112,9 +124,9 @@ export const UI_EN = {
   say_command: "Yes? Tell me the command…",
   tap_mic: "Tap the microphone and speak.",
   tap_to_resume: "Listening stopped — tap the microphone to resume.",
-  wake_gave_up: (e) => "Continuous listening stopped (" + e +
-    "). Check the microphone and the connection, then tap to start again.",
-  mic_error: "Microphone error: ",
+  wake_gave_up: (e) => "Continuous listening stopped: " + micWhy(MIC_WHY_EN, e) +
+    " Tap the microphone to start again.",
+  mic_error: (e) => "Microphone: " + micWhy(MIC_WHY_EN, e),
   cmd_timeout: "No answer from the server. Is it still running?",
   still_working: "Still working on the previous command\u2026",
   asr_working: "Transcribing…",
@@ -249,12 +261,20 @@ export const UI_IT = {
   check_text: "Controlla il testo (occhio ai nomi inglesi) e premi Invia.",
   listening: "Ascolto…",
   listening_wake: (w) => "In ascolto… di' «" + w + " …»",
+  // Il rifiuto di POST /wakeword/phrase, e la conferma. Una frase di cui il
+  // motore non ha la pronuncia non peggiora: non si attiva mai. Quindi e' un
+  // rifiuto da dire, non un avviso da addolcire.
+  wake_phrase_rejected: (words) => "«" + words.join("», «") + "»: il motore sul server non ha la pronuncia "
+    + (words.length > 1 ? "di queste parole" : "di questa parola") + ", quindi non la sentirebbe mai. Scegli una frase fatta di parole vere.",
+  wake_phrase_saved: "Parola chiave salvata per tutta la casa.",
+  wake_phrase_unverified: "Salvata, ma non confrontata col vocabolario del motore sul server: se non è una parola vera potrebbe non attivarsi mai.",
+  wake_phrase_failed: (why) => "NON salvata per la casa (" + why + "). Questo dispositivo continua a rispondere; gli altri no.",
   say_command: "Sì? Dimmi il comando…",
   tap_mic: "Tocca il microfono e parla.",
   tap_to_resume: "Ascolto interrotto \u2014 tocca il microfono per riprendere.",
-  wake_gave_up: (e) => "Ascolto continuo interrotto (" + e +
-    "). Controlla microfono e connessione, poi tocca per ricominciare.",
-  mic_error: "Errore microfono: ",
+  wake_gave_up: (e) => "Ascolto continuo interrotto: " + micWhy(MIC_WHY_IT, e) +
+    " Tocca il microfono per ricominciare.",
+  mic_error: (e) => "Microfono: " + micWhy(MIC_WHY_IT, e),
   cmd_timeout: "Nessuna risposta dal server. \u00c8 ancora acceso?",
   still_working: "Sto ancora eseguendo il comando precedente\u2026",
   asr_working: "Trascrivo…",

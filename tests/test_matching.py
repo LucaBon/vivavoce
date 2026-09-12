@@ -509,6 +509,9 @@ def test_a_connector_title_matches_a_padded_edition(lms, transport, make_tidal):
 # -- a named artist that isn't in the results ---------------------------------
 def test_a_named_artist_with_no_edition_is_not_silently_swapped(
         lms, transport, make_tidal):
+    # The far half of the near-miss decision: Vasco Rossi against The Beatles
+    # scores 0.07, which is not a misheard name, it is a different person.
+    # Offering them would be padding a refusal with a wrong answer.
     transport.responses["tidal"] = make_tidal(
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
@@ -518,6 +521,40 @@ def test_a_named_artist_with_no_edition_is_not_silently_swapped(
     assert reply.ok is False
     assert "Vasco Rossi" in reply
     assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+
+
+def test_a_misheard_artist_is_offered_rather_than_refused(lms, transport,
+                                                          make_tidal):
+    # One recogniser slip — Floyd/Floid — used to be a flat "I couldn't find
+    # it" while the exact record sat first in the results. It scores 0.66:
+    # under the bar for playing it unasked, well over the bar for being the
+    # same band misheard. So it gets offered, and «la 1» is the repair.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Comfortably Numb", "artist": "Pink Floyd"}]},
+    )
+    reply = actions.play_song(lms, "Comfortably Numb dei Pink Floid")
+    assert reply.kind == "disambiguate"
+    assert "Pink Floyd" in reply
+    # Offered, not started: the promise is that nobody else's edition plays
+    # until somebody says so.
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())
+    assert [c["title"] for c in reply.candidates] == ["Comfortably Numb"]
+
+
+def test_a_dropped_diacritic_is_not_a_different_artist(lms, transport,
+                                                       make_tidal):
+    # Web Speech writes «bjork»; the catalogue says Björk. That normalises to
+    # a perfect match, so it plays outright — no question at all.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Army of Me", "artist": "Björk"}]},
+    )
+    reply = actions.play_song(lms, "Army of Me di Bjork")
+    assert reply.ok is True
+    assert ["playlist", "play", "tidal://1.flc"] in transport.commands()
 
 
 def test_the_named_artist_is_found_below_the_top_three(lms, transport,

@@ -187,7 +187,7 @@ export function initMic() {
           rec.start();
         } catch (e) {
           // Twice is not a hiccup. Say so instead of leaving a dead button.
-          statusEl.textContent = ui("mic_error") + (e.name || e);
+          statusEl.textContent = ui("mic_error")(e);
           micUI(false);
         }
       }, 200);
@@ -213,7 +213,7 @@ export function initMic() {
       try { rec.stop(); } catch (e) {}
     }
 
-    // The post-trigger command capture for server-side wake word: openWakeWord
+    // The post-trigger command capture for server-side wake word: the server
     // only detects the trigger, not the words that follow, so this reuses
     // whichever single-shot engine tap-to-talk already prefers.
     function captureCommand() {
@@ -275,7 +275,7 @@ export function initMic() {
       } else {
         // A plain tap-to-talk shot goes idle; a shot captured after a
         // server-wake trigger (mode "manual" via captureCommand) instead
-        // falls back to "still listening for hey jarvis" when that's true.
+        // falls back to "still listening for <the phrase>" when that's true.
         mode = "off";
         endCommandCapture(isAwaitingReview());
       }
@@ -307,7 +307,7 @@ export function initMic() {
         // preference they set deliberately — is no answer to that.
         if (mode === "wake" || $("wakemode").checked) leaveWakeMode();
         else { stopAll(); micUI(false); }
-        statusEl.textContent = ui("mic_error") + e.error;
+        statusEl.textContent = ui("mic_error")(e);
         return;
       }
       if (mode === "wake") {
@@ -320,7 +320,7 @@ export function initMic() {
         statusEl.textContent = ui("wake_gave_up")(e.error);
         return;
       }
-      statusEl.textContent = ui("mic_error") + e.error;
+      statusEl.textContent = ui("mic_error")(e);
     };
     rec.onresult = (e) => {
       if (mode === "wake") { wake.wakeResult(e); return; }

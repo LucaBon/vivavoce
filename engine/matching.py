@@ -19,11 +19,6 @@ from typing import Dict, List, Optional
 from connectors import DEFAULT, for_lang
 from messages import get_lang, msg
 
-# Legacy alias, frozen in the default language at import: kept for external
-# callers/tests; the code paths below call msg() so replies follow the
-# per-request language.
-ERR_UNREACHABLE = msg("err_unreachable")
-
 # How many rows a list read out loud may carry. Any longer and nobody
 # remembers the first one by the time the last is spoken.
 LIST_LIMIT = 5
@@ -41,6 +36,19 @@ LIST_LIMIT = 5
 CONFIDENT_SCORE = 0.72
 EXACT_SCORE = 0.98   # normalized-equal title -> override TIDAL and play this one
 DIDYOUMEAN_LIMIT = 3  # read back at most the top 3 when asking "which one?"
+
+#: The bar for "that might be the same artist, misheard". Below
+#: ``CONFIDENT_SCORE`` an artist is not played; below THIS one they are not
+#: even offered, because they are somebody else entirely.
+#:
+#: The band between the two is where a recogniser slip lands. Measured with
+#: ``_score``: «pink floid»/Pink Floyd 0.66, «daft pank»/Daft Punk 0.66,
+#: dropped diacritics («bjork»/Björk, «sigur ros»/Sigur Rós) 1.00 — while
+#: genuinely different artists sit an order of magnitude lower: Vasco
+#: Rossi/The Beatles 0.07, Metallica/Megadeth 0.14, Queen/David Bowie 0.05.
+#: 0.5 is the middle of an empty gap, not a tuned number, which is why it can
+#: be a constant rather than a knob.
+NEAR_ARTIST_SCORE = 0.5
 
 # mode ("play"/"add"/"insert" — see play_song) -> the message-key suffix/name
 # it maps to. Shared by every place that acts on a resolved song/album so the
@@ -209,10 +217,55 @@ def _ndistinct_titles(cands: List[Dict]) -> int:
     return len({_normalize(c.get("title")) for c in cands})
 
 
-def _did_you_mean(query: Optional[str], cands: List[Dict]) -> ActionResult:
+def _trusts_ranking(lms) -> bool:
+    """Whether "the search returned it first" is evidence of what was asked for.
+
+    It is, for a search that answers *nothing* when nothing matches: TIDAL and
+    Qobuz return no results for «zzzzqqqxyzzy», so results existing at all means
+    something. It is not for Spotify, whose search always answers — see
+    ``ServiceSpec.trust_ranking``. ``getattr`` twice on purpose: this module's
+    contract is "any object with the same methods", not "an LMSClient".
+    """
+    return getattr(getattr(lms, "service", None), "trust_ranking", True)
+
+
+def _resolved_enough(lms, query, item, key: str = "title") -> bool:
+    """Guard for the paths that resolve a request to a *single* first result —
+    an album, an artist, a playlist. ``_resolve_song`` has its own, richer
+    version of this decision; these four had none at all, which meant «metti
+    l'album <anything>» on Spotify played whatever came back first, in silence.
+    """
+    if _trusts_ranking(lms):
+        return True
+    return _score(query, (item or {}).get(key)) >= CONFIDENT_SCORE
+
+
+def near_artist_matches(artist: Optional[str], cands: List[Dict]) -> List[Dict]:
+    """The candidates whose artist is close enough to ``artist`` to be them
+    misheard, nearest first — see :data:`NEAR_ARTIST_SCORE`.
+
+    Lives here rather than in the caller because the threshold does: this is
+    the second half of the same decision ``CONFIDENT_SCORE`` makes, and the
+    two want to be read together.
+    """
+    near = [c for c in cands
+            if _score(artist, c.get("artist")) >= NEAR_ARTIST_SCORE]
+    near.sort(key=lambda c: _score(artist, c.get("artist")), reverse=True)
+    return near
+
+
+def _did_you_mean(query: Optional[str], cands: List[Dict], *,
+                  key: str = "didyoumean", **fields) -> ActionResult:
     """Ask which of several candidates to play, reading back the top ones as
     '1: Title di Artist, ...'. ``cands`` are choose_from-ready (TIDAL {title,url}
-    or local {title,action,arg}); callers pass an already blocked-filtered list."""
+    or local {title,action,arg}); callers pass an already blocked-filtered list.
+
+    ``key`` picks the sentence the list is wrapped in, and ``fields`` carries
+    whatever that sentence needs beyond the query and the listing. The default
+    is the plain "I found several"; the artist near-miss path uses its own
+    frame, because "I haven't got that one by them, but I have these" is a
+    different thing to say and reading it as the plain one would be a lie.
+    """
     picks = cands[:DIDYOUMEAN_LIMIT]
     listing = ", ".join(
         msg("enum_item", n=i + 1, name=_label(c)) for i, c in enumerate(picks)
@@ -223,7 +276,7 @@ def _did_you_mean(query: Optional[str], cands: List[Dict]) -> ActionResult:
             terms.append(c["title"])
         if c.get("artist"):
             terms.append(c["artist"])
-    speech = msg("didyoumean", query=query, listing=listing)
+    speech = msg(key, query=query, listing=listing, **fields)
     return ActionResult(speech, ok=True, candidates=picks, kind="disambiguate", terms=terms)
 
 

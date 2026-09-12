@@ -9,9 +9,17 @@ import { refreshNowPlaying } from "./nowplaying.js";
 import { readbackOn, speak } from "./tts.js";
 import { trialInfo, isLicensed, showProUpsell } from "./pro.js";
 
+// The onboarding hints (the three example chips and the source note) used to
+// go away on the first message — including a message that failed. So the one
+// person who most needed the examples, the one whose first attempt did not
+// work, was the one who lost them, for the rest of the session, with no way
+// to get them back. They now stay until something has actually worked.
+export function hideHints() {
+  $("empty").style.display = "none";
+}
+
 export function bubble(text, who) {
   const log = $("log");
-  $("empty").style.display = "none";  // first message replaces the onboarding hints
   const d = document.createElement("div");
   d.className = "bubble " + who;
   d.textContent = text;
@@ -189,6 +197,8 @@ export async function send(text, alternatives, opts) {
     if (data.ok !== false && !data.unmatched && opts && opts.typed) {
       maybePromptSpoken(p);
     }
+    // Worked, and was understood: the examples have done their job.
+    if (data.ok !== false && !data.unmatched) hideHints();
     if (readbackOn()) speak(data.speech, data.terms);
     // A play/skip command changes the track: don't wait for the next poll.
     setTimeout(refreshNowPlaying, 800);

@@ -11,9 +11,9 @@ from __future__ import annotations
 from typing import Optional
 
 from guard import Guard, is_blocked_item
-from lms import LMSError
 from matching import LIST_LIMIT, ActionResult, _label
 from messages import msg
+from player.errors import PlayerError
 
 # One notch of the LMS volume scale (0-100) per spoken step.
 VOLUME_STEP = 5
@@ -21,7 +21,7 @@ VOLUME_STEP = 5
 def pause(lms) -> ActionResult:
     try:
         lms.pause()
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("paused"), ok=True)
 
@@ -29,7 +29,7 @@ def pause(lms) -> ActionResult:
 def resume(lms) -> ActionResult:
     try:
         lms.resume()
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("resumed"), ok=True)
 
@@ -37,7 +37,7 @@ def resume(lms) -> ActionResult:
 def next_track(lms) -> ActionResult:
     try:
         lms.next_track()
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("next_track"), ok=True)
 
@@ -45,7 +45,7 @@ def next_track(lms) -> ActionResult:
 def previous_track(lms) -> ActionResult:
     try:
         lms.previous_track()
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("previous_track"), ok=True)
 
@@ -56,7 +56,7 @@ def change_volume(lms, direction: str) -> ActionResult:
     delta = VOLUME_STEP if direction == "up" else -VOLUME_STEP
     try:
         lms.volume(delta)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("volume_up" if direction == "up" else "volume_down"),
                         ok=True)
@@ -77,7 +77,7 @@ def set_sleep(lms, minutes: int) -> ActionResult:
                             ok=False)
     try:
         lms.sleep(minutes * 60)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     key = "sleep_set_one" if minutes == 1 else "sleep_set"
     return ActionResult(msg(key, minutes=minutes), ok=True)
@@ -86,7 +86,7 @@ def set_sleep(lms, minutes: int) -> ActionResult:
 def cancel_sleep(lms) -> ActionResult:
     try:
         lms.sleep(0)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("sleep_cancelled"), ok=True)
 
@@ -94,7 +94,7 @@ def cancel_sleep(lms) -> ActionResult:
 def now_playing(lms) -> ActionResult:
     try:
         info = lms.now_playing_info()
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     if not info or not info.get("title"):
         return ActionResult(msg("nothing_playing"), ok=True)
@@ -121,7 +121,7 @@ def now_playing(lms) -> ActionResult:
 def clear_queue(lms) -> ActionResult:
     try:
         lms.clear_queue()
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     return ActionResult(msg("queue_cleared"), ok=True)
 
@@ -130,7 +130,7 @@ def queue_list(lms, limit: int = LIST_LIMIT, *, guard: Optional[Guard] = None) -
     """Read back the next few tracks queued after the current one."""
     try:
         upcoming = lms.queue_upcoming(limit)
-    except LMSError:
+    except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     if guard and guard.restricted:  # never read a blocked title back aloud
         upcoming = [t for t in upcoming if not is_blocked_item(t, guard.blocklist)]

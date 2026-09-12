@@ -36,6 +36,23 @@ volume», «cosa sta suonando».
 | `player` | MAC del player da comandare | il primo trovato |
 | `cert_hosts` | SAN extra nel certificato (IP/nomi, separati da virgola) | — |
 | `material_url` | URL del link "Material Skin" nella pagina | `<lms>/material/` |
+| `backend` | quale sistema musicale pilotare: `lms` o `musicassistant` | `lms` |
+| `backend_url` | dove trovarlo quando non è un LMS, es. `http://192.168.1.50:8095` | — |
+| `backend_token` | token di accesso del backend | — |
+
+### Music Assistant invece di LMS
+
+Metti `backend: musicassistant`, l'indirizzo del server in `backend_url`
+(porta 8095) e in `backend_token` un token creato in Music Assistant sotto
+**Impostazioni → Profilo**. Music Assistant non si annuncia su UDP 3483, così
+l'indirizzo va indicato: senza, l'app si ferma subito dicendolo.
+
+Vale la pena saperlo perché Music Assistant pilota da sé altoparlanti DLNA,
+Chromecast, Sonos e AirPlay: puntandogli Vivavoce, quelli diventano player
+comandabili a voce senza altro da installare. Due differenze rispetto a un
+LMS: il pannello Material Skin non c'è (è un plugin di LMS) e non esiste un
+indice per anno, quindi «musica degli anni '80» ripiega su una playlist del
+servizio di streaming invece di pescare dalla libreria.
 
 Il certificato TLS viene generato al **primo avvio** nello storage persistente
 dell'app, quindi l'avviso del browser va accettato una sola volta. Se cambi
@@ -45,7 +62,8 @@ dell'app, quindi l'avviso del browser va accettato una sola volta. Se cambi
 ## Requisiti
 
 - Un LMS/Daphile sulla stessa rete con almeno un player attivo (per TIDAL:
-  plugin TIDAL installato e loggato).
+  plugin TIDAL installato e loggato) — oppure un server Music Assistant, vedi
+  sopra.
 - L'app usa la **rete host** (rende immediata l'auto-discovery UDP e mette
   gli IP giusti nel certificato; senza, la discovery ripiega comunque su una
   scansione unicast della rete).

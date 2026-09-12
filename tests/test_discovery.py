@@ -1,4 +1,4 @@
-"""LMS discovery (``engine/discovery.py``) and the server-side cache.
+"""LMS discovery (``engine/discovery.py``) and the remembered address.
 
 Broadcast is the fast path; the unicast sweep is what keeps `docker compose up`
 zero-config inside a bridge/NAT (the broadcast never leaves the container, but
@@ -10,8 +10,8 @@ import json
 import socket
 import threading
 
+import appdata
 import discovery
-import server as srv
 
 
 def _tlv(**fields) -> bytes:
@@ -158,37 +158,17 @@ def test_discover_base_url_broadcast_wins_without_sweep(monkeypatch):
     assert discovery.discover_base_url() == "http://10.0.0.5:9000"
 
 
-# -- cache lato server (riavvii istantanei) -----------------------------------
+# -- l'indirizzo ricordato (riavvii istantanei) -------------------------------
 
 def test_lms_cache_roundtrip(tmp_path):
     data_dir = str(tmp_path)
-    assert srv._cached_lms(data_dir) == ""            # niente file: nessun URL
-    srv._save_cached_lms(data_dir, "http://192.168.123.72:9000")
-    assert srv._cached_lms(data_dir) == "http://192.168.123.72:9000"
+    assert appdata.remembered_lms(data_dir) == ""     # niente file: nessun URL
+    appdata.remember_lms(data_dir, "http://192.168.123.72:9000")
+    assert appdata.remembered_lms(data_dir) == "http://192.168.123.72:9000"
     raw = json.loads((tmp_path / "discovery_cache.json").read_text())
     assert raw == {"lms": "http://192.168.123.72:9000"}
 
 
 def test_lms_cache_tolerates_corruption(tmp_path):
     (tmp_path / "discovery_cache.json").write_text("not json {")
-    assert srv._cached_lms(str(tmp_path)) == ""
-
-
-def test_lms_reachable_true_on_listening_port():
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(1)
-    port = listener.getsockname()[1]
-    try:
-        assert srv._lms_reachable(f"http://127.0.0.1:{port}") is True
-    finally:
-        listener.close()
-
-
-def test_lms_reachable_false_on_closed_port_or_junk():
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.bind(("127.0.0.1", 0))
-    free_port = probe.getsockname()[1]
-    probe.close()
-    assert srv._lms_reachable(f"http://127.0.0.1:{free_port}", timeout=0.5) is False
-    assert srv._lms_reachable("not-a-url") is False
+    assert appdata.remembered_lms(str(tmp_path)) == ""

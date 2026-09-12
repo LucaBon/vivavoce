@@ -63,3 +63,28 @@ def test_every_language_pack_has_a_message_catalog():
     # command and then KeyErrors on the reply.
     import messages
     assert set(lang.PACKS) == set(messages.CATALOGS)
+
+
+def test_an_lms_failure_is_reported_in_the_language_of_the_turn():
+    # matching.py used to freeze this sentence at import time, in whatever
+    # DEFAULT_LANG happened to be, while every live path called msg() against
+    # the per-request language. Nothing caught it because ActionResult
+    # subclasses str: a comparison against the frozen constant came back False
+    # rather than raising, so the tests that used it only passed while nobody
+    # had switched language first.
+    import actions
+    import messages
+    from lms import LMSClient, LMSError
+
+    def dead(_params):
+        raise LMSError("down")
+
+    lms = LMSClient("http://lms:9000", "aa:bb", transport=dead)
+    seen = {}
+    for code in messages.CATALOGS:
+        messages.set_lang(code)
+        seen[code] = str(actions.pause(lms))
+        assert seen[code] == messages.msg("err_unreachable")
+    # ...and they really are different sentences, so the assertion above is
+    # not comparing five copies of the Italian one.
+    assert len(set(seen.values())) == len(messages.CATALOGS)

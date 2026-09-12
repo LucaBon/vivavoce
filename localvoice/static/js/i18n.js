@@ -101,7 +101,7 @@ export function applyUI() {
     ? ui("micstate_listening") : ui("micstate_idle");
   // wakehint embeds the wake-word span: restore its live value after the
   // swap. Via the hook, not by reading the field — the phrase in use isn't
-  // always the field's (see setWakeWordOverride in settings.js).
+  // always the field's (see syncWakeLabel in settings.js).
   hooks.syncWakeLabel();
   hooks.buildSourceOptions();
   hooks.buildVoicePickers();  // re-localizes the "(no voice)" option

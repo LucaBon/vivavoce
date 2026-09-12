@@ -55,6 +55,7 @@ MESSAGES = {
     "ask_title": "Ich habe den Titel nicht verstanden. Kannst du das wiederholen?",
     "no_track_found": "Ich habe keinen Titel f\u00fcr {title} gefunden.",
     "no_track_by": "Ich habe {title} von {artist} nicht gefunden.",
+    "no_track_by_offer": "Ich habe {query} von {artist} nicht. Ich habe diese: {listing}. Welches soll ich spielen?",
     "playing": "Ich spiele {name}.",
     "playing_by": "Ich spiele {name} von {artist}.",
     "album_not_found": "Ich habe das Album {album} nicht gefunden.",

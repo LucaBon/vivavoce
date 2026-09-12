@@ -1,8 +1,97 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — September 2026
 
 ### New
+
+- **Vivavoce non è più legato a un LMS: ora sa pilotare anche Music
+  Assistant.** Fino a qui il sistema musicale era uno solo, e non per una
+  scelta di design: `engine/lms.py` era insieme il client e l'interfaccia, così
+  chi ha un impianto diverso non poteva usare nulla di quello che questo
+  progetto fa — il riconoscimento del titolo, la scelta dell'edizione giusta,
+  il «quale intendi?» — pur essendo tutto indipendente da *chi* poi fa suonare
+  la musica. Adesso il motore parla a un'interfaccia
+  (`engine/player/protocols.py`) e LMS è **un** backend fra altri.
+
+  Due protocolli e non uno, perché un altoparlante non è un catalogo: quello
+  che fa un dispositivo — pausa, volume, coda — e quello che fa un catalogo —
+  cercare, risolvere, disambiguare — sono cose diverse, e ogni backend dichiara
+  quali sa fare (`Capabilities`). Il motore chiede prima di offrire, così un
+  lettore che non sa cercare lo dice invece di far passare l'assenza per un
+  guasto.
+
+  Il secondo backend è **Music Assistant**: `--backend musicassistant`,
+  `--backend-url http://<ip>:8095` e `--backend-token` (il token si crea in
+  Music Assistant sotto Impostazioni → Profilo), con i gemelli d'ambiente e le
+  tre opzioni corrispondenti nell'app Home Assistant. Vale la pena anche per
+  chi non ha Squeezebox: Music Assistant pilota da sé altoparlanti DLNA,
+  Chromecast, Sonos e AirPlay, quindi puntandogli Vivavoce quelli diventano
+  lettori comandabili a voce senza installare altro. Non serve nessuna
+  dipendenza nuova — la sua API risponde anche su un semplice `POST /api`,
+  quindi il core resta di sola libreria standard come è sempre stato.
+
+  Due assenze, dichiarate perché sono assenze e non difetti: il pannello
+  Material Skin non c'è (è un plugin di LMS) e non esiste un indice per anno,
+  quindi «musica degli anni '80» ripiega su una playlist del servizio di
+  streaming invece di pescare dalla libreria. Il default resta `lms` e non
+  cambia niente per chi ha un LMS, auto-discovery compresa.
+
+
+- **La parola chiave sul server è di nuovo quella scelta in casa.** Il motore
+  server esisteva per togliere il beep che Android emette a ogni riavvio del
+  riconoscimento continuo, e lo toglieva — ma insieme si portava via la frase:
+  openWakeWord sente solo le poche frasi inglesi per cui spedisce un modello,
+  quindi «niente beep» costava «Hey Jarvis» e il campo di testo spariva. Ora
+  accanto c'è un secondo motore, Vosk a riconoscimento libero
+  (`localvoice/pro/vosk_wake.py`, gruppo `wakeword-vosk`), che trascrive e cerca
+  la frase nel testo: la frase torna a essere quella digitata, e vale per tutta
+  la casa invece che per il singolo browser (`wakeword.json`, `GET`/`POST
+  /wakeword/phrase`). Vosk vince quando è installato e ha un modello su disco;
+  openWakeWord resta come ripiego dove è già in uso.
+
+  Il modello (~47 MB per lingua) si scarica **all'avvio**, una volta, dentro la
+  cartella dati — quindi in Docker finisce nel volume e sopravvive agli
+  aggiornamenti, come quello di Whisper. All'avvio e non al primo uso, a
+  differenza di Whisper, per una ragione precisa: la prima richiesta della
+  parola chiave è un chunk audio da 320 ms dentro un flusso di chunk, e
+  scaricare 47 MB lì dentro manderebbe la richiesta in timeout — un motore
+  lento diventerebbe indistinguibile da uno rotto. Qui invece è una riga di
+  progresso prima che il server accetti qualcosa, e un fallimento è un
+  messaggio invece che un mistero: senza rete l'avvio prosegue, la parola
+  chiave libera resta spenta e il resto non cambia.
+  `--wakeword-no-download` lo disattiva per installazioni offline;
+  `--wakeword-vosk-model` indica una cartella gestita a mano, e su quella non
+  si scarica mai sopra.
+
+  La scelta viene da un banco di misura, non da una preferenza. Sui 40,2 minuti
+  di impianto acceso in sala registrati per l'occasione, la grammatica ristretta
+  di Kaldi — l'idea ovvia, restringere il riconoscitore alla sola frase — ha
+  fatto **21 falsi trigger all'ora**, sette su voce italiana e sette su
+  strumentale: con due sole uscite possibili, l'audio ambiguo viene spinto verso
+  la frase, e chitarra flamenca e Vivaldi diventano «vivavoce». A lessico pieno
+  ce n'è stato **zero**. La grammatica sopravvive solo come oracolo del
+  vocabolario, mai come decodificatore, e il docstring lo dice per iscritto
+  perché è il tipo di cosa che qualcuno ricablerebbe.
+
+  Misurato attraverso l'endpoint vero, in chunk da 320 ms come li manda
+  `serverwake.js`: **15/15** in stanza silenziosa, **15/17** parlando sopra la
+  musica, **0 falsi trigger** in 40 minuti di sala e **0 su 120 clip di
+  quasi-parole** («vivace», «viva la vita», «prova la voce»…). RTF 0,10 e
+  310 MiB — sotto il gate `MIN_RAM_GIB = 3.5` di `pro/asr.py`, quindi la parola
+  chiave gira anche dove la trascrizione locale non ci sta.
+
+- **Una frase che il motore non potrebbe mai sentire viene rifiutata quando la
+  scrivi.** Kaldi produce solo parole del suo lessico, quindi «vivavoce» si
+  attiva nell'83-100% dei casi e un nome inventato come «zorblax» nello **0%** —
+  83 punti di scarto cambiando solo la parola, e nessun sintomo tranne «la
+  parola chiave non funziona benissimo». `POST /wakeword/phrase` ora interroga
+  il lessico prima di salvare e rifiuta dicendo *quale* parola non esiste. Il
+  controllo è possibile solo leggendo un avviso che lo strato C++ scrive sul
+  **file descriptor 2**: Vosk non espone API, i modelli small non spediscono
+  `words.txt`, e una parola sconosciuta non solleva eccezione — il riconoscitore
+  si costruisce contento e poi non si attiva mai. Il rifiuto vale per il motore
+  server; il browser, che di lessico non ne ha, continua a sentire la frase, e
+  infatti resta salvata in locale.
 
 - **Spanish, the fifth language.** The page has offered `es-ES` to the
   microphone since read-back shipped, and picked a Spanish voice for it, and
@@ -182,6 +271,145 @@
 
 ### Fixed
 
+- **«viva voce» non attivava «vivavoce».** L'ascolto continuo confrontava una
+  parola sentita per ogni parola della frase, il che rende una frase di una
+  parola incapace di corrispondere a due — e dove il riconoscitore mette lo
+  spazio non lo decide chi parla. Sulle 32 registrazioni reali usate per il
+  banco la frase è stata trascritta «viva voce» in **6 delle 29** pronunce
+  effettivamente sentite: tutte scartate in silenzio. Contate a parte, sono 27
+  punti in stanza silenziosa (73% → 100%) e 11 sopra la musica (71% → 82%). Ora
+  il confronto si fa anche a parole incollate, nei due versi.
+
+  Con un vincolo che è costato una seconda misura: se il numero di parole
+  cambia, le lettere devono essere esatte. Perdonare *insieme* uno spazio
+  spostato e una lettera sbagliata spende due tolleranze sullo stesso errore, ed
+  è esattamente lì che passa una quasi-parola — sulle 120 clip di confusabili,
+  «la vita e voce» si attivava, perché "vitavoce" dista un'edit da "vivavoce".
+  Con la regola stretta: zero. La stessa regola vive ora in due posti che devono
+  rispondere uguale, `engine/wakematch.py` e `static/js/wakeword.js`, ed è la
+  ragione per cui il modulo Python esiste.
+
+- **`licenses/MODELS.md` attribuiva ai modelli openWakeWord la licenza del suo
+  codice.** Il codice è Apache-2.0; i **modelli pre-addestrati** sono
+  CC-BY-NC-SA 4.0, per ammissione esplicita del progetto a monte («due to the
+  inclusion of datasets with unknown or restrictive licensing as part of the
+  training data»). Non è una sfumatura: quel motore sta dietro il livello Pro,
+  cioè a pagamento. La pagina ora lo dice, con l'avviso in evidenza. Il motore
+  Vosk che lo affianca non ha questo vincolo — `vosk-api` e i modelli small
+  italiano e inglese sono Apache-2.0 — ma la scelta su cosa fare del ripiego
+  resta da prendere, e non la risolve una correzione di documentazione.
+
+- **The app would not start because the Squeezebox was off.** Two of the four
+  ways `main()` could return 1 were not configuration mistakes at all: no LMS
+  discovered on the network, and no player switched on. Both ended the
+  process before it bound anything, so the web app — the only part of this
+  anyone in the house ever looks at — never came up. The person who could
+  have fixed it in ten seconds by reaching over and switching the hi-fi on
+  saw a phone that would not load a page, while the diagnosis
+  (`Nessun player trovato su …`) sat in a terminal on a machine in a
+  cupboard.
+
+  The server now binds first and explains itself second. Where it used to
+  exit there is a small page on the real port
+  (`localvoice/setupserver.py` for the deciding, `setuppage.py` for the
+  saying) that names which of three things is missing — nothing found on the
+  network, an address that does not answer, or an LMS answering with nothing
+  switched on — and offers the address by hand for the first two. It also
+  goes on looking by itself, so switching the player on is the whole repair:
+  the page walks into the app with nobody typing anything.
+
+  Three details that are the difference between this and a spinner. A
+  remembered address is given up on after two silent probes and the network
+  searched again, because a lease expires and an LMS moves — but an address
+  given with `--lms` never is, since hunting the network for a server
+  somebody already named is how you end up controlling the neighbour's. The
+  network search runs on its own much slower clock than the address probe
+  (`DISCOVER_INTERVAL` against `PROBE_INTERVAL`): one is a short connection,
+  the other is a broadcast plus a unicast sweep of every subnet, and this
+  loop can run all night — which is also why only the cheap half runs before
+  the port is bound, so a first-ever start shows «sto cercando…» rather than
+  an unresponsive address for half a minute. And `--player` still means what
+  it always meant — the LMS has to answer, not the list has to be non-empty.
+
+  `wait_for_players` is gone with it. It solved the same problem from the
+  wrong side: it kept the process alive by refusing to return, which is the
+  behaviour that kept the page from existing.
+
+- **One spoken sentence could take twenty-five seconds to fail.** A turn is
+  several sequential LMS round trips — `play_song` searches, plays, then asks
+  what actually started; `play_local` runs three library searches plus a
+  probe per candidate. Each was bounded by the client's 8-second socket
+  timeout and nothing bounded their sum, so against a half-dead LMS a single
+  command sat there through all of them and then answered with one
+  undifferentiated "server unreachable". Against an LMS that was simply
+  switched off it did that again for the next command, and the next, all
+  evening.
+
+  Three changes, in `engine/lms.py`, and each covers a case the others do
+  not. `turn_deadline` gives the whole turn one budget (`Router.TURN_BUDGET`,
+  ten seconds — the point past which a person has already decided nothing is
+  going to happen); calls inside it get what is left, never more, and once it
+  is gone the rest fail at once. A transport failure is retried **once**,
+  because a dropped packet or an LMS caught mid-restart is not an outage — a
+  well-formed answer we happen not to like is never retried, since asking
+  again gets the same answer. And a breaker opens after three failed
+  commands, so "the hi-fi is off" is learned once instead of re-timed-out per
+  call; the cooldown lets exactly one probe through, and only a success
+  resets the count, so a house that left the system off does not pay for the
+  timeout twice a minute. The breaker is shared by `for_service()` and
+  `for_player()` clones for the same reason the search-node cache is:
+  whether the server answers is a fact about the server.
+
+- **A plugin you had just logged in stayed "logged out" for another half a
+  minute.** The search-node lookup was memoized for thirty seconds in both
+  directions, and the two directions are not worth the same. A *found* node
+  saves a round trip that is about to happen anyway — that is what the cache
+  is for. A *missing* one saves nothing, because the caller gives up rather
+  than asking again, and it costs the household the one thing this cache
+  should never cost them: logging TIDAL into LMS, coming straight back, and
+  being told again that it is not connected. Misses now expire in two seconds
+  (`SEARCH_NODE_MISS_TTL`), which still collapses the duplicate lookups
+  inside one turn, which is all the saving there ever was on that side.
+
+  The other direction had no answer at all: a plugin logged out *since* we
+  looked kept being handed a node id that no longer meant anything, and the
+  failure was reported as "nothing found" rather than "not connected" — the
+  one distinction `can_search` exists to make. A search that comes back with
+  no categories at all now forgets the node, so the next call looks again.
+
+- **One misheard letter in an artist's name was answered with "I couldn't
+  find it".** «Comfortably Numb dei Pink Floid» scores 0.66 against Pink
+  Floyd — under the bar for playing somebody's edition unasked, which is
+  right — and the next line turned that into a flat refusal, with the exact
+  record the household asked for sitting first in the results. A dropped
+  diacritic does the same to half the Latin catalogue.
+
+  "Not sure it is them" and "sure it is not them" are different findings, and
+  only the second is a refusal. Between the two bars the candidates are now
+  offered, nearest name first, so «la 1» is the whole repair; below the lower
+  one (`NEAR_ARTIST_SCORE`) they really are other people — Vasco Rossi
+  against The Beatles scores 0.07 — and "I haven't got it" stays the honest
+  answer. Nothing plays without being asked for either way, which was the
+  part that was already right.
+
+- **"Microphone error: audio-capture".** The status line passed the browser's
+  own error codes straight through, inside a translated frame — `network`,
+  `audio-capture`, `not-allowed` — which is a sentence that tells a household
+  nothing they can act on. Continuous listening giving up was worse: it said
+  the code in brackets and then advised checking the microphone *and* the
+  connection, one of which is always irrelevant. The small fixed vocabulary
+  those two APIs actually raise now has a sentence each, in both languages
+  (`static/js/micerrors.js`), naming the thing the person holding the phone
+  could do about it. A code outside the table keeps its raw spelling rather
+  than getting a generic apology: an unexplained code is still something to
+  search for, and a confident wrong explanation is not.
+
+- **The example commands disappeared for whoever needed them most.** The
+  three chips and the source note went away on the first message — including
+  a message that failed. So the person whose first attempt did not work was
+  the one who lost the examples, for the rest of the session, with no way to
+  get them back. They now stay until something has actually worked.
+
 - **Hands-free listening woke itself up and then said it hadn't understood.**
   Switching on continuous listening starts the recogniser and *then* speaks
   the art. 50(1) notice — and that notice used to open with "Vivavoce,",
@@ -266,6 +494,41 @@
 
 ### Changed
 
+- **La scelta dei motori audio opzionali vive in `localvoice/audio_engines.py`.**
+  Aggiungere il secondo motore di parola chiave ha spinto `server.py` oltre il
+  tetto di 400 righe che il repo si dà (`tests/test_packaging.py`), e la
+  cucitura è reale e non aritmetica: tutto quel blocco risponde a una domanda
+  sola — *dato quello che è installato su questa macchina, cosa riesce a
+  sentire l'app?* — ogni motore è opzionale, sondato invece che importato,
+  degrada a un default funzionante, e deve dirlo ad alta voce, perché un motore
+  spento in silenzio è il silenzio più caro che questa app possa produrre. Un
+  test nuovo copre la giuntura che la separazione ha creato: la nota
+  sull'architettura a 32 bit ora è un *parametro*, quindi poteva restare in
+  ogni messaggio ed essere vuota su ogni macchina.
+
+- **Il banco misura i frame che il prodotto manda davvero.** `sherpa_bench.py`
+  spezzava l'audio in chunk da 300 ms con un commento che li diceva uguali a
+  quelli di `serverwake.js`, che ne manda **320**. Non è cosmetico: stessa
+  audio, stessa regola, 14/17 a 300 ms e 15/17 a 320, perché il partial che
+  porta la frase cade su un confine di frame diverso. Una pronuncia su
+  diciassette da sola è rumore; un banco che inquadra l'audio diversamente dal
+  prodotto no.
+
+- **`ERR_UNREACHABLE` is gone.** It was computed once at import, in whatever
+  `DEFAULT_LANG` happened to be, while every live path called `msg()` against
+  the per-request language — a self-acknowledged legacy shim that several
+  tests still compared against. Nothing caught it because `ActionResult`
+  subclasses `str`: a comparison against the frozen Italian sentence came
+  back `False` rather than raising, so those tests only passed for as long as
+  nobody switched language first. Callers ask for `msg("err_unreachable")`,
+  and a test now checks the reply really does follow the turn's language
+  through all five catalogs.
+
+- **The remembered LMS address moved to `appdata`**, next to the data
+  directory and the atomic writes it was already using, and `_lms_reachable`
+  went with it — the setup flow probes every address it is handed, so
+  checking the remembered one twice was only a slower way to be wrong.
+
 - **The connectors are per language now** (`engine/connectors/`), instead of
   one pile every language matched against at once. French is what made the
   pile impossible: its artist connector is «de», the split takes the *last*
@@ -346,6 +609,76 @@
   in both languages and does it room-aware. Search is the opposite case:
   `HassMediaSearchAndPlay` starts the first result without asking, cannot filter
   by artist, and is missing from the Italian intent pack entirely.
+
+### Removed
+
+- **macOS riprende la parola chiave lato server.** Ritirando openWakeWord si
+  era perso l'unico motore che su macOS si installava, e la spiegazione che ho
+  scritto allora — «vosk non pubblica wheel per macOS» — era vera della 0.3.45
+  e di nient'altro: le wheel `universal2` sono esistite **fino alla 0.3.44**, e
+  la 0.3.45 le ha tolte per una regressione upstream aperta
+  ([#1316](https://github.com/alphacep/vosk-api/issues/1316),
+  [#2013](https://github.com/alphacep/vosk-api/issues/2013)). `pyproject.toml`
+  chiede ora due versioni dietro marker d'ambiente: `>=0.3.45` ovunque,
+  `>=0.3.44,!=0.3.45` su Darwin — l'esclusione e non un tappo, così una
+  0.3.46 che ripari macOS viene presa da sola invece di restare fuori in
+  silenzio. I marker e non un floor più basso, perché uv
+  risolve **una** versione per tutte le piattaforme — con `>=0.3.44` e basta il
+  lock avrebbe scelto comunque la 0.3.45, lasciando macOS senza niente da
+  installare. Con i marker il lock porta due voci, e per Darwin l'unica wheel
+  elencata è la `universal2`.
+
+  Le due versioni sono state misurate fianco a fianco sulle stesse
+  registrazioni prima di sceglierlo, perché «probabilmente uguale» non è un
+  numero: stesso avviso di vocabolario su `fd 2` carattere per carattere,
+  15/15 in stanza silenziosa, 15/17 sopra la musica, 0 falsi trigger su 40
+  minuti di sala. La release vecchia oggi non costa niente — ma è un ponte, non
+  una destinazione: se macOS non torna a monte, quelle macchine restano su una
+  versione che non si muove più.
+
+  In CI c'è ora una gamba macOS, perché «su macOS si installa» era
+  un'inferenza da PyPI che niente verificava. Fa girare il **controllo del
+  lessico** sulla versione che macOS risolve davvero: la prima stesura lo
+  saltava dicendo che era «coperto su Linux», e non lo era — Linux gira la
+  0.3.45, e la 0.3.44 è l'unica cosa che quella gamba debba provare.
+
+  Cade con questo `wheels_unavailable_here()`, la funzione che spiegava dove
+  vosk non si installa. Non le resta nessun membro — wheel per linux
+  x86_64/aarch64/armv7l, win_amd64 e macOS universal2 — e una funzione che
+  elenca un insieme vuoto è un commento travestito da codice.
+
+- **openWakeWord è andato in pensione, e con lui il tetto a Python 3.11.**
+  Stava lì come ripiego dopo l'arrivo del motore Vosk, ed era un ripiego che
+  costava più di quanto rendesse. Sentiva soltanto le poche frasi inglesi per
+  cui spedisce un modello, quindi «ascolto continuo senza beep» significava
+  rinunciare alla frase scelta in casa; il suo pin esatto a
+  `openwakeword==0.4.0` esisteva perché dalla 0.5.0 dipende in modo rigido da
+  `tflite-runtime`, che non pubblica wheel oltre Python 3.11, e quel pin si
+  trascinava dietro un job di CI inchiodato a quella versione; e i suoi modelli
+  pre-addestrati sono **CC-BY-NC-SA** — non Apache-2.0 come questo repo ha
+  sostenuto per mesi — dietro un livello a pagamento.
+
+  Se ne vanno insieme a lui: il gruppo `wakeword` e il pin, la variante Docker
+  `WAKEWORD=1`, il job `server wake word (py3.11, …)`, il flag
+  `--wakeword-model`, `localvoice/pro/wakeword.py` e i suoi test. Il gruppo che
+  resta non ha soffitto di versione — vosk spedisce wheel `py3-none-*` — e ha
+  un wheel `armv7l`, quindi la tabella si è capovolta: sul Raspberry Pi a
+  32 bit, l'unica macchina a cui questo repo diceva «nessuno dei due motori
+  opzionali si installa qui», ora la parola chiave lato server si installa. È
+  il riconoscimento vocale locale a restare a 64 bit.
+
+  Il pannello delle impostazioni si semplifica di conseguenza. C'erano due
+  suggerimenti perché c'erano due grammatiche — una frase libera in un fiato,
+  una frase inglese fissa in due tempi — e il campo di testo spariva quando era
+  attivo il motore che non poteva sentirlo. Ora il campo resta sempre, tutti e
+  due i suggerimenti citano la stessa frase, e l'override che serviva a
+  contraddirlo non c'è più.
+
+  **Cosa si perde**, detto per intero: su macOS vosk non pubblica wheel, quindi
+  lì il motore lato server non c'è più affatto. Il beep che questa funzione
+  esiste per togliere è però un problema dei browser Android, che su un
+  desktop macOS non si presenta: quelle macchine restano sul motore del
+  browser, come prima, senza niente da rimpiangere.
 
 ## 0.4.0 — August 2026
 

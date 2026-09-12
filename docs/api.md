@@ -36,7 +36,7 @@ one call per action, it is the whole voice interface behind one route.
 | `client` | string | — | Accepted as an alias for `conversation_id`, which wins when both are sent. The web app has always used this name; new clients should use `conversation_id`. |
 | `lang` | string | `"it"` | `it`, `en`, `fr` or `de`. The language the sentence is *in*, and the language the answer comes back in. Anything else falls back to Italian. |
 | `source` | string | `"auto"` | Where music comes from when the sentence does not say: `auto` (the local library first, then the streaming service), `local`, or a service name (`tidal`, `qobuz`). Phrases like «dalla mia musica» / «da tidal» override it, at either end of the sentence («da qobuz metti Time», «metti Time da qobuz»). A service that is installed but logged out is skipped in favour of one that is connected, and the reply names whichever answered. |
-| `player` | string | `""` | The LMS player id to command, instead of the server's default player. Requires Pro (multi-room); ignored otherwise. |
+| `player` | string | `""` | The id of the player to command, instead of the server's default player. On an LMS that is the player's MAC; on Music Assistant it is its `player_id`. Either way it is a value `GET /players` handed out, not one to compose by hand. Requires Pro (multi-room); ignored otherwise. |
 | `alternatives` | string[] | `[text]` | Speech-recognition alternatives, best first. Each is tried until one is understood; only an understood one ever plays anything, so a wrong guess has no side effect. `used` says which one won. |
 
 Unknown fields are ignored. A body that is not a JSON object (empty, malformed,

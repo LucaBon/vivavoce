@@ -6,7 +6,8 @@ degrade to a friendly Italian message)."""
 import pytest
 
 import actions
-from actions import ERR_UNREACHABLE, parse_song_query
+from messages import msg
+from actions import parse_song_query
 
 
 # -- parse_song_query -----------------------------------------------------
@@ -60,7 +61,7 @@ def test_play_song_missing_query(lms, transport, query):
 
 def test_play_song_server_error_is_friendly(lms, transport):
     transport.raise_on.add("tidal")
-    assert actions.play_song(lms, "time") == ERR_UNREACHABLE
+    assert actions.play_song(lms, "time") == msg("err_unreachable")
 
 
 def test_play_song_falls_back_to_query_when_title_missing(lms, transport, make_tidal):
@@ -226,7 +227,7 @@ def test_choose_by_name_blocked_candidate(lms, transport):
 
 def test_choose_by_name_unreachable(lms, transport):
     transport.raise_on.add("playlistcontrol")
-    assert actions.choose_by_name(lms, _LOCAL_ALBUM_CANDS, "Fragile") == actions.ERR_UNREACHABLE
+    assert actions.choose_by_name(lms, _LOCAL_ALBUM_CANDS, "Fragile") == msg("err_unreachable")
 
 
 # -- play_artist ----------------------------------------------------------
@@ -360,7 +361,7 @@ def test_pause_resume_next_previous(lms, transport):
 
 def test_pause_server_error(lms, transport):
     transport.raise_on.add("pause")
-    assert actions.pause(lms) == ERR_UNREACHABLE
+    assert actions.pause(lms) == msg("err_unreachable")
 
 
 # -- volume ---------------------------------------------------------------
@@ -399,7 +400,7 @@ def test_now_playing_nothing(lms, transport):
 
 def test_now_playing_server_error(lms, transport):
     transport.raise_on.add("status")
-    assert actions.now_playing(lms) == ERR_UNREACHABLE
+    assert actions.now_playing(lms) == msg("err_unreachable")
 
 
 # -- kid-safe blocklist: matching primitives ------------------------------

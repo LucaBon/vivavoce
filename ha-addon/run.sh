@@ -43,6 +43,18 @@ CERT_HOSTS="$(opt cert_hosts)"
 if [ -n "$CERT_HOSTS" ]; then
     export VIVAVOCE_CERT_HOSTS="$CERT_HOSTS"
 fi
+BACKEND="$(opt backend)"
+if [ -n "$BACKEND" ]; then
+    export VIVAVOCE_BACKEND="$BACKEND"
+fi
+BACKEND_URL="$(opt backend_url)"
+if [ -n "$BACKEND_URL" ]; then
+    export VIVAVOCE_BACKEND_URL="$BACKEND_URL"
+fi
+BACKEND_TOKEN="$(opt backend_token)"
+if [ -n "$BACKEND_TOKEN" ]; then
+    export VIVAVOCE_BACKEND_TOKEN="$BACKEND_TOKEN"
+fi
 MATERIAL="$(opt material_url)"
 if [ -n "$MATERIAL" ]; then
     export VIVAVOCE_MATERIAL_URL="$MATERIAL"

@@ -15,7 +15,7 @@
 
 import { $, clientId } from "./util.js";
 import { ui } from "./i18n.js";
-import { setWakeWordOverride } from "./settings.js";
+import { wakeWord } from "./settings.js";
 import { beep } from "./wakeword.js";
 import { readbackOn, speakAiNotice } from "./tts.js";
 import { startWakeStream } from "./serverwake.js";
@@ -72,10 +72,10 @@ export function micUI(listening) {
 export const LOCALREC_MAX_MS = 30000;
 
 // --- Server-side wake word (Pro): the beep-free alternative to Web Speech's
-// continuous listening (see localvoice/pro/wakeword.py). Fixed to whichever
-// English phrase the server's model detects ("hey jarvis" by default) — NOT
-// the free-text wakeWord() field, which only makes sense for the Web Speech
-// fuzzy-text engine. Offered as an extra choice alongside it, not instead.
+// continuous listening (see localvoice/pro/vosk_wake.py). It hears the phrase
+// the household typed, so the settings field means the same thing whichever
+// engine is selected — which is why nothing here overrides it any more.
+// Offered as an extra choice alongside the browser engine, not instead of it.
 let SERVERWAKE = { available: false, model: null };
 let serverWakeStream = null;  // the active startWakeStream() handle, or null
 
@@ -83,35 +83,25 @@ const serverWakeCanUse = () => !!(navigator.mediaDevices && window.AudioContext)
 export const serverWakeOn = () =>
   SERVERWAKE.available && serverWakeCanUse() && $("serverwake").checked;
 
-// "hey_jarvis" -> "Hey Jarvis", for the status line.
-function modelDisplayName(name) {
-  return (name || "").split("_").map(w => w[0] ? w[0].toUpperCase() + w.slice(1) : w)
-    .join(" ");
-}
-
 function renderServerWakeRow() {
   $("serverwakerow").style.display =
     (SERVERWAKE.available && serverWakeCanUse()) ? "" : "none";
   syncWakePhrase();
 }
 
-// The two engines don't just hear different phrases, they are SPOKEN
-// differently — one sentence ("vivavoce metti i Pink Floyd") for Web Speech,
-// two steps (phrase, beep, command) for the server one, because openWakeWord
-// detects the trigger and nothing after it. One shared hint had testers
-// saying "hey jarvis pausa" in a single breath, which can never work: the
-// command capture only opens once the trigger has fired. So the panel shows
-// the hint for the engine actually selected, and names the phrase that engine
-// can actually hear.
+// Browser and server are SPOKEN differently — one sentence ("vivavoce metti i
+// Pink Floyd") for Web Speech, two steps (phrase, beep, command) for the
+// server, which answers "triggered" and nothing after it. One shared hint had
+// testers saying phrase and command in a single breath, which can never work:
+// the command capture only opens once the trigger has fired.
 export function syncWakePhrase() {
   const server = serverWakeOn();
-  setWakeWordOverride(server ? modelDisplayName(SERVERWAKE.model) : "");
   $("wakehint").style.display = server ? "none" : "";
   $("wakehint_server").style.display = server ? "" : "none";
-  // Not merely greyed: a row labelled "keyword to say" above a box holding
-  // "vivavoce" contradicts the hint next to it, which says the phrase is
-  // fixed. The field comes back, with its value, on switching engine again.
-  $("wakewordrow").style.display = server ? "none" : "";
+  // The field stays either way now. It used to disappear for the server
+  // engine because that engine could not hear what was in it; the one that
+  // replaced it can, so a row labelled "keyword to say" above the phrase the
+  // server is listening for is finally telling the truth.
 }
 
 export async function refreshServerWake() {
@@ -154,7 +144,7 @@ export const serverWakeStartPending = () => serverWakeStarting;
 // A command capture is open right now (started by a wake trigger). Chunks go
 // out every ~85 ms without waiting for the previous answer, so several are in
 // flight at once and more than one can come back triggered:true for the same
-// "hey jarvis" — and the second onTriggered ran captureCommand() again, which
+// the wake phrase — and the second onTriggered ran captureCommand() again, which
 // with Web Speech already running means startManual() -> rec.stop(): the
 // capture that had just opened was closed a moment later, and the command was
 // never heard. pause() narrows that window, this closes it.
@@ -184,7 +174,7 @@ export async function startServerWake(onCommand) {
         // Lend the microphone to the command capture for the length of one
         // command. The input device is exclusive (see startWakeStream): with
         // this stream still holding it, Web Speech / MediaRecorder heard
-        // silence and nothing said after "hey jarvis" was ever understood.
+        // silence and nothing said after the wake phrase was ever understood.
         // endCommandCapture() takes it back when the capture finishes.
         if (serverWakeStream) serverWakeStream.pause();
         onCommand();
@@ -193,7 +183,7 @@ export async function startServerWake(onCommand) {
         // stop first: it unconditionally resets the status text, and the
         // error message must be the last write, not the one stopped clobbers.
         stopServerWake();
-        statusEl.textContent = ui("mic_error") + ((e && e.message) || e);
+        statusEl.textContent = ui("mic_error")(e);
       },
     });
   } catch (e) {
@@ -214,7 +204,7 @@ export async function startServerWake(onCommand) {
   }
   serverWakeStream = stream;
   micUI(true);
-  statusEl.textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+  statusEl.textContent = ui("listening_wake")(wakeWord());
 }
 
 function drainQueuedStart() {
@@ -249,10 +239,10 @@ export function stopServerWake() {
 //
 // * give the microphone back to the server-side wake stream, which lent it
 //   out at the trigger (see onTriggered) — without this the stream stayed
-//   alive but deaf, so "hey jarvis" worked exactly once per tap;
+//   alive but deaf, so the wake phrase worked exactly once per tap;
 // * tell the truth in the UI: if that stream is still running in the
 //   background (it never stops just because one command was captured), the
-//   button and status line must keep showing "listening for hey jarvis"
+//   button and status line must keep showing "listening for <phrase>"
 //   instead of going idle, or every command made the mic look switched off.
 //
 // Called on plain tap-to-talk too, where there is no wake stream and both
@@ -260,7 +250,7 @@ export function stopServerWake() {
 //
 // `keepStatus` leaves the status line alone: with auto-send off the capture
 // ends over "check the text and press Send", and answering that question
-// with "tap the microphone" (or "listening for hey jarvis") describes a box
+// with "tap the microphone" (or "listening for <phrase>") describes a box
 // silently waiting for Send as if nothing were waiting at all. The caller
 // knows — it is the one that just put the transcript there.
 export function endCommandCapture(keepStatus) {
@@ -270,7 +260,7 @@ export function endCommandCapture(keepStatus) {
     serverWakeStream.resume();
     micUI(true);
     if (!keepStatus) {
-      $("status").textContent = ui("listening_wake")(modelDisplayName(SERVERWAKE.model));
+      $("status").textContent = ui("listening_wake")(wakeWord());
     }
   } else {
     micUI(false);
