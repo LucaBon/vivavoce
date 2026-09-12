@@ -11,6 +11,41 @@ versioni [SemVer](https://semver.org/lang/it/). La versione dell'app coincide
 sempre con quella del progetto: l'immagine viene compilata dal tag
 `v<versione>`, non da un branch.
 
+## [0.5.0] - 2026-09-12
+
+### Aggiunto
+
+- **L'app può ora pilotare Music Assistant, non solo un LMS.** Tre opzioni
+  nuove: `backend` (`lms`, il default, oppure `musicassistant`), `backend_url`
+  — l'indirizzo del server, porta 8095 — e `backend_token`, il token che crei
+  in Music Assistant sotto Impostazioni → Profilo. Music Assistant non si
+  annuncia sulla rete come fa un LMS, quindi l'indirizzo va scritto: senza,
+  l'app si ferma all'avvio dicendolo, invece di cercare per sempre qualcosa
+  che non risponderà.
+
+  Vale la pena anche se non hai una Squeezebox. Music Assistant pilota da sé
+  altoparlanti DLNA, Chromecast, Sonos e AirPlay: puntandogli Vivavoce quelli
+  diventano lettori a cui parlare, e resta tutto quello per cui Vivavoce
+  esiste — «metti Comfortably Numb dei Pink Floyd» fa partire *quel* disco, e
+  se chiedi un brano attribuito all'artista sbagliato te lo dice invece di
+  suonarne un altro in silenzio.
+
+  Due cose non ci sono, e sono assenze dichiarate: il pannello Material Skin
+  dentro la pagina (è un plugin di LMS, quindi non esiste altrove) e l'indice
+  per anno, per cui «musica degli anni '80» ripiega su una playlist del
+  servizio di streaming. Con `backend: lms` non cambia nulla.
+
+### Modificato
+
+- **La pagina di configurazione non dice più di accendere una Squeezebox a
+  chi non ne ha.** Mentre aspetta, la pagina nomina il sistema che stai
+  davvero usando: cosa accendere, che indirizzo ha e su che porta risponde. Con
+  Music Assistant ricorda anche di controllare il token, perché un token
+  scaduto e un server spento, da lì, si somigliano troppo. E un indirizzo
+  scritto come solo IP viene completato con la porta giusta del backend
+  scelto: prima diventava sempre `:9000`, cioè un indirizzo che sembra giusto
+  e non risponde mai.
+
 ## [0.4.0] - 2026-08-27
 
 ### Aggiunto

@@ -1,8 +1,41 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — September 2026
 
 ### New
+
+- **Vivavoce non è più legato a un LMS: ora sa pilotare anche Music
+  Assistant.** Fino a qui il sistema musicale era uno solo, e non per una
+  scelta di design: `engine/lms.py` era insieme il client e l'interfaccia, così
+  chi ha un impianto diverso non poteva usare nulla di quello che questo
+  progetto fa — il riconoscimento del titolo, la scelta dell'edizione giusta,
+  il «quale intendi?» — pur essendo tutto indipendente da *chi* poi fa suonare
+  la musica. Adesso il motore parla a un'interfaccia
+  (`engine/player/protocols.py`) e LMS è **un** backend fra altri.
+
+  Due protocolli e non uno, perché un altoparlante non è un catalogo: quello
+  che fa un dispositivo — pausa, volume, coda — e quello che fa un catalogo —
+  cercare, risolvere, disambiguare — sono cose diverse, e ogni backend dichiara
+  quali sa fare (`Capabilities`). Il motore chiede prima di offrire, così un
+  lettore che non sa cercare lo dice invece di far passare l'assenza per un
+  guasto.
+
+  Il secondo backend è **Music Assistant**: `--backend musicassistant`,
+  `--backend-url http://<ip>:8095` e `--backend-token` (il token si crea in
+  Music Assistant sotto Impostazioni → Profilo), con i gemelli d'ambiente e le
+  tre opzioni corrispondenti nell'app Home Assistant. Vale la pena anche per
+  chi non ha Squeezebox: Music Assistant pilota da sé altoparlanti DLNA,
+  Chromecast, Sonos e AirPlay, quindi puntandogli Vivavoce quelli diventano
+  lettori comandabili a voce senza installare altro. Non serve nessuna
+  dipendenza nuova — la sua API risponde anche su un semplice `POST /api`,
+  quindi il core resta di sola libreria standard come è sempre stato.
+
+  Due assenze, dichiarate perché sono assenze e non difetti: il pannello
+  Material Skin non c'è (è un plugin di LMS) e non esiste un indice per anno,
+  quindi «musica degli anni '80» ripiega su una playlist del servizio di
+  streaming invece di pescare dalla libreria. Il default resta `lms` e non
+  cambia niente per chi ha un LMS, auto-discovery compresa.
+
 
 - **La parola chiave sul server è di nuovo quella scelta in casa.** Il motore
   server esisteva per togliere il beep che Android emette a ogni riavvio del
