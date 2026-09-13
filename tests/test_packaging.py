@@ -142,7 +142,11 @@ def _job_runners(job):
     """Every runner label a job can land on, matrix legs included."""
     matrix = job.get("strategy", {}).get("matrix", {})
     labels = list(matrix.get("os") or [])
-    for leg in matrix.get("include", []):
+    # `include` may be a `${{ fromJSON(...) }}` expression rather than a list —
+    # the add-on jobs build theirs from ha-addon/config.yaml. Those legs carry
+    # no runner label anyway: the job's own `runs-on` is the whole answer.
+    include = matrix.get("include")
+    for leg in include if isinstance(include, list) else []:
         label = leg.get("os") or leg.get("runner")
         if label:
             labels.append(label)
@@ -245,6 +249,194 @@ def test_ci_runs_the_core_suite_on_aarch64():
     # which is exactly the kind of "should" worth one cheap job.
     runners = _job_runners(_ci_jobs()["test"])
     assert any("arm" in label for label in runners)
+
+
+# -- the Home Assistant add-on image -------------------------------------------
+#
+# The `docker` job builds the standalone image. The add-on image is a separate
+# artefact with almost nothing in common — Alpine bases published by the
+# Supervisor instead of python:3.12-slim, `apk add` instead of pip, source
+# downloaded from a tag instead of copied from the checkout — and until the
+# `addon` job existed nothing built it, on any architecture. So the reasoning
+# in test_addon_declares_only_arches_it_can_actually_build_for rested on an
+# argument that no build had ever checked, for the one arch (armv7) least
+# likely to keep working by itself.
+#
+# What the job can prove on a branch is bounded, and the bound is the point:
+# BUILD_VERSION is the newest existing tag, not the declared version, because
+# between releases `develop` declares a version that is deliberately not
+# tagged yet. See the job's own comment.
+
+
+# Both workflows build the add-on image, and neither one says how. The steps
+# live in a composite action and the architecture list is derived from the
+# add-on's own descriptors, so the two jobs differ in exactly one thing: which
+# version they build. These check that it stays that way — a step copied back
+# into a workflow, or a matrix written out by hand, is how the two drift apart
+# again, and the second copy is always the one nobody updates.
+
+ADDON_WORKFLOWS = ("ci.yml", "release.yml")
+ADDON_ACTION = (".github", "actions", "addon-image", "action.yml")
+MATRIX_SCRIPT = "tools/ci_addon_matrix.py"
+
+
+def _addon_job(workflow="ci.yml"):
+    return _workflow_jobs(workflow)["addon"]
+
+
+def _addon_job_script(workflow="ci.yml"):
+    return " ".join(str(step.get("run", ""))
+                    for step in _addon_job(workflow)["steps"])
+
+
+def _addon_action():
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(_read(*ADDON_ACTION))
+
+
+def _addon_action_script():
+    return " ".join(str(step.get("run", ""))
+                    for step in _addon_action()["runs"]["steps"])
+
+
+def _matrix_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "ci_addon_matrix", os.path.join(ROOT, *MATRIX_SCRIPT.split("/")))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_every_declared_addon_arch_has_a_base_image():
+    # config.yaml advertises the arches; build.yaml says what each one is built
+    # from. An arch in the first and not the second is an add-on the Supervisor
+    # offers and then cannot build.
+    yaml = pytest.importorskip("yaml")
+    build_from = yaml.safe_load(_read("ha-addon", "build.yaml"))["build_from"]
+    missing = [a for a in _addon_arches() if a not in build_from]
+    assert missing == [], f"no build_from entry for {missing} in build.yaml"
+
+
+def test_the_matrix_script_reads_the_same_files_pyyaml_does():
+    # The script parses config.yaml and build.yaml by hand, because the job
+    # that runs it installs no dependencies (see its docstring). This is what
+    # keeps that honest: the real YAML parser, on the same two files, has to
+    # give the same answer. A shape the narrow parser cannot read fails here
+    # rather than silently building fewer architectures.
+    yaml = pytest.importorskip("yaml")
+    module = _matrix_module()
+    assert module.declared_arches() == _addon_arches()
+    assert module.base_images() == yaml.safe_load(
+        _read("ha-addon", "build.yaml"))["build_from"]
+
+
+def test_the_matrix_covers_every_declared_arch():
+    legs = _matrix_module().matrix()
+    assert [leg["arch"] for leg in legs] == _addon_arches()
+    for leg in legs:
+        assert leg["platform"] and leg["machine"] and leg["base"]
+
+
+def test_the_matrix_refuses_an_arch_it_has_no_platform_for(monkeypatch):
+    # The one way adding an arch to config.yaml can go wrong now: a name this
+    # script has no Docker platform for. It has to stop, not emit a leg with
+    # an empty platform that buildx would read as "the host architecture" —
+    # which is a green ARM job that ran on x86, the exact thing being guarded
+    # against everywhere else here.
+    module = _matrix_module()
+    monkeypatch.setattr(module, "declared_arches", lambda: ["sparc64"])
+    with pytest.raises(SystemExit):
+        module.matrix()
+
+
+@pytest.mark.parametrize("workflow", ADDON_WORKFLOWS)
+def test_the_addon_matrix_is_derived_not_written_out(workflow):
+    text = _read(".github", "workflows", workflow)
+    assert MATRIX_SCRIPT in text, (
+        f"{workflow} no longer derives the add-on architectures from "
+        f"{MATRIX_SCRIPT}: a hand-written matrix is a second copy of a list "
+        f"that already exists in ha-addon/config.yaml")
+    include = _addon_job(workflow)["strategy"]["matrix"]["include"]
+    assert "fromJSON" in str(include), (
+        f"the addon matrix in {workflow} is written out by hand")
+
+
+@pytest.mark.parametrize("workflow", ADDON_WORKFLOWS)
+def test_the_addon_is_built_through_the_shared_action(workflow):
+    uses = [step.get("uses", "") for step in _addon_job(workflow)["steps"]]
+    assert "./.github/actions/addon-image" in uses, (
+        f"the addon job in {workflow} no longer goes through the shared "
+        f"action: its steps were the thing duplicated between the two")
+
+
+@pytest.mark.parametrize("workflow", ADDON_WORKFLOWS)
+def test_no_workflow_hardcodes_an_add_on_base_image(workflow):
+    # RELEASING.md is mostly the story of one number living in several
+    # hand-edited places. The base images are not going to become the next one.
+    for text, where in ((_read(".github", "workflows", workflow), workflow),
+                        (_read(*ADDON_ACTION), "the shared action")):
+        hardcoded = re.findall(r"ghcr\.io/home-assistant/\S+-base:\S+", text)
+        assert hardcoded == [], (
+            f"{where} hardcodes {hardcoded} instead of taking it from "
+            f"ha-addon/build.yaml")
+
+
+def test_the_addon_action_starts_the_image_it_builds():
+    # The same distinction the e2e job makes about `playwright install`: a
+    # build proves the layers assemble, and the thing most likely to be wrong
+    # on a foreign architecture is a native library, which only fails when it
+    # runs. py3-cryptography generating the first certificate is that check.
+    script = _addon_action_script()
+    assert "docker run" in script, (
+        "the shared action builds an image nobody starts: a native library for "
+        "the wrong architecture would sail through a build-only job")
+    assert "/data/cert.pem" in script, (
+        "nothing checks that the certificate was generated, which is the only "
+        "step that makes py3-cryptography actually execute")
+
+
+def test_the_addon_action_checks_it_really_ran_on_that_architecture():
+    # Without this the ARM legs could run on x86 and still go green.
+    assert "uname -m" in _addon_action_script()
+
+
+def test_the_addon_action_checks_the_image_carries_the_version_asked_for():
+    # A tag pointing at the wrong commit builds fine and produces an image
+    # whose pyproject says something else. Read back from inside the image,
+    # because the point is what the tarball contained, not what the checkout
+    # says.
+    assert "/app/pyproject.toml" in _addon_action_script(), (
+        "nothing reads the version back out of the built add-on image")
+
+
+def test_ci_builds_the_addon_from_a_tag_that_exists_not_the_declared_one():
+    # Deliberate, and easy to "fix" into a job that is red on develop for most
+    # of every release cycle: the Dockerfile 404s on an untagged version, and
+    # an untagged version is the normal state of develop between releases.
+    assert "git tag" in _addon_job_script("ci.yml"), (
+        "the ci.yml addon job no longer derives BUILD_VERSION from an existing "
+        "tag; building the declared version fails on develop by design")
+
+
+def test_the_release_builds_the_addon_from_the_tag_being_released():
+    # And the converse, which is the whole reason this job exists next to the
+    # ci.yml one: on a tag the version is not a fallback, it is the release.
+    # This is the only place the exact tarball a Supervisor will download is
+    # ever built before someone installs it.
+    #
+    # The branch is what gets asserted, not the string "refs/tags/": that
+    # appears in the expansion too, so a job that had stopped taking the tag
+    # branch at all still read as if it did.
+    script = _addon_job_script("release.yml")
+    assert re.search(r"refs/tags/\*\s*\)", script), (
+        "nothing in the release addon job branches on being run from a tag, "
+        "so it cannot be building the version being released")
+    assert "GITHUB_REF#refs/tags/v" in script, (
+        "the release addon job does not take BUILD_VERSION from the tag")
+    assert "git tag" in script, (
+        "no fallback for workflow_dispatch, where there is no tag: the note at "
+        "the top of release.yml promises a manual run exercises the workflow")
 
 
 def test_deploy_docs_state_the_64_bit_requirement():

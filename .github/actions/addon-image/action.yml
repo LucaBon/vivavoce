@@ -1,0 +1,131 @@
+# Build one architecture of the Home Assistant add-on image, and see it start.
+#
+# Shared by ci.yml and release.yml, which differ in exactly one thing: which
+# version they build. CI builds the newest tag that already exists, because
+# between releases the version in config.yaml is deliberately not tagged yet
+# and the Dockerfile 404s on it by design; release.yml builds the tag being
+# pushed. Everything after "which version" was the same in both, so it lives
+# here instead of in two places that would drift.
+#
+# The matrix that decides which architectures get here is not written in either
+# workflow either — see tools/ci_addon_matrix.py, which derives it from the
+# add-on's own config.yaml and build.yaml.
+
+name: Add-on image
+description: Build the Home Assistant add-on image for one architecture and check it runs
+
+inputs:
+  arch:
+    description: The add-on architecture name, as config.yaml spells it (amd64, armv7, ...)
+    required: true
+  platform:
+    description: The Docker platform to build for (linux/arm/v7, ...)
+    required: true
+  machine:
+    description: What `uname -m` must report inside the built image (armv7l, ...)
+    required: true
+  base:
+    description: The Supervisor base image, from ha-addon/build.yaml
+    required: true
+  version:
+    description: The released version to build, without the leading v — the Dockerfile downloads refs/tags/v<version>
+    required: true
+  cache-to:
+    description: A buildx cache-to spec, or empty to only read the cache
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # load: true, and one platform per call rather than a multi-arch build:
+    # the image has to reach the local daemon for the next step to run it.
+    - name: Build the add-on image (${{ inputs.arch }})
+      uses: docker/build-push-action@v7
+      with:
+        context: ha-addon
+        platforms: ${{ inputs.platform }}
+        push: false
+        load: true
+        tags: vivavoce-addon:${{ inputs.arch }}
+        build-args: |
+          BUILD_FROM=${{ inputs.base }}
+          BUILD_VERSION=${{ inputs.version }}
+        cache-from: type=gha,scope=addon-${{ inputs.arch }}
+        cache-to: ${{ inputs.cache-to }}
+
+    # Building it is not seeing it run, for the same reason the e2e job launches
+    # a browser instead of trusting `playwright install`: the thing most likely
+    # to be wrong on a foreign architecture is native code, and native code for
+    # the wrong architecture fails when it executes, not when it is copied.
+    # py3-cryptography writing the first certificate is what makes it execute.
+    - name: The image actually starts on ${{ inputs.arch }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -rf /tmp/addon-data
+        mkdir -p /tmp/addon-data
+        echo '{"https": true, "port": 8730}' > /tmp/addon-data/options.json
+        docker run -d --name addon --platform ${{ inputs.platform }} \
+          -v /tmp/addon-data:/data -p 8730:8730 \
+          vivavoce-addon:${{ inputs.arch }}
+
+        # Silence is not success: if the container dies, this has to say so now
+        # rather than spend two minutes looking like a slow start-up.
+        ready=
+        for _ in $(seq 1 60); do
+          if [ "$(docker inspect -f '{{.State.Running}}' addon)" != "true" ]; then
+            echo "::error::the add-on container exited during start-up"
+            docker logs addon
+            exit 1
+          fi
+          if curl -fsk -o /dev/null https://127.0.0.1:8730/; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [ -z "$ready" ]; then
+          echo "::error::nothing answered on :8730 within 120s"
+          docker logs addon
+          exit 1
+        fi
+
+        # That it is really the architecture we think. Without this an ARM leg
+        # could run on x86 and still go green, which is the failure this whole
+        # job exists to remove.
+        machine=$(docker exec addon uname -m)
+        if [ "$machine" != "${{ inputs.machine }}" ]; then
+          echo "::error::expected ${{ inputs.machine }}, the container reports $machine"
+          exit 1
+        fi
+
+        # cryptography ran: the certificate exists and is not empty.
+        docker exec addon test -s /data/cert.pem
+        docker exec addon test -s /data/key.pem
+
+        # And the server got as far as printing the address to open.
+        docker logs addon 2>&1 | grep -q "Pronto"
+
+        echo "$machine: starts, generates the certificate and answers"
+
+    # Read back from INSIDE the image, because the question is what the tarball
+    # contained, not what the checkout says: a tag pointing at the wrong commit
+    # builds perfectly and produces an image that calls itself something else.
+    - name: The image carries the version it was asked for
+      shell: bash
+      run: |
+        set -euo pipefail
+        built=$(docker run --rm --platform ${{ inputs.platform }} \
+                  --entrypoint /bin/sh vivavoce-addon:${{ inputs.arch }} \
+                  -c "grep -m1 '^version' /app/pyproject.toml | cut -d'\"' -f2")
+        if [ "$built" != "${{ inputs.version }}" ]; then
+          echo "::error::asked for ${{ inputs.version }}, the image contains $built"
+          exit 1
+        fi
+        echo "the add-on image really contains $built"
+
+    - name: Clean up
+      if: always()
+      shell: bash
+      run: docker rm -f addon >/dev/null 2>&1 || true
