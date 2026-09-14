@@ -1,5 +1,5 @@
 # Add-on Home Assistant per Vivavoce (web app vocale locale).
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.23
 FROM $BUILD_FROM
 
 # Senza TTY lo stdout di Python resta nel buffer: senza questo, il log

@@ -95,7 +95,7 @@ def optional_groups_unavailable_here() -> str:
     not on PyPI (checked across every release of both), and not on piwheels
     either, the extra index Raspberry Pi OS configures by default and which
     does carry numpy/scipy/scikit-learn for armv7l. So on a Pi running a
-    32-bit image, "uv sync --group wakeword" sends pip into a source build
+    32-bit image, "uv sync --group asr" sends pip into a source build
     that cannot succeed, and the printed instruction is a dead end.
 
     A 64-bit OS on the same hardware has wheels for everything (aarch64 is

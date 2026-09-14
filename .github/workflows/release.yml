@@ -131,3 +131,91 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  addon-matrix:
+    name: add-on architectures
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      legs: ${{ steps.legs.outputs.legs }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Work out which architectures the add-on claims
+        id: legs
+        run: |
+          set -euo pipefail
+          legs=$(python3 tools/ci_addon_matrix.py)
+          echo "legs=$legs" >> "$GITHUB_OUTPUT"
+          echo "$legs"
+
+  addon:
+    name: HA add-on image (${{ matrix.arch }})
+    # In parallelo a `image`, non prima: sono due artefatti indipendenti, e
+    # bloccare la pubblicazione su GHCR perché non si costruisce l'app di Home
+    # Assistant terrebbe fermo un artefatto sano per un guasto di un altro. Il
+    # workflow rosso è il segnale; entrambi dipendono da `verify`, che è ciò
+    # che davvero non ha senso saltare.
+    needs: addon-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.addon-matrix.outputs.legs) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      # L'unica cosa che questo job fa diversamente dal gemello in ci.yml, ed è
+      # tutto il motivo per cui esiste: su un tag BUILD_VERSION è LA VERSIONE
+      # CHE SI STA RILASCIANDO. Il tarball esiste perché il tag è appena stato
+      # pushato, ed è la stessa URL che userà il Supervisor — se questo passo
+      # prende un 404, lo avrebbe preso ogni installazione dell'app, e adesso
+      # lo scopriamo noi. ci.yml costruisce dall'ultimo tag esistente, quindi
+      # senza questo job il sorgente di una release non finirebbe mai dentro
+      # l'immagine dell'app prima degli utenti.
+      #
+      # Su workflow_dispatch non c'è un tag: si ripiega sull'ultimo esistente,
+      # come ci.yml, perché la nota in testa a questo file promette che una
+      # corsa a mano eserciti il workflow senza inventarsi un tag.
+      #
+      # Che il tag e le due copie a mano della versione siano d'accordo lo ha
+      # già stabilito `verify` (il confronto con pyproject.toml, più
+      # test_addon_version_matches_pyproject), quindi qui non si ricontrolla.
+      - name: Work out which tag to build
+        id: tag
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/tags/*)
+              version="${GITHUB_REF#refs/tags/v}"
+              echo "releasing v$version"
+              ;;
+            *)
+              tag=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+              if [ -z "$tag" ]; then
+                echo "::error::no version tag in the repository to build the add-on from"
+                exit 1
+              fi
+              version="${tag#v}"
+              echo "::notice::manual run: building the add-on from the newest tag, $tag"
+              ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Nessun push: l'app non ha una `image:` in config.yaml, quindi il
+      # Supervisor se la costruisce da sé partendo da quella cartella. Qui si
+      # costruisce solo per sapere che ci riesce. La cache si rilegge da quella
+      # che scrive ci.yml, e non si riscrive: una release non deve sovrascrivere
+      # con i propri layer quella che serve a ogni push.
+      - uses: ./.github/actions/addon-image
+        with:
+          arch: ${{ matrix.arch }}
+          platform: ${{ matrix.platform }}
+          machine: ${{ matrix.machine }}
+          base: ${{ matrix.base }}
+          version: ${{ steps.tag.outputs.version }}

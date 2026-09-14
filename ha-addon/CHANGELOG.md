@@ -11,6 +11,25 @@ versioni [SemVer](https://semver.org/lang/it/). La versione dell'app coincide
 sempre con quella del progetto: l'immagine viene compilata dal tag
 `v<versione>`, non da un branch.
 
+## [0.6.0] - 2026-09-14
+
+### Rimosso
+
+- **L'app non è più offerta per le macchine ARM a 32 bit (armv7).** Home
+  Assistant ha tolto il supporto a tutte le architetture a 32 bit con la
+  2025.12, e da allora non ricostruisce più la base su cui questa app veniva
+  compilata lì: è ferma al novembre 2025 su ogni versione di Alpine, e
+  dall'ultima non esiste proprio. Continuare a dichiarare armv7 voleva dire
+  offrirla a macchine che non possono più riceverla: su un sistema a 32 bit,
+  da quella versione, il Supervisor non aggiorna più le proprie informazioni
+  sugli aggiornamenti, quindi lì non arrivano né app nuove né versioni nuove
+  di quelle già installate.
+
+  Chi è su un Raspberry Pi a 32 bit non resta senza Vivavoce: il progetto si
+  installa lo stesso da sorgente o con un'immagine Docker costruita in casa,
+  parola chiave lato server compresa — vosk pubblica la wheel a 32 bit. È
+  l'app di Home Assistant, e solo lei, a non essere più proposta.
+
 ## [0.5.0] - 2026-09-12
 
 ### Aggiunto

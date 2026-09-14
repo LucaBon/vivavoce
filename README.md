@@ -243,14 +243,18 @@ uv run python tools/probe_lms.py --service qobuz --query "Pink Floyd"
   return nothing. So on Spotify Vivavoce never falls back to "play the top
   result" — for a song, an album, an artist or a playlist alike. If nothing
   matches your words it says so instead of guessing.
-- **A 32-bit OS cannot run the two optional engines.** Local speech
-  recognition and the server-side wake word both rest on onnxruntime, which
-  has never published a 32-bit wheel — not on PyPI, not on piwheels. So on a
-  Raspberry Pi running the 32-bit image (still the default on older models)
-  those two Pro features are not installable at all, and the app says so
-  rather than sending you into a source build that cannot succeed. The same
-  hardware with a 64-bit OS has wheels for everything. Nothing else is
-  affected: the rest of Vivavoce is stdlib-only and runs anywhere.
+- **A 32-bit OS cannot run local speech recognition. The wake word it can.**
+  Local speech recognition reaches onnxruntime through CTranslate2, and
+  neither has ever published a 32-bit wheel — not on PyPI, not on piwheels,
+  the extra index Raspberry Pi OS configures by default. So on a Raspberry Pi
+  running the 32-bit image (still the default on older models) that one Pro
+  feature is not installable at all, and the app says so rather than sending
+  you into a source build that cannot succeed. The **server-side wake word**
+  is the exception, and it is the reason the two are separate installs: vosk
+  publishes a `py3-none-linux_armv7l` wheel, so the engine that answers to
+  your keyword is available on exactly the hardware that cannot transcribe.
+  The same hardware with a 64-bit OS has wheels for everything. Nothing else
+  is affected: the rest of Vivavoce is stdlib-only and runs anywhere.
 - Bit-perfect: Vivavoce sends **only commands**; ensure LMS doesn't resample to the player.
 
 ## Privacy, honestly

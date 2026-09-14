@@ -10,14 +10,22 @@
 # il Supervisor questa è un'app NUOVA — chi aveva la vecchia deve
 # disinstallarla e installare questa (vedi CHANGELOG.md qui accanto).
 name: Vivavoce
-version: "0.5.0"
+version: "0.6.0"
 slug: vivavoce
 description: Controllo vocale in italiano/inglese/francese/tedesco per LMS/Squeezebox/Daphile, TIDAL e Qobuz inclusi
 url: https://github.com/LucaBon/vivavoce
+# Solo 64 bit. Home Assistant ha tolto le architetture a 32 bit con la
+# 2025.12: da allora la base armv7 non viene più ricostruita — è ferma al
+# 2025-11-21 su ogni tag Alpine, e dalla 3.23 non esiste affatto. Dichiararla
+# significava offrirla a macchine il cui Supervisor, da quella versione, non
+# aggiorna più le proprie informazioni sugli aggiornamenti: lì non arriva né
+# un'app nuova né una versione nuova di una già installata.
+# Il Pi a 32 bit resta servito dalle altre strade — sorgente e immagine
+# Docker costruita in casa, parola chiave vosk compresa — che non passano di
+# qui: vedi DEPLOY.md.
 arch:
   - amd64
   - aarch64
-  - armv7
 init: false
 host_network: true
 options:

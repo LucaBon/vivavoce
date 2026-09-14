@@ -81,6 +81,13 @@ It refuses to publish if the tag disagrees with `pyproject.toml`, which is the
 mistake this whole file exists to prevent — so a red release job usually means
 step 1 was half-done, not that the build is broken.
 
+Alongside it, the `addon` job builds the **add-on** image for every
+architecture the app declares, from the tag you just pushed — the same tarball
+URL a Supervisor will fetch — starts each one, and reads the version back out
+of it. That job publishes nothing; it exists so a 404, a base image that
+moved, or an `apk` package that stopped resolving surfaces here rather than in
+somebody's Home Assistant.
+
 Nothing else needs doing: the token is the workflow's own `GITHUB_TOKEN`.
 
 ### 6. Check CI and the add-on build
@@ -90,22 +97,41 @@ CI runs on the push to `main`: the suite on Python 3.9–3.14 plus Windows,
 tags are the release workflow's business, which is why that workflow re-checks
 the packaging invariants itself.
 
-CI does **not** build the add-on image (it needs `BUILD_FROM` and the network),
-so verify that by hand once the tag is pushed:
+The add-on image **is** built now, on both sides, so there is nothing to do by
+hand. CI's own `addon` job builds it on every push, for every architecture the
+app declares — but from the newest tag that already exists, not from the
+version in `config.yaml`, because between releases that version is deliberately
+untagged and the Dockerfile 404s on it by design. So CI proves the Dockerfile
+and the base images still work; the release workflow is what proves *this*
+release.
+
+Adding or removing an architecture is two lines, and neither is in `.github/`:
+one under `arch:` in `ha-addon/config.yaml`, one under `build_from:` in
+`ha-addon/build.yaml`. Both workflows derive their matrix from those two files
+through `tools/ci_addon_matrix.py` and share the build steps through
+`.github/actions/addon-image`, so the architecture list exists once.
+`tests/test_packaging.py` fails if a name you add is one that script has no
+Docker platform for, rather than letting the leg build for the host instead.
+
+To reproduce a failure from either locally, one architecture at a time:
 
 ```bash
-cd ha-addon
 docker build \
-  --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21 \
+  --platform linux/arm64 \
+  --build-arg BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.23 \
   --build-arg BUILD_VERSION=X.Y.Z \
-  -t vivavoce-addon-check .
-docker run --rm --entrypoint sh vivavoce-addon-check -c "ls /app"
+  -t vivavoce-addon-check ha-addon
+docker run --rm --platform linux/arm64 \
+  --entrypoint sh vivavoce-addon-check -c "ls /app"
 docker rmi vivavoce-addon-check
 ```
 
-Expect `deploy engine localvoice pyproject.toml tools`. A 404 here means the tag
-is missing or misnamed — the directory inside the tarball drops the leading `v`
+Expect `deploy engine localvoice pyproject.toml tools`. A 404 means the tag is
+missing or misnamed — the directory inside the tarball drops the leading `v`
 (`v0.2.0` → `vivavoce-0.2.0/`), which the Dockerfile already accounts for.
+Non-native architectures need QEMU registered once per boot
+(`docker run --privileged --rm tonistiigi/binfmt --install arm64,arm`); the
+workflows do it with `docker/setup-qemu-action`.
 
 ## Notes
 

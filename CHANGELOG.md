@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.6.0 — September 2026
+
+### Removed
+
+- **L'app di Home Assistant non dichiara più armv7.** Home Assistant ha tolto
+  le architetture a 32 bit con la 2025.12, e il loro registro lo conferma
+  senza bisogno di crederci sulla parola: le basi amd64 e aarch64 vengono
+  ricostruite (3.21 a giugno 2026, 3.22 ad agosto), quella armv7 è ferma al
+  2025-11-21 su **ogni** tag Alpine e dalla 3.23 non esiste. L'app veniva
+  quindi offerta a macchine che non possono far girare un Home Assistant
+  aggiornato, e costruita per loro da una base non aggiornata da dieci mesi.
+
+  Il prezzo non era la gamba di CI, che costava tredici secondi. Era che
+  quella riga parlava a Supervisor che non la sentono più: su una macchina a
+  32 bit, dalla 2025.12, il Supervisor smette di aggiornare le proprie
+  informazioni sugli aggiornamenti, e lì non arriva più niente — né una nuova
+  app né una nuova versione di una già installata. Dichiarare armv7 non
+  teneva aperta una porta: la disegnava su un muro.
+
+  Quello che togliere armv7 **non** sblocca è preinstallare il riconoscimento
+  vocale locale dentro l'immagine dell'app, che sembrava il vincolo e non lo
+  era. L'immagine è Alpine, cioè musl, e né CTranslate2 né onnxruntime
+  pubblicano wheel musllinux: `pip` non li trova nemmeno su amd64, nemmeno con
+  l'indice musl di Home Assistant già in catena, e Alpine non li impacchetta.
+  Quella porta la chiude la libc, non l'architettura.
+  `test_addon_declares_only_arches_it_can_actually_build_for` resta comunque:
+  la lista `arch:` va tenuta onesta a prescindere da quale vincolo la stringe.
+
+  **Fuori dall'app non cambia niente.** L'immagine Docker pubblicata copriva
+  già solo amd64 e arm64, un Pi a 32 bit se la costruisce da sé, e la parola
+  chiave lato server continua a installarsi lì perché vosk pubblica la wheel
+  `armv7l`. Niente di tutto questo passa dalla lista `arch:` dell'app.
+
+### Internal
+
+- **La base dell'app sale ad Alpine 3.23**, da 3.21. È la prima cosa che
+  togliere armv7 sblocca davvero, anche se piccola: la 3.23 è esattamente il
+  tag che su armv7 non esiste, e finché quell'architettura era dichiarata
+  `build.yaml` non poteva nominarlo. Dentro l'immagine cambia una dipendenza
+  sola — `py3-cryptography` da 44.0.0 a 46.0.7, che serve a generare il
+  certificato self-signed e a nient'altro — e Python resta il 3.12. Provata
+  su entrambe le architetture prima del commit, con gli stessi controlli del
+  job `addon`: l'immagine parte, scrive il certificato, risponde in HTTPS,
+  riporta l'architettura giusta da `uname -m` e la versione giusta letta da
+  dentro.
+
+- **L'immagine dell'app Home Assistant non la costruiva nessun job, su nessuna
+  architettura.** Il job `docker` costruisce l'immagine standalone, che con
+  quella dell'add-on non ha quasi niente in comune — basi Alpine del Supervisor
+  invece di `python:3.12-slim`, `apk add` invece di pip, sorgente scaricato da
+  un tag invece che copiato dal checkout — quindi
+  `test_addon_declares_only_arches_it_can_actually_build_for` ragionava sul
+  fatto che armv7 fosse costruibile appoggiandosi a un argomento che nessuna
+  build aveva mai controllato — ed è andando a controllarlo che è saltata
+  fuori la ragione per togliere armv7, qui sopra. Ora la costruiscono due
+  job, su ogni architettura dichiarata, sotto QEMU: `ci.yml` a ogni push,
+  dall'ultimo tag che **esiste** —
+  fra un rilascio e l'altro la versione in `config.yaml` non è ancora taggata e
+  il Dockerfile prende un 404 apposta, quindi lì si prova ciò che dipende da
+  monte, cioè che le basi del Supervisor esistano ancora e che
+  `apk add python3 py3-cryptography` si risolva ancora su ognuna — e
+  `release.yml` sul tag, dalla versione in uscita, che è la sola occasione in
+  cui viene costruito esattamente il tarball che scaricherà il Supervisor,
+  prima che lo scarichi qualcuno.
+
+- **Ogni gamba avvia il container, non si ferma alla build.** Su
+  un'architettura straniera quello che si rompe è il codice nativo, e si rompe
+  quando gira, non quando viene copiato: il job confronta `uname -m` con
+  l'architettura che credeva di costruire, controlla che py3-cryptography abbia
+  davvero scritto il certificato, e rilegge la versione da **dentro**
+  l'immagine — un tag che punta al commit sbagliato si costruisce benissimo e
+  produce un'immagine che si chiama in un altro modo.
+
+- **Le architetture esistono in un posto solo.** `tools/ci_addon_matrix.py` le
+  ricava da `ha-addon/config.yaml` e `ha-addon/build.yaml`, i due workflow
+  condividono i passi via `.github/actions/addon-image`, e in ognuno resta solo
+  ciò che differisce davvero: quale versione costruire. Aggiungere
+  un'architettura è una riga in ognuno di quei due file e nessuna sotto
+  `.github/`. Lo script è di sola libreria standard perché quel job non
+  installa niente, ed è tenuto onesto da un test che rilegge gli stessi due
+  file con PyYAML e pretende la stessa risposta. `RELEASING.md` diceva il
+  contrario di tutto questo («CI does not build the add-on image») e mandava a
+  costruirla a mano dopo il tag: il passo 6 ora racconta quello che succede.
+
 ## 0.5.0 — September 2026
 
 ### New
