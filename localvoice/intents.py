@@ -320,7 +320,7 @@ class IntentTable:
         # moriva qui con la risposta in mano. Da 10 comandi su 24 che
         # arrivavano alla ricerca a 20, punteggio medio 0.349 -> 0.795.
         # Vale per tutti e tre i modelli Whisper provati: non è taglia.
-        if not repaired:
+        if not repaired and getattr(self, "_may_repair", True):
             mended = repair_play_verb(t, getattr(self, "_verbs", ()))
             if mended:
                 return self._route(mended, source, P, repaired=True)

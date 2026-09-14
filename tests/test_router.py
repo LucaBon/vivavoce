@@ -875,3 +875,67 @@ def test_the_repair_speaks_every_language(lms, transport, make_tidal):
     )
     r = Router(lms)
     assert r.handle("pley Time", lang="en", source="tidal").ok
+
+
+# -- i due giri sulle alternative ---------------------------------------------
+#
+# La riparazione del verbo colpisce dove prima si mancava, e questo cambia chi
+# vince quando le alternative sono più d'una. Il primo giro le prova come sono
+# arrivate; solo se nessuna aggancia, il secondo ripara. L'ordine è la feature.
+
+def _two_songs(make_tidal):
+    return make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://creep.flc", "name": "Creep"},
+                     {"isaudio": 1, "url": "tidal://show.flc",
+                      "name": "Creepshow"}]},
+    )
+
+
+def test_a_better_later_alternative_beats_a_repairable_earlier_one(
+        router, transport, make_tidal):
+    # Il motivo per cui la riparazione non gira al primo giro. «Matti Creep»
+    # riparato colpirebbe, e vincerebbe su «metti Creepshow», che è la parola
+    # che l'utente ha davvero detto: il contrario di ciò per cui handle_many
+    # esiste (il suo docstring cita «Audioslave» → «sfigati»).
+    transport.responses["tidal"] = _two_songs(make_tidal)
+    out = router.handle_many(["Matti Creep", "metti Creepshow"],
+                             source="tidal")
+    assert out["ok"]
+    assert ["playlist", "play", "tidal://show.flc"] in transport.commands()
+    assert ["playlist", "play", "tidal://creep.flc"] not in transport.commands()
+
+
+def test_the_repair_still_saves_a_lone_transcription(router, transport,
+                                                     make_tidal):
+    # Il percorso Whisper: una trascrizione sola, nessuna alternativa su cui
+    # ripiegare. È il caso misurato sulle registrazioni vere.
+    transport.responses["tidal"] = _two_songs(make_tidal)
+    out = router.handle_many(["Matti Creep"], source="tidal")
+    assert out["ok"]
+    assert ["playlist", "play", "tidal://creep.flc"] in transport.commands()
+
+
+def test_the_repair_runs_when_every_alternative_missed(router, transport,
+                                                       make_tidal):
+    # Due trascrizioni, entrambe col verbo rotto: il primo giro non aggancia
+    # niente, il secondo ripara e la migliore vince comunque.
+    transport.responses["tidal"] = _two_songs(make_tidal)
+    out = router.handle_many(["Matti Creep", "Matti Creepshow"],
+                             source="tidal")
+    assert out["ok"]
+
+
+def test_a_search_that_found_nothing_is_not_repeated(router, transport,
+                                                     make_tidal):
+    # Il secondo giro ripassa solo le alternative INCOMPRESE. Una che aveva
+    # agganciato e non trovato nulla ha già speso la sua ricerca: rifarla
+    # costerebbe una seconda interrogazione identica dentro il budget di
+    # dieci secondi del turno.
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": []})
+    router.handle_many(["metti Zzzz"], source="tidal")
+    searches = [cmd for _player, cmd in transport.calls
+                if any(str(a) == "search:Zzzz" for a in cmd)]
+    assert len(searches) == 1, (
+        f"la ricerca è stata rifatta nel secondo giro: {searches}")

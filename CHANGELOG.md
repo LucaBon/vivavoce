@@ -15,6 +15,13 @@
 
   Ora, **e solo dopo che ogni altra lettura ha rifiutato la frase**, il router
   prova a rimettere a posto il primo verbo e a instradare una seconda volta.
+  Con il microfono del browser, che di alternative ne restituisce diverse, la
+  riparazione arriva perfino più tardi: un primo giro prova le trascrizioni
+  come sono arrivate e solo se **nessuna** aggancia se ne fa un secondo
+  riparandole. L'ordine non è pignoleria — riparando subito, «Matti Creep»
+  vincerebbe su «metti Creepshow», cioè una trascrizione prima ma peggiore
+  batterebbe quella giusta, che è l'esatto contrario del motivo per cui le
+  alternative vengono provate.
   La regola non è nuova: è quella della parola chiave
   (`engine/wakematch.py::token_matches` — uguale, prefisso quasi completo, o al
   massimo una modifica), perché è la stessa domanda, un sì/no su una parola
