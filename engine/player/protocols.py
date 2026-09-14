@@ -128,10 +128,15 @@ class PlayerTransport(Protocol):
 
     # -- what is playing ---------------------------------------------------
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
-        """``{"title", "artist", "mode"}`` for the queue head, or None.
+        """``{"title", "artist", "mode", "index", "elapsed"}`` for the queue
+        head, or None.
 
         ``mode`` is ``"play"``, ``"pause"`` or ``"stop"`` — a stopped player
         must not be reported as playing whatever the queue head happens to be.
+        ``index`` is the queue position (0 for the track a play just started)
+        and ``elapsed`` the seconds played of it; together they are how
+        ``engine/playback.py`` tells a queue that is playing from one walking
+        through itself failing every track.
         """
 
     def status_info(self) -> Dict[str, Any]:

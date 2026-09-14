@@ -332,25 +332,42 @@ def tidal_plays_nothing(transport, make_feed):
     that is the entire signal: a ``tidal://`` url leaves the player stopped, a
     ``qobuz://`` one plays.
     """
-    transport.responses["tidal"] = make_feed(
-        categories={"Songs": "S"},
-        items={"S": [{"isaudio": 1, "url": "tidal://63261261.flc",
-                      "name": "Comfortably Numb", "artist": "Pink Floyd"}]},
-    )
-    transport.responses["qobuz"] = make_feed(
-        categories={"Songs": "S"},
-        items={"S": [{"isaudio": 1, "url": "qobuz://406889200.flac",
-                      "name": "Comfortably Numb", "artist": "Pink Floyd"}]},
-    )
+    def feed(scheme, track_id):
+        # Songs and Artists, because the twenty tracks of an artist are a
+        # different start (play_tracks) from one song's url, and both of them
+        # can come back silent.
+        url = f"{scheme}://{track_id}"
+        return make_feed(
+            categories={"Songs": "S", "Artists": "A"},
+            items={"S": [{"isaudio": 1, "url": url,
+                          "name": "Comfortably Numb", "artist": "Pink Floyd"}],
+                   "A": [{"type": "outline", "id": "AR", "name": "Pink Floyd"}],
+                   "AR": [{"name": "Top Tracks", "id": "TT"}],
+                   "TT": [{"isaudio": 1, "url": url, "name": "Comfortably Numb"},
+                          {"isaudio": 1, "url": f"{scheme}://2", "name": "Time"}]},
+        )
+
+    transport.responses["tidal"] = feed("tidal", "63261261.flc")
+    transport.responses["qobuz"] = feed("qobuz", "406889200.flac")
 
     def status(cmd):
-        played = [c for c in transport.commands() if c[:2] == ["playlist", "play"]]
-        if not played:
+        # play_tracks starts the first entry with «playlist play» and appends
+        # the rest, so this reads the start whether one track was asked for or
+        # twenty — and answers with the shape each one really produces. One
+        # dead track leaves a player at stop; a dead queue is still «play»,
+        # several tracks in, with nothing ever played.
+        cmds = transport.commands()
+        started = [i for i, c in enumerate(cmds) if c[:2] == ["playlist", "play"]]
+        if not started:
             return {}
-        mode = "stop" if played[-1][2].startswith("tidal://") else "play"
-        return {"mode": mode,
-                "playlist_loop": [{"title": "Comfortably Numb",
-                                   "artist": "Pink Floyd"}]}
+        queued = sum(1 for c in cmds[started[-1]:] if c[:2] == ["playlist", "add"])
+        head = [{"title": "Comfortably Numb", "artist": "Pink Floyd"}]
+        if not cmds[started[-1]][2].startswith("tidal://"):
+            return {"mode": "play", "time": 3.0, "playlist_loop": head}
+        if not queued:
+            return {"mode": "stop", "time": 0, "playlist_loop": head}
+        return {"mode": "play", "time": 0, "playlist_cur_index": "3",
+                "playlist_loop": head}
 
     transport.responses["status"] = status
     return transport
@@ -416,3 +433,11 @@ def test_the_queue_of_a_service_that_played_nothing_is_not_left_behind(
     # now-playing panel must not end up showing it.
     router.handle("metti Comfortably Numb dei Pink Floyd")
     assert ["playlist", "clear"] in tidal_plays_nothing.commands()
+
+
+def test_an_artists_whole_shelf_is_handed_on_too(router, tidal_plays_nothing):
+    # The request that found this: «canzoni di Gigi D'Agostino» queued twenty
+    # tracks on a service that played none of them. Loading an artist is a
+    # different start from playing one song, and the rule is the same.
+    assert str(router.handle("metti canzoni dei Pink Floyd")) == \
+        "Riproduco la musica di Pink Floyd da Qobuz."

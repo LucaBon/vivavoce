@@ -25,7 +25,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from lms import service_label
-from matching import _normalize
+from matching import ActionResult, _normalize
 from messages import msg
 from player.errors import PlayerError
 
@@ -47,14 +47,46 @@ STREAM_OFFLINE = "stream_offline"
 #: is spent with the music already playing.
 PLAYBACK_SETTLE = 0.6
 
+#: How many tracks a queue may pass through, with not a second of any of them
+#: played, before it is walking rather than starting.
+#:
+#: Measured on the real hi-fi the same day: an artist's twenty tracks on a
+#: plugin whose token had expired marched from index 0 to index 19 with the
+#: elapsed time never leaving zero, one 401 every ~170ms. So at
+#: :data:`PLAYBACK_SETTLE` the queue is three or four tracks in and the mode
+#: is still «play», because the walk has not finished yet — which is why the
+#: mode alone, enough for one track, says nothing here. A single track never
+#: reaches this: with nowhere to walk to, that player is at stop in 0.33s.
+#:
+#: Two, not one, deliberately. An artist's top track that is unplayable on its
+#: own — the rights lapsed in one country, which happens — advances the queue
+#: by one and then plays, and blaming the whole service for that would be a
+#: worse lie than the one this exists to stop. Two in a row at the head of a
+#: queue is not bad luck.
+WALKED_AWAY = 2
+
 #: ``confirm_song``'s "nobody has asked the player yet", which is not the same
 #: as having asked and got nothing.
 UNREAD = object()
 
 
+def _walked_away(now: Dict[str, Any]) -> bool:
+    """The queue has left the track we started and played none of it.
+
+    The multi-track shape of the same silence: the player is still «play»,
+    because it has more tracks to fail, and the elapsed time has never moved.
+    """
+    return (now.get("index") or 0) >= WALKED_AWAY and not (now.get("elapsed") or 0)
+
+
 def after_play(lms) -> Tuple[Optional[str], Any]:
     """``(the service that stayed silent, the status reading)`` for a track
     just started with ``play_url``.
+
+    Silent means one of two shapes, and the second one cost a second incident:
+    a single track leaves the player at stop, while a queue of twenty walks
+    through itself failing every one of them, mode «play» all the way down
+    (:func:`_walked_away`).
 
     The service is None when the track is playing, when the player cannot be
     asked — a hi-fi that stopped answering between the command and the
@@ -75,13 +107,48 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
         now = lms.now_playing_info()
     except PlayerError:
         return None, None
-    if not now or now.get("mode") != "stop":
+    if not now or not (now.get("mode") == "stop" or _walked_away(now)):
         return None, now
     # Remembered on the client, not just reported: the next request should not
     # have to spend another silent play to learn the same thing, and the choice
     # of which service to ask is made with this in hand (``can_play``).
     lms.note_playback_failure()
     return service, now
+
+
+def undo_play(lms) -> None:
+    """Stop and empty what we just started. ``mode="play"`` replaces the queue,
+    so this only ever undoes our own action — used when what started turns out
+    to be blocked, and when it turns out to be silent."""
+    try:
+        lms.clear_queue()
+    except PlayerError:
+        pass
+
+
+def started(lms, confirmation: ActionResult) -> ActionResult:
+    """``confirmation``, unless what was just started never began to play —
+    then the service's own bad news, and the queue is taken back.
+
+    The convenience form of :func:`after_play` for the callers that start
+    something and have no use for the status reading: an album, a playlist, an
+    artist's twenty tracks. The song path reads it for the artist and so calls
+    ``after_play`` directly.
+
+    For a start aimed at a STREAMING service only. The local library must not
+    come through here: a client is always aimed at some service, so a local
+    file that would not play — a disk asleep, a row whose file is gone — would
+    be reported as that service being disconnected, which is a lie about a
+    service nobody asked anything. What covers the library is
+    ``blocking_service``, which knows which service each row's audio belongs
+    to because the url says so.
+    """
+    silent, _ = after_play(lms)
+    if not silent:
+        return confirmation
+    undo_play(lms)
+    return ActionResult(msg("service_not_connected", service=silent),
+                        ok=False, kind=STREAM_OFFLINE)
 
 
 def confirm_song(lms, track: Dict, fallback_title: Optional[str], now: Any = UNREAD):

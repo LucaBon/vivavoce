@@ -280,6 +280,21 @@ def service_label(name: Optional[str]) -> str:
     return (spec.label if spec and spec.label else (name or ""))
 
 
+def _as_int(value: Any) -> int:
+    """``playlist_cur_index`` and friends, which LMS sends as strings."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class LMSError(PlayerError):
     """Raised when the LMS server cannot be reached or returns garbage.
 
@@ -1032,11 +1047,15 @@ class LMSClient(Resilient, SilentServices):
         return self.command("playlistcontrol", "cmd:insert", f"track_id:{track_id}")
 
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
-        """The queue head plus the transport ``mode`` (play/pause/stop).
+        """The queue head plus the transport ``mode`` (play/pause/stop), the
+        queue position and the elapsed seconds.
 
         The mode matters: ``status - 1`` returns the current queue entry
         whatever the player is doing, so without it a stopped player answered
-        "now playing X" about a song nobody could hear.
+        "now playing X" about a song nobody could hear. Position and elapsed
+        matter for the same reason one floor up: they are what tells a queue
+        that is playing from one that is walking through itself failing every
+        track (``engine/playback.py``). LMS spells the index as a string.
         """
         res = self.command("status", "-", "1", "tags:aAlN")
         loop = res.get("playlist_loop") or []
@@ -1044,7 +1063,8 @@ class LMSClient(Resilient, SilentServices):
             return None
         item = loop[0]
         return {"title": item.get("title"), "artist": item.get("artist"),
-                "mode": res.get("mode")}
+                "mode": res.get("mode"), "index": _as_int(res.get("playlist_cur_index")),
+                "elapsed": _as_float(res.get("time"))}
 
     def status_info(self) -> Dict[str, Any]:
         """Player status for the web now-playing panel.

@@ -4,6 +4,31 @@
 
 ### Fixed
 
+- **Venti brani in coda e nessuno che parte: lo stesso silenzio, un ramo più
+  in là.** Il controllo introdotto qui sotto guardava solo il *modo* del
+  player, e per un brano solo basta: se non parte, il player è a `stop` un
+  terzo di secondo dopo. Per «canzoni di Gigi D'Agostino» no. Venti brani
+  entrano in coda, il player li attraversa fallendone uno ogni ~170 ms, e per
+  tutto quel tempo resta `mode=play`: a 0,6 s il controllo non vedeva niente,
+  e l'app diceva «Riproduco la musica di Gigi D'Agostino» a una stanza muta.
+  Misurato sull'impianto: la coda era arrivata all'**indice 19 su 20 con
+  l'elapsed ancora a zero**.
+
+  Quindi `now_playing_info()` ora riporta anche **posizione nella coda** e
+  **secondi suonati** (tutti e due i backend; l'LMS manda l'indice come
+  stringa), e il silenzio ha due forme invece di una: player fermo, oppure
+  coda che ha lasciato il punto di partenza senza suonare un secondo di
+  niente. La soglia è due brani e non uno di proposito: un brano singolo non
+  disponibile — i diritti scaduti in un paese — fa avanzare la coda di uno e
+  poi suona, e dare la colpa al servizio sarebbe una bugia peggiore di quella
+  che questo controllo esiste per togliere.
+
+  Il controllo copre ora anche gli altri avvii che ne erano scoperti — album,
+  playlist, artista — e non la libreria locale: un client è sempre puntato a
+  *qualche* servizio, e un file locale che non parte non è colpa di TIDAL. Per
+  le righe che un servizio ha importato in libreria c'è `blocking_service`,
+  che legge l'url della riga e sa di chi è l'audio.
+
 - **«Disponibile» ora vuol dire «sa suonare», non «sa cercare».** La regola
   c'era già e non è cambiata: se la frase non nomina un servizio si usa quello
   predefinito, e se quello non è disponibile si passa al primo della lista che

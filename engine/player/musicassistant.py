@@ -244,6 +244,10 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
             return None
         info = _queue_entry(item)
         info["mode"] = _PLAYBACK_STATE.get(queue.get("state"), "stop")
+        # Position and elapsed: what tells a queue that is playing from one
+        # walking through itself failing every track (engine/playback.py).
+        info["index"] = queue.get("current_index") or 0
+        info["elapsed"] = queue.get("elapsed_time") or 0
         return info
 
     def status_info(self) -> Dict[str, Any]:

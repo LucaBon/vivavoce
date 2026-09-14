@@ -22,19 +22,10 @@ from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
 from messages import msg
 # PLAYBACK_SETTLE and UNREAD are not used here: they are part of the
 # re-export promise made at the bottom of this file.
-from playback import (PLAYBACK_SETTLE, STREAM_OFFLINE, UNREAD,
-                      after_play, confirm_song)
+from playback import (PLAYBACK_SETTLE, STREAM_OFFLINE, UNREAD, WALKED_AWAY,
+                      _walked_away, after_play, confirm_song, started,
+                      undo_play)
 from player.errors import PlayerError
-
-
-def _undo_play(lms) -> None:
-    """Stop and empty what we just started. ``mode="play"`` replaces the queue,
-    so this only undoes our own action — used when the artist turns out to be
-    blocked and we learn it only from the now-playing status."""
-    try:
-        lms.clear_queue()
-    except PlayerError:
-        pass
 
 
 def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
@@ -56,7 +47,7 @@ def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
         # the search may not have given — see playback.after_play.
         silent, now = after_play(lms)
         if silent:
-            _undo_play(lms)
+            undo_play(lms)
             return ActionResult(msg("service_not_connected", service=silent),
                                 ok=False, kind=STREAM_OFFLINE)
         speech, terms = confirm_song(lms, track, fallback_title, now)
@@ -65,7 +56,7 @@ def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
         # blocked artist discovered a moment late must still not play — and
         # certainly must not be read aloud in the confirmation.
         if guard and guard.blocks(*terms):
-            _undo_play(lms)
+            undo_play(lms)
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         return ActionResult(speech, ok=True, terms=terms)
     getattr(lms, f"{mode}_url")(url)
@@ -241,7 +232,8 @@ def play_album(lms, album: Optional[str], *, guard: Optional[Guard] = None) -> A
     except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     name = item["title"] or album
-    return ActionResult(msg("playing_album", album=name), ok=True, terms=[name])
+    return started(lms, ActionResult(msg("playing_album", album=name),
+                                     ok=True, terms=[name]))
 
 
 def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
@@ -269,7 +261,8 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
         lms.play_tracks(tracks)
     except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
-    return ActionResult(msg("playing_artist", artist=artist), ok=True, terms=[artist])
+    return started(lms, ActionResult(msg("playing_artist", artist=artist),
+                                     ok=True, terms=[artist]))
 
 
 def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
@@ -290,7 +283,8 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
         lms.play_browse_item(item["id"])
     except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
-    return ActionResult(msg("playing_playlist", name=name), ok=True, terms=[name])
+    return started(lms, ActionResult(msg("playing_playlist", name=name),
+                                     ok=True, terms=[name]))
 
 
 # -- favorites & radio (core LMS feature, not a plugin) --------------------
