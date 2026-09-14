@@ -11,7 +11,7 @@ versioni [SemVer](https://semver.org/lang/it/). La versione dell'app coincide
 sempre con quella del progetto: l'immagine viene compilata dal tag
 `v<versione>`, non da un branch.
 
-## [Non rilasciato]
+## [0.6.0] - 2026-09-14
 
 ### Rimosso
 

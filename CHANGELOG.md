@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — September 2026
 
 ### Removed
 
