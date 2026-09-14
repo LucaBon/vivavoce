@@ -4,15 +4,19 @@
 
 The AGPL core stays policy-free: ``LMSClient.for_player()`` is a generic
 mechanism, and the router/server accept an *injected* multiroom object with a
-narrow contract (``pro_ok`` / ``players`` / ``extract_room``) — like kid-safe.
-This module owns the feature: the license gate, the cached player list, and
-the room-phrase understanding («metti Time in cucina», "play X in the
-kitchen") with the fuzzy matching that survives ASR spelling («salotto» for a
-player named «Salotto Hi-Fi»).
+narrow contract (``pro_ok`` / ``players`` / ``extract_room`` /
+``player_for_room``) — like kid-safe. This module owns the feature: the
+license gate, the cached player list, and the room-phrase understanding
+(«metti Time in cucina», "play X in the kitchen") with the fuzzy matching that
+survives ASR spelling («salotto» for a player named «Salotto Hi-Fi»).
 
-Room extraction is deliberately conservative: a phrase is only treated as a
-room when its «in <words>» tail (or head) actually names a player, so
-"Breakfast in America" stays a song title.
+A room reaches this module two ways, and they are not the same problem.
+*Said*, inside the sentence — :meth:`extract_room`, which can only ever
+produce a guess and is deliberately conservative: a phrase is treated as a
+room only when its «in <words>» tail (or head) actually names a player, so
+"Breakfast in America" stays a song title. *Sent*, as the area a command came
+from — :meth:`player_for_room`, where there is nothing to guess at. Both
+resolve through the same :func:`_match_player`.
 """
 
 from __future__ import annotations
@@ -214,6 +218,30 @@ class MultiRoom:
         whole_score = actions.best_match_score(whole, pool, subset_floor=False)
         room_score = actions.best_match_score(without_room, pool, subset_floor=False)
         return not (whole_score >= TITLE_MIN_SCORE and whole_score > room_score)
+
+    def player_for_room(self, room: str) -> Optional[Dict[str, Any]]:
+        """The player a *typed* room name refers to, or None.
+
+        The sibling of :meth:`extract_room`, for the room nobody said out
+        loud: the area a command arrived *from* (a Home Assistant satellite in
+        the kitchen), which reaches the server as a field rather than as words
+        in a sentence. Both end at :func:`_match_player`, deliberately — one
+        resolver, one threshold, one set of rules about disconnected players.
+
+        No weighing against the library here, and none is missing: the whole
+        job of :meth:`room_reading_wins` is to decide whether a *guess* pulled
+        out of a sentence was a room or a title, and there is no guess in a
+        field that carries nothing else. «Breakfast in America» cannot arrive
+        down this path.
+
+        ``None`` covers both "no such player" and "that player is not
+        connected". The caller must not fall back to the default player on it:
+        starting the music in the living room because the kitchen did not
+        resolve is the wrong-room action this feature exists to avoid.
+        """
+        if not room or not room.strip():
+            return None
+        return _match_player(room, self._players_safe())
 
     def extract_room(self, text: str, lang: str) -> Tuple[str, Optional[Dict]]:
         """``(text_without_room, player)`` when the phrase carries an

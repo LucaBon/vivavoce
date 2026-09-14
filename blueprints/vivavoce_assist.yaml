@@ -60,6 +60,23 @@ blueprint:
       default: ""
       selector:
         text:
+    use_area:
+      name: Play in the room that was spoken to
+      description: >-
+        Off by default, and it has to be: it only works in a house where the
+        Home Assistant **area** of each satellite is named like the Vivavoce
+        player in that room ("Cucina" and a player called "Cucina" or "Cucina
+        Hi-Fi"). When it is on, a sentence carries the area it was spoken in
+        and Vivavoce plays there without being told — and when the area names
+        no connected player it says so rather than starting the music
+        somewhere else, which is the whole point but does mean a mismatched
+        name fails every command from that satellite. Turn it on once the
+        names line up. Saying the room out loud («metti Time in cucina») works
+        either way, and still wins over this. Requires Pro (multi-room); with
+        the LMS player above set, that one wins and this does nothing.
+      default: false
+      selector:
+        boolean:
 
 # Parallel, not queued. Two runs share nothing — the conversation key is per
 # device — so queueing buys no safety and costs real time: one slow LMS would
@@ -189,6 +206,16 @@ actions:
       # gives every satellite its own list, which is what we actually want.
       # `satellite_id` already resolves to its device in `device_id`.
       convo: "{{ trigger.device_id or 'ha-default' }}"
+      use_area: !input use_area
+      # The room the sentence was spoken IN, as opposed to one spoken in it.
+      # Same device_id `convo` uses, asked a different question. Empty unless
+      # the option above is on, and empty for a turn with no device behind it
+      # (the dashboard, the phone app) — `area_name` wants an id and there
+      # isn't one. Empty is inert on the server: it falls through to the
+      # default player exactly as before this field existed.
+      area: >-
+        {{ (area_name(trigger.device_id) | default('', true))
+           if (use_area and trigger.device_id) else '' }}
       # Sentences that pick item N, for assist_satellite.ask_question. Digits
       # and words both, because what a satellite transcribes is not up to us:
       # speech-to-text writes «due» at least as often as «2», which is why
@@ -211,6 +238,7 @@ actions:
     data:
       base_url: !input server
       player: !input player
+      room: "{{ area }}"
       text: "{{ spoken }}"
       lang: "{{ lang }}"
       conversation_id: "{{ convo }}"
@@ -297,6 +325,7 @@ actions:
                 data:
                   base_url: !input server
                   player: !input player
+                  room: "{{ area }}"
                   text: "{{ picks[lang][0] }} {{ picked.id }}"
                   lang: "{{ lang }}"
                   conversation_id: "{{ convo }}"

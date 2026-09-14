@@ -26,6 +26,12 @@ to it. What v1 adds over the older ``/command``:
   branch dropped ``choices`` from the body: a field that disappears exactly
   when things go wrong is the worst possible time for it to disappear. Every
   key below is present in both branches.
+* **``room``**, added after the fact — v1 shipped without it deliberately, and
+  ``docs/api.md`` carries both the original reasoning and what changed. The
+  short version: the objection was that a name→player resolver would have to
+  be invented against no real client. The resolver exists
+  (``pro/multiroom.py``) and Home Assistant is now a real client, so the field
+  is an addition, which this contract allows.
 
 ``/command`` is routed here too, unversioned and unchanged in behaviour, so
 nothing that already calls it has to move. Stdlib only, like the rest.
@@ -35,16 +41,42 @@ from __future__ import annotations
 
 import json
 
-from messages import msg
+from messages import msg, set_lang
 
 
-def api_v1_routes(router_for):
+def _room_player(multiroom, room: str):
+    """The player a ``room`` field names — three answers, not one nullable.
+
+    * ``""`` — pay it no mind. Multi-room is absent or unlicensed, so a room
+      is not something this install acts on and the default player is right.
+      Nothing is refused: the caller never asked for Pro, it just said where
+      it was standing, and a free install has one player anyway.
+    * a player id — that room, that player.
+    * ``None`` — a room was named and cannot be honoured. The turn is refused;
+      see ``_command`` for why that is not pedantry.
+
+    ``multiroom`` is the injected Pro object (``pro/multiroom.py``), reached
+    through the same narrow contract ``Router`` uses. The resolution itself
+    lives there, next to the one the spoken path uses, so there is one
+    threshold and one rule about disconnected players rather than two.
+    """
+    if multiroom is None or not multiroom.pro_ok():
+        return ""
+    player = multiroom.player_for_room(room)
+    return player["playerid"] if player else None
+
+
+def api_v1_routes(router_for, multiroom=None):
     """The versioned command route, bound to the handler's router registry.
 
     A mixin class rather than a module of functions, like ``audio_routes``:
     ``BaseHTTPRequestHandler`` instantiates the handler per request, so
     ``router_for`` has to be captured. Supplied by ``http_api``, which also
     provides ``_send`` and ``_read_json_object``.
+
+    ``multiroom`` is optional in exactly the way it is everywhere else: a
+    server built without the Pro module (or a test that does not care) passes
+    nothing, and the ``room`` field is inert.
     """
 
     class ApiV1Routes:
@@ -69,7 +101,8 @@ def api_v1_routes(router_for):
             conversation_id = (payload.get("conversation_id")
                                or payload.get("client") or "default")
             # The UI player selector: commands go to that player's router.
-            # Note there is no ``room`` in v1 — see docs/api.md for why.
+            # An id, not a name, so it needs no resolving and outranks
+            # everything below.
             player_id = payload.get("player") or ""
             # Auto source (default): the router tries the local library first,
             # then TIDAL. Explicit phrases ("dalla mia musica", "da tidal") and
@@ -77,7 +110,44 @@ def api_v1_routes(router_for):
             source = payload.get("source") or "auto"
             # The language the user is speaking (the page's mic-language
             # selector): commands are parsed and answered in that language.
+            # Set it here rather than leaving it to ``handle_many``, which also
+            # does: the room refusal below answers before the router is ever
+            # reached, and it has to answer in the caller's language. set_lang
+            # is also what makes an unsupported code fall back to Italian
+            # instead of raising a KeyError out of ``msg``.
             lang = payload.get("lang") or "it"
+            set_lang(lang)
+            # The room the command arrived FROM — a Home Assistant satellite
+            # in the kitchen — which is a different thing from the room said
+            # inside the sentence, and resolved in a different place. Here,
+            # before the Router is picked, which is what gives the precedence
+            # its shape for free: «metti Time in cucina» is applied later by
+            # ``Router._handle``, which re-aims the turn on top of whatever
+            # this chose. So saying a room while standing in another one still
+            # wins, and it should — that is an intention, not a mistake.
+            room = payload.get("room") or ""
+            if not isinstance(room, str):
+                room = ""
+            room = room.strip()
+            if room and not player_id:
+                target = _room_player(multiroom, room)
+                if target is None:
+                    # A room was named and cannot be honoured — no player by
+                    # that name, or that player is not connected. The turn
+                    # stops here rather than playing on the default player.
+                    # Refusing costs a repeat; starting the music in the
+                    # living room because the kitchen did not resolve is an
+                    # event in somebody's house that they have to go and undo,
+                    # and it is the failure this whole field exists to avoid.
+                    # Same asymmetry the room-in-the-sentence path settled on
+                    # (T2.7, 2026-08-26).
+                    self._send(200, json.dumps(
+                        {"speech": msg("room_unknown", room=room),
+                         "used": text, "ok": False, "terms": [], "choices": [],
+                         "needs_choice": False, "unmatched": False},
+                        ensure_ascii=False))
+                    return
+                player_id = target
             # Prefer the ASR alternatives when present (mic hands-free mode);
             # the plain text box just sends one string.
             #

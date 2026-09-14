@@ -122,3 +122,9 @@ PATTERNS = {
     "block_list": c(r"^(?:(?:what|which)\s+(?:songs?|tracks?)\s+(?:are|is)\s+blocked|"
                     r"what'?s\s+blocked|list\s+(?:the\s+)?blocked)"),
 }
+
+
+#: Single-word play verbs, for repairing a mis-heard one
+#: (``parsing.repair_play_verb``). "put on" and "listen to" are two
+#: words and are deliberately out.
+PLAY_VERBS = ("play", "start")

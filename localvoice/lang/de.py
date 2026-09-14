@@ -390,3 +390,9 @@ PATTERNS = {
                     r"|(?:zeige?|liste)\w*\s+(?:die\s+)?"
                     r"(?:gesperrten|blockierten))"),
 }
+
+
+#: Einzelne Verben für die Reparatur eines verhörten Verbs
+#: (``parsing.repair_play_verb``).
+PLAY_VERBS = ("spiele", "spielen", "spiel", "starte", "abspielen",
+              "höre", "hören")

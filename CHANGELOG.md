@@ -1,5 +1,220 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`auto` ora vuol dire «i servizi che questa casa possiede», non «i plugin
+  installati».** Era la domanda sbagliata, e la giornata l'ha dimostrata due
+  volte sullo stesso impianto: un TIDAL il cui abbonamento è finito e uno
+  Spotty senza account restano installati, rispondono al menu, rispondono alla
+  ricerca — e non suonano. Chi si trovava in quella situazione doveva
+  configurare a mano `--services`, cioè dire all'app una cosa che l'app poteva
+  vedere da sé.
+
+  Ora la vede, e **se la ricorda tra un riavvio e l'altro**: il verdetto sta in
+  `<dati>/services.json`, accanto alla licenza. Non è configurazione, non si
+  edita, e cancellarlo non rompe niente — si torna a impararlo al prezzo di una
+  riproduzione muta. All'avvio il server dice ad alta voce quali servizi ha
+  smesso di proporre, perché un servizio che sparisce in silenzio dalle
+  risposte è la cosa che una casa deve sapere, non scoprire.
+
+  Tre modi di uscirne, e due sono più veloci dell'orologio: **nominare il
+  servizio** lo azzera subito («metti X da tidal» riprova davvero — è quello
+  che dirà chi si è appena abbonato), **un secondo di audio** lo azzera come
+  prova di vita, così un marchio preso durante un singolo intoppo di rete non
+  sopravvive alla prima nota suonata, e in mancanza d'altro scade da solo dopo
+  **24 ore** (`PLAYBACK_MISS_TTL`). Un servizio marchiato che sia rimasto
+  l'unico viene comunque provato: il router non ha mai rifiutato di chiedere a
+  chi era l'unico da chiedere.
+
+  **La terza forma di silenzio**, quella di Spotty: dice `play` e non avanza
+  mai. Non si può distinguere da uno stream che bufferizza senza aspettare più
+  dei tre secondi che il buffer si prende, quindi non si aspetta: si chiude il
+  verdetto **alla richiesta successiva** (`settle_pending`), dove il tempo è
+  già passato da solo. Costa una lettura di stato nel turno che segue una
+  riproduzione, e zero attese sulla conferma. Quel verdetto guarda i secondi
+  suonati, non la posizione in coda: **un player fermo non è una prova**,
+  perché è anche quello che lascia un brano finito o fermato da qualcuno, e
+  leggerlo come guasto marchiava un servizio sano ogni volta che una canzone
+  finiva. Ed è per player: in multi-stanza, il comando che arriva dal salotto
+  non chiude il conto aperto in cucina.
+
+  `server.py` sarebbe arrivato a 412 righe, oltre il tetto di 400 con il
+  ratchet che vieta nuove eccezioni, quindi esce `localvoice/cli.py`: la lista
+  delle opzioni è un elenco, e cosa il server ne fa è un'altra cosa. `server.py`
+  scende a 338.
+
+- **Venti brani in coda e nessuno che parte: lo stesso silenzio, un ramo più
+  in là.** Il controllo introdotto qui sotto guardava solo il *modo* del
+  player, e per un brano solo basta: se non parte, il player è a `stop` un
+  terzo di secondo dopo. Per «canzoni di Gigi D'Agostino» no. Venti brani
+  entrano in coda, il player li attraversa fallendone uno ogni ~170 ms, e per
+  tutto quel tempo resta `mode=play`: a 0,6 s il controllo non vedeva niente,
+  e l'app diceva «Riproduco la musica di Gigi D'Agostino» a una stanza muta.
+  Misurato sull'impianto: la coda era arrivata all'**indice 19 su 20 con
+  l'elapsed ancora a zero**.
+
+  Quindi `now_playing_info()` ora riporta anche **posizione nella coda** e
+  **secondi suonati** (tutti e due i backend; l'LMS manda l'indice come
+  stringa), e il silenzio ha due forme invece di una: player fermo, oppure
+  coda che ha lasciato il punto di partenza senza suonare un secondo di
+  niente. La soglia è due brani e non uno di proposito: un brano singolo non
+  disponibile — i diritti scaduti in un paese — fa avanzare la coda di uno e
+  poi suona, e dare la colpa al servizio sarebbe una bugia peggiore di quella
+  che questo controllo esiste per togliere.
+
+  Il controllo copre ora anche gli altri avvii che ne erano scoperti — album,
+  playlist, artista — e non la libreria locale: un client è sempre puntato a
+  *qualche* servizio, e un file locale che non parte non è colpa di TIDAL. Per
+  le righe che un servizio ha importato in libreria c'è `blocking_service`,
+  che legge l'url della riga e sa di chi è l'audio.
+
+- **«Disponibile» ora vuol dire «sa suonare», non «sa cercare».** La regola
+  c'era già e non è cambiata: se la frase non nomina un servizio si usa quello
+  predefinito, e se quello non è disponibile si passa al primo della lista che
+  lo è — silenziosamente, ma mai di nascosto, perché la conferma porta il tag
+  «… da Qobuz». Quello che non funzionava era la parola *disponibile*: si
+  misurava con `can_search()`, e un plugin col token scaduto quel test lo passa
+  a pieni voti. Risultato: con TIDAL muto e Qobuz perfettamente in salute, la
+  richiesta veniva consegnata a TIDAL e Qobuz non veniva nemmeno preso in
+  considerazione.
+
+  Ora la domanda è `can_play()` — sa cercare **e** non ha appena suonato il
+  nulla (`note_playback_failure`, dal controllo qui sopra). Tre conseguenze:
+  la richiesta in corso prosegue da sola verso il primo servizio che sa
+  suonare, invece di fermarsi a spiegare; quella dopo non ricompra la stessa
+  scoperta, perché il marchio dura un minuto
+  (`player/silence.py::PLAYBACK_MISS_TTL`, scritto una volta per tutti i
+  backend come la resilienza lì accanto) e una
+  seconda riproduzione muta costerebbe di nuovo una coda sostituita e una
+  stanza zitta; e le righe che un servizio ha importato in libreria seguono la
+  stessa regola, perché anche quelle sono audio che deve andare a prendere lui
+  (`blocking_service`).
+
+  **Nominare un servizio resta un'altra cosa.** «metti X da tidal» non viene
+  dirottato: toglie il marchio e riprova davvero — è quello che dirà chi ha
+  appena rimesso a posto il token — e se il silenzio si ripete la risposta è
+  una domanda, non una sostituzione: «TIDAL non è collegato. Vuoi che la metta
+  da Qobuz?». Con nessun altro servizio in grado di suonare non c'è niente da
+  offrire, e resta il fatto nudo.
+
+- **Un brano che non parte non è più «Riproduco».** Quando il plugin di un
+  servizio perde il token — TIDAL lo fa spesso — la ricerca continua a
+  funzionare benissimo: il menu risponde, «bla bla bla» torna con Gigi
+  D'Agostino, l'url sembra suonabile. È l'audio a rispondere `401`. L'LMS
+  accetta il brano, il player torna subito a `stop`, e Vivavoce diceva
+  «Riproduco Bla Bla Bla di Gigi D'Agostino» a una stanza muta, lasciando in
+  coda una traccia che non suonerà mai.
+
+  `can_search` non poteva accorgersene: interroga la metà del plugin che
+  funziona ancora. È anche il motivo per cui `blocking_service`, che protegge
+  le righe che un servizio ha importato in libreria, lasciava passare proprio
+  questa. Ora, dopo aver fatto partire un brano in streaming, l'app chiede al
+  player se l'audio è davvero arrivato: se il player ha già smesso, la risposta
+  diventa «TIDAL non è collegato» — la frase che l'app usa già per un servizio
+  scollegato — la coda che non suonerà viene svuotata, e il risultato porta un
+  `kind` suo (`playback.STREAM_OFFLINE`), così chi lo riceve non lo confonde
+  con «non ho trovato niente». Il pezzo nuovo sta in `engine/playback.py`, che
+  è la domanda «e poi è partito davvero?» tenuta insieme in un posto solo.
+
+  **Misurato sull'impianto vero**, perché la differenza sta tutta nei tempi: un
+  `tidal://` col token scaduto legge `mode=play` una volta sola e 0,33 s dopo è
+  tornato a `stop` per sempre; un `qobuz://` sano resta `mode=play` e tiene
+  l'elapsed a zero per tre secondi buoni mentre riempie il buffer. Il segnale
+  quindi è il **modo**, non il tempo trascorso: leggere l'elapsed avrebbe
+  dichiarato morto ogni stream che stava soltanto bufferizzando. L'attesa è di
+  0,6 s (`playback.PLAYBACK_SETTLE`), e sulla strada buona si spende con la
+  musica che sta già suonando.
+
+  Quello che **non** fa, dichiarato: non cambia servizio da solo — chi ha
+  chiesto TIDAL riceve una risposta su TIDAL, non una sostituzione silenziosa;
+  non tocca la libreria locale; e non dice niente quando è il player a smettere
+  di rispondere, perché un hi-fi che sparisce è un fatto diverso da un servizio
+  scollegato e ha già le sue parole.
+
+- **«Matti» non è un nome, è «metti» sentito male — e buttava via il comando.**
+  Chi usa il riconoscimento vocale locale ha avuto per mesi un difetto che dal
+  di fuori sembra incompetenza dell'app: dici «metti Comfortably Numb dei Pink
+  Floyd», Whisper trascrive **«Matti** Comfortably Numb dei Pink Floyd» — con
+  il titolo perfetto — e Vivavoce risponde «non ho capito». Il router aggancia
+  i comandi sul verbo; un verbo di cinque lettere sentito con l'altra vocale
+  non aggancia niente, e la ricerca non parte mai, pur avendo in mano la
+  risposta.
+
+  Ora, **e solo dopo che ogni altra lettura ha rifiutato la frase**, il router
+  prova a rimettere a posto il primo verbo e a instradare una seconda volta.
+  Con il microfono del browser, che di alternative ne restituisce diverse, la
+  riparazione arriva perfino più tardi: un primo giro prova le trascrizioni
+  come sono arrivate e solo se **nessuna** aggancia se ne fa un secondo
+  riparandole. L'ordine non è pignoleria — riparando subito, «Matti Creep»
+  vincerebbe su «metti Creepshow», cioè una trascrizione prima ma peggiore
+  batterebbe quella giusta, che è l'esatto contrario del motivo per cui le
+  alternative vengono provate.
+  La regola non è nuova: è quella della parola chiave
+  (`engine/wakematch.py::token_matches` — uguale, prefisso quasi completo, o al
+  massimo una modifica), perché è la stessa domanda, un sì/no su una parola
+  corta. Sta nel fallback per una ragione precisa: così nessuna frase che oggi
+  funziona può cambiare comportamento, e «letti sfatti» non diventa un comando
+  finché il router ha qualcos'altro con cui leggerlo.
+
+  **Misurato, non stimato**, su 24 registrazioni vere fatte per l'occasione:
+  da **10 comandi su 24** che arrivavano alla ricerca a **23**, punteggio medio
+  del matching da 0,349 a 0,795. E non è una questione di modello: `small`,
+  `medium` e `large-v3-turbo` sbagliano tutti e tre lo stesso verbo e prendono
+  tutti e tre gli stessi titoli — `medium` in particolare è identico a `small`
+  fino al terzo decimale a 2,8 volte il tempo di decodifica. Il banco che l'ha
+  misurato resta nel repo: `tools/record_titles.py` registra le frasi,
+  `tools/asr_titles_bench.py` le trascrive e le conta.
+
+  Vale per tutte e cinque le lingue: `PLAY_VERBS` entra nel contratto dei
+  language pack (`localvoice/lang/__init__.py`), accanto a `MOOD_WORDS`.
+  Quello che **non** ripara, dichiarato: i verbi di due parole («fai partire»),
+  le parole a due modifiche di distanza («Mattie», che nelle registrazioni
+  compare e resta fuori), e i verbi sotto le quattro lettere — a tre caratteri
+  una sola modifica confonde lo spagnolo «pon» con «con», «son», «por», e la
+  tolleranza costerebbe più di quanto rende.
+
+### New
+
+- **Vivavoce può sapere da che stanza gli hai parlato.** Finora la stanza
+  esisteva in un modo solo: dirla. «metti Time in cucina» funziona dal
+  2026-08-26 ed era la risposta giusta a metà, perché nella stanza in cui sei
+  già non hai voglia di nominarla — e un satellite vocale in cucina sa
+  benissimo dov'è, semplicemente non aveva modo di dirlo. Ora ce l'ha: il
+  contratto `POST /api/v1/command` accetta un campo `room`, e il blueprint di
+  Home Assistant può riempirlo con l'**area** del dispositivo che ha sentito
+  la frase.
+
+  Sono due cose diverse e la precedenza lo dice: un `player` esplicito (che è
+  un id, non un nome) batte tutto; una stanza **detta nella frase** batte
+  quella d'origine, perché chiedere il salotto stando in cucina è
+  un'intenzione e non un errore; l'origine vale quando non c'è nient'altro. La
+  risoluzione nome→lettore non è nuova: è la stessa di `pro/multiroom.py` che
+  la frase parlata usa da sempre, così la soglia è una e la regola sui lettori
+  scollegati è una.
+
+  **Se il nome non corrisponde a nessun lettore collegato, Vivavoce lo dice e
+  non fa niente.** Non ripiega sul lettore di default, ed è la parte da capire
+  prima di accendere l'opzione: far partire la musica in salotto perché la
+  cucina non si è risolta è un fatto fisico in casa di qualcuno, che qualcuno
+  deve alzarsi e disfare — mentre un rifiuto costa una ripetizione. È la
+  stessa asimmetria già scelta per la stanza detta a voce. Il rovescio onesto
+  della medaglia: un'area scritta male fallisce *ogni* comando da quel
+  satellite finché non la si sistema, ed è esattamente per questo che nel
+  blueprint l'opzione **«Play in the room that was spoken to» è spenta di
+  default** — si accende quando i nomi delle aree e quelli dei lettori
+  combaciano.
+
+  Il campo richiede Pro (multi-room). Senza, viene **ignorato e non
+  rifiutato**: chi lo manda non ha chiesto Pro, ha detto dov'era, e
+  un'installazione free ha un lettore solo. Il contratto v1 permette di
+  aggiungere campi e non di toglierne: `docs/api.md` ora porta sia il campo
+  sia la sezione che spiegava perché in v1 non c'era — due dei suoi tre
+  argomenti reggono ancora, e il terzo (progettare senza un client vero) è
+  scaduto il giorno in cui il blueprint è stato provato su un Home Assistant
+  vero.
+
 ## 0.6.0 — September 2026
 
 ### Removed

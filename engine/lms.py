@@ -53,6 +53,7 @@ from player.errors import PlayerError
 # second backend needed them. The three names beside Resilient are unused
 # here and imported on purpose: they were part of this module's surface
 # before the move, and tests/test_lms_resilience.py still reaches for them.
+from player.silence import SilentServices
 from player.resilience import (BREAKER_COOLDOWN, BREAKER_THRESHOLD,  # noqa: F401
                                Breaker as _Breaker, Resilient)
 
@@ -279,6 +280,21 @@ def service_label(name: Optional[str]) -> str:
     return (spec.label if spec and spec.label else (name or ""))
 
 
+def _as_int(value: Any) -> int:
+    """``playlist_cur_index`` and friends, which LMS sends as strings."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class LMSError(PlayerError):
     """Raised when the LMS server cannot be reached or returns garbage.
 
@@ -335,7 +351,7 @@ def uri_kind(uri: str) -> Optional[str]:
     return None
 
 
-class LMSClient(Resilient):
+class LMSClient(Resilient, SilentServices):
     #: Every round trip this client makes fails as an LMSError, breaker
     #: and turn budget included (see player/resilience.py).
     error = LMSError
@@ -369,6 +385,9 @@ class LMSClient(Resilient):
         # "is Qobuz logged in" is a fact about the server, not about which
         # clone asked. See search_node_id.
         self._search_nodes: Dict[str, Tuple[Optional[str], float]] = {}
+        # "this service plays nothing today", shared between the clones for the
+        # same reason (player/silence.py).
+        self._init_silence()
         # timeout, breaker and per-turn budget, all shared with every other
         # backend. The breaker is deliberately a mutable object the shallow
         # copies of for_service()/for_player() SHARE, like the search-node
@@ -943,7 +962,10 @@ class LMSClient(Resilient):
         name = service_of(uri)
         if name is None or name not in SERVICES:
             return None
-        return None if self.for_service(name).can_search() else name
+        # can_play, not can_search: a row the plugin imported is audio that
+        # plugin has to fetch, so an expired token silences it exactly like a
+        # logged-out one.
+        return None if self.for_service(name).can_play() else name
 
     def local_albums_by_artist(self, query: str, count: int = 50) -> Dict[str, Any]:
         artist = self.find_local_artist(query)
@@ -1025,11 +1047,15 @@ class LMSClient(Resilient):
         return self.command("playlistcontrol", "cmd:insert", f"track_id:{track_id}")
 
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
-        """The queue head plus the transport ``mode`` (play/pause/stop).
+        """The queue head plus the transport ``mode`` (play/pause/stop), the
+        queue position and the elapsed seconds.
 
         The mode matters: ``status - 1`` returns the current queue entry
         whatever the player is doing, so without it a stopped player answered
-        "now playing X" about a song nobody could hear.
+        "now playing X" about a song nobody could hear. Position and elapsed
+        matter for the same reason one floor up: they are what tells a queue
+        that is playing from one that is walking through itself failing every
+        track (``engine/playback.py``). LMS spells the index as a string.
         """
         res = self.command("status", "-", "1", "tags:aAlN")
         loop = res.get("playlist_loop") or []
@@ -1037,7 +1063,8 @@ class LMSClient(Resilient):
             return None
         item = loop[0]
         return {"title": item.get("title"), "artist": item.get("artist"),
-                "mode": res.get("mode")}
+                "mode": res.get("mode"), "index": _as_int(res.get("playlist_cur_index")),
+                "elapsed": _as_float(res.get("time"))}
 
     def status_info(self) -> Dict[str, Any]:
         """Player status for the web now-playing panel.

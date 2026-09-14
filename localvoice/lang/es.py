@@ -322,3 +322,10 @@ PATTERNS = {
                     rf"|{acc('qué')}\s+hay\s+bloquead"
                     rf"|lista\s+de\s+(?:los\s+|las\s+)?bloquead)"),
 }
+
+
+#: Verbos de una sola palabra, para reparar un verbo mal oído
+#: (``parsing.repair_play_verb``). «pon» queda fuera: con tres letras
+#: una sola edición lo confunde con «con», «son», «por».
+PLAY_VERBS = ("pone", "poner", "ponga", "coloca", "pincha",
+              "reproduce", "escucha", "toca", "mete")

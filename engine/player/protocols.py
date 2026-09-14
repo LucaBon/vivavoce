@@ -76,7 +76,10 @@ class Capabilities:
     #: (``play_browse_item`` and the ``*_local_*`` family).
     browse_items: bool = False
     #: Several streaming services behind one system, switchable per request
-    #: (``for_service`` / ``can_search`` / ``installed_services``).
+    #: (``for_service`` / ``can_search`` / ``can_play`` /
+    #: ``note_playback_failure`` / ``forget_playback_failure`` /
+    #: ``note_playback_started`` / ``settle_pending`` /
+    #: ``remember_silence_in`` / ``silent_services`` / ``installed_services``).
     services: bool = False
     #: A sleep timer the server itself owns.
     sleep_timer: bool = False
@@ -126,10 +129,15 @@ class PlayerTransport(Protocol):
 
     # -- what is playing ---------------------------------------------------
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
-        """``{"title", "artist", "mode"}`` for the queue head, or None.
+        """``{"title", "artist", "mode", "index", "elapsed"}`` for the queue
+        head, or None.
 
         ``mode`` is ``"play"``, ``"pause"`` or ``"stop"`` — a stopped player
         must not be reported as playing whatever the queue head happens to be.
+        ``index`` is the queue position (0 for the track a play just started)
+        and ``elapsed`` the seconds played of it; together they are how
+        ``engine/playback.py`` tells a queue that is playing from one walking
+        through itself failing every track.
         """
 
     def status_info(self) -> Dict[str, Any]:
@@ -226,7 +234,10 @@ class MusicLibrary(Protocol):
     #   browse_items   {play,add,insert}_browse_item and the matching
     #                  {play,add,insert}_local_{album,artist,track} family
     #   favorites      favorites_items, favorites_playlist_play
-    #   services       installed_services, can_search, for_service
+    #   services       installed_services, can_search, can_play,
+    #                  note_playback_failure, forget_playback_failure,
+    #                  note_playback_started, settle_pending,
+    #                  remember_silence_in, silent_services, for_service
     #
     # Three of those families are reached through
     # ``getattr(client, f"{mode}_...")`` in ``actions`` and ``library``, so

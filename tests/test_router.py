@@ -771,3 +771,171 @@ def test_the_local_prefix_reaches_the_artist_branch_too(router, local_pink_floyd
         "Riproduco Pink Floyd dalla tua musica."
     assert ["playlistcontrol", "cmd:load", "artist_id:42"] in \
         local_pink_floyd.commands()
+
+
+# -- il verbo mal sentito -----------------------------------------------------
+#
+# Il difetto, misurato su 24 registrazioni vere con tools/record_titles.py e
+# tools/asr_titles_bench.py: Whisper scrive «Matti» per «metti» in circa due
+# terzi dei comandi — e il titolo lo trascrive benissimo. Il router non
+# agganciava il verbo, il turno moriva come «non ho capito», e un titolo
+# perfetto non arrivava mai alla ricerca. Non è taglia del modello: `small`,
+# `medium` e `large-v3-turbo` sbagliano lo stesso verbo e prendono gli stessi
+# titoli. Colpisce soprattutto l'ASR locale (Pro), dove la trascrizione è una
+# sola e `handle_many` non ha alternative su cui ripiegare.
+#
+# La riparazione vive nel FALLBACK, ed è quello che la rende sicura: si tenta
+# solo su una frase che ogni altro passo ha già rifiutato. I test qui sotto
+# sono divisi in due metà per questo — quel che deve riparare, e quel che non
+# deve toccare.
+
+def test_misheard_verb_still_plays(router, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://7.flc", "name": "Time"}]},
+    )
+    out = router.handle("Matti Time", source="tidal")
+    assert out.ok
+    assert ["playlist", "play", "tidal://7.flc"] in transport.commands()
+
+
+def test_a_repaired_turn_is_not_reported_as_a_grammar_gap(router, transport,
+                                                          make_tidal):
+    # `unmatched` alimenta il pulsante «segnala frase incompresa» (T1.5): una
+    # frase che il router ha invece capito, riparandola, non è un buco nella
+    # grammatica e non deve finire in quella coda.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://8.flc", "name": "Time"}]},
+    )
+    router.handle("Matti Time", source="tidal")
+    assert router._unmatched is False
+
+
+@pytest.mark.parametrize("phrase", ["Metty Time", "mettii Time", "mette Time"])
+def test_other_mishearings_of_the_same_verb(router, transport, make_tidal,
+                                            phrase):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
+    )
+    assert router.handle(phrase, source="tidal").ok
+
+
+def test_a_word_two_edits_away_is_not_the_verb(router, transport):
+    # «Mattie» è a due modifiche da «metti»: fuori portata, e resta fuori.
+    # Il limite è dichiarato, non un difetto — allargare a due modifiche fa
+    # entrare parole italiane vere, e andrebbe misurato prima, non sperato.
+    router.handle("Mattie Wonderwall")
+    assert router._unmatched is True
+    assert transport.calls == []
+
+
+def test_a_bare_word_is_never_a_play(router, transport):
+    # Una parola sola non è un comando: ripararla trasformerebbe un titolo
+    # nudo — che con un elenco aperto è una scelta — in un play.
+    router.handle("Matti")
+    assert transport.calls == []
+
+
+def test_transport_commands_are_untouched(router, transport):
+    # La riparazione non gira nemmeno: «pausa» aggancia molto prima.
+    router.handle("pausa")
+    assert transport.last_call()[1] == ["pause", "1"]
+
+
+def test_a_phrase_that_already_routes_is_not_repaired(router, transport,
+                                                      make_tidal):
+    # La prova che il fallback è il posto giusto: «metti» esatto non passa
+    # mai dalla riparazione, quindi nessuna frase che oggi funziona cambia.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://10.flc", "name": "Time"}]},
+    )
+    assert router.handle("metti Time", source="tidal").ok
+
+
+def test_an_open_list_still_wins_over_the_repair(router, transport):
+    # Con un elenco aperto, «la 2» è una scelta e deve restarlo: i passi 2 e
+    # 4b agganciano prima che il fallback esista.
+    router.candidates = [{"title": "A", "artist": "X", "url": "tidal://a"},
+                         {"title": "B", "artist": "Y", "url": "tidal://b"}]
+    router.cand_until = router_mod.time.monotonic() + 300
+    router.cand_source = "tidal"
+    router.handle("la 2")
+    assert ["playlist", "play", "tidal://b"] in transport.commands()
+
+
+def test_the_repair_speaks_every_language(lms, transport, make_tidal):
+    # PLAY_VERBS è parte del contratto dei pack (lang/__init__.py REQUIRED),
+    # quindi la riparazione non è una cortesia riservata all'italiano.
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://11.flc", "name": "Time"}]},
+    )
+    r = Router(lms)
+    assert r.handle("pley Time", lang="en", source="tidal").ok
+
+
+# -- i due giri sulle alternative ---------------------------------------------
+#
+# La riparazione del verbo colpisce dove prima si mancava, e questo cambia chi
+# vince quando le alternative sono più d'una. Il primo giro le prova come sono
+# arrivate; solo se nessuna aggancia, il secondo ripara. L'ordine è la feature.
+
+def _two_songs(make_tidal):
+    return make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://creep.flc", "name": "Creep"},
+                     {"isaudio": 1, "url": "tidal://show.flc",
+                      "name": "Creepshow"}]},
+    )
+
+
+def test_a_better_later_alternative_beats_a_repairable_earlier_one(
+        router, transport, make_tidal):
+    # Il motivo per cui la riparazione non gira al primo giro. «Matti Creep»
+    # riparato colpirebbe, e vincerebbe su «metti Creepshow», che è la parola
+    # che l'utente ha davvero detto: il contrario di ciò per cui handle_many
+    # esiste (il suo docstring cita «Audioslave» → «sfigati»).
+    transport.responses["tidal"] = _two_songs(make_tidal)
+    out = router.handle_many(["Matti Creep", "metti Creepshow"],
+                             source="tidal")
+    assert out["ok"]
+    assert ["playlist", "play", "tidal://show.flc"] in transport.commands()
+    assert ["playlist", "play", "tidal://creep.flc"] not in transport.commands()
+
+
+def test_the_repair_still_saves_a_lone_transcription(router, transport,
+                                                     make_tidal):
+    # Il percorso Whisper: una trascrizione sola, nessuna alternativa su cui
+    # ripiegare. È il caso misurato sulle registrazioni vere.
+    transport.responses["tidal"] = _two_songs(make_tidal)
+    out = router.handle_many(["Matti Creep"], source="tidal")
+    assert out["ok"]
+    assert ["playlist", "play", "tidal://creep.flc"] in transport.commands()
+
+
+def test_the_repair_runs_when_every_alternative_missed(router, transport,
+                                                       make_tidal):
+    # Due trascrizioni, entrambe col verbo rotto: il primo giro non aggancia
+    # niente, il secondo ripara e la migliore vince comunque.
+    transport.responses["tidal"] = _two_songs(make_tidal)
+    out = router.handle_many(["Matti Creep", "Matti Creepshow"],
+                             source="tidal")
+    assert out["ok"]
+
+
+def test_a_search_that_found_nothing_is_not_repeated(router, transport,
+                                                     make_tidal):
+    # Il secondo giro ripassa solo le alternative INCOMPRESE. Una che aveva
+    # agganciato e non trovato nulla ha già speso la sua ricerca: rifarla
+    # costerebbe una seconda interrogazione identica dentro il budget di
+    # dieci secondi del turno.
+    transport.responses["tidal"] = make_tidal(categories={"Songs": "S"},
+                                              items={"S": []})
+    router.handle_many(["metti Zzzz"], source="tidal")
+    searches = [cmd for _player, cmd in transport.calls
+                if any(str(a) == "search:Zzzz" for a in cmd)]
+    assert len(searches) == 1, (
+        f"la ricerca è stata rifatta nel secondo giro: {searches}")

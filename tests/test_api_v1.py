@@ -25,6 +25,10 @@ import os
 
 import pytest
 
+from conftest import FakeLicense
+from messages import msg
+from pro.multiroom import MultiRoom
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Two library tracks that share a title: the local search finds both, cannot
@@ -334,3 +338,158 @@ def test_the_route_tolerates_a_query_string(live_server):
     body = live_server().json_post("/api/v1/command?ts=1",
                                    {"text": "pausa"})
     assert body["ok"] is True
+
+
+# -- the room a command came from ---------------------------------------------
+#
+# The other half of multi-room, and the half that is not words: `room` carries
+# where the speaker was standing (a Home Assistant satellite's area), where
+# «metti Time in cucina» carries where they want the music. Both end at
+# `pro/multiroom.py::_match_player`; what differs is who wins when they
+# disagree, and what happens when the name matches nothing.
+#
+# v1 shipped without this field on purpose and docs/api.md keeps both the
+# original reasoning and what changed, so the tests that matter here are the
+# ones an outside caller is entitled to rely on: the precedence, and the
+# refusal.
+
+ROOMS = [{"playerid": "aa:aa", "name": "Salotto"},
+         {"playerid": "bb:bb", "name": "Cucina"}]
+
+KITCHEN = "bb:bb"
+
+
+def _multiroom(pro=True, players=ROOMS):
+    """A MultiRoom over a static player list; ``pro=None`` means no license
+    infrastructure at all. No ``lms``: the room-vs-title comparison is
+    ``extract_room``'s business and has its own tests in
+    ``test_multiroom_sleep.py`` — nothing here says a room out loud."""
+    return MultiRoom(FakeLicense(pro) if pro is not None else None,
+                     lambda: players)
+
+
+def _player_of_last_command(transport):
+    return transport.calls[-1][0]
+
+
+def test_the_room_a_command_came_from_plays_there(live_server, transport):
+    srv = live_server(multiroom=_multiroom())
+    reply = srv.json_post("/api/v1/command",
+                          {"text": "pausa", "room": "Cucina",
+                           "conversation_id": "ha-kitchen"})
+    assert reply["ok"] is True
+    assert set(reply) == CONTRACT_FIELDS
+    assert _player_of_last_command(transport) == KITCHEN
+
+
+def test_the_room_matches_a_player_name_loosely(live_server, transport):
+    # The area is typed in Home Assistant and the player named in LMS, by the
+    # same person on two different days. «Cucina» has to find «Cucina Hi-Fi».
+    srv = live_server(multiroom=_multiroom(
+        players=[{"playerid": KITCHEN, "name": "Cucina Hi-Fi"}]))
+    srv.json_post("/api/v1/command", {"text": "pausa", "room": "Cucina"})
+    assert _player_of_last_command(transport) == KITCHEN
+
+
+def test_an_explicit_player_outranks_the_room(live_server, transport):
+    # `player` is an id, `room` is a name somebody typed. The id wins: a
+    # caller that went to the trouble of resolving a player has said more
+    # than a satellite reporting where it stands.
+    srv = live_server(multiroom=_multiroom())
+    srv.json_post("/api/v1/command",
+                  {"text": "pausa", "player": "aa:aa", "room": "Cucina"})
+    assert _player_of_last_command(transport) == "aa:aa"
+
+
+def test_a_room_in_the_sentence_beats_the_room_it_came_from(live_server,
+                                                            transport):
+    # Standing in the living room and asking for the kitchen is an intention,
+    # not a mistake. The field picks the Router; `Router._handle` re-aims the
+    # turn on top of it, which is the whole reason the field is resolved
+    # before the router and not inside it.
+    srv = live_server(multiroom=_multiroom())
+    srv.json_post("/api/v1/command",
+                  {"text": "pausa in cucina", "room": "Salotto"})
+    assert _player_of_last_command(transport) == KITCHEN
+
+
+def test_an_unknown_room_refuses_instead_of_playing_elsewhere(live_server,
+                                                              transport):
+    # The asymmetry this field is built on: a refusal costs a repeat, and
+    # starting the music in the living room because the kitchen did not
+    # resolve is an event in somebody's house that they have to go and undo.
+    srv = live_server(multiroom=_multiroom())
+    reply = srv.json_post("/api/v1/command",
+                          {"text": "metti Time", "room": "Bagno"})
+    assert reply["ok"] is False
+    assert set(reply) == CONTRACT_FIELDS      # the shape never narrows
+    assert "Bagno" in reply["speech"]         # name the guess, so it is visible
+    assert reply["unmatched"] is False        # a grammar gap it is not
+    assert transport.calls == []              # and nothing happened anywhere
+
+
+def test_a_disconnected_player_is_not_a_room(live_server, transport):
+    # Targeting a player LMS reports as disconnected swallows the command and
+    # plays nothing, silently — the one outcome worse than refusing.
+    srv = live_server(multiroom=_multiroom(
+        players=[{"playerid": KITCHEN, "name": "Cucina", "connected": False}]))
+    reply = srv.json_post("/api/v1/command",
+                          {"text": "metti Time", "room": "Cucina"})
+    assert reply["ok"] is False
+    assert transport.calls == []
+
+
+def test_the_refusal_speaks_the_language_of_the_request(live_server):
+    # It answers before the router is reached, so it is the only reply whose
+    # language nothing downstream sets.
+    srv = live_server(multiroom=_multiroom())
+    reply = srv.json_post("/api/v1/command",
+                          {"text": "play Time", "room": "Bathroom",
+                           "lang": "en"})
+    assert reply["speech"] == msg("room_unknown", lang="en", room="Bathroom")
+
+
+def test_an_unsupported_language_falls_back_rather_than_raising(live_server):
+    # `msg` raises KeyError on a catalog that does not exist, and this reply
+    # is built outside the router that would have normalised the code.
+    srv = live_server(multiroom=_multiroom())
+    reply = srv.json_post("/api/v1/command",
+                          {"text": "toca Time", "room": "Bagno", "lang": "pt"})
+    assert reply["ok"] is False
+    assert reply["speech"] == msg("room_unknown", lang="it", room="Bagno")
+
+
+def test_without_pro_the_room_is_ignored_rather_than_refused(live_server,
+                                                             transport):
+    # A free install has one player, and the caller never asked for Pro — it
+    # said where it was standing. Refusing would answer a question nobody put.
+    srv = live_server(multiroom=_multiroom(pro=False))
+    reply = srv.json_post("/api/v1/command", {"text": "pausa", "room": "Bagno"})
+    assert reply["ok"] is True
+    assert _player_of_last_command(transport) != KITCHEN
+
+
+def test_without_the_pro_module_the_room_is_inert(live_server, transport):
+    # No multiroom object at all: the field has to be dead, not fatal.
+    srv = live_server()
+    reply = srv.json_post("/api/v1/command", {"text": "pausa", "room": "Cucina"})
+    assert reply["ok"] is True
+    assert _player_of_last_command(transport) != KITCHEN
+
+
+def test_an_absent_room_behaves_exactly_as_before(live_server, transport):
+    srv = live_server(multiroom=_multiroom())
+    reply = srv.json_post("/api/v1/command", {"text": "pausa"})
+    assert reply["ok"] is True
+    assert _player_of_last_command(transport) != KITCHEN
+
+
+@pytest.mark.parametrize("room", [7, ["Cucina"], {"name": "Cucina"}, None, ""])
+def test_a_room_that_is_not_a_name_is_ignored(live_server, transport, room):
+    # Same YAML-looseness worry as `text` and `alternatives`: the first client
+    # of this contract is a blueprint rendering templates, and an empty one
+    # renders to "". None of these may refuse a turn.
+    srv = live_server(multiroom=_multiroom())
+    reply = srv.json_post("/api/v1/command", {"text": "pausa", "room": room})
+    assert reply["ok"] is True
+    assert transport.commands()[-1] == ["pause", "1"]

@@ -133,7 +133,7 @@ rest_command:
     payload: >-
       {"text": {{ text | to_json }}, "lang": {{ lang | to_json }},
        "conversation_id": {{ conversation_id | to_json }},
-       "player": {{ player | to_json }}}
+       "player": {{ player | to_json }}, "room": {{ room | to_json }}}
 ```
 
 `verify_ssl: false` is not laziness: Vivavoce serves HTTPS with the certificate
@@ -160,6 +160,20 @@ Assistant (which is usually bridged), use `https://<ip>:8730`. Use `http://`
 only if you started the server with `VIVAVOCE_HTTPS=0`. Leave **LMS player** empty unless you have
 several players and want this automation pinned to one — that is the multi-room
 Pro feature.
+
+**Play in the room that was spoken to** is off by default, and leaving it off
+is the right call until one thing is true in your house: that each satellite's
+Home Assistant **area** is named like the Vivavoce player standing in it — an
+area «Cucina» and a player called «Cucina» or «Cucina Hi-Fi». Turn it on and a
+sentence carries the area it was spoken in, so «metti Time» said to the
+kitchen satellite plays in the kitchen without being told. The part to
+understand before switching it on: when the area names no *connected* player,
+Vivavoce **says so and does nothing** rather than starting the music in
+another room. That is the behaviour you want the day a name is wrong, and it
+also means a name that is wrong *today* fails every command from that
+satellite until you fix it. Saying the room out loud («metti Time in cucina»)
+works either way and still wins over this. Needs Pro; with **LMS player** set,
+that one wins and this does nothing.
 
 Say «metti Comfortably Numb dei Pink Floyd». If two songs genuinely match,
 Vivavoce reads them out and you answer «la 2» — and on a voice satellite it is
@@ -189,9 +203,13 @@ search instead of being answered by whoever could.
 
 **Home Assistant keeps everything else**, and that deliberately includes
 **transport** — pause, resume, next, previous, volume. Home Assistant covers
-those in both languages already, and covers them *better*, because its version
-knows which room you are in and Vivavoce's would always reach one configured
-player. Taking "pause" would also have stopped your television.
+those in both languages already, and covers them for *every* media player in
+the house, where Vivavoce only ever speaks to the music system it was pointed
+at. Taking "pause" would also have stopped your television. (The original
+reason given here was that Home Assistant's version knows which room you are
+in and Vivavoce's does not. With the option above that is no longer the
+difference — but the other two reasons were always the stronger pair, and they
+have not moved.)
 
 **Search is the opposite case, and it is why this blueprint exists.** Home
 Assistant's built-in `HassMediaSearchAndPlay` starts the first result without

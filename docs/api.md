@@ -37,6 +37,7 @@ one call per action, it is the whole voice interface behind one route.
 | `lang` | string | `"it"` | `it`, `en`, `fr` or `de`. The language the sentence is *in*, and the language the answer comes back in. Anything else falls back to Italian. |
 | `source` | string | `"auto"` | Where music comes from when the sentence does not say: `auto` (the local library first, then the streaming service), `local`, or a service name (`tidal`, `qobuz`). Phrases like «dalla mia musica» / «da tidal» override it, at either end of the sentence («da qobuz metti Time», «metti Time da qobuz»). A service that is installed but logged out is skipped in favour of one that is connected, and the reply names whichever answered. |
 | `player` | string | `""` | The id of the player to command, instead of the server's default player. On an LMS that is the player's MAC; on Music Assistant it is its `player_id`. Either way it is a value `GET /players` handed out, not one to compose by hand. Requires Pro (multi-room); ignored otherwise. |
+| `room` | string | `""` | The room the sentence was spoken **in** — a name, not an id: the Home Assistant area of the satellite that heard it. Resolved against the player names the same way «metti Time in cucina» is. `player` outranks it (an id says more than a name), and a room named *inside* the sentence outranks it too — that is somebody asking for another room on purpose. A name that matches no **connected** player does not fall back to the default player: it is refused, and the reply says so. Requires Pro (multi-room); without it the field is ignored, not refused. |
 | `alternatives` | string[] | `[text]` | Speech-recognition alternatives, best first. Each is tried until one is understood; only an understood one ever plays anything, so a wrong guess has no side effect. `used` says which one won. |
 
 Unknown fields are ignored. A body that is not a JSON object (empty, malformed,
@@ -126,26 +127,47 @@ gets «Prima chiedimi un elenco» and no explanation. An evicted conversation
 loses its open list and nothing else, so nothing breaks; it just forgets. If
 you can reuse a conversation id across turns, do.
 
-### Why there is no `room` in v1
+### `room`, and why it was not in v1 at first
 
-The roadmap sketched a `room` field and the Home Assistant spike identified its
-first real use — the HA area a command came from. It is deliberately **not** in
-v1, and here is why:
+The field above arrived after v1 shipped. The three arguments that kept it out
+are kept here rather than quietly deleted, because only one of them turned out
+to be wrong — and each shaped how the field finally works:
 
-* rooms already work, **inside the sentence**: «metti X in cucina» is parsed
-  and routed by the router today (Pro, multi-room). A `room` field would be a
-  second way to say something the grammar already says;
-* the explicit selector that exists is `player`, and it takes an **LMS player
-  id** — an unambiguous handle, not a name that has to be resolved;
-* a `room` field would need a name→player resolver (fuzzy, localised, and
+* *«rooms already work, inside the sentence»* — **still true**, and it is why
+  `room` is an addition rather than a replacement. «metti X in cucina» is
+  parsed and routed exactly as before, and it **wins** over this field. The
+  two answer different questions: one is where the speaker is standing, the
+  other is where they want the music, and only the second is a request.
+* *«the explicit selector that exists is `player`, and it takes an id — an
+  unambiguous handle, not a name that has to be resolved»* — **still true**,
+  and it is why `player` outranks `room` rather than the other way round. A
+  caller that can resolve a player should send one.
+* *«a `room` field would need a name→player resolver (fuzzy, localised, and
   wrong in a household with a player called "Salotto" and an HA area called
   "Living room"). Designing that against no real client is designing against a
-  guess.
+  guess»* — this is the one that did not survive, and it failed twice over.
+  The resolver did not have to be designed: it **already existed**, because it
+  is what the spoken path has always used (`localvoice/pro/multiroom.py`), and
+  sharing it is the point — one threshold, one rule about disconnected
+  players, both paths. And the client stopped being hypothetical when T3.3
+  shipped the Home Assistant blueprint on 2026-08-28 against a real Home
+  Assistant. What the objection got right is the household it describes: that
+  one is real, and it is answered by refusing rather than by guessing — below.
 
-T3.3 implements the actual Home Assistant integration. If a room field is
-still the right answer with a real HA in front of it, it arrives then — as an
-**addition**, which this contract allows, rather than a rename, which it does
-not.
+**An unresolved room is refused, not approximated.** If the name matches no
+connected player the answer is `ok: false` and a `speech` that names the room
+it could not find. That is deliberate and it is the same asymmetry the spoken
+path settled on: refusing costs the user a repeat, while starting the music in
+the living room because the kitchen did not resolve is an event in somebody's
+house that they have to get up and undo. A disconnected player counts as
+unresolved for the same reason — commanding it swallows the sentence and plays
+nothing, silently.
+
+The consequence for a client is worth stating plainly: **send `room` only when
+the names line up.** A caller that sends an area name matching nothing will
+have every one of its turns refused, which is correct behaviour and a
+thoroughly annoying way to discover a typo. This is why the blueprint keeps it
+behind an option that is off by default.
 
 ### Failure modes
 

@@ -6,6 +6,7 @@ degrade to a friendly Italian message)."""
 import pytest
 
 import actions
+import playback
 from messages import msg
 from actions import parse_song_query
 
@@ -107,6 +108,186 @@ def test_play_song_from_album_title_missing_plays_whole_album(lms, transport, ma
 def test_play_song_album_not_found(lms, transport, make_tidal):
     transport.responses["tidal"] = make_tidal(categories={"Songs": "S"}, items={})
     assert actions.play_song(lms, "X dall'album Y") == "Non ho trovato l'album Y."
+
+
+# -- a stream that never arrives ------------------------------------------
+# The incident these cover (2026-09-14, real hi-fi): the TIDAL plugin's token
+# had expired. Its menu, its search and its urls were all perfectly healthy —
+# «bla bla bla» came back as Gigi D'Agostino's, scored 1.00 — and the audio
+# answered 401. LMS took the track, the player went back to stop, and the app
+# said «Riproduco Bla Bla Bla» to a silent room. ``can_search`` cannot see
+# this: it asks the half of the plugin that still works.
+def _one_song(make_tidal, url="tidal://63261261.flc", name="Bla Bla Bla"):
+    return make_tidal(categories={"Songs": "S"},
+                      items={"S": [{"isaudio": 1, "url": url, "name": name}]})
+
+
+def _stopped(title="Bla Bla Bla"):
+    """What LMS answers when ONE track was queued and never started: with
+    nowhere to walk to, the player is simply at stop."""
+    return {"mode": "stop", "playlist_loop": [{"title": title}]}
+
+
+def _walking(index=3, title="Bla Bla Bla"):
+    """What it answers while a whole queue fails track by track — verbatim in
+    shape from the real hi-fi, where twenty tracks reached index 19 with the
+    elapsed time still at zero and the mode still «play»."""
+    return {"mode": "play", "time": 0, "playlist_cur_index": str(index),
+            "playlist_loop": [{"title": title}]}
+
+
+def test_a_track_that_never_starts_names_the_service_instead_of_confirming(
+        lms, transport, make_tidal):
+    transport.responses["tidal"] = _one_song(make_tidal)
+    transport.responses["status"] = _stopped()
+    res = actions.play_song(lms, "bla bla bla")
+    assert str(res) == "TIDAL non è collegato."
+    assert res.ok is False
+    assert res.kind == playback.STREAM_OFFLINE
+
+
+def test_the_queue_that_will_never_play_is_emptied(lms, transport, make_tidal):
+    transport.responses["tidal"] = _one_song(make_tidal)
+    transport.responses["status"] = _stopped()
+    actions.play_song(lms, "bla bla bla")
+    # Nothing else put it there and nothing else will take it away: leaving it
+    # would show a track in the now-playing panel that cannot be played.
+    assert ["playlist", "clear"] in transport.commands()
+
+
+def test_a_stream_still_filling_its_buffer_is_not_called_offline(
+        lms, transport, make_tidal):
+    # Measured against the real hi-fi: a healthy qobuz:// stream stays
+    # mode=play with elapsed at ZERO for about three seconds while it buffers.
+    # Reading the elapsed time instead of the mode would call every one of
+    # those a dead service.
+    transport.responses["tidal"] = _one_song(make_tidal, "tidal://42.flc", "Time")
+    transport.responses["status"] = {"mode": "play", "time": 0,
+                                     "playlist_loop": [{"title": "Time"}]}
+    assert str(actions.play_song(lms, "time")) == "Riproduco Time."
+
+
+def test_a_player_that_stops_answering_is_not_a_disconnected_service(
+        lms, transport, make_tidal):
+    # Two different facts, and the one that must not be invented is "TIDAL is
+    # not connected" when what actually happened is that the hi-fi went away.
+    transport.responses["tidal"] = _one_song(make_tidal, "tidal://42.flc", "Time")
+    transport.raise_on.add("status")
+    assert str(actions.play_song(lms, "time")) == "Riproduco Time."
+
+
+def test_the_player_is_asked_only_after_the_settle(
+        lms, transport, make_tidal, monkeypatch):
+    # The wait is the whole mechanism: asked immediately, a dead stream still
+    # reads mode=play (0.07s in the measurement) and nothing is caught.
+    monkeypatch.setattr(playback, "PLAYBACK_SETTLE", 0.6)
+    waited = []
+    monkeypatch.setattr(playback.time, "sleep", waited.append)
+    transport.responses["tidal"] = _one_song(make_tidal)
+    transport.responses["status"] = _stopped()
+    actions.play_song(lms, "bla bla bla")
+    assert waited == [0.6]
+    cmds = transport.commands()
+    assert cmds.index(["playlist", "play", "tidal://63261261.flc"]) < \
+        min(i for i, c in enumerate(cmds) if c[0] == "status")
+
+
+def test_a_backend_that_cannot_name_its_service_is_not_made_to_wait(monkeypatch):
+    # The sentence is «<service> is not connected»; with no name to put in it
+    # there is nothing to report, so the check stands down instead of guessing
+    # — and does not spend the settle on an answer it could not use.
+    monkeypatch.setattr(playback, "PLAYBACK_SETTLE", 0.6)
+    monkeypatch.setattr(playback.time, "sleep",
+                        lambda _s: pytest.fail("waited for nothing"))
+
+    class Nameless:
+        def now_playing_info(self):
+            pytest.fail("asked a player it had nothing to ask about")
+
+    assert playback.after_play(Nameless()) == (None, playback.UNREAD)
+
+
+def test_queueing_a_track_is_not_held_to_the_playback_check(
+        lms, transport, make_tidal):
+    # «aggiungi X alla coda» starts nothing, so a stopped player is the normal
+    # state and says nothing about the service.
+    transport.responses["tidal"] = _one_song(make_tidal, "tidal://42.flc", "Time")
+    transport.responses["status"] = {"mode": "stop", "playlist_loop": []}
+    res = actions.play_song(lms, "time", mode="add")
+    assert res.ok is True
+    assert ["playlist", "add", "tidal://42.flc"] in transport.commands()
+
+
+def test_an_artists_whole_shelf_that_never_starts_names_the_service(
+        lms, transport, make_tidal):
+    # «canzoni di Gigi D'Agostino»: venti brani accettati, coda piena, stanza
+    # muta. The same expired token as the song path, one branch over — and the
+    # branch that queues twenty tracks is the one where the silence is worst.
+    transport.responses["tidal"] = make_tidal(categories={"Artists": "A"},
+                                              items=_artist_tracks())
+    # Not a stopped player: at this point it is still «play», three tracks
+    # into a queue it will fail all the way down. Reading the mode alone —
+    # enough for one song — sees nothing here.
+    transport.responses["status"] = _walking()
+    res = actions.play_artist(lms, "Pink Floyd")
+    assert str(res) == "TIDAL non è collegato."
+    assert res.kind == playback.STREAM_OFFLINE
+    assert ["playlist", "clear"] in transport.commands()
+
+
+def test_one_unplayable_track_is_not_the_whole_service_being_out(
+        lms, transport, make_tidal):
+    # A top track whose rights lapsed in one country advances the queue by one
+    # and then plays. Calling that «TIDAL non è collegato» would be a worse
+    # lie than the one being fixed, so one is not enough: see WALKED_AWAY.
+    transport.responses["tidal"] = make_tidal(categories={"Artists": "A"},
+                                              items=_artist_tracks())
+    transport.responses["status"] = _walking(index=1)
+    res = actions.play_artist(lms, "Pink Floyd")
+    assert res.ok is True
+    assert "non è collegato" not in str(res)
+
+
+def test_a_queue_that_is_merely_buffering_is_not_walking(lms, transport, make_tidal):
+    # Still on the track it started, nothing played yet: three seconds of this
+    # is what a healthy stream looks like.
+    transport.responses["tidal"] = make_tidal(categories={"Artists": "A"},
+                                              items=_artist_tracks())
+    transport.responses["status"] = _walking(index=0)
+    assert actions.play_artist(lms, "Pink Floyd").ok is True
+
+
+def test_an_album_that_never_starts_names_the_service(lms, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Albums": "AL"},
+        items={"AL": [{"type": "playlist", "id": "ALB", "name": "The Wall"}]},
+    )
+    transport.responses["status"] = _stopped("The Wall")
+    assert str(actions.play_album(lms, "the wall")) == "TIDAL non è collegato."
+
+
+def test_a_playlist_that_never_starts_names_the_service(lms, transport, make_tidal):
+    transport.responses["tidal"] = make_tidal(
+        categories={"Playlists": "PL"},
+        items={"PL": [{"type": "playlist", "id": "P1", "name": "Relax"}]},
+    )
+    transport.responses["status"] = _stopped("Relax")
+    assert str(actions.play_playlist(lms, "relax")) == "TIDAL non è collegato."
+
+
+def test_the_local_library_is_not_held_to_the_streaming_check(
+        lms, transport, make_tidal):
+    # A client is always aimed at SOME service, so a local row that does not
+    # play must never come back as «TIDAL non è collegato»: that would blame a
+    # service nobody asked anything of. The library has its own answer for
+    # audio a plugin owns — blocking_service, which reads the row's own url.
+    transport.responses["titles"] = {"titles_loop": [
+        {"id": 7, "title": "Time", "artist": "Pink Floyd",
+         "url": "file:///srv/mediaserver/time.flac"}]}
+    transport.responses["status"] = _stopped("Time")
+    res = actions.play_local(lms, "Time")
+    assert res.ok is True
+    assert "non è collegato" not in str(res)
 
 
 # -- play_album -----------------------------------------------------------

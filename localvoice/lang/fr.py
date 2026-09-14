@@ -336,3 +336,9 @@ PATTERNS = {
                     rf"\s+.{{0,12}}bloqu"
                     rf"|liste\s+(?:des\s+)?bloqu)"),
 }
+
+
+#: Verbes en un seul mot, pour réparer un verbe mal entendu
+#: (``parsing.repair_play_verb``).
+PLAY_VERBS = ("mets", "remets", "joue", "jouer", "lance", "lancer",
+              "écoute", "écouter", "démarre", "balance")

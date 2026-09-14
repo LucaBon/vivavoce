@@ -20,17 +20,12 @@ from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
                       _covers, _normalize, _rank, _score,
                       parse_song_query)
 from messages import msg
+# PLAYBACK_SETTLE and UNREAD are not used here: they are part of the
+# re-export promise made at the bottom of this file.
+from playback import (PLAYBACK_SETTLE, STREAM_OFFLINE, UNREAD, WALKED_AWAY,
+                      _walked_away, after_play, confirm_song, started,
+                      undo_play)
 from player.errors import PlayerError
-
-
-def _undo_play(lms) -> None:
-    """Stop and empty what we just started. ``mode="play"`` replaces the queue,
-    so this only undoes our own action — used when the artist turns out to be
-    blocked and we learn it only from the now-playing status."""
-    try:
-        lms.clear_queue()
-    except PlayerError:
-        pass
 
 
 def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
@@ -48,13 +43,20 @@ def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
         return ActionResult(msg("no_track_found", title=fallback_title), ok=False)
     if mode == "play":
         lms.play_url(url)
-        speech, terms = _confirm_song(lms, track, fallback_title)
-        # _confirm_song may have LEARNED the artist from the now-playing
+        # Did the audio actually arrive? The same reading carries the artist
+        # the search may not have given — see playback.after_play.
+        silent, now = after_play(lms)
+        if silent:
+            undo_play(lms)
+            return ActionResult(msg("service_not_connected", service=silent),
+                                ok=False, kind=STREAM_OFFLINE)
+        speech, terms = confirm_song(lms, track, fallback_title, now)
+        # confirm_song may have LEARNED the artist from the now-playing
         # status: TIDAL song-search items don't always carry one, and a
         # blocked artist discovered a moment late must still not play — and
         # certainly must not be read aloud in the confirmation.
         if guard and guard.blocks(*terms):
-            _undo_play(lms)
+            undo_play(lms)
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         return ActionResult(speech, ok=True, terms=terms)
     getattr(lms, f"{mode}_url")(url)
@@ -175,26 +177,6 @@ def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None,
     return _did_you_mean(title, _dedup_by_title_artist(head))
 
 
-def _confirm_song(lms, track: Dict, fallback_title: Optional[str]):
-    """Confirm what's playing, adding the artist when known. Returns
-    ``(speech, terms)`` where terms are the foreign name(s) in the speech. TIDAL
-    song-search items carry no artist, but the now-playing status does — so we
-    read it back once and use it only if the playing title matches what we just
-    started (guards against status still showing the previous track)."""
-    name = track.get("title") or fallback_title
-    artist = track.get("artist")
-    if not artist and name:
-        try:
-            now = lms.now_playing_info()
-        except PlayerError:
-            now = None
-        if now and _normalize(now.get("title")) == _normalize(name):
-            artist = now.get("artist")
-    if artist:
-        return msg("playing_by", name=name, artist=artist), [name, artist]
-    return msg("playing", name=name), [name]
-
-
 def _play_from_album(
     lms, title: Optional[str], album: str, *, mode: str = "play",
     guard: Optional[Guard] = None
@@ -250,7 +232,8 @@ def play_album(lms, album: Optional[str], *, guard: Optional[Guard] = None) -> A
     except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
     name = item["title"] or album
-    return ActionResult(msg("playing_album", album=name), ok=True, terms=[name])
+    return started(lms, ActionResult(msg("playing_album", album=name),
+                                     ok=True, terms=[name]))
 
 
 def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
@@ -278,7 +261,8 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
         lms.play_tracks(tracks)
     except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
-    return ActionResult(msg("playing_artist", artist=artist), ok=True, terms=[artist])
+    return started(lms, ActionResult(msg("playing_artist", artist=artist),
+                                     ok=True, terms=[artist]))
 
 
 def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> ActionResult:
@@ -299,7 +283,8 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
         lms.play_browse_item(item["id"])
     except PlayerError:
         return ActionResult(msg("err_unreachable"), ok=False)
-    return ActionResult(msg("playing_playlist", name=name), ok=True, terms=[name])
+    return started(lms, ActionResult(msg("playing_playlist", name=name),
+                                     ok=True, terms=[name]))
 
 
 # -- favorites & radio (core LMS feature, not a plugin) --------------------
@@ -355,8 +340,8 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 # -- the rest of the engine, still reachable from here ------------------------
 #
 # This module was 1054 lines and is now the streaming play family alone: the
-# scoring, the blocklist, the transport controls and the local library live
-# next door. It goes on re-exporting every one of their names, and not out of
+# scoring, the blocklist, the transport controls, the local library and the
+# after-the-play check live next door. It goes on re-exporting every one of their names, and not out of
 # politeness — the router, the tools and a great many tests reach for
 # ``actions.play_local``, ``actions._score``, ``actions.Guard``, private names
 # included, and a split whose whole claim is that nothing behaves differently
@@ -364,7 +349,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 #
 # Generated from what those modules actually define. Adding a name over there
 # and forgetting it here is the one mistake this file can still make on its
-# own, which is why a test walks the four modules and checks.
+# own, which is why a test walks the five modules and checks.
 # ruff: noqa: E402, F401
 from matching import (BLOCKLIST, LIST_LIMIT, NEAR_ARTIST_SCORE, _LEAD_FILLER,
                       _strip_lead_filler, LOCAL_CONFIDENT, _label,

@@ -31,12 +31,13 @@ import threading
 import time
 
 import actions
-from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL, OFFER,
+from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
                           OFFER_TTL, ConversationState)
+from alternatives import AlternativeSweep
 from intents import IntentTable
 from lang import PACKS
 from messages import msg, set_lang
-from parsing import _reportable, clean_command
+from parsing import clean_command
 from sources import SourceChoice
 
 # The two windows are defined next to the state they bound, but they are still
@@ -49,6 +50,9 @@ __all__ = ["Router", "PATTERNS", "MOOD_WORDS",
 # is the it-fallback the whole app relies on. (Kept under this name: the
 # tests assert on cross-language key parity through it.)
 PATTERNS = {code: pack.PATTERNS for code, pack in PACKS.items()}
+#: I verbi di play per lingua, per riparare un verbo mal sentito quando
+#: nient'altro ha agganciato (vedi ``IntentTable._route``).
+PLAY_VERBS = {code: pack.PLAY_VERBS for code, pack in PACKS.items()}
 
 # Mood vocabularies, deliberately NOT merged across languages the way the
 # number tables below are. A number word is a label for a position and means
@@ -60,7 +64,8 @@ MOOD_WORDS = {code: pack.MOOD_WORDS for code, pack in PACKS.items()}
 
 
 
-class Router(ConversationState, IntentTable, SourceChoice):
+class Router(ConversationState, IntentTable, SourceChoice,
+             AlternativeSweep):
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
                  kidsafe=None, client_id="default", multiroom=None,
                  now=time.monotonic):
@@ -182,70 +187,6 @@ class Router(ConversationState, IntentTable, SourceChoice):
         :meth:`_play_branch`."""
         return self._play_branch(t, P)[1]
 
-    def handle_many(self, alternatives, source: str = "tidal", lang: str = "it") -> dict:
-        """Try each speech-recognition alternative until one is a hit.
-
-        Web Speech (it-IT) often mangles English names ('Audioslave' -> 'sfigati');
-        a lower-ranked alternative frequently transcribes them better. Playback
-        happens only on a hit, so trying a miss has no side effect. Returns
-        ``{'speech', 'used'}`` where ``used`` is the alternative that was kept
-        (the primary one if none matched)."""
-        set_lang(lang)
-        alts = [a for a in (alternatives or []) if (a or "").strip()]
-        if not alts:
-            return {"speech": msg("heard_nothing"), "used": "", "ok": False,
-                    "terms": [], "choices": [], "needs_choice": False,
-                    "unmatched": False}
-        primary = None
-        for alt in alts:
-            speech = self.handle(alt, source, lang)
-            # A result is a hit when it acted on the request, and ``.ok`` is
-            # how it says so. The ``getattr`` default is a backstop for a
-            # plain string, and nothing in this codebase returns one any more:
-            # it used to, and the heuristic was wrong in both languages, not
-            # just in English as it once claimed. «Per farlo in Cucina serve
-            # Pro» does not start with "non", so a refusal was reported as a
-            # hit — to the web app, and to ``/api/v1/command``'s ``ok``, which
-            # is a promise made to callers who cannot read the sentence. Every
-            # path now carries the flag; the default stays for an injected
-            # action from outside the engine, and keeps the old reading so
-            # such a caller sees no change.
-            ok = getattr(speech, "ok", not speech.strip().lower().startswith("non "))
-            if primary is None:
-                primary = (speech, _reportable(alt), ok, self._unmatched)
-            # A gate is the end of the turn even though it is not a hit. The
-            # alternatives exist to find better *words*; a gate has already
-            # said the words are not the problem — no licence, not the owner,
-            # not for this listener — so trying the next one cannot change
-            # the answer, and can do harm. «metti Beatles in salotto» on the
-            # free tier is refused with the room named and the way out; its
-            # second-best transcription is «metti Beatles», which names no
-            # room, sails past the gate and starts the music in the kitchen.
-            # The listener never hears the refusal. Same shape for kid-safe:
-            # retry the blocked artist until one spelling slips through.
-            #
-            # An OFFER ends the turn for the same reason from the other side:
-            # it asked a question, the answer is the next turn's, and routing
-            # the second-best transcription over it would throw the question
-            # away between asking it and reading it out.
-            if not ok and getattr(speech, "kind", None) in (actions.GATE, OFFER):
-                return {"speech": speech, "used": _reportable(alt), "ok": False,
-                        "terms": list(getattr(speech, "terms", [])),
-                        "choices": self._choices(),
-                        "needs_choice": self._needs_choice(),
-                        "unmatched": False}
-            if ok:
-                return {"speech": speech, "used": _reportable(alt), "ok": True,
-                        "terms": list(getattr(speech, "terms", [])),
-                        "choices": self._choices(),
-                        "needs_choice": self._needs_choice(),
-                        "unmatched": False}
-        return {"speech": primary[0], "used": primary[1], "ok": primary[2],
-                "terms": list(getattr(primary[0], "terms", [])),
-                "choices": self._choices(),
-                "needs_choice": self._needs_choice(),
-                "unmatched": primary[3]}
-
     #: Wall-clock budget for one spoken turn, shared by every LMS call it
     #: makes (see ``LMSClient.turn_deadline``). Ten seconds is the point past
     #: which a person has already decided nothing is going to happen: better
@@ -254,12 +195,20 @@ class Router(ConversationState, IntentTable, SourceChoice):
     #: client's own ``timeout``; this bounds their sum.
     TURN_BUDGET = 10.0
 
-    def handle(self, text: str, source: str = "tidal", lang: str = "it") -> str:
-        """One turn, bounded (see :attr:`TURN_BUDGET`)."""
-        with self._base_lms.turn_deadline(self.TURN_BUDGET):
-            return self._handle(text, source, lang)
+    def handle(self, text: str, source: str = "tidal", lang: str = "it",
+               *, repair: bool = True) -> str:
+        """One turn, bounded (see :attr:`TURN_BUDGET`).
 
-    def _handle(self, text: str, source: str = "tidal", lang: str = "it") -> str:
+        ``repair=False`` spegne la riparazione del verbo mal sentito per
+        questo turno. Serve a :meth:`handle_many`, che deve poter provare le
+        alternative *così come sono* prima di mettersi a correggerle — vedi lì
+        il perché. Chi chiama un turno solo la vuole accesa, ed è il default.
+        """
+        with self._base_lms.turn_deadline(self.TURN_BUDGET):
+            return self._handle(text, source, lang, repair=repair)
+
+    def _handle(self, text: str, source: str = "tidal", lang: str = "it",
+                *, repair: bool = True) -> str:
         # Reset per turn; _remember/_played set it when this turn opens a list.
         # A bare 'metti la N' pick doesn't re-open one, so its reply carries no
         # buttons (the list was already shown on the previous reply).
@@ -288,6 +237,12 @@ class Router(ConversationState, IntentTable, SourceChoice):
         self._mood_turn = False
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
+        self._verbs = PLAY_VERBS.get(lang) or PLAY_VERBS["it"]
+        # Letto da ``IntentTable._route`` nel suo fallback. Attributo e non
+        # parametro perché ``_route`` è chiamato da due rami di questo metodo
+        # (con e senza stanza) e un kwarg in più andrebbe infilato in
+        # entrambi senza che nessuno dei due abbia niente da dire in merito.
+        self._may_repair = repair
         self._mood_words = MOOD_WORDS.get(lang) or MOOD_WORDS["it"]
         t = clean_command(text)
         if t is None:

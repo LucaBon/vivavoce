@@ -107,7 +107,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
     # versioned command route (/api/v1/command) live in audio_api.py and
     # api_v1.py; here is the only place the halves meet, and they call back
     # into _send/_query_params/_read_json_object below.
-    class Handler(api_v1_routes(router_for),
+    class Handler(api_v1_routes(router_for, multiroom),
                   audio_routes(license_mgr, transcriber, wakeword_sessions,
                                wake_phrase_store),
                   proxy_routes(lms.base_url, browse, proxy_open),

@@ -334,8 +334,22 @@ def test_now_playing_info_parses(lms, transport):
     transport.responses["status"] = {
         "playlist_loop": [{"title": "Time", "artist": "Pink Floyd"}]
     }
+    # index and elapsed come back zeroed rather than missing: a status that
+    # says nothing about the queue position must not read as "track three".
     assert lms.now_playing_info() == {"title": "Time", "artist": "Pink Floyd",
-                                     "mode": None}
+                                      "mode": None, "index": 0, "elapsed": 0.0}
+
+
+def test_now_playing_info_reads_the_queue_position_lms_sends_as_a_string(
+        lms, transport):
+    # «playlist_cur_index» is a string on the wire, and comparing it to a
+    # number is how a walking queue would have looked like a healthy one.
+    transport.responses["status"] = {
+        "mode": "play", "time": 0, "playlist_cur_index": "3",
+        "playlist_loop": [{"title": "Time"}],
+    }
+    now = lms.now_playing_info()
+    assert now["index"] == 3 and now["elapsed"] == 0.0
 
 
 def test_now_playing_info_carries_the_transport_mode(lms, transport):

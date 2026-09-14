@@ -24,6 +24,7 @@ sys.path.insert(0, ENGINE_DIR)
 sys.path.insert(0, LOCALVOICE_DIR)
 
 import httpbase  # noqa: E402
+import playback  # noqa: E402
 import server  # noqa: E402
 from lms import LMSClient, LMSError  # noqa: E402
 from player.ma_transport import MusicAssistantError  # noqa: E402
@@ -209,6 +210,18 @@ def qobuz(transport):
 def reset_lang():
     yield
     set_lang("it")
+
+
+@pytest.fixture(autouse=True)
+def no_playback_settle(monkeypatch):
+    """No test waits on a real clock.
+
+    ``playback.PLAYBACK_SETTLE`` is the beat the play path waits before asking
+    the player whether the audio really arrived (``playback.after_play``, and
+    the hi-fi measurements written down next to the constant). At its real
+    0.6s it would be 0.6s on every play in this suite; the tests that are
+    *about* the wait set it back themselves."""
+    monkeypatch.setattr(playback, "PLAYBACK_SETTLE", 0)
 
 
 # -- live HTTP server ----------------------------------------------------------

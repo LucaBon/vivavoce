@@ -41,6 +41,13 @@ class SourceChoice:
         logged out should play from the other two, and only then have anything
         to say about what it could not find.
 
+        The question is ``can_play``, not ``can_search``, and the difference is
+        a whole silent room: a plugin whose token has expired searches
+        perfectly and refuses only the audio, so measured by the search alone
+        it looks like the healthiest service on the hi-fi. What tells us
+        otherwise is a play that went nowhere, remembered on the client
+        (``engine/playback.py`` -> ``note_playback_failure``).
+
         The substitution is silent by design in one respect only: the reply is
         still tagged with the service that actually answered ("… da Qobuz"),
         so the user is told where the music came from rather than left to
@@ -52,10 +59,15 @@ class SourceChoice:
         """
         nominal = source if source in self.services else self.default_service
         try:
-            if self.lms.for_service(nominal).can_search():
+            # Before choosing, close the book on the last start: the shape of
+            # silence that only time can tell (a player that says «play» and
+            # never advances) has had its time by now, and settling it here
+            # costs the reply that produced it nothing.
+            self.lms.settle_pending()
+            if self.lms.for_service(nominal).can_play():
                 return nominal
             for name in self.services:
-                if name != nominal and self.lms.for_service(name).can_search():
+                if name != nominal and self.lms.for_service(name).can_play():
                     return name
         except PlayerError:
             # The server did not answer at all, which is not the same fact as
@@ -100,16 +112,18 @@ class SourceChoice:
             return res
         return actions.ActionResult(message, ok=False)
 
-    def _connected_service(self, exclude=None):
-        """The first configured service that can answer today, or None.
+    def _connected_service(self, exclude=()):
+        """The first configured service that can play today, or None.
+        ``exclude`` is every service already ruled out this turn.
 
         ``_stream_name`` picks one to substitute silently; this one picks one
         to OFFER, which is the same question asked where the user named a
         source and a silent swap would be answering a different request from
-        the one they made."""
+        the one they made — and one to fall through to, when the service that
+        was picked turned out to play nothing (:meth:`_retry_elsewhere`)."""
         try:
             for name in self.services:
-                if name != exclude and self.lms.for_service(name).can_search():
+                if name not in exclude and self.lms.for_service(name).can_play():
                     return name
         except PlayerError:
             return None
@@ -123,7 +137,7 @@ class SourceChoice:
         request against it — next turn, if the answer is yes. With no other
         service connected there is nothing to offer and ``fallback`` is the
         answer: a question whose only answer is "no" is not worth asking."""
-        alt = self._connected_service(exclude)
+        alt = self._connected_service([exclude] if exclude else [])
         if alt is None:
             return fallback
         return self._offer(
@@ -214,8 +228,22 @@ class SourceChoice:
         themselves; playing it from Qobuz without asking answers a request
         nobody made. Asking is neither."""
         stream = self.lms.for_service(service)
+        # Naming a service clears any mark against it: «metti X da tidal» is
+        # not a request to be routed around, and it is what someone who has
+        # just logged the plugin back in will say. The play below re-earns the
+        # mark in the same breath if the audio still does not come.
+        stream.forget_playback_failure()
         res = play_fn(stream, arg, guard=self._guard)
-        if not stream.can_search():
+        if getattr(res, "kind", None) == actions.STREAM_OFFLINE:
+            # It searched, it found, it played nothing — so it did not fail to
+            # ANSWER, and ``_never_searched`` rightly says the reply is the
+            # service's own. It is also already the sentence this offer wants
+            # in front of it: «TIDAL non è collegato. Vuoi che la metta da
+            # Qobuz?»
+            return self._offer_other_service(
+                str(res), service,
+                lambda alt: self._resolve_named(arg, play_fn, alt), res)
+        if not stream.can_play():
             if not self._never_searched(res):
                 return res
             label = _service_label(service)
@@ -226,6 +254,28 @@ class SourceChoice:
                 actions.ActionResult(msg("service_offline", service=label),
                                      ok=False))
         return self._played(self._tag(res, _source_suffix(service)), service)
+
+    def _retry_elsewhere(self, res, name, run):
+        """``(result, the service it came from)``, having moved on from a
+        service that took the track and played nothing.
+
+        The silent substitution of :meth:`_stream_name` arrives one moment too
+        early to catch this: it chooses before anyone has played anything, and
+        a plugin with an expired token passes every question that can be asked
+        at that point. This is the same rule applied with the one fact that
+        only a play can produce — and the reply is tagged with whoever
+        answered in the end, so a swap is never a secret.
+
+        Only services that can play are tried, each at most once, so a hi-fi
+        with three of them silent says so instead of looping."""
+        tried = {name}
+        while getattr(res, "kind", None) == actions.STREAM_OFFLINE:
+            alt = self._connected_service(tried)
+            if alt is None:
+                return res, name
+            tried.add(alt)
+            res, name = run(self.lms.for_service(alt)), alt
+        return res, name
 
     def _resolve(self, arg: str, stream_fn, source: str, *, local_fn=None):
         """Point a request at the selected source. ``local_fn`` is the local
@@ -253,6 +303,8 @@ class SourceChoice:
         res = stream_fn(stream, arg, guard=guard)
         if offline:
             return self._if_searched(res, msg("no_service_online"))
+        res, name = self._retry_elsewhere(
+            res, name, lambda alt: stream_fn(alt, arg, guard=guard))
         return self._played(self._tag(res, _source_suffix(name)), name)
 
     def _resolve_queue(self, arg: str, mode: str, source: str):

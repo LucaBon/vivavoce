@@ -312,3 +312,203 @@ def test_the_artist_branch_survives_the_service_phrase_in_every_language(
     assert ["playlist", "play", "qobuz://10.flac"] in \
         qobuz_knows_pink_floyd.commands(), reply
     assert artist in str(reply)
+
+
+# -- the other shape of "not available": it searches, and plays nothing -------
+#
+# The second incident, on the same hi-fi (2026-09-14). The TIDAL plugin had
+# not logged out — it had merely lost its token. Its menu answered, its search
+# node was there, «bla bla bla» came back as Gigi D'Agostino's with a playable
+# url, and the audio answered 401: LMS took the track and the player was back
+# to stop a third of a second later. Measured by the search alone, which is
+# all anyone asked it, TIDAL was the healthiest service on the box — so
+# nothing was ever handed to Qobuz, and the room stayed silent.
+
+@pytest.fixture
+def tidal_plays_nothing(transport, make_feed):
+    """TIDAL searching perfectly and playing nothing, Qobuz able to do both.
+
+    The status is answered for whatever was last put in the queue, because
+    that is the entire signal: a ``tidal://`` url leaves the player stopped, a
+    ``qobuz://`` one plays.
+    """
+    def feed(scheme, track_id):
+        # Songs and Artists, because the twenty tracks of an artist are a
+        # different start (play_tracks) from one song's url, and both of them
+        # can come back silent.
+        url = f"{scheme}://{track_id}"
+        return make_feed(
+            categories={"Songs": "S", "Artists": "A"},
+            items={"S": [{"isaudio": 1, "url": url,
+                          "name": "Comfortably Numb", "artist": "Pink Floyd"}],
+                   "A": [{"type": "outline", "id": "AR", "name": "Pink Floyd"}],
+                   "AR": [{"name": "Top Tracks", "id": "TT"}],
+                   "TT": [{"isaudio": 1, "url": url, "name": "Comfortably Numb"},
+                          {"isaudio": 1, "url": f"{scheme}://2", "name": "Time"}]},
+        )
+
+    transport.responses["tidal"] = feed("tidal", "63261261.flc")
+    transport.responses["qobuz"] = feed("qobuz", "406889200.flac")
+
+    def status(cmd):
+        # play_tracks starts the first entry with «playlist play» and appends
+        # the rest, so this reads the start whether one track was asked for or
+        # twenty — and answers with the shape each one really produces. One
+        # dead track leaves a player at stop; a dead queue is still «play»,
+        # several tracks in, with nothing ever played.
+        cmds = transport.commands()
+        started = [i for i, c in enumerate(cmds) if c[:2] == ["playlist", "play"]]
+        if not started:
+            return {}
+        queued = sum(1 for c in cmds[started[-1]:] if c[:2] == ["playlist", "add"])
+        head = [{"title": "Comfortably Numb", "artist": "Pink Floyd"}]
+        if not cmds[started[-1]][2].startswith("tidal://"):
+            return {"mode": "play", "time": 3.0, "playlist_loop": head}
+        if not queued:
+            return {"mode": "stop", "time": 0, "playlist_loop": head}
+        return {"mode": "play", "time": 0, "playlist_cur_index": "3",
+                "playlist_loop": head}
+
+    transport.responses["status"] = status
+    return transport
+
+
+def _plays(transport, scheme):
+    return [c for c in transport.commands()
+            if c[:2] == ["playlist", "play"] and c[2].startswith(scheme)]
+
+
+def test_a_service_that_plays_nothing_hands_the_request_on(
+        router, tidal_plays_nothing):
+    # The whole point, in one line: the request is answered with the music,
+    # by whoever could actually deliver it, and the reply says who that was.
+    assert str(router.handle("metti Comfortably Numb dei Pink Floyd")) == \
+        "Riproduco Comfortably Numb di Pink Floyd da Qobuz."
+    assert _plays(tidal_plays_nothing, "tidal://")   # it was tried first
+    assert _plays(tidal_plays_nothing, "qobuz://")   # and handed on
+
+
+def test_the_next_request_does_not_buy_the_same_silence_again(
+        router, tidal_plays_nothing):
+    router.handle("metti Comfortably Numb dei Pink Floyd")
+    before = len(_plays(tidal_plays_nothing, "tidal://"))
+    assert str(router.handle("metti Comfortably Numb dei Pink Floyd")) == \
+        "Riproduco Comfortably Numb di Pink Floyd da Qobuz."
+    # Nothing was learned twice: a second silent play would replace the queue
+    # and empty it again for no new information.
+    assert len(_plays(tidal_plays_nothing, "tidal://")) == before
+
+
+def test_naming_the_mute_service_is_offered_a_way_round_not_a_swap(
+        router, tidal_plays_nothing):
+    # Naming a source says where to look. Being quietly sent elsewhere would
+    # answer a request nobody made, so this one is asked, not decided.
+    assert str(router.handle("da tidal metti Comfortably Numb dei Pink Floyd")) == \
+        "TIDAL non è collegato. Vuoi che la metta da Qobuz?"
+    assert not _plays(tidal_plays_nothing, "qobuz://")
+    assert str(router.handle("va bene")) == \
+        "Riproduco Comfortably Numb di Pink Floyd da Qobuz."
+
+
+def test_naming_it_again_really_asks_it_again(router, tidal_plays_nothing):
+    # The mark must never become a sentence. Someone who has just logged the
+    # plugin back in says «da tidal …», and the only honest answer is to try.
+    router.handle("metti Comfortably Numb dei Pink Floyd")   # marks TIDAL
+    before = len(_plays(tidal_plays_nothing, "tidal://"))
+    router.handle("da tidal metti Comfortably Numb dei Pink Floyd")
+    assert len(_plays(tidal_plays_nothing, "tidal://")) == before + 1
+
+
+def test_with_nobody_else_to_ask_it_says_so_plainly(lms, tidal_plays_nothing):
+    # One service configured, and it plays nothing: there is no swap to make
+    # and no question worth asking, so what is left is the fact.
+    router = Router(lms, services=("tidal",), default_service="tidal")
+    assert str(router.handle("metti Comfortably Numb dei Pink Floyd")) == \
+        "TIDAL non è collegato."
+
+
+def test_the_queue_of_a_service_that_played_nothing_is_not_left_behind(
+        router, tidal_plays_nothing):
+    # The track TIDAL could not play was queued before anyone knew, and the
+    # now-playing panel must not end up showing it.
+    router.handle("metti Comfortably Numb dei Pink Floyd")
+    assert ["playlist", "clear"] in tidal_plays_nothing.commands()
+
+
+def test_an_artists_whole_shelf_is_handed_on_too(router, tidal_plays_nothing):
+    # The request that found this: «canzoni di Gigi D'Agostino» queued twenty
+    # tracks on a service that played none of them. Loading an artist is a
+    # different start from playing one song, and the rule is the same.
+    assert str(router.handle("metti canzoni dei Pink Floyd")) == \
+        "Riproduco la musica di Pink Floyd da Qobuz."
+
+
+def test_what_the_house_learned_yesterday_decides_today(lms, tidal_plays_nothing):
+    # The point of remembering at all: a household that has no TIDAL
+    # subscription configures nothing and is asked nothing. The mark is
+    # already there when the server starts, so the very first request of the
+    # day goes straight to the service that plays.
+    class Store:
+        def read(self):
+            return {"tidal": 9_999_999_999.0}
+
+        def write(self, marks):
+            pass
+
+    lms.remember_silence_in(Store())
+    reply = Router(lms).handle("metti Comfortably Numb dei Pink Floyd")
+    assert str(reply) == "Riproduco Comfortably Numb di Pink Floyd da Qobuz."
+    assert not _plays(tidal_plays_nothing, "tidal://"), \
+        "TIDAL non andava nemmeno provato: lo sapevamo già"
+
+
+def test_the_only_service_left_is_asked_even_when_marked(lms, transport, make_feed):
+    # Being the last one standing beats any mark. The router has never refused
+    # to ask the only service there was to ask, and a house with one service
+    # that came back must not be told it has none.
+    transport.responses["tidal"] = make_feed(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://1.flc",
+                      "name": "Comfortably Numb", "artist": "Pink Floyd"}]},
+    )
+    transport.responses["status"] = {"mode": "play", "time": 3.0,
+                                     "playlist_loop": [{"title": "Comfortably Numb"}]}
+
+    class Store:
+        def read(self):
+            return {"tidal": 9_999_999_999.0}
+
+        def write(self, marks):
+            pass
+
+    lms.remember_silence_in(Store())
+    router = Router(lms, services=("tidal",), default_service="tidal")
+    assert router.handle("metti Comfortably Numb dei Pink Floyd").ok is True
+    assert ["playlist", "play", "tidal://1.flc"] in transport.commands()
+
+
+def test_a_playlist_is_handed_on_like_everything_else(router, transport, make_feed):
+    # Caught in review: album, artist and song fell through to a service that
+    # could play, and the playlist branch — which builds its own answer —
+    # stopped at «TIDAL non è collegato» with Qobuz right there.
+    def feed(scheme):
+        return make_feed(
+            categories={"Playlists": "PL"},
+            items={"PL": [{"type": "playlist", "id": f"{scheme}-P",
+                           "name": "Relax"}]},
+        )
+
+    transport.responses["tidal"] = feed("tidal")
+    transport.responses["qobuz"] = feed("qobuz")
+
+    def status(cmd):
+        started = [c for c in transport.commands() if c[1:3] == ["playlist", "play"]]
+        if not started:
+            return {}
+        mode = "stop" if started[-1][0] == "tidal" else "play"
+        return {"mode": mode, "time": 0 if mode == "stop" else 3.0,
+                "playlist_loop": [{"title": "Relax"}]}
+
+    transport.responses["status"] = status
+    assert "Qobuz" in str(router.handle("metti la playlist Relax"))
+    assert ["qobuz", "playlist", "play", "item_id:qobuz-P"] in transport.commands()
