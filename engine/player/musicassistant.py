@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .ma_library import MusicAssistantLibrary
 from .resilience import Resilient
+from .silence import SilentServices
 from .ma_transport import (DEFAULT_PORT, MusicAssistantError, Transport,
                            post)
 from .protocols import Capabilities
@@ -79,7 +80,7 @@ def _service(name: Optional[str]) -> MAService:
                      trust_ranking=name != "spotify")
 
 
-class MusicAssistantClient(Resilient, MusicAssistantLibrary):
+class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
     """One MusicAssistant server, aimed at one of its players.
 
     Shaped deliberately like ``LMSClient``, down to the injectable transport
@@ -114,6 +115,9 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary):
         # queue a player is on is a fact about the server, not about which
         # clone asked. Same reasoning as LMSClient._search_nodes.
         self._queues: Dict[str, Tuple[str, float]] = {}
+        # "this provider plays nothing today", shared between the clones like
+        # the queues above (player/silence.py).
+        self._init_silence()
         self._init_resilience(timeout)
 
     # -- re-aiming ---------------------------------------------------------

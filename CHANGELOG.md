@@ -4,6 +4,40 @@
 
 ### Fixed
 
+- **Un brano che non parte non è più «Riproduco».** Quando il plugin di un
+  servizio perde il token — TIDAL lo fa spesso — la ricerca continua a
+  funzionare benissimo: il menu risponde, «bla bla bla» torna con Gigi
+  D'Agostino, l'url sembra suonabile. È l'audio a rispondere `401`. L'LMS
+  accetta il brano, il player torna subito a `stop`, e Vivavoce diceva
+  «Riproduco Bla Bla Bla di Gigi D'Agostino» a una stanza muta, lasciando in
+  coda una traccia che non suonerà mai.
+
+  `can_search` non poteva accorgersene: interroga la metà del plugin che
+  funziona ancora. È anche il motivo per cui `blocking_service`, che protegge
+  le righe che un servizio ha importato in libreria, lasciava passare proprio
+  questa. Ora, dopo aver fatto partire un brano in streaming, l'app chiede al
+  player se l'audio è davvero arrivato: se il player ha già smesso, la risposta
+  diventa «TIDAL non è collegato» — la frase che l'app usa già per un servizio
+  scollegato — la coda che non suonerà viene svuotata, e il risultato porta un
+  `kind` suo (`playback.STREAM_OFFLINE`), così chi lo riceve non lo confonde
+  con «non ho trovato niente». Il pezzo nuovo sta in `engine/playback.py`, che
+  è la domanda «e poi è partito davvero?» tenuta insieme in un posto solo.
+
+  **Misurato sull'impianto vero**, perché la differenza sta tutta nei tempi: un
+  `tidal://` col token scaduto legge `mode=play` una volta sola e 0,33 s dopo è
+  tornato a `stop` per sempre; un `qobuz://` sano resta `mode=play` e tiene
+  l'elapsed a zero per tre secondi buoni mentre riempie il buffer. Il segnale
+  quindi è il **modo**, non il tempo trascorso: leggere l'elapsed avrebbe
+  dichiarato morto ogni stream che stava soltanto bufferizzando. L'attesa è di
+  0,6 s (`playback.PLAYBACK_SETTLE`), e sulla strada buona si spende con la
+  musica che sta già suonando.
+
+  Quello che **non** fa, dichiarato: non cambia servizio da solo — chi ha
+  chiesto TIDAL riceve una risposta su TIDAL, non una sostituzione silenziosa;
+  non tocca la libreria locale; e non dice niente quando è il player a smettere
+  di rispondere, perché un hi-fi che sparisce è un fatto diverso da un servizio
+  scollegato e ha già le sue parole.
+
 - **«Matti» non è un nome, è «metti» sentito male — e buttava via il comando.**
   Chi usa il riconoscimento vocale locale ha avuto per mesi un difetto che dal
   di fuori sembra incompetenza dell'app: dici «metti Comfortably Numb dei Pink

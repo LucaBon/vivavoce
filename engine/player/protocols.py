@@ -76,7 +76,9 @@ class Capabilities:
     #: (``play_browse_item`` and the ``*_local_*`` family).
     browse_items: bool = False
     #: Several streaming services behind one system, switchable per request
-    #: (``for_service`` / ``can_search`` / ``installed_services``).
+    #: (``for_service`` / ``can_search`` / ``can_play`` /
+    #: ``note_playback_failure`` / ``forget_playback_failure`` /
+    #: ``installed_services``).
     services: bool = False
     #: A sleep timer the server itself owns.
     sleep_timer: bool = False
@@ -226,7 +228,9 @@ class MusicLibrary(Protocol):
     #   browse_items   {play,add,insert}_browse_item and the matching
     #                  {play,add,insert}_local_{album,artist,track} family
     #   favorites      favorites_items, favorites_playlist_play
-    #   services       installed_services, can_search, for_service
+    #   services       installed_services, can_search, can_play,
+    #                  note_playback_failure, forget_playback_failure,
+    #                  for_service
     #
     # Three of those families are reached through
     # ``getattr(client, f"{mode}_...")`` in ``actions`` and ``library``, so

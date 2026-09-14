@@ -53,6 +53,7 @@ from player.errors import PlayerError
 # second backend needed them. The three names beside Resilient are unused
 # here and imported on purpose: they were part of this module's surface
 # before the move, and tests/test_lms_resilience.py still reaches for them.
+from player.silence import SilentServices
 from player.resilience import (BREAKER_COOLDOWN, BREAKER_THRESHOLD,  # noqa: F401
                                Breaker as _Breaker, Resilient)
 
@@ -335,7 +336,7 @@ def uri_kind(uri: str) -> Optional[str]:
     return None
 
 
-class LMSClient(Resilient):
+class LMSClient(Resilient, SilentServices):
     #: Every round trip this client makes fails as an LMSError, breaker
     #: and turn budget included (see player/resilience.py).
     error = LMSError
@@ -369,6 +370,9 @@ class LMSClient(Resilient):
         # "is Qobuz logged in" is a fact about the server, not about which
         # clone asked. See search_node_id.
         self._search_nodes: Dict[str, Tuple[Optional[str], float]] = {}
+        # "this service plays nothing today", shared between the clones for the
+        # same reason (player/silence.py).
+        self._init_silence()
         # timeout, breaker and per-turn budget, all shared with every other
         # backend. The breaker is deliberately a mutable object the shallow
         # copies of for_service()/for_player() SHARE, like the search-node
@@ -943,7 +947,10 @@ class LMSClient(Resilient):
         name = service_of(uri)
         if name is None or name not in SERVICES:
             return None
-        return None if self.for_service(name).can_search() else name
+        # can_play, not can_search: a row the plugin imported is audio that
+        # plugin has to fetch, so an expired token silences it exactly like a
+        # logged-out one.
+        return None if self.for_service(name).can_play() else name
 
     def local_albums_by_artist(self, query: str, count: int = 50) -> Dict[str, Any]:
         artist = self.find_local_artist(query)
