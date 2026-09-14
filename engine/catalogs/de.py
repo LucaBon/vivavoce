@@ -196,6 +196,11 @@ MESSAGES = {
     "room_needs_pro":
         "Daf\u00fcr in {room} brauchst du Pro. "
         "Sag es ohne den Raum, dann mache ich es hier.",
+    # See the Italian catalog for why an unresolved room refuses instead of
+    # falling back to the default player.
+    "room_unknown":
+        "Ich habe keinen Player namens {room}, oder er ist nicht verbunden. "
+        "Pr\u00fcf die Player-Namen.",
     "heard_nothing": "Ich habe nichts geh\u00f6rt.",
     "router_fallback":
         "Das habe ich nicht verstanden. Versuch es mit: spiel, spiel das Album, "

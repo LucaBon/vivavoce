@@ -175,6 +175,11 @@ MESSAGES = {
     "room_needs_pro":
         "Doing that in {room} needs Pro. "
         "Say it without the room and I'll do it here.",
+    # See the Italian catalog for why an unresolved room refuses instead of
+    # falling back to the default player.
+    "room_unknown":
+        "I haven't got a player called {room}, or it isn't connected. "
+        "Check the player names.",
     "heard_nothing": "I didn't hear anything.",
     "router_fallback":
         "I didn't understand. Try: play, play the album, from my music, "

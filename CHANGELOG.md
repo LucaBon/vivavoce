@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **Vivavoce può sapere da che stanza gli hai parlato.** Finora la stanza
+  esisteva in un modo solo: dirla. «metti Time in cucina» funziona dal
+  2026-08-26 ed era la risposta giusta a metà, perché nella stanza in cui sei
+  già non hai voglia di nominarla — e un satellite vocale in cucina sa
+  benissimo dov'è, semplicemente non aveva modo di dirlo. Ora ce l'ha: il
+  contratto `POST /api/v1/command` accetta un campo `room`, e il blueprint di
+  Home Assistant può riempirlo con l'**area** del dispositivo che ha sentito
+  la frase.
+
+  Sono due cose diverse e la precedenza lo dice: un `player` esplicito (che è
+  un id, non un nome) batte tutto; una stanza **detta nella frase** batte
+  quella d'origine, perché chiedere il salotto stando in cucina è
+  un'intenzione e non un errore; l'origine vale quando non c'è nient'altro. La
+  risoluzione nome→lettore non è nuova: è la stessa di `pro/multiroom.py` che
+  la frase parlata usa da sempre, così la soglia è una e la regola sui lettori
+  scollegati è una.
+
+  **Se il nome non corrisponde a nessun lettore collegato, Vivavoce lo dice e
+  non fa niente.** Non ripiega sul lettore di default, ed è la parte da capire
+  prima di accendere l'opzione: far partire la musica in salotto perché la
+  cucina non si è risolta è un fatto fisico in casa di qualcuno, che qualcuno
+  deve alzarsi e disfare — mentre un rifiuto costa una ripetizione. È la
+  stessa asimmetria già scelta per la stanza detta a voce. Il rovescio onesto
+  della medaglia: un'area scritta male fallisce *ogni* comando da quel
+  satellite finché non la si sistema, ed è esattamente per questo che nel
+  blueprint l'opzione **«Play in the room that was spoken to» è spenta di
+  default** — si accende quando i nomi delle aree e quelli dei lettori
+  combaciano.
+
+  Il campo richiede Pro (multi-room). Senza, viene **ignorato e non
+  rifiutato**: chi lo manda non ha chiesto Pro, ha detto dov'era, e
+  un'installazione free ha un lettore solo. Il contratto v1 permette di
+  aggiungere campi e non di toglierne: `docs/api.md` ora porta sia il campo
+  sia la sezione che spiegava perché in v1 non c'era — due dei suoi tre
+  argomenti reggono ancora, e il terzo (progettare senza un client vero) è
+  scaduto il giorno in cui il blueprint è stato provato su un Home Assistant
+  vero.
+
 ## 0.6.0 — September 2026
 
 ### Removed

@@ -212,6 +212,15 @@ MESSAGES = {
     "room_needs_pro":
         "Per farlo in {room} serve Pro. "
         "Dillo senza la stanza e lo faccio qui.",
+    # La stanza da cui arriva il comando (un satellite in cucina), che è un
+    # campo e non parole dette: se non risolve non si ripiega sul lettore di
+    # default, perché far partire la musica in salotto quando qualcuno ha
+    # parlato in cucina è l'azione sbagliata che questa feature esiste per
+    # evitare. Nomina la stanza e il rimedio, e dice anche l'altra causa
+    # probabile: un lettore spento non è una stanza in cui si è.
+    "room_unknown":
+        "Non ho nessun lettore che si chiami {room}, o non è collegato. "
+        "Controlla i nomi dei lettori.",
     "heard_nothing": "Non ho sentito niente.",
     "router_fallback":
         "Non ho capito. Prova con: riproduci, metti l'album, dalla mia musica, "

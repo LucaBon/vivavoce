@@ -189,6 +189,11 @@ MESSAGES = {
     "room_needs_pro":
         "Faire ça dans {room} demande la version Pro. "
         "Dis-le sans la pièce et je le fais ici.",
+    # See the Italian catalog for why an unresolved room refuses instead of
+    # falling back to the default player.
+    "room_unknown":
+        "Je n'ai aucun lecteur qui s'appelle {room}, ou il n'est pas "
+        "connecté. Vérifie les noms des lecteurs.",
     "heard_nothing": "Je n'ai rien entendu.",
     "router_fallback":
         "Je n'ai pas compris. Essaie : mets, mets l'album, de ma musique, "
