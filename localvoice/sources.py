@@ -59,6 +59,11 @@ class SourceChoice:
         """
         nominal = source if source in self.services else self.default_service
         try:
+            # Before choosing, close the book on the last start: the shape of
+            # silence that only time can tell (a player that says «play» and
+            # never advances) has had its time by now, and settling it here
+            # costs the reply that produced it nothing.
+            self.lms.settle_pending()
             if self.lms.for_service(nominal).can_play():
                 return nominal
             for name in self.services:

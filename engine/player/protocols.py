@@ -78,7 +78,8 @@ class Capabilities:
     #: Several streaming services behind one system, switchable per request
     #: (``for_service`` / ``can_search`` / ``can_play`` /
     #: ``note_playback_failure`` / ``forget_playback_failure`` /
-    #: ``installed_services``).
+    #: ``note_playback_started`` / ``settle_pending`` /
+    #: ``remember_silence_in`` / ``silent_services`` / ``installed_services``).
     services: bool = False
     #: A sleep timer the server itself owns.
     sleep_timer: bool = False
@@ -235,7 +236,8 @@ class MusicLibrary(Protocol):
     #   favorites      favorites_items, favorites_playlist_play
     #   services       installed_services, can_search, can_play,
     #                  note_playback_failure, forget_playback_failure,
-    #                  for_service
+    #                  note_playback_started, settle_pending,
+    #                  remember_silence_in, silent_services, for_service
     #
     # Three of those families are reached through
     # ``getattr(client, f"{mode}_...")`` in ``actions`` and ``library``, so

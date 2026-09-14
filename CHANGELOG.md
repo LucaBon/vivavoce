@@ -4,6 +4,47 @@
 
 ### Fixed
 
+- **`auto` ora vuol dire «i servizi che questa casa possiede», non «i plugin
+  installati».** Era la domanda sbagliata, e la giornata l'ha dimostrata due
+  volte sullo stesso impianto: un TIDAL il cui abbonamento è finito e uno
+  Spotty senza account restano installati, rispondono al menu, rispondono alla
+  ricerca — e non suonano. Chi si trovava in quella situazione doveva
+  configurare a mano `--services`, cioè dire all'app una cosa che l'app poteva
+  vedere da sé.
+
+  Ora la vede, e **se la ricorda tra un riavvio e l'altro**: il verdetto sta in
+  `<dati>/services.json`, accanto alla licenza. Non è configurazione, non si
+  edita, e cancellarlo non rompe niente — si torna a impararlo al prezzo di una
+  riproduzione muta. All'avvio il server dice ad alta voce quali servizi ha
+  smesso di proporre, perché un servizio che sparisce in silenzio dalle
+  risposte è la cosa che una casa deve sapere, non scoprire.
+
+  Tre modi di uscirne, e due sono più veloci dell'orologio: **nominare il
+  servizio** lo azzera subito («metti X da tidal» riprova davvero — è quello
+  che dirà chi si è appena abbonato), **un secondo di audio** lo azzera come
+  prova di vita, così un marchio preso durante un singolo intoppo di rete non
+  sopravvive alla prima nota suonata, e in mancanza d'altro scade da solo dopo
+  **24 ore** (`PLAYBACK_MISS_TTL`). Un servizio marchiato che sia rimasto
+  l'unico viene comunque provato: il router non ha mai rifiutato di chiedere a
+  chi era l'unico da chiedere.
+
+  **La terza forma di silenzio**, quella di Spotty: dice `play` e non avanza
+  mai. Non si può distinguere da uno stream che bufferizza senza aspettare più
+  dei tre secondi che il buffer si prende, quindi non si aspetta: si chiude il
+  verdetto **alla richiesta successiva** (`settle_pending`), dove il tempo è
+  già passato da solo. Costa una lettura di stato nel turno che segue una
+  riproduzione, e zero attese sulla conferma. Quel verdetto guarda i secondi
+  suonati, non la posizione in coda: **un player fermo non è una prova**,
+  perché è anche quello che lascia un brano finito o fermato da qualcuno, e
+  leggerlo come guasto marchiava un servizio sano ogni volta che una canzone
+  finiva. Ed è per player: in multi-stanza, il comando che arriva dal salotto
+  non chiude il conto aperto in cucina.
+
+  `server.py` sarebbe arrivato a 412 righe, oltre il tetto di 400 con il
+  ratchet che vieta nuove eccezioni, quindi esce `localvoice/cli.py`: la lista
+  delle opzioni è un elenco, e cosa il server ne fa è un'altra cosa. `server.py`
+  scende a 338.
+
 - **Venti brani in coda e nessuno che parte: lo stesso silenzio, un ramo più
   in là.** Il controllo introdotto qui sotto guardava solo il *modo* del
   player, e per un brano solo basta: se non parte, il player è a `stop` un

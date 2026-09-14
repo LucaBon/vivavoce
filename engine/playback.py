@@ -108,6 +108,11 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
     except PlayerError:
         return None, None
     if not now or not (now.get("mode") == "stop" or _walked_away(now)):
+        # Nothing wrong so far, which is not the same as audio: a player that
+        # says «play» and never advances looks like this too. Leave it for the
+        # next request to settle (player/silence.py::settle_pending).
+        if now:
+            lms.note_playback_started()
         return None, now
     # Remembered on the client, not just reported: the next request should not
     # have to spend another silent play to learn the same thing, and the choice

@@ -280,11 +280,19 @@ class IntentTable:
         # 6) playlist (streaming: selected or default service)
         m = P["playlist"].search(t)
         if m:
+            arg = m.group(1).strip()
             stream, name, offline = self._streaming(source)
-            res = actions.play_playlist(stream, m.group(1).strip(),
-                                        guard=self._guard)
+            res = actions.play_playlist(stream, arg, guard=self._guard)
             if offline:
                 return self._if_searched(res, msg("no_service_online"))
+            # Like album, artist and song: a service that took the playlist
+            # and played none of it is a reason to ask the next one, not a
+            # reason to stop. (This branch builds its own answer instead of
+            # going through _resolve because a playlist is never resolved
+            # against the local library.)
+            res, name = self._retry_elsewhere(
+                res, name, lambda alt: actions.play_playlist(alt, arg,
+                                                             guard=self._guard))
             return self._tag(res, _source_suffix(name))
 
         # 7) artist — streaming or local per selector. The local half is NOT
