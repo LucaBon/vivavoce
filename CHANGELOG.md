@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Fixed
+
+- **«Matti» non è un nome, è «metti» sentito male — e buttava via il comando.**
+  Chi usa il riconoscimento vocale locale ha avuto per mesi un difetto che dal
+  di fuori sembra incompetenza dell'app: dici «metti Comfortably Numb dei Pink
+  Floyd», Whisper trascrive **«Matti** Comfortably Numb dei Pink Floyd» — con
+  il titolo perfetto — e Vivavoce risponde «non ho capito». Il router aggancia
+  i comandi sul verbo; un verbo di cinque lettere sentito con l'altra vocale
+  non aggancia niente, e la ricerca non parte mai, pur avendo in mano la
+  risposta.
+
+  Ora, **e solo dopo che ogni altra lettura ha rifiutato la frase**, il router
+  prova a rimettere a posto il primo verbo e a instradare una seconda volta.
+  La regola non è nuova: è quella della parola chiave
+  (`engine/wakematch.py::token_matches` — uguale, prefisso quasi completo, o al
+  massimo una modifica), perché è la stessa domanda, un sì/no su una parola
+  corta. Sta nel fallback per una ragione precisa: così nessuna frase che oggi
+  funziona può cambiare comportamento, e «letti sfatti» non diventa un comando
+  finché il router ha qualcos'altro con cui leggerlo.
+
+  **Misurato, non stimato**, su 24 registrazioni vere fatte per l'occasione:
+  da **10 comandi su 24** che arrivavano alla ricerca a **23**, punteggio medio
+  del matching da 0,349 a 0,795. E non è una questione di modello: `small`,
+  `medium` e `large-v3-turbo` sbagliano tutti e tre lo stesso verbo e prendono
+  tutti e tre gli stessi titoli — `medium` in particolare è identico a `small`
+  fino al terzo decimale a 2,8 volte il tempo di decodifica. Il banco che l'ha
+  misurato resta nel repo: `tools/record_titles.py` registra le frasi,
+  `tools/asr_titles_bench.py` le trascrive e le conta.
+
+  Vale per tutte e cinque le lingue: `PLAY_VERBS` entra nel contratto dei
+  language pack (`localvoice/lang/__init__.py`), accanto a `MOOD_WORDS`.
+  Quello che **non** ripara, dichiarato: i verbi di due parole («fai partire»),
+  le parole a due modifiche di distanza («Mattie», che nelle registrazioni
+  compare e resta fuori), e i verbi sotto le quattro lettere — a tre caratteri
+  una sola modifica confonde lo spagnolo «pon» con «con», «son», «por», e la
+  tolleranza costerebbe più di quanto rende.
+
 ### New
 
 - **Vivavoce può sapere da che stanza gli hai parlato.** Finora la stanza

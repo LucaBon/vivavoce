@@ -22,13 +22,14 @@ import moods
 from conversation import MOOD_TTL
 from messages import msg
 from parsing import (_as_number, _parse_minutes, _service_re,
-                     _source_suffix)
+                     _source_suffix, repair_play_verb)
 
 
 class IntentTable:
     """Every phrase the router knows how to act on."""
 
-    def _route(self, t: str, source: str, P: dict) -> str:
+    def _route(self, t: str, source: str, P: dict, *,
+               repaired: bool = False) -> str:
         # 0) kid-safe voice management (Pro; list/edit gated on the PIN unlock).
         if self.kidsafe:
             m = (P["block_add"].match(t) or P["block_remove"].match(t)
@@ -304,6 +305,25 @@ class IntentTable:
             m = P["generic_play_suffix"].match(t)
         if m:
             return self._resolve(m.group(1).strip(), actions.play_song, source)
+
+        # Ultima spiaggia: il verbo mal sentito. Qui e non prima, ed è la
+        # scelta che rende la cosa sicura — si tenta solo su una frase che
+        # OGNI passo qui sopra ha già rifiutato, quindi niente che oggi
+        # funziona può cambiare comportamento. Una riparazione applicata in
+        # cima intercetterebbe invece frasi che il router capiva benissimo:
+        # «letti sfatti» diventerebbe «metti sfatti» anche quando un elenco
+        # aperto lo avrebbe letto come una scelta.
+        #
+        # Misurato su 24 registrazioni vere (tools/record_titles.py +
+        # tools/asr_titles_bench.py): Whisper scrive «Matti» per «metti» in
+        # due terzi dei comandi e il titolo lo prende giusto, quindi il turno
+        # moriva qui con la risposta in mano. Da 10 comandi su 24 che
+        # arrivavano alla ricerca a 20, punteggio medio 0.349 -> 0.795.
+        # Vale per tutti e tre i modelli Whisper provati: non è taglia.
+        if not repaired:
+            mended = repair_play_verb(t, getattr(self, "_verbs", ()))
+            if mended:
+                return self._route(mended, source, P, repaired=True)
 
         self._unmatched = True
         return actions.ActionResult(msg("router_fallback"), ok=False)

@@ -148,3 +148,9 @@ PATTERNS = {
     "block_list": c(r"^(?:(?:quali|che)\s+(?:brani|canzoni)\s+sono\s+bloccat|"
                     r"cosa\s+(?:è|e)\s+bloccat|lista\s+(?:dei\s+)?bloccat)"),
 }
+
+
+#: Verbi di play in una parola sola, per la riparazione del verbo mal
+#: sentito (``parsing.repair_play_verb``). Solo forme singole: «fai
+#: partire» non si ripara da un token solo, e va bene così.
+PLAY_VERBS = ("metti", "mettimi", "rimetti", "riproduci", "suona")

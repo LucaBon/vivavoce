@@ -49,6 +49,9 @@ __all__ = ["Router", "PATTERNS", "MOOD_WORDS",
 # is the it-fallback the whole app relies on. (Kept under this name: the
 # tests assert on cross-language key parity through it.)
 PATTERNS = {code: pack.PATTERNS for code, pack in PACKS.items()}
+#: I verbi di play per lingua, per riparare un verbo mal sentito quando
+#: nient'altro ha agganciato (vedi ``IntentTable._route``).
+PLAY_VERBS = {code: pack.PLAY_VERBS for code, pack in PACKS.items()}
 
 # Mood vocabularies, deliberately NOT merged across languages the way the
 # number tables below are. A number word is a label for a position and means
@@ -288,6 +291,7 @@ class Router(ConversationState, IntentTable, SourceChoice):
         self._mood_turn = False
         set_lang(lang)
         P = PATTERNS.get(lang) or PATTERNS["it"]
+        self._verbs = PLAY_VERBS.get(lang) or PLAY_VERBS["it"]
         self._mood_words = MOOD_WORDS.get(lang) or MOOD_WORDS["it"]
         t = clean_command(text)
         if t is None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 from lang import PACKS
+import wakematch
 from lms import service_label
 from messages import msg
 
@@ -160,3 +161,54 @@ def _source_suffix(name) -> str:
     if name == "local":
         return msg("from_local")
     return msg("from_service", service=_service_label(name))
+
+
+# Quanto corto può essere un verbo prima che una modifica sola non voglia più
+# dire niente. ``wakematch.token_matches`` mette un pavimento di 4 caratteri
+# sul ramo del prefisso ma non su quello della singola modifica, e su tre
+# lettere quel ramo è troppo largo per questo uso: lo spagnolo «pon» diventa
+# «con», «son», «por» — tutte parole vere con cui una frase può cominciare.
+# Quattro è lo stesso numero che wakematch ha già scelto, per la stessa
+# ragione, e i pack tengono fuori da PLAY_VERBS le forme più corte.
+MIN_REPAIRABLE_VERB = 4
+
+
+def repair_play_verb(text, verbs):
+    """``text`` col primo verbo rimesso a posto, o ``None`` se non c'è niente
+    da riparare.
+
+    Il difetto che esiste per chiudere, misurato su 24 registrazioni vere:
+    Whisper trascrive «metti» come «Matti» in circa due terzi dei comandi —
+    «Matti Comfortably Numb dei Pink Floyd» — e il titolo lo prende benissimo.
+    Il router non aggancia il verbo, il turno muore come «non ho capito», e un
+    titolo trascritto alla perfezione non arriva mai alla ricerca. Non è un
+    limite di taglia del modello: `small`, `medium` e `large-v3-turbo`
+    sbagliano tutti e tre lo stesso verbo e prendono tutti e tre gli stessi
+    titoli.
+
+    La regola è quella della parola chiave e non una nuova:
+    :func:`wakematch.token_matches` — uguale, prefisso quasi completo, o al
+    massimo una modifica — perché è la stessa domanda (un sì/no su una parola
+    corta) e perché il suo docstring spiega già perché il punteggio di
+    ``matching.py`` non serve qui.
+
+    Due limiti dichiarati. Solo il **primo** token, e solo verbi di una parola:
+    «fai partire» mal sentito resta fuori. E un token già uguale a un verbo non
+    viene toccato, così la riparazione non può cambiare una frase che il router
+    capiva già.
+    """
+    words = (text or "").split()
+    # Una parola sola non è un comando: ripararla trasformerebbe un titolo
+    # nudo — che il router legge come scelta da un elenco aperto — in un play.
+    if len(words) < 2:
+        return None
+    first = wakematch.normalize(words[0].strip(",.!?;:«»\"'"))
+    if not first:
+        return None
+    candidates = [v for v in verbs if len(v) >= MIN_REPAIRABLE_VERB]
+    if any(first == wakematch.normalize(v) for v in candidates):
+        return None      # già giusto
+    for verb in candidates:
+        if wakematch.token_matches(first, wakematch.normalize(verb)):
+            return " ".join([verb] + words[1:])
+    return None
