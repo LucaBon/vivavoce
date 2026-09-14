@@ -4,6 +4,35 @@
 
 ### Fixed
 
+- **«Disponibile» ora vuol dire «sa suonare», non «sa cercare».** La regola
+  c'era già e non è cambiata: se la frase non nomina un servizio si usa quello
+  predefinito, e se quello non è disponibile si passa al primo della lista che
+  lo è — silenziosamente, ma mai di nascosto, perché la conferma porta il tag
+  «… da Qobuz». Quello che non funzionava era la parola *disponibile*: si
+  misurava con `can_search()`, e un plugin col token scaduto quel test lo passa
+  a pieni voti. Risultato: con TIDAL muto e Qobuz perfettamente in salute, la
+  richiesta veniva consegnata a TIDAL e Qobuz non veniva nemmeno preso in
+  considerazione.
+
+  Ora la domanda è `can_play()` — sa cercare **e** non ha appena suonato il
+  nulla (`note_playback_failure`, dal controllo qui sopra). Tre conseguenze:
+  la richiesta in corso prosegue da sola verso il primo servizio che sa
+  suonare, invece di fermarsi a spiegare; quella dopo non ricompra la stessa
+  scoperta, perché il marchio dura un minuto
+  (`player/silence.py::PLAYBACK_MISS_TTL`, scritto una volta per tutti i
+  backend come la resilienza lì accanto) e una
+  seconda riproduzione muta costerebbe di nuovo una coda sostituita e una
+  stanza zitta; e le righe che un servizio ha importato in libreria seguono la
+  stessa regola, perché anche quelle sono audio che deve andare a prendere lui
+  (`blocking_service`).
+
+  **Nominare un servizio resta un'altra cosa.** «metti X da tidal» non viene
+  dirottato: toglie il marchio e riprova davvero — è quello che dirà chi ha
+  appena rimesso a posto il token — e se il silenzio si ripete la risposta è
+  una domanda, non una sostituzione: «TIDAL non è collegato. Vuoi che la metta
+  da Qobuz?». Con nessun altro servizio in grado di suonare non c'è niente da
+  offrire, e resta il fatto nudo.
+
 - **Un brano che non parte non è più «Riproduco».** Quando il plugin di un
   servizio perde il token — TIDAL lo fa spesso — la ricerca continua a
   funzionare benissimo: il menu risponde, «bla bla bla» torna con Gigi

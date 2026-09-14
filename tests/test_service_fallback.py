@@ -312,3 +312,107 @@ def test_the_artist_branch_survives_the_service_phrase_in_every_language(
     assert ["playlist", "play", "qobuz://10.flac"] in \
         qobuz_knows_pink_floyd.commands(), reply
     assert artist in str(reply)
+
+
+# -- the other shape of "not available": it searches, and plays nothing -------
+#
+# The second incident, on the same hi-fi (2026-09-14). The TIDAL plugin had
+# not logged out — it had merely lost its token. Its menu answered, its search
+# node was there, «bla bla bla» came back as Gigi D'Agostino's with a playable
+# url, and the audio answered 401: LMS took the track and the player was back
+# to stop a third of a second later. Measured by the search alone, which is
+# all anyone asked it, TIDAL was the healthiest service on the box — so
+# nothing was ever handed to Qobuz, and the room stayed silent.
+
+@pytest.fixture
+def tidal_plays_nothing(transport, make_feed):
+    """TIDAL searching perfectly and playing nothing, Qobuz able to do both.
+
+    The status is answered for whatever was last put in the queue, because
+    that is the entire signal: a ``tidal://`` url leaves the player stopped, a
+    ``qobuz://`` one plays.
+    """
+    transport.responses["tidal"] = make_feed(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://63261261.flc",
+                      "name": "Comfortably Numb", "artist": "Pink Floyd"}]},
+    )
+    transport.responses["qobuz"] = make_feed(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "qobuz://406889200.flac",
+                      "name": "Comfortably Numb", "artist": "Pink Floyd"}]},
+    )
+
+    def status(cmd):
+        played = [c for c in transport.commands() if c[:2] == ["playlist", "play"]]
+        if not played:
+            return {}
+        mode = "stop" if played[-1][2].startswith("tidal://") else "play"
+        return {"mode": mode,
+                "playlist_loop": [{"title": "Comfortably Numb",
+                                   "artist": "Pink Floyd"}]}
+
+    transport.responses["status"] = status
+    return transport
+
+
+def _plays(transport, scheme):
+    return [c for c in transport.commands()
+            if c[:2] == ["playlist", "play"] and c[2].startswith(scheme)]
+
+
+def test_a_service_that_plays_nothing_hands_the_request_on(
+        router, tidal_plays_nothing):
+    # The whole point, in one line: the request is answered with the music,
+    # by whoever could actually deliver it, and the reply says who that was.
+    assert str(router.handle("metti Comfortably Numb dei Pink Floyd")) == \
+        "Riproduco Comfortably Numb di Pink Floyd da Qobuz."
+    assert _plays(tidal_plays_nothing, "tidal://")   # it was tried first
+    assert _plays(tidal_plays_nothing, "qobuz://")   # and handed on
+
+
+def test_the_next_request_does_not_buy_the_same_silence_again(
+        router, tidal_plays_nothing):
+    router.handle("metti Comfortably Numb dei Pink Floyd")
+    before = len(_plays(tidal_plays_nothing, "tidal://"))
+    assert str(router.handle("metti Comfortably Numb dei Pink Floyd")) == \
+        "Riproduco Comfortably Numb di Pink Floyd da Qobuz."
+    # Nothing was learned twice: a second silent play would replace the queue
+    # and empty it again for no new information.
+    assert len(_plays(tidal_plays_nothing, "tidal://")) == before
+
+
+def test_naming_the_mute_service_is_offered_a_way_round_not_a_swap(
+        router, tidal_plays_nothing):
+    # Naming a source says where to look. Being quietly sent elsewhere would
+    # answer a request nobody made, so this one is asked, not decided.
+    assert str(router.handle("da tidal metti Comfortably Numb dei Pink Floyd")) == \
+        "TIDAL non è collegato. Vuoi che la metta da Qobuz?"
+    assert not _plays(tidal_plays_nothing, "qobuz://")
+    assert str(router.handle("va bene")) == \
+        "Riproduco Comfortably Numb di Pink Floyd da Qobuz."
+
+
+def test_naming_it_again_really_asks_it_again(router, tidal_plays_nothing):
+    # The mark must never become a sentence. Someone who has just logged the
+    # plugin back in says «da tidal …», and the only honest answer is to try.
+    router.handle("metti Comfortably Numb dei Pink Floyd")   # marks TIDAL
+    before = len(_plays(tidal_plays_nothing, "tidal://"))
+    router.handle("da tidal metti Comfortably Numb dei Pink Floyd")
+    assert len(_plays(tidal_plays_nothing, "tidal://")) == before + 1
+
+
+def test_with_nobody_else_to_ask_it_says_so_plainly(lms, tidal_plays_nothing):
+    # One service configured, and it plays nothing: there is no swap to make
+    # and no question worth asking, so what is left is the fact.
+    router = Router(lms, services=("tidal",), default_service="tidal")
+    assert str(router.handle("metti Comfortably Numb dei Pink Floyd")) == \
+        "TIDAL non è collegato."
+
+
+def test_the_queue_of_a_service_that_played_nothing_is_not_left_behind(
+        router, tidal_plays_nothing):
+    # The track TIDAL could not play was queued before anyone knew, and the
+    # now-playing panel must not end up showing it.
+    router.handle("metti Comfortably Numb dei Pink Floyd")
+    assert ["playlist", "clear"] in tidal_plays_nothing.commands()
