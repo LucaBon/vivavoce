@@ -33,9 +33,11 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Every architecture Home Assistant builds add-ons for, not only the three
-# this one claims: the point is that adding an arch to config.yaml needs no
-# edit here. The second element is what `uname -m` reports on that platform,
+# Every architecture Home Assistant has built add-ons for, not only the two
+# this one still claims: the point is that adding an arch to config.yaml needs
+# no edit here. The three 32-bit names are kept for that reason and not
+# because they are usable — Home Assistant stopped publishing those bases with
+# 2025.12. The second element is what `uname -m` reports on that platform,
 # which is not always guessable from the name — HA's "armhf" is armv6, and
 # amd64 calls itself x86_64.
 PLATFORMS = {

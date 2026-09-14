@@ -80,19 +80,33 @@ def test_addon_dockerfile_copies_paths_that_exist():
 
 # -- CPU architecture ----------------------------------------------------------
 #
-# faster-whisper reaches onnxruntime through CTranslate2, and neither has ever
-# published a 32-bit wheel — not on PyPI, not on piwheels. So "armv7 is
-# supported" and "the image installs the asr group" cannot both be true, and
-# today they aren't: the add-on image installs neither optional group, which
-# is exactly why it can honestly claim all three architectures. Adding one
-# without dropping armv7 would ship an add-on that fails to build for a third
-# of the machines it advertises, during a Supervisor build nothing in this
-# repo would witness.
+# The add-on is 64-bit only since Home Assistant dropped 32-bit with 2025.12
+# (ha-addon/config.yaml says why at length). That settled a tension rather
+# than removing the need for this check: faster-whisper reaches onnxruntime
+# through CTranslate2, and neither has ever published a 32-bit wheel — not on
+# PyPI, not on piwheels — so "armv7 is supported" and "the image installs the
+# asr group" could never both be true. While armv7 was declared, the second
+# one was the half that gave way.
+#
+# It binds in the other direction now, which is why it stays: a 32-bit arch
+# put back into config.yaml while the image bakes in asr would ship an add-on
+# that fails to build for the machines it advertises, during a Supervisor
+# build nothing in this repo would witness.
+#
+# Which half would give way today is moot, though, because the image cannot
+# bake in asr on any architecture: it is Alpine, and neither CTranslate2 nor
+# onnxruntime publishes a musllinux wheel — pip finds none even on amd64, even
+# with Home Assistant's own musl index already in the chain, and Alpine
+# packages neither. That is a libc limit and not an architecture one, so
+# dropping armv7 did not lift it. The check costs nothing and outlives its
+# reason: it is already here on the day a musl wheel appears, or the day
+# somebody adds an arch.
 #
 # `wakeword-vosk` is deliberately NOT in this list and must not be added to
 # it: vosk publishes a py3-none-linux_armv7l wheel, so it is the one optional
-# group a 32-bit Pi can install. It was `wakeword` (openWakeWord, retired)
-# that belonged here.
+# group a 32-bit Pi can install — over the source or self-built Docker route,
+# which is not the add-on and keeps its own 32-bit story in DEPLOY.md. It was
+# `wakeword` (openWakeWord, retired) that belonged here.
 
 # The dependency groups whose wheels are 64-bit only (see pyproject.toml).
 SIXTY_FOUR_BIT_ONLY_GROUPS = ("asr",)
@@ -259,8 +273,9 @@ def test_ci_runs_the_core_suite_on_aarch64():
 # downloaded from a tag instead of copied from the checkout — and until the
 # `addon` job existed nothing built it, on any architecture. So the reasoning
 # in test_addon_declares_only_arches_it_can_actually_build_for rested on an
-# argument that no build had ever checked, for the one arch (armv7) least
-# likely to keep working by itself.
+# argument no build had ever checked — and the architecture it was reasoning
+# about, armv7, turned out to have been frozen upstream since 2025 and is no
+# longer declared at all.
 #
 # What the job can prove on a branch is bounded, and the bound is the point:
 # BUILD_VERSION is the newest existing tag, not the declared version, because
@@ -485,7 +500,7 @@ VERSIONED_DOCS = [("DEPLOY.md",),
 # `ghcr.io/lucabon/vivavoce:0.2.0` and the bare backticked pin DEPLOY.md
 # recommends (`` `:0.2.0` ``). Deliberately not a loose ":X.Y" — the release
 # instructions also quote Home Assistant's own base image tag, which is not
-# ours to keep in step, and neither is `amd64-base:3.21` in build.yaml.
+# ours to keep in step, and neither is `amd64-base:3.23` in build.yaml.
 #
 # The backtick has to be the one that OPENS the span, not any closing one,
 # and the two are told apart by what precedes it rather than what follows:

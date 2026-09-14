@@ -434,13 +434,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      # QEMU e non i runner ARM nativi apposta. Misurato in locale su una
-      # build senza cache: amd64 4s, aarch64 6s, armv7 13s — perché
-      # l'immagine è `apk add` di due pacchetti precompilati più un tar
-      # scompattato, senza una riga da compilare. L'emulazione costa qui
-      # meno di quanto costerebbe spargere il job su tre runner diversi, e
-      # armv7 un runner nativo non ce l'ha comunque. Se un giorno questa
-      # immagine dovesse compilare qualcosa, la strada è ubuntu-24.04-arm per
+      # QEMU e non il runner ARM nativo. Misurato in locale su una build
+      # senza cache: amd64 4s, aarch64 6s — perché l'immagine è `apk add` di
+      # due pacchetti precompilati più un tar scompattato, senza una riga da
+      # compilare. A quel prezzo l'emulazione tiene il job su un runner solo
+      # e su una strada sola.
+      #
+      # Finché c'era armv7 un'alternativa nativa non esisteva proprio; ora
+      # esiste, quindi vale la pena dirlo: se un giorno questa immagine
+      # dovesse compilare qualcosa, la strada è ubuntu-24.04-arm per la gamba
       # aarch64, non una build QEMU più lunga.
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -460,7 +462,7 @@ jobs:
       # Cosa prova allora questo job: che il Dockerfile dell'app si costruisce
       # e parte su tutte le architetture che dichiara. Cioè che le basi del
       # Supervisor esistono ancora, che `apk add python3 py3-cryptography` si
-      # risolve ancora su ognuna (sparire su armv7 è la cosa plausibile), e che
+      # risolve ancora su ognuna, e che
       # l'immagine poi si avvia davvero. Nessuna di queste dipende dal sorgente
       # in transito: dipendono da monte, che si muove da solo, quando gli pare
       # e senza dircelo.

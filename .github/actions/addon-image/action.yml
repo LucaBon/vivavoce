@@ -16,13 +16,13 @@ description: Build the Home Assistant add-on image for one architecture and chec
 
 inputs:
   arch:
-    description: The add-on architecture name, as config.yaml spells it (amd64, armv7, ...)
+    description: The add-on architecture name, as config.yaml spells it (amd64, aarch64)
     required: true
   platform:
     description: The Docker platform to build for (linux/arm/v7, ...)
     required: true
   machine:
-    description: What `uname -m` must report inside the built image (armv7l, ...)
+    description: What `uname -m` must report inside the built image (x86_64, aarch64)
     required: true
   base:
     description: The Supervisor base image, from ha-addon/build.yaml
