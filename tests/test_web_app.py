@@ -11,8 +11,8 @@ Why each check earns its place:
   atomic — one 404 rejects the whole service-worker install and the app
   silently stops being installable. Renaming an icon would do it.
 * ``index.html`` is served with ``__MATERIAL_URL__`` / ``__SERVICES__`` /
-  ``__LANGS__`` substituted at request time; a typo in any of those tokens
-  ships a page with a raw placeholder in it.
+  ``__SERVICE_LABELS__`` / ``__LANGS__`` substituted at request time; a typo
+  in any of those tokens ships a page with a raw placeholder in it.
 * the page reaches the server through ~10 hard-coded ``fetch()`` paths. Nothing
   but a test ties those strings to the handler's routing table.
 """
@@ -144,6 +144,21 @@ def test_index_reflects_the_configured_services(live_server):
     page = live_server(services=("qobuz",)).get("/").text
     assert json.dumps(["qobuz"]) in page
     assert json.dumps(["tidal", "qobuz"]) not in page
+
+
+def test_index_carries_the_backends_own_spelling_of_each_service(
+        live_server, ma, ma_transport):
+    # The dropdown used to keep its own {tidal: "TIDAL", qobuz: "Qobuz"}, a
+    # table that could only ever know the services LMS has: on Music
+    # Assistant the selector read `apple_music` while the spoken reply had
+    # already learned to say «Apple Music».
+    page = live_server(client=ma, services=("apple_music",)).get("/").text
+    assert json.dumps({"apple_music": "Apple Music"}) in page
+
+
+def test_the_lms_spelling_is_the_one_it_always_was(live_server):
+    page = live_server(services=("tidal", "qobuz")).get("/").text
+    assert json.dumps({"tidal": "TIDAL", "qobuz": "Qobuz"}) in page
 
 
 def test_index_default_material_url_reaches_the_page(live_server):

@@ -11,6 +11,7 @@ calls it lives in ``http_api.py``. Two serving policies on purpose:
 
 from __future__ import annotations
 
+import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -19,6 +20,29 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def index_html() -> str:
     with open(os.path.join(HERE, "index.html"), encoding="utf-8") as f:
         return f.read()
+
+
+def index_page(*, material_url: str, services, service_labels, langs,
+               version: str, browse) -> str:
+    """``index.html`` with every server-side placeholder filled in.
+
+    ``json.dumps`` for all but the Material URL, which is an href: the rest
+    land inside the page's inline config script and have to arrive as JS
+    literals — a quoted string, an array, an object — rather than as bare
+    text. A token left unfilled is a SyntaxError that kills that script and
+    takes the source selector with it, which is why
+    ``test_index_leaves_no_placeholder_behind`` exists.
+    """
+    page = index_html()
+    for token, value in (
+            ("__MATERIAL_URL__", material_url),
+            ("__SERVICES__", json.dumps(list(services))),
+            ("__SERVICE_LABELS__", json.dumps(service_labels)),
+            ("__LANGS__", json.dumps(langs)),
+            ("__VERSION__", json.dumps(version)),
+            ("__BROWSE__", json.dumps(browse))):
+        page = page.replace(token, value)
+    return page
 
 
 def _read_bytes(name: str) -> bytes:
