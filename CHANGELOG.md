@@ -16,6 +16,20 @@
 
   Con backend LMS non cambia una parola: lì la tabella era già quella giusta.
 
+- **`--services` è misurato sull'impianto che hai, non su LMS.** Con
+  `--backend musicassistant`, un provider legittimo di quel server veniva
+  rifiutato all'avvio come «non valido», e l'elenco di alternative stampato
+  sotto era quello di LMS: due liste sbagliate nella stessa riga, prima ancora
+  che l'app fosse partita una volta. Ora la domanda va al backend attivo — la
+  tabella fissa su LMS, i provider configurati su Music Assistant.
+
+  **È un cambio di comportamento.** Su MA un nome che prima passava perché per
+  caso stava nella tabella di LMS ora viene rifiutato se quel server non ce
+  l'ha, e un nome che quel server ha viene accettato. E se il server alla
+  domanda non risponde, `--services` non valida niente invece di rifiutare
+  tutto: quella riga esiste proprio per scavalcare un rilevamento che fa i
+  capricci, e uno scavalco che ha bisogno del rilevamento non serve a nulla.
+
 - **Il prezzo della riparazione del verbo, scritto invece che scoperto.** La
   riparazione del primo verbo mal sentito («Matti» → «metti») ha un costo noto:
   una parola vera a una modifica dal verbo viene riparata come se fosse il

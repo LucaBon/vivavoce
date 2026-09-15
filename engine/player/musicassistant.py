@@ -330,6 +330,11 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
             found.append(domain)
         return found
 
+    def known_services(self) -> List[str]:
+        """Every service this client can be aimed at. No fixed table, unlike
+        LMS: a provider domain is whatever this server was set up with."""
+        return self.installed_services()
+
     def can_search(self) -> bool:
         """Whether the service this client is aimed at will answer.
 

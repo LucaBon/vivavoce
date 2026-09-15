@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 import server
+from player.registry import BACKENDS
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -165,3 +166,63 @@ def test_the_architecture_note_actually_reaches_the_engine_messages():
         source = f.read()
     call = source[source.index("audio_engines.build("):]
     assert "optional_groups_unavailable_here()" in call.split(")\n")[0]
+
+
+# -- --services is validated by the backend, not by LMS ------------------------
+# The list somebody types is a list of names the music system in front of us
+# has to recognise. Held against the LMS table on a MusicAssistant, a provider
+# that server really has was refused before the app had started once, and the
+# alternatives printed underneath were the wrong music system's.
+
+def test_a_music_assistant_provider_is_not_measured_against_the_lms_table(
+        ma, ma_transport):
+    ma_transport.responses["config/providers"] = [
+        {"domain": "apple_music", "enabled": True},
+        {"domain": "filesystem", "enabled": True},
+    ]
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "apple_music")
+    assert complaint == ""
+    assert services == ["apple_music"]
+
+
+def test_a_name_this_music_assistant_has_not_got_is_still_refused(
+        ma, ma_transport):
+    # "spotify" is a perfectly good LMS service and a perfectly good MA
+    # provider — and not one THIS server has, which is the only question.
+    ma_transport.responses["config/providers"] = [
+        {"domain": "apple_music", "enabled": True}]
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "spotify")
+    assert services == []
+    assert "spotify" in complaint and "apple_music" in complaint
+
+
+def test_the_lms_list_is_the_lms_table_and_costs_no_round_trip(lms, transport):
+    # Unchanged, and deliberately still answered offline: --services is the
+    # escape hatch for when asking the server misbehaves.
+    services, complaint = server.explicit_services(
+        lms, BACKENDS["lms"], "tidal,qobuz")
+    assert (services, complaint) == (["tidal", "qobuz"], "")
+    assert transport.commands() == []
+
+
+def test_a_name_no_lms_has_is_refused_with_the_lms_list(lms, transport):
+    services, complaint = server.explicit_services(lms, BACKENDS["lms"], "spotty")
+    assert services == []
+    assert "tidal" in complaint
+
+
+def test_a_server_that_will_not_answer_does_not_get_to_refuse(ma, ma_transport):
+    # An escape hatch that needs the detection to work is not one: with no
+    # answer to validate against, the list is taken as typed.
+    ma_transport.raise_on.add("config/providers")
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "apple_music")
+    assert (services, complaint) == (["apple_music"], "")
+
+
+def test_an_empty_list_is_still_refused(lms, transport):
+    services, complaint = server.explicit_services(lms, BACKENDS["lms"], " , ")
+    assert services == []
+    assert complaint.startswith("--services non valido")

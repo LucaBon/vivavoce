@@ -474,6 +474,16 @@ class LMSClient(Resilient, SilentServices):
         tags = {a.get("cmd") for a in loop if a.get("cmd")}
         return [name for name, spec in SERVICES.items() if spec.tag in tags]
 
+    def known_services(self) -> List[str]:
+        """Every service this client can be aimed at, installed or not.
+
+        A fixed table, unlike :meth:`installed_services`, and deliberately
+        answered without asking the server: what this is for is telling a name
+        somebody typed from a typo, and a startup flag should not have to wait
+        on a round trip — nor be rejected because the round trip failed.
+        """
+        return list(SERVICES)
+
     # -- streaming app-feed browse/search (TIDAL, Qobuz, ...) --------------
     def _app_items(self, *params: Any) -> List[Dict[str, Any]]:
         res = self.command(self.service.tag, "items", *params)
