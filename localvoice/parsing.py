@@ -170,6 +170,22 @@ def _source_suffix(name) -> str:
 # «con», «son», «por» — tutte parole vere con cui una frase può cominciare.
 # Quattro è lo stesso numero che wakematch ha già scelto, per la stessa
 # ragione, e i pack tengono fuori da PLAY_VERBS le forme più corte.
+#
+# È un pavimento, non una garanzia, e non lo è in nessuna lingua. A quattro
+# lettere restano dentro parole vere a una modifica dal verbo — misurate:
+# «lay/pay/pray/clay/plan» -> play e «smart» -> start in inglese,
+# «mes/met» -> mets e «jour» -> joue in francese, «letti/mette» -> metti e
+# «suora» -> suona in italiano. L'ultima è la stessa cosa che il commit che ha
+# introdotto la riparazione ha dichiarato e accettato: «letti sfatti» diventa
+# un comando quando il router non ha nient'altro con cui leggerlo.
+#
+# Alzare il pavimento a cinque non è la risposta: salverebbe «play» e
+# ucciderebbe «mets» e «pone», cioè i verbi più comuni di francese e spagnolo,
+# che sono esattamente il motivo per cui la riparazione esiste. Restringere la
+# regola (stessa lunghezza, stessa iniziale) taglia metà di quella lista e
+# lascia l'altra metà. Il numero qui sopra è tarato sulle 24 registrazioni di
+# tools/asr_titles_bench.py: cambiarlo senza rifare quella misura vuol dire
+# scambiare un guadagno misurato con un timore ipotetico.
 MIN_REPAIRABLE_VERB = 4
 
 
@@ -196,6 +212,14 @@ def repair_play_verb(text, verbs):
     «fai partire» mal sentito resta fuori. E un token già uguale a un verbo non
     viene toccato, così la riparazione non può cambiare una frase che il router
     capiva già.
+
+    E un prezzo dichiarato, in tutte e cinque le lingue e non solo in quella
+    per cui è stata misurata: una parola vera a una modifica dal verbo viene
+    riparata come se fosse il verbo. «pay the bill» diventa «play the bill»
+    esattamente come «letti sfatti» diventa «metti sfatti». Succede solo dove
+    la riparazione vive — il fallback, cioè su una frase che ogni altra lettura
+    ha già rifiutato — e il rimedio non è il numero qui sopra: vedi il commento
+    a :data:`MIN_REPAIRABLE_VERB` per cosa costerebbe stringerlo, e a chi.
     """
     words = (text or "").split()
     # Una parola sola non è un comando: ripararla trasformerebbe un titolo
