@@ -32,6 +32,7 @@ from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
 from lmsproxy import browse_path, proxy_routes
 from messages import CATALOGS
+from player.protocols import service_label
 from router import Router
 
 # The languages the router can answer in, for the page's read-back: the voice
@@ -71,6 +72,10 @@ def make_handler(lms, material_url: str, services, default_service: str,
     routers = collections.OrderedDict()
     lock = threading.Lock()
     services = list(services)
+    # How each is spelled where the page says it out loud. Asked of the client
+    # — the spelling belongs to the music system, and a table in the JS could
+    # only ever know the ones LMS has. No round trip (player.protocols).
+    service_labels = {name: service_label(lms, name) for name in services}
 
     # Material Skin opens inside the page rather than in another tab, which
     # needs it served under this origin — see lmsproxy.py, which also decides
@@ -123,15 +128,10 @@ def make_handler(lms, material_url: str, services, default_service: str,
             if self._reject_bad_host():
                 return
             if self.path in ("/", "/index.html"):
-                page = staticfiles.index_html().replace("__MATERIAL_URL__",
-                                                        material_url)
-                page = page.replace("__SERVICES__", json.dumps(services))
-                page = page.replace("__LANGS__", json.dumps(REPLY_LANGS))
-                # json.dumps: the version lands in the inline config script
-                # as a quoted JS string.
-                page = page.replace("__VERSION__", json.dumps(app_version))
-                page = page.replace("__BROWSE__", json.dumps(browse))
-                self._send(200, page, "text/html")
+                self._send(200, staticfiles.index_page(
+                    material_url=material_url, services=services,
+                    service_labels=service_labels, langs=REPLY_LANGS,
+                    version=app_version, browse=browse), "text/html")
             elif self.path in staticfiles.STATIC:
                 data, ctype = staticfiles.STATIC[self.path]
                 self._send(200, data, ctype)

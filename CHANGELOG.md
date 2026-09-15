@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **Anche il menu a tendina scrive i servizi come li dice la voce.** Restava
+  una tabella, `SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" }`, dentro il
+  JavaScript della pagina: una tabella che per costruzione poteva conoscere
+  solo i servizi di LMS. Su Music Assistant il selettore della sorgente
+  scriveva `apple_music` mentre la risposta parlata aveva già imparato a dire
+  «Apple Music» — la stessa cosa chiamata in due modi nella stessa schermata.
+
+  Ora le etichette gliele manda il server, che le chiede al client come le
+  chiede per parlare, e nella pagina non c'è più nessuna tabella di nomi.
+  Con LMS non cambia niente: «TIDAL» e «Qobuz» erano e restano quelli.
+
 - **Il nome di un servizio lo dice l'impianto che ce l'ha.** Le frasi che
   nominano un servizio a voce — «TIDAL non è collegato», «da Qobuz», «la
   libreria ce l'ha ma il plugin è scollegato» — risolvevano quel nome contro

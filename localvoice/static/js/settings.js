@@ -25,15 +25,20 @@ export function syncWakeLabel() {
 }
 
 // --- music source selector (auto / local / streaming services) ---
-// The server substitutes __SERVICES__ with the streaming services actually
-// available on the LMS, so e.g. Qobuz only shows up when its plugin is there.
+// The server substitutes __SERVICES__ with the streaming services this music
+// system actually has, so e.g. Qobuz only shows up when it is there, and
+// __SERVICE_LABELS__ with how each one is spelled out loud. No table here:
+// the spelling belongs to the backend — LMS says «TIDAL», MusicAssistant
+// writes a provider `apple_music` and says «Apple Music» — and a table in the
+// page could only ever know the services LMS has. The fallback to the key
+// itself is for a server too old to send the map.
 const SERVICES = (window.VIVAVOCE_CFG || {}).services || [];
-const SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" };
+const SERVICE_LABELS = (window.VIVAVOCE_CFG || {}).serviceLabels || {};
 export function buildSourceOptions() {
   const sel = $("source");
   const cur = sel.value || localStorage.getItem("source") || "auto";
   const opts = [["auto", ui("src_auto")], ["local", ui("src_local")]]
-    .concat(SERVICES.map(s => [s, ui("src_only") + (SERVICE_NAMES[s] || s)]));
+    .concat(SERVICES.map(s => [s, ui("src_only") + (SERVICE_LABELS[s] || s)]));
   sel.innerHTML = opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
   // A saved service that is no longer offered falls back to auto.
   sel.value = opts.some(([v]) => v === cur) ? cur : "auto";
