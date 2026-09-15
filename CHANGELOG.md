@@ -4,6 +4,37 @@
 
 ### Fixed
 
+- **Il prezzo della riparazione del verbo, scritto invece che scoperto.** La
+  riparazione del primo verbo mal sentito («Matti» → «metti») ha un costo noto:
+  una parola vera a una modifica dal verbo viene riparata come se fosse il
+  verbo. Era dichiarato per l'italiano («letti sfatti» → «metti sfatti») e
+  taciuto per le altre quattro lingue, dove vale uguale — misurato:
+  «pay the bill» → «play the bill», «mes amis» → «mets amis», «jour de fete» →
+  «joue de fete». Ora è scritto dove sta la regola, e un test lo tiene visibile:
+  se qualcuno stringe il criterio, quel test cade e la decisione diventa
+  esplicita.
+
+  **Niente è cambiato nel comportamento**, ed è il punto: la soglia è tarata
+  sulle 24 registrazioni di `tools/asr_titles_bench.py` (da 10 comandi su 24
+  che arrivavano alla ricerca a 23), e stringerla senza rifare quella misura
+  scambierebbe un guadagno misurato con un timore ipotetico. Alzare il pavimento
+  a cinque lettere, per dire, salverebbe l'inglese «play» e ucciderebbe il
+  francese «mets» e lo spagnolo «pone».
+
+- **Un impianto irraggiungibile non è un nome di stanza sbagliato.** Con il
+  server musicale momentaneamente giù, la lista dei lettori tornava vuota e
+  *ogni* stanza smetteva di risolversi: un comando dal satellite in cucina
+  riceveva «Non ho nessun lettore che si chiami Cucina, o non è collegato.
+  Controlla i nomi dei lettori» — cioè un'interruzione di rete raccontata a
+  tutta la casa come un errore di configurazione, che manda qualcuno a
+  controllare nomi che non erano mai stati sbagliati. Lo stesso comando *senza*
+  stanza rispondeva già la cosa vera: «non riesco a contattare l'impianto».
+
+  `player_for_room` ora legge la lista da `players()`, che solleva, invece che
+  da `_players_safe()`, che risponde vuoto; e chi chiama distingue i due fatti.
+  «Quella stanza non esiste» resta quello che era — un server che risponde
+  benissimo e non ha nessun Bagno va detto com'è.
+
 - **`auto` ora vuol dire «i servizi che questa casa possiede», non «i plugin
   installati».** Era la domanda sbagliata, e la giornata l'ha dimostrata due
   volte sullo stesso impianto: un TIDAL il cui abbonamento è finito e uno

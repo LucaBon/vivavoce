@@ -844,6 +844,33 @@ def test_transport_commands_are_untouched(router, transport):
     assert transport.last_call()[1] == ["pause", "1"]
 
 
+# Il prezzo della riparazione, scritto invece che scoperto. Non è il
+# comportamento che si vorrebbe: è quello che si paga, e vale in tutte e cinque
+# le lingue — non solo in italiano, dove il commit che ha introdotto la
+# riparazione lo aveva già dichiarato con «letti sfatti». Una parola vera a una
+# modifica dal verbo viene riparata come se fosse il verbo, e solo nel fallback,
+# cioè su una frase che ogni altra lettura ha già rifiutato.
+#
+# Questo test sta qui per rendere visibile quel prezzo e per far cadere
+# qualcosa il giorno che qualcuno stringe la regola: se una di queste righe
+# smette di riparare, è una decisione, e va presa rimisurando le 24
+# registrazioni di tools/asr_titles_bench.py — non dedotta. Vedi il commento a
+# parsing.MIN_REPAIRABLE_VERB.
+@pytest.mark.parametrize("lang, phrase, repaired", [
+    ("en", "lay down your arms", "play down your arms"),
+    ("en", "pay the bill", "play the bill"),
+    ("en", "smart tv", "start tv"),
+    ("fr", "mes amis", "mets amis"),
+    ("fr", "jour de fete", "joue de fete"),
+    ("it", "letti sfatti", "metti sfatti"),
+    ("it", "suora maria", "suona maria"),
+])
+def test_the_declared_cost_of_repairing_a_short_verb(lang, phrase, repaired):
+    from lang import PACKS
+    from parsing import repair_play_verb
+    assert repair_play_verb(phrase, PACKS[lang].PLAY_VERBS) == repaired
+
+
 def test_a_phrase_that_already_routes_is_not_repaired(router, transport,
                                                       make_tidal):
     # La prova che il fallback è il posto giusto: «metti» esatto non passa

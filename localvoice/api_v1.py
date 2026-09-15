@@ -42,6 +42,7 @@ from __future__ import annotations
 import json
 
 from messages import msg, set_lang
+from player.errors import PlayerError
 
 
 def _room_player(multiroom, room: str):
@@ -54,6 +55,10 @@ def _room_player(multiroom, room: str):
     * a player id — that room, that player.
     * ``None`` — a room was named and cannot be honoured. The turn is refused;
       see ``_command`` for why that is not pedantry.
+
+    Raises ``PlayerError`` when the player list could not be fetched at all,
+    which is a fact about the hi-fi and not about the room: see
+    ``MultiRoom.player_for_room``.
 
     ``multiroom`` is the injected Pro object (``pro/multiroom.py``), reached
     through the same narrow contract ``Router`` uses. The resolution itself
@@ -130,7 +135,19 @@ def api_v1_routes(router_for, multiroom=None):
                 room = ""
             room = room.strip()
             if room and not player_id:
-                target = _room_player(multiroom, room)
+                try:
+                    target = _room_player(multiroom, room)
+                except PlayerError:
+                    # The list could not be fetched, so nothing is known about
+                    # any room — least of all that this one does not exist.
+                    # The answer is the one the same command without a room
+                    # would have got from the action itself.
+                    self._send(200, json.dumps(
+                        {"speech": msg("err_unreachable"), "used": text,
+                         "ok": False, "terms": [], "choices": [],
+                         "needs_choice": False, "unmatched": False},
+                        ensure_ascii=False))
+                    return
                 if target is None:
                     # A room was named and cannot be honoured — no player by
                     # that name, or that player is not connected. The turn
