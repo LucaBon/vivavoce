@@ -509,6 +509,21 @@ def test_the_engine_still_asks_which_one_when_it_cannot_tell(ma, ma_transport):
     assert "player_queues/play_media" not in ma_transport.commands()
 
 
+def test_a_provider_switched_off_is_a_name_this_server_knows(ma, ma_transport):
+    # The two questions are different and the difference is the point:
+    # installed_services is "usable today", known_services is "a name you
+    # recognise". A provider being re-authenticated this morning belongs to
+    # the second and not the first — calling it a typo would refuse to start
+    # the whole app over an outage.
+    ma_transport.responses["config/providers"] = [
+        {"domain": "tidal", "enabled": False},
+        {"domain": "qobuz", "enabled": True},
+        {"domain": "filesystem", "enabled": True},
+    ]
+    assert ma.installed_services() == ["qobuz"]
+    assert ma.known_services() == ["tidal", "qobuz"]
+
+
 def test_a_silent_play_is_blamed_on_the_provider_by_the_name_ma_gives_it(
         ma, ma_transport):
     # «<servizio> non è collegato» takes its subject from the backend. Read

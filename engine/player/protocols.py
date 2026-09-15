@@ -81,6 +81,13 @@ class Capabilities:
     #: ``note_playback_started`` / ``settle_pending`` /
     #: ``remember_silence_in`` / ``silent_services`` / ``installed_services``
     #: / ``known_services``).
+    #:
+    #: The last two answer different questions and the difference is
+    #: load-bearing: ``known_services`` is every name this system recognises,
+    #: so a name that is NOT in it is a typo; ``installed_services`` is the
+    #: ones usable today. A service switched off is in the first and not the
+    #: second, and refusing to start over one would be calling an outage a
+    #: misspelling.
     services: bool = False
     #: A sleep timer the server itself owns.
     sleep_timer: bool = False

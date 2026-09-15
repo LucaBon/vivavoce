@@ -142,6 +142,11 @@ def explicit_services(client, backend, spec: str):
     try:
         known = client.known_services() if backend.capabilities.services else []
     except Exception:
+        # Detto ad alta voce: da qui un token sbagliato e un server occupato
+        # si assomigliano, e prendere la lista per buona in silenzio manda a
+        # cercare il guasto dalla parte sbagliata.
+        print("Non sono riuscito a chiedere all'impianto quali servizi ha: "
+              "prendo --services come l'hai scritto.")
         known = []
     unknown = [s for s in services if s not in known] if known else []
     if unknown or not services:
@@ -277,9 +282,11 @@ def main() -> int:
     from pro.multiroom import MultiRoom
     multiroom = MultiRoom(license_mgr, client.get_players, lms=client)
 
-    # Which streaming services the source selector offers. "auto" asks the LMS
-    # which plugins are installed; an explicit list skips the detection (the
-    # escape hatch if the apps query misbehaves on some LMS version).
+    # Which streaming services the source selector offers. "auto" asks the
+    # music system what it has; an explicit list is the escape hatch for when
+    # that answer misbehaves — it is still checked against the names the
+    # system recognises, which costs no round trip on LMS and one on
+    # MusicAssistant (see explicit_services).
     if args.services.strip().lower() == "auto":
         try:
             services = client.installed_services()

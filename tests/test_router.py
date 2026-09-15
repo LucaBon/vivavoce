@@ -966,3 +966,24 @@ def test_a_search_that_found_nothing_is_not_repeated(router, transport,
                 if any(str(a) == "search:Zzzz" for a in cmd)]
     assert len(searches) == 1, (
         f"la ricerca è stata rifatta nel secondo giro: {searches}")
+
+
+def test_a_provider_whose_name_has_an_underscore_can_be_named_out_loud(
+        ma, ma_transport):
+    # MusicAssistant writes a provider as `apple_music` and the household says
+    # «Apple Music». --services now accepts MA domains, so the written form is
+    # reachable by configuration and the spoken one has to be reachable by
+    # voice: matching only `apple_music` sent the request to the default
+    # service and never said it had done so.
+    ma_transport.responses["config/providers"] = [
+        {"domain": "apple_music", "enabled": True},
+        {"domain": "qobuz", "enabled": True},
+    ]
+    ma_transport.responses["music/search"] = {"tracks": [
+        {"uri": "apple_music://track/1", "item_id": "1", "media_type": "track",
+         "provider": "apple_music", "name": "Time"}]}
+    ma_transport.responses["player_queues/get_active_queue"] = {"queue_id": "q"}
+    router = Router(ma, default_service="qobuz",
+                    services=("qobuz", "apple_music"))
+    assert "Apple Music" in str(router.handle("da apple music metti Time",
+                                              source="local"))

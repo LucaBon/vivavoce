@@ -314,23 +314,33 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
         return [{"playerid": p.get("player_id"), "name": p.get("name"),
                  "connected": p.get("available", True)} for p in rows]
 
-    def installed_services(self) -> List[str]:
-        """The music providers configured and switched on, streaming only."""
+    def _music_providers(self, *, switched_on: bool) -> List[str]:
+        """The streaming music providers this server is configured with."""
         configs = self._call("config/providers", provider_type="music") or []
         found = []
         for config in configs:
             domain = config.get("domain")
-            if not config.get("enabled", True) or not domain:
+            if not domain or (switched_on and not config.get("enabled", True)):
                 continue
             if domain in _LOCAL_PROVIDERS or domain in found:
                 continue
             found.append(domain)
         return found
 
+    def installed_services(self) -> List[str]:
+        """The music providers configured and switched on, streaming only."""
+        return self._music_providers(switched_on=True)
+
     def known_services(self) -> List[str]:
-        """Every service this client can be aimed at. No fixed table, unlike
-        LMS: a provider domain is whatever this server was set up with."""
-        return self.installed_services()
+        """Every service this client can be aimed at, switched on or not.
+
+        No fixed table to answer from, unlike LMS — a provider domain is
+        whatever this server was set up with. Switched OFF still counts, and
+        that is the whole difference from :meth:`installed_services`: this
+        answers "is this a name you know", and a provider being
+        re-authenticated this morning is not a name somebody mistyped.
+        """
+        return self._music_providers(switched_on=False)
 
     def can_search(self) -> bool:
         """Whether the service this client is aimed at will answer.

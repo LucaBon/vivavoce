@@ -198,6 +198,20 @@ def test_a_name_this_music_assistant_has_not_got_is_still_refused(
     assert "spotify" in complaint and "apple_music" in complaint
 
 
+def test_a_provider_switched_off_does_not_stop_the_app_from_starting(
+        ma, ma_transport):
+    # The escape hatch again, from the other side: a provider mid-re-auth
+    # answers `enabled: false`, and refusing to boot the voice assistant over
+    # it would be calling an outage a misspelling.
+    ma_transport.responses["config/providers"] = [
+        {"domain": "tidal", "enabled": False},
+        {"domain": "qobuz", "enabled": True},
+    ]
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "tidal")
+    assert (services, complaint) == (["tidal"], "")
+
+
 def test_the_lms_list_is_the_lms_table_and_costs_no_round_trip(lms, transport):
     # Unchanged, and deliberately still answered offline: --services is the
     # escape hatch for when asking the server misbehaves.

@@ -137,8 +137,18 @@ _SERVICE_SOUNDS = {
 
 
 def _service_re(name: str) -> str:
-    """Regex snippet matching a service name as ASR may transcribe it."""
-    return _SERVICE_SOUNDS.get(name, re.escape(name))
+    """Regex snippet matching a service name as ASR may transcribe it.
+
+    Without a table entry the name matches itself, except that an underscore
+    stands for the gap a config key writes and a person speaks: a
+    MusicAssistant provider is ``apple_music`` and the household says «Apple
+    Music». Matching only the written form would mean the source somebody
+    named out loud is silently ignored and the default one answers instead.
+    """
+    sound = _SERVICE_SOUNDS.get(name)
+    if sound:
+        return sound
+    return r"[\s_]+".join(re.escape(part) for part in name.split("_"))
 
 
 # The display name of a source, and the ' da TIDAL' tag built out of it, used

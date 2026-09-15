@@ -8,11 +8,12 @@
   nominano un servizio a voce — «TIDAL non è collegato», «da Qobuz», «la
   libreria ce l'ha ma il plugin è scollegato» — risolvevano quel nome contro
   la tabella dei servizi di LMS anche quando l'impianto era un Music
-  Assistant. Un provider di MA in quella tabella non c'è: la frase usciva con
-  il soggetto vuoto, « non è collegato», che è esattamente la parola che
-  serviva a capire cosa fare. Ora l'etichetta si legge dall'oggetto servizio
-  del client — `ServiceSpec.label` su LMS, `MAService.label` su Music
-  Assistant — e su MA si sente «Apple Music non è collegato».
+  Assistant. Un provider di MA in quella tabella non c'è, e la tabella
+  ripiegava sul nome grezzo: usciva «apple_music non è collegato», cioè la
+  chiave di configurazione letta ad alta voce al posto del nome. Ora
+  l'etichetta si legge dall'oggetto servizio del client — `ServiceSpec.label`
+  su LMS, `MAService.label` su Music Assistant — e si sente «Apple Music non
+  è collegato».
 
   Con backend LMS non cambia una parola: lì la tabella era già quella giusta.
 
@@ -21,7 +22,10 @@
   rifiutato all'avvio come «non valido», e l'elenco di alternative stampato
   sotto era quello di LMS: due liste sbagliate nella stessa riga, prima ancora
   che l'app fosse partita una volta. Ora la domanda va al backend attivo — la
-  tabella fissa su LMS, i provider configurati su Music Assistant.
+  tabella fissa su LMS, i provider configurati su Music Assistant, **accesi o
+  no**: un servizio spento non è un nome scritto male, e rifiutare di avviare
+  l'assistente vocale mentre si ri-autentica TIDAL sarebbe raccontare un
+  disservizio come un refuso.
 
   **È un cambio di comportamento.** Su MA un nome che prima passava perché per
   caso stava nella tabella di LMS ora viene rifiutato se quel server non ce
@@ -29,6 +33,16 @@
   domanda non risponde, `--services` non valida niente invece di rifiutare
   tutto: quella riga esiste proprio per scavalcare un rilevamento che fa i
   capricci, e uno scavalco che ha bisogno del rilevamento non serve a nulla.
+  Quando la domanda non si può proprio fare, l'avvio lo dice invece di tacere:
+  da qui un token sbagliato e un server occupato si assomigliano.
+
+- **Un servizio col trattino basso nel nome si può dire a voce.** Conseguenza
+  della riga qui sopra: ora che `--services` accetta i provider di Music
+  Assistant, «metti Time da Apple Music» deve arrivare dove uno se lo aspetta.
+  Il nome scritto è `apple_music` e quello detto è «apple music», e finché si
+  cercava solo la forma scritta la frase non veniva riconosciuta come una
+  richiesta di sorgente affatto: rispondeva la libreria locale, senza dire che
+  la sorgente nominata era stata ignorata.
 
 - **Il prezzo della riparazione del verbo, scritto invece che scoperto.** La
   riparazione del primo verbo mal sentito («Matti» → «metti») ha un costo noto:

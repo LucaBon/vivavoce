@@ -54,8 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "installato, punta alla UI classica (es. <lms>/).")
     ap.add_argument("--services", default=appdata.env("SERVICES", "auto"),
                     help="servizi streaming offerti nel selettore, es. "
-                         "tidal,qobuz. Default 'auto': rileva i plugin "
-                         "installati sull'LMS (fallback: tidal).")
+                         "tidal,qobuz. Default 'auto': chiede all'impianto "
+                         "quali ha (fallback: tidal). Una lista esplicita "
+                         "viene controllata contro i nomi che l'impianto "
+                         "attivo riconosce, non contro quelli di LMS.")
     ap.add_argument("--default-service",
                     default=appdata.env("DEFAULT_SERVICE", "tidal"),
                     help="servizio streaming usato in modalità automatica e "
