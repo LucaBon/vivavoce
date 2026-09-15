@@ -21,12 +21,34 @@ from __future__ import annotations
 
 import actions
 from player.errors import PlayerError
+from player.protocols import service_label
 from messages import msg
-from parsing import _service_label, _source_suffix
 
 
 class SourceChoice:
     """Pointing a request at a source, and naming that source in the reply."""
+
+    # -- naming the source out loud ---------------------------------------
+    def _service_label(self, name: str) -> str:
+        """How a service is spelled when a reply says it out loud — 'qobuz'
+        is a config key, «Qobuz» is what the user hears.
+
+        Asked of the client rather than looked up in a table here: the
+        spelling belongs to the music system in front of us, and a table in
+        the web app would be this module deciding what somebody else's server
+        calls its own providers.
+        """
+        return service_label(self.lms, name)
+
+    def _source_suffix(self, name) -> str:
+        """The localized ' da TIDAL' / ' from your music' tag for a source
+        name ('local' or a service), so play replies say which source
+        answered."""
+        if not name:
+            return ""
+        if name == "local":
+            return msg("from_local")
+        return msg("from_service", service=self._service_label(name))
 
     def _stream_name(self, source):
         """The streaming service a request goes to: ``source`` when it names a
@@ -141,7 +163,7 @@ class SourceChoice:
         if alt is None:
             return fallback
         return self._offer(
-            preamble + " " + msg("offer_play_from", service=_service_label(alt)),
+            preamble + " " + msg("offer_play_from", service=self._service_label(alt)),
             lambda: play_at(alt))
 
     def _tag(self, res, suffix: str):
@@ -246,14 +268,14 @@ class SourceChoice:
         if not stream.can_play():
             if not self._never_searched(res):
                 return res
-            label = _service_label(service)
+            label = self._service_label(service)
             return self._offer_other_service(
                 msg("service_not_connected", service=label),
                 service,
                 lambda alt: self._resolve_named(arg, play_fn, alt),
                 actions.ActionResult(msg("service_offline", service=label),
                                      ok=False))
-        return self._played(self._tag(res, _source_suffix(service)), service)
+        return self._played(self._tag(res, self._source_suffix(service)), service)
 
     def _retry_elsewhere(self, res, name, run):
         """``(result, the service it came from)``, having moved on from a
@@ -305,7 +327,7 @@ class SourceChoice:
             return self._if_searched(res, msg("no_service_online"))
         res, name = self._retry_elsewhere(
             res, name, lambda alt: stream_fn(alt, arg, guard=guard))
-        return self._played(self._tag(res, _source_suffix(name)), name)
+        return self._played(self._tag(res, self._source_suffix(name)), name)
 
     def _resolve_queue(self, arg: str, mode: str, source: str):
         """Like :meth:`_resolve`, but for a song queued (mode: 'add' or
@@ -326,4 +348,4 @@ class SourceChoice:
         res = actions.play_song(stream, arg, mode=mode, guard=guard)
         if offline:
             return self._if_searched(res, msg("no_service_online"))
-        return self._played(self._tag(res, _source_suffix(name)), name, mode=mode)
+        return self._played(self._tag(res, self._source_suffix(name)), name, mode=mode)

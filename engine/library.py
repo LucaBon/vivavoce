@@ -13,12 +13,12 @@ import re
 from typing import Dict, List, Optional
 
 from guard import Guard, is_blocked_item
-from lms import service_label
 from matching import (GATE, LIST_LIMIT, LOCAL_CONFIDENT, ActionResult, _MODE_KEY,
                       _MODE_SUFFIX, _dedup_by_title_artist, _did_you_mean,
                       _normalize, _score, _strip_lead_filler)
 from messages import msg
 from player.errors import PlayerError
+from player.protocols import service_label
 
 # -- conversational flow: list -> choose by number ------------------------
 # A list read out loud is an answer, so its speech carries ``ok=True`` — but
@@ -182,11 +182,11 @@ _LOCAL_KIND_RANK = {"artist": 0, "track": 1, "album": 2}
 IMPORT_OFFLINE = "import_offline"
 
 
-def _import_offline(query, blocked) -> ActionResult:
+def _import_offline(lms, query, blocked) -> ActionResult:
     """The library has it; the plugin that owns the audio is logged out."""
     return ActionResult(
         msg("local_import_offline", query=query,
-            service=service_label(sorted(blocked)[0])),
+            service=service_label(lms, sorted(blocked)[0])),
         ok=False, kind=IMPORT_OFFLINE)
 
 
@@ -297,7 +297,7 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
         ]
         if not groups:
             if blocked:
-                return _import_offline(query, blocked)
+                return _import_offline(lms, query, blocked)
             return ActionResult(msg("local_not_found", query=query), ok=False)
         # Best-scoring category wins; an exact tie goes to the artist.
         groups.sort(key=lambda g: (-g[0][0],
@@ -348,7 +348,7 @@ def play_local_artist(lms, query: Optional[str], *,
                               "artist", "play_artist_id", guard, blocked)
         if not scored:
             if blocked:
-                return _import_offline(query, blocked)
+                return _import_offline(lms, query, blocked)
             return ActionResult(msg("local_no_artist", artist=query), ok=False)
         distinct = _dedup_by_title_artist([cand for _s, cand in scored])
         if len(distinct) >= 2:

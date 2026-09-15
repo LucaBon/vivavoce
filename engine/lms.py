@@ -273,13 +273,6 @@ def _with_extid(cand: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
     return cand
 
 
-def service_label(name: Optional[str]) -> str:
-    """How a service is spelled when a reply says it out loud (``ServiceSpec.
-    label``): 'qobuz' is a config key, «Qobuz» is what the user hears."""
-    spec = SERVICES.get(name or "")
-    return (spec.label if spec and spec.label else (name or ""))
-
-
 def _as_int(value: Any) -> int:
     """``playlist_cur_index`` and friends, which LMS sends as strings."""
     try:

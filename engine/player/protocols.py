@@ -243,3 +243,33 @@ class MusicLibrary(Protocol):
     # ``getattr(client, f"{mode}_...")`` in ``actions`` and ``library``, so
     # their NAMES are load-bearing: a generic ``enqueue(mode=...)`` would not
     # be found.
+
+
+def service_label(client, name: Optional[str] = None) -> str:
+    """How a streaming service is spelled when a reply says it out loud:
+    'qobuz' is a config key, «Qobuz» is what the user hears.
+
+    The spelling belongs to the backend and to nobody else. Both service
+    objects carry it — ``lms.ServiceSpec.label`` and
+    ``musicassistant.MAService.label`` — and the LMS table asked about a
+    MusicAssistant provider either answers for the wrong music system or
+    answers nothing, which leaves «<servizio> non è collegato» with no
+    subject. So it is read off the client the way
+    ``matching._trusts_ranking`` reads ``trust_ranking``: ``getattr``
+    throughout, so a backend that never heard of services costs nothing.
+
+    ``name`` asks about a service other than the one the client is aimed at —
+    the one that blocked a library row, the one being offered instead — and
+    goes through ``for_service`` because that is the backend's own answer to
+    "what is this called". A name the backend does not recognise comes back
+    as it was given: this is a sentence naming something out loud, and saying
+    the word plainly beats saying nothing.
+    """
+    service = getattr(client, "service", None)
+    if name is not None and name != getattr(service, "name", None):
+        try:
+            service = getattr(client.for_service(name), "service", None)
+        except (AttributeError, ValueError):
+            return name
+    label = getattr(service, "label", "")
+    return label or name or getattr(service, "name", "") or ""

@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **Il nome di un servizio lo dice l'impianto che ce l'ha.** Le frasi che
+  nominano un servizio a voce — «TIDAL non è collegato», «da Qobuz», «la
+  libreria ce l'ha ma il plugin è scollegato» — risolvevano quel nome contro
+  la tabella dei servizi di LMS anche quando l'impianto era un Music
+  Assistant. Un provider di MA in quella tabella non c'è: la frase usciva con
+  il soggetto vuoto, « non è collegato», che è esattamente la parola che
+  serviva a capire cosa fare. Ora l'etichetta si legge dall'oggetto servizio
+  del client — `ServiceSpec.label` su LMS, `MAService.label` su Music
+  Assistant — e su MA si sente «Apple Music non è collegato».
+
+  Con backend LMS non cambia una parola: lì la tabella era già quella giusta.
+
 - **Il prezzo della riparazione del verbo, scritto invece che scoperto.** La
   riparazione del primo verbo mal sentito («Matti» → «metti») ha un costo noto:
   una parola vera a una modifica dal verbo viene riparata come se fosse il

@@ -24,10 +24,10 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional, Tuple
 
-from lms import service_label
 from matching import ActionResult, _normalize
 from messages import msg
 from player.errors import PlayerError
+from player.protocols import service_label
 
 #: A play the music system ACCEPTED and the player never started. Its own kind
 #: of failure, like ``library.IMPORT_OFFLINE``, because the answer it deserves
@@ -98,8 +98,13 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
     service it is aimed at has nothing to put in it, so it is not made to wait
     for an answer it could not use. It gets :data:`UNREAD` back and the
     confirmation reads the player itself, exactly as it always did.
+
+    The name comes off the client and not out of a table kept here: which
+    words a music system uses for its own services are its own, and a table
+    belonging to one of them names the others wrong or not at all — see
+    ``player.protocols.service_label``.
     """
-    service = service_label(getattr(getattr(lms, "service", None), "name", ""))
+    service = service_label(lms)
     if not service:
         return None, UNREAD
     time.sleep(PLAYBACK_SETTLE)
