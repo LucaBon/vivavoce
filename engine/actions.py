@@ -340,8 +340,8 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 # -- the rest of the engine, still reachable from here ------------------------
 #
 # This module was 1054 lines and is now the streaming play family alone: the
-# scoring, the blocklist, the transport controls, the local library and the
-# after-the-play check live next door. It goes on re-exporting every one of their names, and not out of
+# scoring, the blocklist, the transport controls, the numbered list, the local
+# library and the after-the-play check live next door. It goes on re-exporting every one of their names, and not out of
 # politeness — the router, the tools and a great many tests reach for
 # ``actions.play_local``, ``actions._score``, ``actions.Guard``, private names
 # included, and a split whose whole claim is that nothing behaves differently
@@ -349,7 +349,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 #
 # Generated from what those modules actually define. Adding a name over there
 # and forgetting it here is the one mistake this file can still make on its
-# own, which is why a test walks the five modules and checks.
+# own, which is why a test walks the other modules and checks.
 # ruff: noqa: E402, F401
 from matching import (BLOCKLIST, LIST_LIMIT, NEAR_ARTIST_SCORE, _LEAD_FILLER,
                       _strip_lead_filler, LOCAL_CONFIDENT, _label,
@@ -361,8 +361,8 @@ from guard import (BLOCKED_SPEECH, NOT_OWNER_SPEECH, parse_blocklist,
 from transport import (VOLUME_STEP, pause, resume, next_track, previous_track,
                        change_volume, MAX_SLEEP_MINUTES, set_sleep,
                        cancel_sleep, now_playing, clear_queue, queue_list)
-from library import (top_tracks_list, _LOCAL_KIND, _dispatch_play,
-                     choose_from, choose_by_name, _LOCAL_KIND_RANK,
-                     _local_group, library_candidates, best_match_score,
-                     play_local, play_local_artist, local_albums_list,
-                     IMPORT_OFFLINE, _import_offline)
+from candidates import (top_tracks_list, _LOCAL_KIND, _dispatch_play,
+                        choose_from, choose_by_name)
+from library import (_LOCAL_KIND_RANK, _local_group, library_candidates,
+                     best_match_score, play_local, play_local_artist,
+                     local_albums_list, IMPORT_OFFLINE, _import_offline)

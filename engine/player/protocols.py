@@ -79,7 +79,15 @@ class Capabilities:
     #: (``for_service`` / ``can_search`` / ``can_play`` /
     #: ``note_playback_failure`` / ``forget_playback_failure`` /
     #: ``note_playback_started`` / ``settle_pending`` /
-    #: ``remember_silence_in`` / ``silent_services`` / ``installed_services``).
+    #: ``remember_silence_in`` / ``silent_services`` / ``installed_services``
+    #: / ``known_services``).
+    #:
+    #: The last two answer different questions and the difference is
+    #: load-bearing: ``known_services`` is every name this system recognises,
+    #: so a name that is NOT in it is a typo; ``installed_services`` is the
+    #: ones usable today. A service switched off is in the first and not the
+    #: second, and refusing to start over one would be calling an outage a
+    #: misspelling.
     services: bool = False
     #: A sleep timer the server itself owns.
     sleep_timer: bool = False
@@ -234,12 +242,43 @@ class MusicLibrary(Protocol):
     #   browse_items   {play,add,insert}_browse_item and the matching
     #                  {play,add,insert}_local_{album,artist,track} family
     #   favorites      favorites_items, favorites_playlist_play
-    #   services       installed_services, can_search, can_play,
-    #                  note_playback_failure, forget_playback_failure,
-    #                  note_playback_started, settle_pending,
-    #                  remember_silence_in, silent_services, for_service
+    #   services       installed_services, known_services, can_search,
+    #                  can_play, note_playback_failure,
+    #                  forget_playback_failure, note_playback_started,
+    #                  settle_pending, remember_silence_in, silent_services,
+    #                  for_service
     #
     # Three of those families are reached through
     # ``getattr(client, f"{mode}_...")`` in ``actions`` and ``library``, so
     # their NAMES are load-bearing: a generic ``enqueue(mode=...)`` would not
     # be found.
+
+
+def service_label(client, name: Optional[str] = None) -> str:
+    """How a streaming service is spelled when a reply says it out loud:
+    'qobuz' is a config key, «Qobuz» is what the user hears.
+
+    The spelling belongs to the backend and to nobody else. Both service
+    objects carry it — ``lms.ServiceSpec.label`` and
+    ``musicassistant.MAService.label`` — and the LMS table asked about a
+    MusicAssistant provider either answers for the wrong music system or
+    answers nothing, which leaves «<servizio> non è collegato» with no
+    subject. So it is read off the client the way
+    ``matching._trusts_ranking`` reads ``trust_ranking``: ``getattr``
+    throughout, so a backend that never heard of services costs nothing.
+
+    ``name`` asks about a service other than the one the client is aimed at —
+    the one that blocked a library row, the one being offered instead — and
+    goes through ``for_service`` because that is the backend's own answer to
+    "what is this called". A name the backend does not recognise comes back
+    as it was given: this is a sentence naming something out loud, and saying
+    the word plainly beats saying nothing.
+    """
+    service = getattr(client, "service", None)
+    if name is not None and name != getattr(service, "name", None):
+        try:
+            service = getattr(client.for_service(name), "service", None)
+        except (AttributeError, ValueError):
+            return name
+    label = getattr(service, "label", "")
+    return label or name or getattr(service, "name", "") or ""

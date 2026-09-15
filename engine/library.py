@@ -1,169 +1,27 @@
-"""Candidates: making them, reading them out, and acting on the one picked.
+"""The local library: Music Folder, USB, whatever the server has indexed.
 
-Two halves of one conversation. The first offers a numbered list — an artist\'s
-top tracks, the albums you own — and the second acts on «metti la 2». In
-between sits the local library itself, which is the only catalogue this engine
-can search without asking anyone\'s permission, and therefore the only one the
-room gate is willing to be decided by (:func:`library_candidates`).
+The only catalogue this engine can search without asking anyone's permission,
+and therefore the only one the room gate is willing to be decided by
+(:func:`library_candidates`).
+
+What it finds is offered the way anything else is — a numbered list, or one
+record simply put on — so the turn that answers «la seconda» lives next door
+in :mod:`candidates`, together with :func:`_dispatch_play`, the one verb this
+module borrows from there.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Dict, List, Optional
 
+from candidates import _dispatch_play
 from guard import Guard, is_blocked_item
-from lms import service_label
-from matching import (GATE, LIST_LIMIT, LOCAL_CONFIDENT, ActionResult, _MODE_KEY,
+from matching import (GATE, LIST_LIMIT, LOCAL_CONFIDENT, ActionResult,
                       _MODE_SUFFIX, _dedup_by_title_artist, _did_you_mean,
-                      _normalize, _score, _strip_lead_filler)
+                      _score, _strip_lead_filler)
 from messages import msg
 from player.errors import PlayerError
-
-# -- conversational flow: list -> choose by number ------------------------
-# A list read out loud is an answer, so its speech carries ``ok=True`` — but
-# ``kind="list"`` with it, because ``Router._tag`` splices its source and room
-# tags only into results with no ``kind``, and a read-out is not a play to tag.
-# The failure branches carry ``ok=False`` for the reason every other refusal in
-# the engine does: ``handle_many`` reads it to tell a miss from a hit, and a
-# question ("which artist?") is not a hit.
-#
-# No ``terms`` on either read-out, deliberately. They were empty before — the
-# speech was a plain string — and ``terms`` drives which fragments the web
-# client reads with a foreign voice. Filling them in is a change to how a list
-# is spoken aloud, which is a different question from what ``ok`` says, and it
-# should be answered on its own.
-def top_tracks_list(
-    lms, artist: Optional[str], limit: int = LIST_LIMIT, *, guard: Optional[Guard] = None
-) -> Dict:
-    """Return ``{'speech', 'candidates'}``. The handler reads the list aloud and
-    stores ``candidates`` (title+url) in session for a follow-up choice."""
-    artist = (artist or "").strip()
-    if not artist:
-        return {"speech": ActionResult(msg("which_artist"), ok=False),
-                "candidates": []}
-    if guard and guard.blocks(artist):
-        return {"speech": ActionResult(msg("blocked"), ok=False, kind=GATE),
-                "candidates": []}
-    try:
-        tracks = lms.artist_top_tracks(artist)["tracks"]
-    except PlayerError:
-        return {"speech": ActionResult(msg("err_unreachable"), ok=False),
-                "candidates": []}
-    if guard and guard.restricted:  # drop blocked tracks so they can't be chosen
-        tracks = [t for t in tracks if not is_blocked_item(t, guard.blocklist)]
-    tracks = tracks[:limit]
-    if not tracks:
-        return {"speech": ActionResult(msg("no_tracks_for", artist=artist), ok=False),
-                "candidates": []}
-    listing = ", ".join(
-        msg("enum_item", n=i + 1, name=t["title"]) for i, t in enumerate(tracks)
-    )
-    speech = ActionResult(msg("top_tracks", artist=artist, listing=listing),
-                          ok=True, kind="list")
-    # ``item_id`` travels beside ``url`` because a feed may carry only one of
-    # them (Spotty keeps the url one level down — see lms.artist_tracks), and
-    # ``_dispatch_play`` resolves it for the ONE row that gets picked rather
-    # than for all five that get read out.
-    candidates = [{k: t[k] for k in ("title", "url", "item_id") if k in t}
-                  for t in tracks]
-    return {"speech": speech, "candidates": candidates}
-
-
-# Candidate 'action' -> the local-library kind it names (album/artist/track),
-# used to pick the right lms.<mode>_local_<kind>() method. The action strings
-# themselves are historical ("play_...") and don't change with mode.
-_LOCAL_KIND = {"play_album_id": "album", "play_artist_id": "artist", "play_track_id": "track"}
-
-
-def _dispatch_play(lms, candidate: Dict, *, mode: str = "play") -> None:
-    """Act on a candidate from a previously read-out list. Its 'action'/'arg'
-    say how; falls back to a plain URL so both TIDAL ({'title','url'}) and
-    local ({'title','action','arg'}) lists work. ``mode``: 'play' (replace the
-    queue and start it), 'add' (queue at the end) or 'insert' (queue right
-    after the current track) — see :func:`play_song`."""
-    kind = _LOCAL_KIND.get(candidate.get("action"))
-    if kind:
-        getattr(lms, f"{mode}_local_{kind}")(candidate.get("arg"))
-        return
-    url = candidate.get("arg") or candidate.get("url")
-    if not url and candidate.get("item_id"):
-        url = lms.track_url(candidate["item_id"])
-    getattr(lms, f"{mode}_url")(url)
-
-
-def choose_from(
-    lms,
-    candidates: Optional[List[Dict]],
-    number: Optional[int],
-    *,
-    mode: str = "play",
-    guard: Optional[Guard] = None,
-) -> ActionResult:
-    """Act on the N-th candidate from a previously read-out list (mode: see
-    :func:`play_song`)."""
-    if not candidates:
-        return ActionResult(msg("no_open_list"), ok=False)
-    if number is None or number < 1 or number > len(candidates):
-        return ActionResult(msg("pick_range", n=len(candidates)), ok=False)
-    chosen = candidates[number - 1]
-    if guard and guard.blocks_item(chosen):
-        return ActionResult(msg("blocked"), ok=False, kind=GATE)
-    try:
-        _dispatch_play(lms, chosen, mode=mode)
-    except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
-    key = _MODE_KEY[mode]
-    return ActionResult(
-        msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
-    )
-
-
-def choose_by_name(
-    lms,
-    candidates: Optional[List[Dict]],
-    name: Optional[str],
-    *,
-    mode: str = "play",
-    guard: Optional[Guard] = None,
-) -> Optional[ActionResult]:
-    """Act on the candidate whose title matches ``name`` from a previously
-    read-out list (mode: see :func:`play_song`). Returns ``None`` when
-    there's no list, no name, or no title matches, so the caller falls back
-    to a fresh search. ``None`` is deliberately *not* a 'Non ...' miss
-    string: it means 'this wasn't a selection, keep routing'."""
-    if not candidates:
-        return None
-    query = _normalize(name)
-    if not query:
-        return None
-    chosen = None
-    for cand in candidates:  # 1) exact normalized title match wins
-        if _normalize(cand.get("title")) == query:
-            chosen = cand
-            break
-    if chosen is None:  # 2) whole-word match either direction
-        for cand in candidates:
-            title = _normalize(cand.get("title"))
-            if not title:
-                continue
-            if re.search(rf"\b{re.escape(title)}\b", query) or re.search(
-                rf"\b{re.escape(query)}\b", title
-            ):
-                chosen = cand
-                break
-    if chosen is None:
-        return None
-    if guard and guard.blocks_item(chosen):
-        return ActionResult(msg("blocked"), ok=False, kind=GATE)
-    try:
-        _dispatch_play(lms, chosen, mode=mode)
-    except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
-    key = _MODE_KEY[mode]
-    return ActionResult(
-        msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
-    )
+from player.protocols import service_label
 
 
 # -- local library (Music Folder / USB) -----------------------------------
@@ -182,11 +40,11 @@ _LOCAL_KIND_RANK = {"artist": 0, "track": 1, "album": 2}
 IMPORT_OFFLINE = "import_offline"
 
 
-def _import_offline(query, blocked) -> ActionResult:
+def _import_offline(lms, query, blocked) -> ActionResult:
     """The library has it; the plugin that owns the audio is logged out."""
     return ActionResult(
         msg("local_import_offline", query=query,
-            service=service_label(sorted(blocked)[0])),
+            service=service_label(lms, sorted(blocked)[0])),
         ok=False, kind=IMPORT_OFFLINE)
 
 
@@ -297,7 +155,7 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
         ]
         if not groups:
             if blocked:
-                return _import_offline(query, blocked)
+                return _import_offline(lms, query, blocked)
             return ActionResult(msg("local_not_found", query=query), ok=False)
         # Best-scoring category wins; an exact tie goes to the artist.
         groups.sort(key=lambda g: (-g[0][0],
@@ -348,7 +206,7 @@ def play_local_artist(lms, query: Optional[str], *,
                               "artist", "play_artist_id", guard, blocked)
         if not scored:
             if blocked:
-                return _import_offline(query, blocked)
+                return _import_offline(lms, query, blocked)
             return ActionResult(msg("local_no_artist", artist=query), ok=False)
         distinct = _dedup_by_title_artist([cand for _s, cand in scored])
         if len(distinct) >= 2:

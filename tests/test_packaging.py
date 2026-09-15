@@ -903,8 +903,8 @@ def test_the_launch_posts_promise_the_trial_and_the_refund():
 
 # -- the engine's front door ---------------------------------------------------
 #
-# engine/actions.py was 1054 lines and is now six modules, with actions.py
-# re-exporting the other five. That re-export is load-bearing: the router, the
+# engine/actions.py was 1054 lines and is now seven modules, with actions.py
+# re-exporting the other six. That re-export is load-bearing: the router, the
 # tools and a great many tests reach for actions.play_local, actions._score,
 # actions.Guard — private names included — and the split promised none of them
 # would notice. The promise is only kept while every name over there is still
@@ -912,7 +912,8 @@ def test_the_launch_posts_promise_the_trial_and_the_refund():
 # runtime. So it is checked, the same way this module checks everything else
 # the test suite cannot see.
 
-ENGINE_PARTS = ("matching", "guard", "transport", "library", "playback")
+ENGINE_PARTS = ("matching", "guard", "transport", "candidates", "library",
+                "playback")
 
 
 def _module_level_names(path):

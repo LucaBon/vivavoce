@@ -21,8 +21,7 @@ import actions
 import moods
 from conversation import MOOD_TTL
 from messages import msg
-from parsing import (_as_number, _parse_minutes, _service_re,
-                     _source_suffix, repair_play_verb)
+from parsing import _as_number, _parse_minutes, _service_re, repair_play_verb
 
 
 class IntentTable:
@@ -188,7 +187,7 @@ class IntentTable:
             if getattr(picked, "ok", False):
                 self._used_list()
             return self._tag(
-                self._tag(picked, _source_suffix(self.cand_source)),
+                self._tag(picked, self._source_suffix(self.cand_source)),
                 room_suffix)
 
         # 2c) the answer to a yes/no question this router asked last turn (see
@@ -269,7 +268,7 @@ class IntentTable:
                     if getattr(chosen, "ok", False):
                         self._used_list()
                     return self._tag(
-                        self._tag(chosen, _source_suffix(self.cand_source)),
+                        self._tag(chosen, self._source_suffix(self.cand_source)),
                         room_suffix)
 
         # 5) album — streaming or local per selector
@@ -293,7 +292,7 @@ class IntentTable:
             res, name = self._retry_elsewhere(
                 res, name, lambda alt: actions.play_playlist(alt, arg,
                                                              guard=self._guard))
-            return self._tag(res, _source_suffix(name))
+            return self._tag(res, self._source_suffix(name))
 
         # 7) artist — streaming or local per selector. The local half is NOT
         # play_local: a request that named a category must not be answered from

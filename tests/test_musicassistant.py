@@ -14,6 +14,7 @@ this client instead of an LMS, which is the whole claim the player layer makes.
 import pytest
 
 import actions
+import playback
 import transport as engine_transport
 from player.ma_transport import MusicAssistantError
 from player.musicassistant import MusicAssistantClient
@@ -506,3 +507,44 @@ def test_the_engine_still_asks_which_one_when_it_cannot_tell(ma, ma_transport):
     assert [c["title"] for c in result.candidates] == [
         "Waterloo Sunset", "Waterloo Road", "Waterloo Bridge"]
     assert "player_queues/play_media" not in ma_transport.commands()
+
+
+def test_a_provider_switched_off_is_a_name_this_server_knows(ma, ma_transport):
+    # The two questions are different and the difference is the point:
+    # installed_services is "usable today", known_services is "a name you
+    # recognise". A provider being re-authenticated this morning belongs to
+    # the second and not the first — calling it a typo would refuse to start
+    # the whole app over an outage.
+    ma_transport.responses["config/providers"] = [
+        {"domain": "tidal", "enabled": False},
+        {"domain": "qobuz", "enabled": True},
+        {"domain": "filesystem", "enabled": True},
+    ]
+    assert ma.installed_services() == ["qobuz"]
+    assert ma.known_services() == ["tidal", "qobuz"]
+
+
+def test_a_silent_play_is_blamed_on_the_provider_by_the_name_ma_gives_it(
+        ma, ma_transport):
+    # «<servizio> non è collegato» takes its subject from the backend. Read
+    # out of the LMS table instead, a MusicAssistant provider comes back
+    # spelled for another music system or not at all — and a sentence whose
+    # subject is the empty string is not one the household can act on.
+    ma_transport.responses["player_queues/get_active_queue"] = {"queue_id": "q1"}
+    ma_transport.responses["player_queues/get"] = {
+        "state": "idle", "current_index": 0, "elapsed_time": 0,
+        "current_item": {"name": "Comfortably Numb"},
+    }
+    aimed = ma.for_service("apple_music")
+    result = playback.started(aimed,
+                              actions.ActionResult("Riproduco.", ok=True))
+    assert result.ok is False
+    assert str(result) == "Apple Music non è collegato."
+
+
+def test_a_client_aimed_at_nothing_still_has_nothing_to_blame(ma, ma_transport):
+    # The other half of the same rule: unaimed, MusicAssistant is searching
+    # its own library and there is no service to name, so the check stands
+    # down rather than inventing one (playback.after_play, UNREAD).
+    assert playback.after_play(ma) == (None, playback.UNREAD)
+    assert ma_transport.calls == []

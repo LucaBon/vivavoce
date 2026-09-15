@@ -40,7 +40,6 @@ import setupserver  # noqa: E402
 import tls  # noqa: E402
 import webguard  # noqa: E402
 from http_api import make_handler  # noqa: E402,F401  (re-exported for tests)
-from lms import SERVICES  # noqa: E402
 from player import registry as player_registry  # noqa: E402
 
 
@@ -121,6 +120,39 @@ def _announce_setup(scheme: str, hosts: list, port: int, line: str) -> None:
     for extra in hosts[1:]:
         print(f"                        {scheme}://{extra}:{port}")
     print(line)
+
+
+def explicit_services(client, backend, spec: str):
+    """``(services, complaint)`` for a ``--services`` list typed by hand.
+
+    Which names are legal is a fact about the music system in front of us and
+    not about LMS. A MusicAssistant provider domain is whatever that server
+    has been configured with, so holding one against the LMS table rejected a
+    perfectly good provider before the app had started once — and printed the
+    LMS list of alternatives while doing it, which is the wrong list twice.
+
+    A backend that has no services to speak of, or that would not answer, is
+    taken at its word instead of being argued with: this branch is the escape
+    hatch for when the detection misbehaves (see ``--services`` in
+    ``cli.py``), and an escape hatch that needs the detection to work is not
+    one. So an unanswerable question validates nothing rather than refusing
+    everything.
+    """
+    services = [s.strip().lower() for s in spec.split(",") if s.strip()]
+    try:
+        known = client.known_services() if backend.capabilities.services else []
+    except Exception:
+        # Detto ad alta voce: da qui un token sbagliato e un server occupato
+        # si assomigliano, e prendere la lista per buona in silenzio manda a
+        # cercare il guasto dalla parte sbagliata.
+        print("Non sono riuscito a chiedere all'impianto quali servizi ha: "
+              "prendo --services come l'hai scritto.")
+        known = []
+    unknown = [s for s in services if s not in known] if known else []
+    if unknown or not services:
+        available = f" (disponibili: {', '.join(known)})" if known else ""
+        return [], f"--services non valido: {spec!r}{available}"
+    return services, ""
 
 
 def _discovery_progress(phase: str) -> None:
@@ -250,9 +282,11 @@ def main() -> int:
     from pro.multiroom import MultiRoom
     multiroom = MultiRoom(license_mgr, client.get_players, lms=client)
 
-    # Which streaming services the source selector offers. "auto" asks the LMS
-    # which plugins are installed; an explicit list skips the detection (the
-    # escape hatch if the apps query misbehaves on some LMS version).
+    # Which streaming services the source selector offers. "auto" asks the
+    # music system what it has; an explicit list is the escape hatch for when
+    # that answer misbehaves — it is still checked against the names the
+    # system recognises, which costs no round trip on LMS and one on
+    # MusicAssistant (see explicit_services).
     if args.services.strip().lower() == "auto":
         try:
             services = client.installed_services()
@@ -265,11 +299,9 @@ def main() -> int:
             print("Nessun servizio streaming rilevato: assumo TIDAL "
                   "(indica i tuoi con --services tidal,qobuz).")
     else:
-        services = [s.strip().lower() for s in args.services.split(",") if s.strip()]
-        unknown = [s for s in services if s not in SERVICES]
-        if unknown or not services:
-            print(f"--services non valido: {args.services!r} "
-                  f"(disponibili: {', '.join(SERVICES)})")
+        services, complaint = explicit_services(client, backend, args.services)
+        if complaint:
+            print(complaint)
             return 1
 
     silent = client.silent_services() if backend.capabilities.services else {}

@@ -12,8 +12,6 @@ import re
 
 from lang import PACKS
 import wakematch
-from lms import service_label
-from messages import msg
 
 
 # The word tables are merged across every registered language on purpose:
@@ -139,28 +137,24 @@ _SERVICE_SOUNDS = {
 
 
 def _service_re(name: str) -> str:
-    """Regex snippet matching a service name as ASR may transcribe it."""
-    return _SERVICE_SOUNDS.get(name, re.escape(name))
+    """Regex snippet matching a service name as ASR may transcribe it.
+
+    Without a table entry the name matches itself, except that an underscore
+    stands for the gap a config key writes and a person speaks: a
+    MusicAssistant provider is ``apple_music`` and the household says «Apple
+    Music». Matching only the written form would mean the source somebody
+    named out loud is silently ignored and the default one answers instead.
+    """
+    sound = _SERVICE_SOUNDS.get(name)
+    if sound:
+        return sound
+    return r"[\s_]+".join(re.escape(part) for part in name.split("_"))
 
 
-# Display names for the source tag in play confirmations. They live on the
-# service registry (``ServiceSpec.label``), not here: the engine says the same
-# names in its own messages, and one table spelling «TIDAL» twice is one table
-# too many.
-def _service_label(name: str) -> str:
-    """How a service name is spelled when a reply says it out loud — 'qobuz'
-    is a config key, «Qobuz» is what the user hears."""
-    return service_label(name)
-
-
-def _source_suffix(name) -> str:
-    """The localized ' da TIDAL' / ' from your music' tag for a source name
-    ('local' or a service), so play replies say which source answered."""
-    if not name:
-        return ""
-    if name == "local":
-        return msg("from_local")
-    return msg("from_service", service=_service_label(name))
+# The display name of a source, and the ' da TIDAL' tag built out of it, used
+# to live here. They are in ``sources.py`` now, as methods: the spelling is
+# the backend's own (``ServiceSpec.label``, ``MAService.label``) and has to be
+# asked of the client, and this module holds nothing that knows a client.
 
 
 # Quanto corto può essere un verbo prima che una modifica sola non voglia più

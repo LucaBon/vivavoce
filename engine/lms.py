@@ -273,13 +273,6 @@ def _with_extid(cand: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
     return cand
 
 
-def service_label(name: Optional[str]) -> str:
-    """How a service is spelled when a reply says it out loud (``ServiceSpec.
-    label``): 'qobuz' is a config key, «Qobuz» is what the user hears."""
-    spec = SERVICES.get(name or "")
-    return (spec.label if spec and spec.label else (name or ""))
-
-
 def _as_int(value: Any) -> int:
     """``playlist_cur_index`` and friends, which LMS sends as strings."""
     try:
@@ -480,6 +473,16 @@ class LMSClient(Resilient, SilentServices):
         loop = res.get("appss_loop") or res.get("apps_loop") or []
         tags = {a.get("cmd") for a in loop if a.get("cmd")}
         return [name for name, spec in SERVICES.items() if spec.tag in tags]
+
+    def known_services(self) -> List[str]:
+        """Every service this client can be aimed at, installed or not.
+
+        A fixed table, unlike :meth:`installed_services`, and deliberately
+        answered without asking the server: what this is for is telling a name
+        somebody typed from a typo, and a startup flag should not have to wait
+        on a round trip — nor be rejected because the round trip failed.
+        """
+        return list(SERVICES)
 
     # -- streaming app-feed browse/search (TIDAL, Qobuz, ...) --------------
     def _app_items(self, *params: Any) -> List[Dict[str, Any]]:
