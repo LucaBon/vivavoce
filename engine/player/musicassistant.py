@@ -8,10 +8,10 @@ request into a stream it can actually swallow, and MusicAssistant already is
 that someone. Driving it gets every player it supports, without this project
 learning SSDP, SOAP or protobuf.
 
-The catalogue half lives in :mod:`player.ma_library`; the wire in
-:mod:`player.ma_transport`. What is left here is the device half — the
-controls that resolve nothing — plus construction and the two re-aimings the
-engine leans on.
+The catalogue half lives in :mod:`player.ma_library`, the wire in
+:mod:`player.ma_transport` and the registration in :mod:`player.ma_backend`.
+What is left here is the device half — the controls that resolve nothing —
+plus construction and the two re-aimings the engine leans on.
 
 Every command name and argument name below was read off
 ``music-assistant/server`` on 2026-09-11.
@@ -27,10 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .ma_library import MusicAssistantLibrary
 from .resilience import Resilient
 from .silence import SilentServices
-from .ma_transport import (DEFAULT_PORT, MusicAssistantError, Transport,
-                           post)
-from .protocols import Capabilities
-from .registry import Backend
+from .ma_transport import MusicAssistantError, Transport, post
 
 #: How the three enqueue modes the engine speaks are spelled on the wire.
 #: From ``QueueOption``: REPLACE empties the queue and starts at the top, ADD
@@ -362,39 +359,3 @@ def _queue_entry(item: Dict[str, Any]) -> Dict[str, Any]:
             entry["artist"] = artist["name"]
             break
     return entry
-
-
-def build(url: str, player_id: str, *, token: Optional[str] = None,
-          timeout: float = 8.0) -> MusicAssistantClient:
-    """A client aimed at one player of one MusicAssistant server."""
-    return MusicAssistantClient(url, player_id, token=token or "",
-                                timeout=timeout)
-
-
-def probe(url: str, *, token: Optional[str] = None,
-          timeout: float = 3.0) -> List[Dict[str, Any]]:
-    """The players this server knows. Raises if it is not there."""
-    return MusicAssistantClient(url, "probe", token=token or "",
-                                timeout=timeout).get_players()
-
-
-BACKEND = Backend(
-    name="musicassistant",
-    label="Music Assistant",
-    capabilities=Capabilities(
-        search=True, local_library=True, favorites=True, genres=True,
-        browse_items=True, services=True, sleep_timer=True, seek=True,
-        multi_player=True, artwork=True,
-        # No year index: MusicAssistant has no equivalent of the LMS "years"
-        # listing, so the mood that picks a decade falls through to a
-        # streaming playlist instead of loading the library by year.
-        years=False,
-    ),
-    build=build,
-    probe=probe,
-    default_port=DEFAULT_PORT,
-    # Nothing to broadcast to: MusicAssistant announces itself over mDNS, not
-    # over a protocol this project already speaks, so it has to be told where
-    # it is. That is a fact about the server, not a gap in this backend.
-    discover=None,
-)
