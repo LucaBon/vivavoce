@@ -238,10 +238,19 @@ class MultiRoom:
         connected". The caller must not fall back to the default player on it:
         starting the music in the living room because the kitchen did not
         resolve is the wrong-room action this feature exists to avoid.
+
+        What ``None`` deliberately does NOT cover is "nobody could be asked".
+        This reads the list through :meth:`players`, which raises, rather than
+        through ``_players_safe``, which answers an unreachable server with an
+        empty list: with that list every room in the house stops resolving at
+        once, and a network blip was read back to every satellite as «I have
+        no player called Cucina, check the names» — sending somebody to check
+        names that were never wrong. The failure belongs to the caller, which
+        already has words for a hi-fi that is not answering.
         """
         if not room or not room.strip():
             return None
-        return _match_player(room, self._players_safe())
+        return _match_player(room, self.players())
 
     def extract_room(self, text: str, lang: str) -> Tuple[str, Optional[Dict]]:
         """``(text_without_room, player)`` when the phrase carries an

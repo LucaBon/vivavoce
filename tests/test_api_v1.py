@@ -26,6 +26,7 @@ import os
 import pytest
 
 from conftest import FakeLicense
+from lms import LMSError
 from messages import msg
 from pro.multiroom import MultiRoom
 
@@ -426,6 +427,33 @@ def test_an_unknown_room_refuses_instead_of_playing_elsewhere(live_server,
     assert "Bagno" in reply["speech"]         # name the guess, so it is visible
     assert reply["unmatched"] is False        # a grammar gap it is not
     assert transport.calls == []              # and nothing happened anywhere
+
+
+def test_a_hi_fi_that_cannot_be_reached_is_not_a_naming_mistake(live_server):
+    # Found in review. While the music server is unreachable the player list
+    # comes back empty, so every room stops resolving and every satellite in
+    # the house was answered «Non ho nessun lettore che si chiami Cucina.
+    # Controlla i nomi dei lettori» — a network blip reported to the whole
+    # household as a configuration error, and one that sends somebody to check
+    # names that were never wrong. The same command without a room already
+    # says the true thing, and it is the sentence to keep.
+    def unreachable():
+        raise LMSError("simulated outage")
+
+    srv = live_server(multiroom=MultiRoom(FakeLicense(True), unreachable))
+    reply = srv.json_post("/api/v1/command", {"text": "pausa", "room": "Cucina"})
+    assert reply["ok"] is False
+    assert reply["speech"] == msg("err_unreachable")
+    assert set(reply) == CONTRACT_FIELDS
+
+
+def test_a_room_that_does_not_exist_still_says_so(live_server):
+    # The other half, and the reason this is not just "catch everything": a
+    # server that answers perfectly and has no Bagno is a naming mistake, and
+    # must keep being told as one.
+    srv = live_server(multiroom=_multiroom())
+    reply = srv.json_post("/api/v1/command", {"text": "pausa", "room": "Bagno"})
+    assert reply["speech"] == msg("room_unknown", room="Bagno")
 
 
 def test_a_disconnected_player_is_not_a_room(live_server, transport):
