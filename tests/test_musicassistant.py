@@ -562,3 +562,25 @@ def test_a_client_aimed_at_nothing_still_has_nothing_to_blame(ma, ma_transport):
     # down rather than inventing one (playback.after_play, UNREAD).
     assert playback.after_play(ma) == (None, playback.UNREAD)
     assert ma_transport.calls == []
+
+
+# -- the shapes the engine reads -----------------------------------------------
+# Found in review: the engine plays a local candidate by its ``id`` and checks
+# kid-safe against every name field, and two MusicAssistant shapes had neither.
+
+def test_a_local_track_carries_the_id_the_engine_plays_it_by(ma, ma_transport):
+    # Without it every title the library had answered «Errore interno: 'id'».
+    ma_transport.responses["music/tracks/library_items"] = [
+        track("library://track/7", "Comfortably Numb", artist="Pink Floyd")]
+    ma_transport.responses["music/albums/library_items"] = []
+    ma_transport.responses["music/artists/library_items"] = []
+    res = actions.play_local(ma, "Comfortably Numb")
+    assert res.ok, str(res)
+    assert ma_transport.last_call()[1]["media"] == "library://track/7"
+
+
+def test_an_album_carries_its_artist_so_kid_safe_can_see_it(ma, ma_transport):
+    album = container("tidal://album/1", "The Marshall Mathers LP")
+    album["artists"] = [{"name": "Eminem"}]
+    ma_transport.responses["music/search"] = {"albums": [album]}
+    assert ma.album_candidates("marshall mathers")[0]["artist"] == "Eminem"

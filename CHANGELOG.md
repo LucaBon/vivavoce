@@ -4,6 +4,29 @@
 
 ### Fixed
 
+- **Music Assistant suona i brani della tua libreria.** Con la sorgente «auto»
+  la libreria locale viene interrogata per prima, e un brano trovato lì
+  rispondeva «Errore interno: 'id'»: il motore suona un candidato locale per
+  id, e la riga del brano su Music Assistant non ne aveva uno. Succedeva con
+  ogni titolo che la libreria conteneva.
+
+- **Scegliere da un elenco di Spotify suona il brano scelto.** Con TIDAL come
+  servizio predefinito, «quali brani dei Pink Floyd» su Spotify e poi «metti la
+  2» chiedevano l'indirizzo del brano a TIDAL, che non lo conosce: all'impianto
+  arrivava `playlist play None`, e la risposta diceva comunque «Riproduco».
+  Ora la scelta va al servizio da cui è venuto l'elenco, e se un brano non si
+  risolve in niente non si manda nulla e lo si dice.
+
+- **Kid-safe riconosce l'artista di un album.** «Metti l'album The Marshall
+  Mathers LP» con Eminem bloccato suonava: su Spotify il nome «… by Eminem»
+  veniva ripulito del suo artista, e su Music Assistant l'artista non veniva
+  proprio letto. Ora l'album porta con sé il suo artista, e il blocco lo vede.
+
+- **Un brano da un album di Spotify suona quel brano.** «Metti Time dall'album
+  The Dark Side of the Moon» suonava l'album intero: le tracce di un album
+  Spotify non hanno un indirizzo diretto e venivano scartate, esattamente come
+  capitava alle tracce di un artista prima che si imparasse a risolverle.
+
 - **La pagina non si fida più di ciò che non ha scritto lei.** Quattro strade
   per cui testo arrivato dalla rete finiva nella pagina come codice, o
   l'impianto si ritrovava con più di quanto gli era stato chiesto:

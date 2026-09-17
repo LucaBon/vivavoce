@@ -192,6 +192,24 @@ class ConversationState:
             self.mood = None
         return self._tag(res, room_suffix)
 
+    def _pick_client(self):
+        """``(client, room suffix)`` for acting on a pick from the open list.
+
+        Aimed where the list came from, twice over. At the room it was read
+        out for (unless this very turn names another one — then ``self.lms``
+        already points there and tagging is the caller's job). And at the
+        service that produced it: a Spotify row is an ``item_id`` only Spotify
+        can resolve, and resolved against the default service it came back
+        None and went out as ``playlist play None``.
+        """
+        lms, room_suffix = self.lms, ""
+        if self.cand_player and not self._room_turn:
+            lms = lms.for_player(self.cand_player[0])
+            room_suffix = msg("in_room", room=self.cand_player[1])
+        if self.cand_source in self.services:
+            lms = lms.for_service(self.cand_source)
+        return lms, room_suffix
+
     def _used_list(self) -> None:
         """A pick was acted on: the list has done its job. Kept alive for a
         short grace window so the choice buttons still on screen keep working,

@@ -608,8 +608,18 @@ class LMSClient(Resilient, SilentServices):
         Straits from Brothers In Arms"» is not a sentence to say to somebody.
         Services with no ``track_name_re`` are untouched.
         """
+        return self._name_parts(name)[0]
+
+    def _name_parts(self, name: Optional[str]) -> tuple:
+        """``(title, artist)`` out of a feed's packaged name.
+
+        The artist is what :meth:`_clean_name` throws away, and it is the one
+        thing kid-safe needs from an album row: «The Marshall Mathers LP by
+        Eminem» cleaned to its title is an album nobody can tell is Eminem's.
+        ``artist`` is None wherever the name carried none.
+        """
         if not name:
-            return name
+            return name, None
         cleaned = _TRACK_NUMBER_RE.sub("", name.strip())
         # Track form first ("T by A from B"), then the album form ("T by A"),
         # which is the same sentence with the tail missing. Order matters: the
@@ -620,8 +630,17 @@ class LMSClient(Resilient, SilentServices):
                 continue
             match = pattern.match(cleaned)
             if match:
-                return match.group("title").strip() or name
-        return cleaned or name
+                artist = (match.group("artist") or "").strip() or None
+                return match.group("title").strip() or name, artist
+        return cleaned or name, None
+
+    def _named(self, row: Dict[str, Any], name: Optional[str]) -> Dict[str, Any]:
+        """``row`` with the title and, when the name carried one, the artist."""
+        title, artist = self._name_parts(name)
+        row["title"] = title
+        if artist:
+            row["artist"] = artist
+        return row
 
     def _inline_tracks(self, query: str, count: int) -> List[Dict[str, Any]]:
         """Tracks for feeds that list them beside the category links, not under
@@ -752,7 +771,7 @@ class LMSClient(Resilient, SilentServices):
         caller scores these against the request (edition words like 'Live In
         Berlin' surface the right edition)."""
         return [
-            {"id": it["id"], "title": self._clean_name(it.get("name"))}
+            self._named({"id": it["id"]}, it.get("name"))
             for it in self.category_items(query, "Albums", count)
             if it.get("id")
         ]
@@ -762,7 +781,13 @@ class LMSClient(Resilient, SilentServices):
         return cands[0] if cands else None
 
     def album_tracks(self, query: str, count: int = 50) -> Dict[str, Any]:
-        """Return ``{'album': {...} | None, 'tracks': [{'url','title'}, ...]}``."""
+        """Return ``{'album': {...} | None, 'tracks': [{'url','title'}, ...]}``.
+
+        A row carries ``item_id`` instead of ``url`` where the feed keeps the
+        url one level down (Spotty), exactly as :meth:`artist_tracks` does:
+        dropping those rows made every album on Spotify look empty, so «Time
+        dall'album X» played the whole album instead.
+        """
         album = self.find_album(query, count)
         if not album:
             return {"album": None, "tracks": []}
@@ -770,10 +795,14 @@ class LMSClient(Resilient, SilentServices):
         for item in self._app_items(
             "0", str(count), f"item_id:{album['id']}", "want_url:1"
         ):
+            if not item.get("isaudio"):
+                continue
             url = item.get("url") or find_uri(item, self.service.uri_re)
-            if item.get("isaudio") and url:
-                tracks.append({"url": url,
-                               "title": self._clean_name(item.get("name"))})
+            if url:
+                tracks.append(self._named({"url": url}, item.get("name")))
+            elif self.service.tracks_inline and item.get("id"):
+                tracks.append(self._named({"item_id": item["id"]},
+                                          item.get("name")))
         return {"album": album, "tracks": tracks}
 
     def artist_candidates(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
