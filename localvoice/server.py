@@ -221,6 +221,9 @@ def main() -> int:
         hosts = lan_ips() or ["<ip-di-questo-pc>"]
 
     lms_url = backend_url
+    # Where that address came from, which is not a detail: see
+    # lmsproxy.browse_path and appdata.remembered_from_page.
+    from_page = False
     if not lms_url and backend.name == "lms":
         # L'indirizzo ricordato e' quello di un LMS: un altro backend non lo
         # eredita, o il primo avvio con Music Assistant proverebbe a parlare
@@ -228,6 +231,7 @@ def main() -> int:
         # un indirizzo scritto a mano: il file l'ha riempito una risposta UDP.
         lms_url = setupserver.normalize_lms_url(
             appdata.remembered_lms(data_dir))
+        from_page = bool(lms_url) and appdata.remembered_from_page(data_dir)
         if lms_url:
             # Not probed here: serve_setup probes every address it is given,
             # so checking it twice would only be a slower way to be wrong.
@@ -259,9 +263,10 @@ def main() -> int:
     # An explicit --player is trusted the way it always was: it means the LMS
     # has to answer, not that the list has to be non-empty.
     try:
-        lms_url, players = setupserver.serve_setup(
+        lms_url, players, from_page = setupserver.serve_setup(
             args.host, args.port, lms_url, discover,
             pinned=bool(backend_url), require_player=not args.player,
+            from_page=from_page,
             backend=backend.name, token=args.backend_token,
             allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
             wrap=(lambda httpd: tls.wrap_server(httpd, args.cert, args.key))
@@ -276,7 +281,7 @@ def main() -> int:
         player = players[0]["playerid"]
         print(f"Player: {players[0].get('name')} ({player})")
     if backend.name == "lms":
-        appdata.remember_lms(data_dir, lms_url)
+        appdata.remember_lms(data_dir, lms_url, from_page=from_page)
 
     # The engine talks to whatever this hands back, and has no idea which of
     # them it got (see engine/player/protocols.py).
@@ -339,6 +344,7 @@ def main() -> int:
     httpd = BoundedThreadingHTTPServer(
         (args.host, args.port),
         make_handler(client, material_url, services, default_service,
+                     lms_from_page=from_page,
                      ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version(),

@@ -31,7 +31,8 @@ import pytest
 
 import lmsproxy
 
-from conftest import ELSEWHERE_MATERIAL_URL, FakeUpstream, UpstreamResponse
+from conftest import (DEFAULT_MATERIAL_URL, ELSEWHERE_MATERIAL_URL,
+                      FakeUpstream, UpstreamResponse)
 
 
 @pytest.fixture
@@ -202,6 +203,30 @@ def test_material_elsewhere_leaves_the_server_exactly_as_it_was(live_server,
     assert srv.try_get("/nope").status == 404
     assert srv.try_post_json("/jsonrpc.js", {}).status == 404
     assert upstream.requests == []
+
+
+def test_an_address_from_the_setup_page_is_not_lent_this_origin(live_server,
+                                                                upstream):
+    """The finding this closes: ``POST /setup`` is unauthenticated, so while
+    the household is not controllable anything on the LAN can have an address
+    of its own adopted — and that address became the reverse proxy's target,
+    which serves HTML and JavaScript same-origin with the page. Now it is
+    the music server and nothing else.
+    """
+    srv = live_server(lms_from_page=True, proxy_open=upstream)
+    assert srv.try_get("/nope").status == 404
+    assert srv.try_get("/material/").status == 404
+    assert srv.try_post_json("/jsonrpc.js", {}).status == 404
+    assert upstream.requests == []
+
+
+def test_a_typed_address_still_opens_in_a_tab_of_its_own(live_server):
+    # Refusing the origin is not refusing the address: it is the hi-fi this
+    # household chose from the page, and the link at the bottom still opens
+    # it — in its own origin, which is the whole difference.
+    page = live_server(lms_from_page=True).get("/").text
+    assert 'browse: ""' in page
+    assert DEFAULT_MATERIAL_URL in page
 
 
 # -- what the page is told -----------------------------------------------------
