@@ -82,6 +82,27 @@ def test_wakeword_unavailable_message_points_at_the_right_group():
     assert "uv sync --group asr" not in message
 
 
+def test_main_carries_where_the_address_came_from_to_all_four_places():
+    """Source scan, for the reason the test above gives: this wiring sits
+    after discovery and reaching it for real would need a live LMS.
+
+    What it guards is a security decision spread over four lines of
+    ``main()`` — seed the provenance from the remembered file, hand it to
+    ``serve_setup``, write it back, hand it to ``make_handler`` — and the
+    reason each one matters is in ``lmsproxy.browse_path``. Drop any of them
+    and the reverse proxy is pointed at an address that arrived over the
+    network again, with nothing failing to say so.
+    """
+    with open(os.path.join(ROOT, "localvoice", "server.py"),
+              encoding="utf-8") as f:
+        source = f.read()
+    assert "appdata.remembered_from_page(data_dir)" in source
+    assert "lms_url, players, from_page = setupserver.serve_setup(" in source
+    assert "from_page=from_page," in source
+    assert "remember_lms(data_dir, lms_url, from_page=from_page)" in source
+    assert "lms_from_page=from_page," in source
+
+
 # -- 32-bit machines -----------------------------------------------------------
 #
 # `asr` reaches onnxruntime through CTranslate2, and onnxruntime has never

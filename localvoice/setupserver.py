@@ -11,7 +11,9 @@ So the server binds first and explains itself second. This module owns that
 in-between state: it decides *what is missing* and keeps looking until
 nothing is, while ``setuppage.py`` owns what a person sees while it does.
 ``serve_setup`` blocks until the household is controllable and returns
-``(lms_url, players)`` for ``server.main`` to carry on with.
+``(lms_url, players, from_page)`` for ``server.main`` to carry on with —
+``from_page`` being whether that address arrived through the box on the page,
+which decides what the app is willing to build on it.
 """
 
 from __future__ import annotations
@@ -127,7 +129,7 @@ class _Resolution:
     def __init__(self, lms_url: str, discover, pinned: bool = False,
                  require_player: bool = True,
                  discover_interval: float = DISCOVER_INTERVAL,
-                 now=time.monotonic, probe=None):
+                 now=time.monotonic, probe=None, from_page: bool = False):
         self.lock = threading.Lock()
         self.discover = discover
         # Which music system this is looking for. Defaults to the module
@@ -152,6 +154,13 @@ class _Resolution:
         # wrong, and the page must not guess.
         self.confirmed = False
         self.misses = 0
+        # Every address that arrived through the box on the page, this run or
+        # a previous one (``from_page`` seeds it from the remembered file).
+        # A set of addresses and not a flag, because the flag was ambiguous
+        # the moment the background probe re-checked a typed address: it is
+        # the ADDRESS that came from the page, and it does not stop having
+        # come from there because somebody dialled it again.
+        self.page_urls = {lms_url} if from_page and lms_url else set()
         self.done = threading.Event()
 
     @property
@@ -183,8 +192,19 @@ class _Resolution:
                 return "found"
             return ""
 
-    def offer(self, lms_url: str) -> bool:
-        """Try one address. True when it leaves the house controllable."""
+    def from_page(self) -> bool:
+        """Whether the address this ended on came from the box on the page."""
+        with self.lock:
+            return self.lms_url in self.page_urls
+
+    def offer(self, lms_url: str, *, from_page: bool = False) -> bool:
+        """Try one address. True when it leaves the house controllable.
+
+        ``from_page`` when it was typed into the box rather than configured,
+        remembered or discovered. That travels with the address for as long
+        as the app runs and into the file it is remembered in, because it is
+        what :func:`lmsproxy.browse_path` refuses to lend this origin to.
+        """
         ok, players = self.probe(lms_url)
         # A player LMS lists but reports as disconnected is not one anybody
         # can hear: finishing setup on it starts the app aimed at a dead
@@ -202,6 +222,12 @@ class _Resolution:
                         # (a new DHCP lease) than to be coming back.
                         self.lms_url = ""
                 return False
+            if from_page and lms_url != self.lms_url:
+                # Typing the address we already believed in asks for a retry
+                # and nothing more, so it leaves the provenance alone: it is
+                # the address the file or the configuration named. A
+                # different one is the page's, and stays the page's.
+                self.page_urls.add(lms_url)
             # An LMS that answers is worth keeping even with nothing switched
             # on: it moves the page from "find the server" to "switch
             # something on", which is the shorter of the two conversations.
@@ -287,7 +313,7 @@ def make_setup_handler(resolution: _Resolution, allowed_hosts=None,
                 return
             url = normalize_lms_url(
                 self._read_json_object().get("lms") or "", default_port)
-            ok = resolution.offer(url) if url else False
+            ok = resolution.offer(url, from_page=True) if url else False
             state = resolution.state()
             state["ok"] = ok
             self._send(200, json.dumps(state))
@@ -303,11 +329,14 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
                 allowed_hosts=None, wrap=None, interval: float = PROBE_INTERVAL,
                 discover_interval: float = DISCOVER_INTERVAL,
                 sleep=time.sleep, announce=print, backend: str = "lms",
-                token: Optional[str] = None):
+                token: Optional[str] = None, from_page: bool = False):
     """Serve the setup page until the household is controllable.
 
-    Returns ``(lms_url, players)`` — a music server that answers and at least
-    one player switched on — for ``server.main`` to build the real app with.
+    Returns ``(lms_url, players, from_page)`` — a music server that answers,
+    at least one player switched on, and whether that address came from the
+    box on the page — for ``server.main`` to build the real app with. The
+    ``from_page`` argument says the same thing about the address handed IN,
+    which is how the provenance survives a restart.
     ``discover`` is called (repeatedly) only while no address is known;
     ``wrap`` is handed the server to put TLS on it, so the setup page is
     reached at the same scheme and port as the app that replaces it.
@@ -322,7 +351,8 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
     resolution = _Resolution(lms_url, discover, pinned=pinned,
                              probe=prober_for(backend, token),
                              require_player=require_player,
-                             discover_interval=discover_interval)
+                             discover_interval=discover_interval,
+                             from_page=from_page)
     # Look once before binding anything — but only the cheap half. A house
     # that is already fine (the usual restart: a remembered address, a player
     # left on) is found in one short connection and never sees a setup page.
@@ -331,7 +361,7 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
     # unresponsive port for half a minute.
     resolution.sweep(search=False)
     if resolution.done.is_set():
-        return resolution.lms_url, resolution.players
+        return resolution.lms_url, resolution.players, resolution.from_page()
 
     httpd = BoundedThreadingHTTPServer(
         (host, port),
@@ -351,4 +381,4 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
         httpd.serve_forever()
     finally:
         httpd.server_close()
-    return resolution.lms_url, resolution.players
+    return resolution.lms_url, resolution.players, resolution.from_page()

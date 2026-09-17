@@ -25,6 +25,19 @@
 
 ### Fixed
 
+- **Un indirizzo scritto nella pagina di configurazione non presta più
+  l'indirizzo dell'app.** Quella casella non risponde solo a chi guarda la
+  pagina: risponde a qualunque dispositivo della rete di casa. Finché
+  l'impianto non risponde, un indirizzo mandato lì veniva adottato — e
+  diventava anche il bersaglio del proxy che apre il pannello di Material
+  dentro la pagina, cioè quell'indirizzo poteva servire pagine e codice
+  *sotto l'indirizzo dell'app*, con tutto quello che la pagina è autorizzata
+  a fare. Ora un indirizzo che arriva da lì è il server musicale e nient'
+  altro: il pannello dentro la pagina non si apre per lui — il link in fondo
+  alla pagina sì, in una scheda sua, come ha sempre fatto — e da dove viene
+  l'indirizzo si ricorda insieme all'indirizzo, così al riavvio quello
+  scritto a mano non torna a sembrare quello trovato sulla rete.
+
 - **Una chiave scaduta di Audiobookshelf non spegne più la libreria.** Il
   cliente della libreria parlata ereditava il breaker e il retry senza saper
   distinguere un silenzio da un rifiuto: tre risposte «chiave non valida»
