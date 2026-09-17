@@ -25,6 +25,33 @@
 
 ### Fixed
 
+- **Il modello della parola chiave viene verificato prima di essere usato.**
+  Di un download da ~50 MB si controllava solo che lo zip si aprisse e
+  contenesse una cartella col nome giusto: qualunque archivio che rispondesse
+  sì diventava il modello con cui la casa ascolta. Ora di ogni modello sono
+  fissate dimensione e impronta SHA-256 (calcolate una volta e verificate
+  contro l'MD5 e la dimensione che upstream pubblica), il download si ferma
+  se supera il previsto invece di riempire il disco, e un archivio che
+  dichiara di scompattarsi in più di 1 GB viene rifiutato prima di scrivere
+  un byte. Anche il modello di riconoscimento vocale è fissato a una
+  revisione precisa invece di «quello che c'è oggi».
+
+- **I token non passano più dalla riga di comando** del processo, che è
+  leggibile da chiunque possa fare `ps` e finisce nei dump di debug. Arrivano
+  dall'ambiente, dove già stavano.
+
+- **L'unità systemd gira con un utente suo e il disco in sola lettura.**
+  `NoNewPrivileges`, `ProtectSystem=strict` e un elenco esplicito di ciò che
+  il servizio può scrivere. **Chi installa o reinstalla l'unità deve creare
+  l'utente prima** — i due comandi sono in DEPLOY.md; un'installazione già in
+  funzione continua a girare con la sua unità attuale finché non la sostituisce.
+
+- **La catena di costruzione è fissata.** L'immagine Docker parte da un digest
+  e non da un'etichetta che si muove, installa versioni esatte invece di
+  «l'ultima di oggi», e le action della CI sono fissate al commit con il tag
+  nel commento accanto. Nessun job ha più il permesso di scrivere nel
+  repository, tranne quello che pubblica l'immagine.
+
 - **Una porta esposta su internet non consegna più l'impianto a chi la
   trova.** L'app non ha account né password, per progetto: è sulla rete di
   casa e risponde a chi chiede. Ma tutte le difese che aveva guardavano *da

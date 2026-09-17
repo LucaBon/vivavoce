@@ -545,9 +545,20 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 - **Windows:** `tools/run_local.ps1` (starts HTTPS, generates the cert if missing) and
   `tools/install_autostart.ps1` (scheduled task at logon + firewall rule; run **as
   Administrator**). `tools/uninstall_autostart.ps1` removes it.
-- **Linux** (Raspberry Pi / mini-PC): `deploy/vivavoce.service` (systemd). Copy to
-  `/etc/systemd/system/`, adapt `WorkingDirectory`/paths, then
-  `sudo systemctl enable --now vivavoce`.
+- **Linux** (Raspberry Pi / mini-PC): `deploy/vivavoce.service` (systemd). The unit
+  runs as its own unprivileged user with the filesystem read-only except the data
+  directory, so there is one step before the usual two:
+
+  ```bash
+  sudo useradd --system --home /opt/vivavoce --shell /usr/sbin/nologin vivavoce
+  sudo chown -R vivavoce:vivavoce /opt/vivavoce
+  sudo cp deploy/vivavoce.service /etc/systemd/system/
+  sudo systemctl daemon-reload && sudo systemctl enable --now vivavoce
+  ```
+
+  Adapt `WorkingDirectory`/paths first. If you change where the data lives, change
+  `ReadWritePaths=` with it — that line is the complete list of what the service is
+  allowed to write, and everything else on the disk is read-only to it.
 
 ### Using it from a phone
 1. Same Wi-Fi as the server PC.

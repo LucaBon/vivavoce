@@ -17,6 +17,30 @@ Wants=network-online.target time-sync.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/vivavoce
+# Un utente suo, non root. Il server apre una porta sopra la 1024, legge il
+# suo albero e scrive solo in data/: non c'è niente qui che voglia i privilegi
+# di root, e il reverse proxy verso il server musicale è esattamente il genere
+# di cosa che non si vuole far girare come root. Da creare una volta:
+#   sudo useradd --system --home /opt/vivavoce --shell /usr/sbin/nologin vivavoce
+#   sudo chown -R vivavoce:vivavoce /opt/vivavoce
+User=vivavoce
+Group=vivavoce
+# E poi il resto del filesystem non serve. ProtectSystem=strict monta tutto in
+# sola lettura tranne ciò che ReadWritePaths elenca, quindi la riga sotto è
+# l'elenco *completo* di ciò che questo servizio scrive: lo stato (licenza,
+# kid-safe, servizi, modelli scaricati). Il certificato lo genera
+# tools/make_cert.py a mano, fuori da qui, e da qui si legge soltanto.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/vivavoce/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
 # Unbuffered, like both sibling deploy paths (Dockerfile, entrypoint.sh).
 # Under systemd stdout is a pipe, not a terminal, so Python buffers it in 4 KiB
 # blocks — and the server's whole startup diagnostic is well under that. The

@@ -18,10 +18,8 @@ MATERIAL_URL="${VIVAVOCE_MATERIAL_URL:-${SQUEEZESAY_MATERIAL_URL:-}}"
 # Nessun gemello SQUEEZESAY_: queste opzioni sono nate dopo il rebrand.
 BACKEND="${VIVAVOCE_BACKEND:-}"
 BACKEND_URL="${VIVAVOCE_BACKEND_URL:-}"
-BACKEND_TOKEN="${VIVAVOCE_BACKEND_TOKEN:-}"
 LIBRARY="${VIVAVOCE_LIBRARY:-}"
 LIBRARY_URL="${VIVAVOCE_LIBRARY_URL:-}"
-LIBRARY_TOKEN="${VIVAVOCE_LIBRARY_TOKEN:-}"
 
 mkdir -p "$DATA_DIR"
 
@@ -64,10 +62,14 @@ fi
 [ -n "$PLAYER" ] && set -- "$@" --player "$PLAYER"
 [ -n "$BACKEND" ] && set -- "$@" --backend "$BACKEND"
 [ -n "$BACKEND_URL" ] && set -- "$@" --backend-url "$BACKEND_URL"
-[ -n "$BACKEND_TOKEN" ] && set -- "$@" --backend-token "$BACKEND_TOKEN"
+# I token NON si passano come argomenti: la riga di comando di un processo la
+# legge chiunque possa fare `ps` (nel container, e sull'host per i namespace
+# che lo consentono), e finisce nei dump di debug. cli.py li legge già da
+# VIVAVOCE_BACKEND_TOKEN / VIVAVOCE_LIBRARY_TOKEN, che sono nell'ambiente di
+# questo script e quindi in quello del server. Niente da aggiungere: basta non
+# ripeterli qui.
 [ -n "$LIBRARY" ] && set -- "$@" --library "$LIBRARY"
 [ -n "$LIBRARY_URL" ] && set -- "$@" --library-url "$LIBRARY_URL"
-[ -n "$LIBRARY_TOKEN" ] && set -- "$@" --library-token "$LIBRARY_TOKEN"
 [ -n "$MATERIAL_URL" ] && set -- "$@" --material-url "$MATERIAL_URL"
 
 # exec: python diventa PID 1, così docker stop arriva pulito al server.

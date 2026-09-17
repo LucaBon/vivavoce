@@ -30,15 +30,21 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false  # never abandon a half-published manifest
 
+# Il minimo, per tutti i job: nessuno di questi ha bisogno di scrivere
+# niente nel repo. Chi serve di piu' lo dice da se' (il job dell'immagine
+# in release.yml chiede packages: write per la ghcr).
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: the tag and the code agree
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
 
@@ -72,7 +78,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       # The image is a file copy plus one wheel install (cryptography, which
       # publishes aarch64 wheels), so emulating arm64 costs a minute and keeps
@@ -80,8 +86,8 @@ jobs:
       # true — an optional group baked in, something compiled from source —
       # the upgrade is native ubuntu-24.04-arm runners plus a manifest merge,
       # not a longer QEMU build.
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4
 
       # GHCR requires a lowercase image path; the repository name may not be.
       - name: Work out the image name
@@ -89,7 +95,7 @@ jobs:
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -99,7 +105,7 @@ jobs:
       # "any 0.x", which is not a promise this project can keep.
       - name: Tags and labels
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6
         with:
           images: ${{ steps.name.outputs.image }}
           tags: |
@@ -108,7 +114,7 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build and push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -139,7 +145,7 @@ jobs:
     outputs:
       legs: ${{ steps.legs.outputs.legs }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Work out which architectures the add-on claims
         id: legs
@@ -163,12 +169,12 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.addon-matrix.outputs.legs) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
 
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4
 
       # L'unica cosa che questo job fa diversamente dal gemello in ci.yml, ed è
       # tutto il motivo per cui esiste: su un tag BUILD_VERSION è LA VERSIONE
