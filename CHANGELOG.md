@@ -4,6 +4,30 @@
 
 ### Fixed
 
+- **Due frasi dette insieme non si mescolano più.** Tutte le richieste di una
+  stessa conversazione condividono un router — due schede del browser con lo
+  stesso identificativo, oppure ogni comando di Home Assistant che non nomina
+  un dispositivo — e ognuna ci scriveva lo stato del proprio turno mentre
+  aspettava il server musicale. Una frase poteva tornare con i dati dell'altra:
+  il pulsante «segnala questa frase» offerto a chi era stato capito benissimo,
+  o un elenco sparito a metà scelta. Ora i turni di una conversazione vanno in
+  fila, e ognuno aspetta al massimo i dieci secondi concessi a una frase.
+
+- **«Sì» suona dove è stata fatta la domanda.** «Metti Time da TIDAL in
+  cucina», con TIDAL scollegato, chiede «Vuoi che la metta da Qobuz?» — e il
+  «sì» faceva partire la musica sul player predefinito, non in cucina.
+
+- **Un'alternativa mal trascritta non chiude più l'elenco aperto.** Il
+  riconoscitore dà più letture della stessa frase e il router le prova in
+  ordine: una lettura che non apriva nessun elenco cancellava quello aperto,
+  così la lettura giusta subito dopo rispondeva «non c'è nessun elenco aperto».
+
+- **Una risposta non parla più la lingua della richiesta precedente.** Sulla
+  stessa connessione riutilizzata, una richiesta in inglese lasciava la lingua
+  impostata per quella dopo: il pannello kid-safe rispondeva in inglese a chi
+  stava usando l'app in italiano. Dietro un proxy che riusa le connessioni —
+  l'ingress di Home Assistant — la richiesta precedente può essere di un altro.
+
 - **Un server che dice «no» non è un server spento.** Dopo tre errori di fila
   il client smette per 15 secondi di contattare il server musicale, così un
   impianto spento non costa un timeout a ogni frase. Ma contava come «spento»

@@ -316,3 +316,43 @@ def test_no_source_named_reaches_a_connected_service_in_every_language(
     playing = dict((row[0], row[7]) for row in LANGUAGES)[lang]
     assert str(router.handle(phrase, source="auto", lang=lang)) == playing
     assert router.offer is None
+
+
+def test_yes_plays_where_the_question_was_asked(imported_library, make_feed,
+                                                lms):
+    # Found in review: the callable «sì» runs reads self.lms, and by then the
+    # room the question was asked in was gone — the music started on the
+    # default player instead of in the kitchen.
+    from test_multiroom_sleep import make_multiroom
+
+    imported_library.responses["tidal"] = lambda cmd: LOGGED_OUT
+    imported_library.responses["qobuz"] = make_feed(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "qobuz://2.flac",
+                      "name": "Lose Control", "artist": "Teddy Swims"}]},
+    )
+    router = Router(lms, multiroom=make_multiroom(pro=True))
+    asked = router.handle("da tidal metti Lose Control in cucina")
+    assert "Vuoi che la metta da Qobuz?" in str(asked)
+    imported_library.calls.clear()
+    answer = router.handle("sì")
+    played = [player for player, cmd in imported_library.calls
+              if cmd[:2] == ["playlist", "play"]]
+    assert played == ["bb:bb"], str(answer)
+    assert "in Cucina" in str(answer)
+
+
+def test_a_missed_alternative_leaves_the_open_list_alone(router, transport):
+    # The same asymmetry the offer and the mood have, and this one was
+    # missing: handle_many replays the turn per alternative, and one that
+    # opened nothing used to set the remembered list to None — so the good
+    # alternative right behind it answered «non c'è nessun elenco aperto».
+    router.candidates = [{"title": f"T{n}", "url": f"tidal://{n}.flc"}
+                         for n in (1, 2, 3)]
+    router.cand_source = "tidal"
+    router.cand_until = router.now() + 300
+    # «quali album ho di la due» opens nothing; «la 2» is the real pick.
+    out = router.handle_many(["quali album ho di la due", "la 2"],
+                             source="tidal")
+    assert ["playlist", "play", "tidal://2.flc"] in transport.commands(), \
+        out["speech"]

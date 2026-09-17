@@ -133,7 +133,17 @@ class ConversationState:
         run, self.offer = self.offer, None
         if not yes:
             return actions.ActionResult(msg("offer_declined"), ok=True)
-        return run()
+        # The question was asked about a room («metti Time in cucina» with
+        # TIDAL logged out), and this turn does not name one: the answer
+        # belongs where the question was, not on the default player. The
+        # callable reads ``self.lms``, so aiming the thread is what carries
+        # it — the same mechanism a room turn itself uses.
+        player = self.offer_player
+        if not player or self._room_turn:
+            return run()
+        with self._aimed_at(player[0]):
+            result = run()
+        return self._tag(result, msg("in_room", room=player[1]))
 
     def _settle_offer(self, result) -> None:
         """Record, for the next turn, whether the question is still open.
@@ -223,9 +233,17 @@ class ConversationState:
         self._opened = True
 
     def _remember(self, result: dict, src=None) -> str:
-        self.candidates = result["candidates"] or None
-        self._opened = bool(self.candidates)
-        if self.candidates:
+        """Open the list ``result`` carries, if it carries one.
+
+        A list that is empty leaves the open one alone, exactly as ``_played``
+        does: ``handle_many`` replays the turn once per recognition
+        alternative, and a badly transcribed one that opens nothing must not
+        take away the list the next alternative is about to pick from.
+        """
+        candidates = result["candidates"] or None
+        self._opened = bool(candidates)
+        if candidates:
+            self.candidates = candidates
             # these lists are always meant to be played
             self._open_list(src, "play")
         return result["speech"]
