@@ -19,7 +19,8 @@ import re
 from typing import Dict, List, Optional
 
 from guard import Guard, is_blocked_item
-from matching import GATE, LIST_LIMIT, ActionResult, _MODE_KEY, _normalize
+from matching import (GATE, LIST_LIMIT, ActionResult, _MODE_KEY, _normalize,
+                      unreachable)
 from messages import msg
 from player.errors import PlayerError
 
@@ -52,7 +53,7 @@ def top_tracks_list(
     try:
         tracks = lms.artist_top_tracks(artist)["tracks"]
     except PlayerError:
-        return {"speech": ActionResult(msg("err_unreachable"), ok=False),
+        return {"speech": unreachable(),
                 "candidates": []}
     if guard and guard.restricted:  # drop blocked tracks so they can't be chosen
         tracks = [t for t in tracks if not is_blocked_item(t, guard.blocklist)]
@@ -80,20 +81,27 @@ def top_tracks_list(
 _LOCAL_KIND = {"play_album_id": "album", "play_artist_id": "artist", "play_track_id": "track"}
 
 
-def _dispatch_play(lms, candidate: Dict, *, mode: str = "play") -> None:
+def _dispatch_play(lms, candidate: Dict, *, mode: str = "play") -> bool:
     """Act on a candidate from a previously read-out list. Its 'action'/'arg'
     say how; falls back to a plain URL so both TIDAL ({'title','url'}) and
     local ({'title','action','arg'}) lists work. ``mode``: 'play' (replace the
     queue and start it), 'add' (queue at the end) or 'insert' (queue right
-    after the current track) — see :func:`play_song`."""
+    after the current track) — see :func:`play_song`.
+
+    False when there turned out to be nothing to play: an ``item_id`` that
+    resolved to no url. Nothing is sent then. ``play_url(None)`` used to go out
+    as the string ``"None"``, and the reply still said «Riproduco»."""
     kind = _LOCAL_KIND.get(candidate.get("action"))
     if kind:
         getattr(lms, f"{mode}_local_{kind}")(candidate.get("arg"))
-        return
+        return True
     url = candidate.get("arg") or candidate.get("url")
     if not url and candidate.get("item_id"):
         url = lms.track_url(candidate["item_id"])
+    if not url:
+        return False
     getattr(lms, f"{mode}_url")(url)
+    return True
 
 
 def choose_from(
@@ -114,9 +122,11 @@ def choose_from(
     if guard and guard.blocks_item(chosen):
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
-        _dispatch_play(lms, chosen, mode=mode)
+        if not _dispatch_play(lms, chosen, mode=mode):
+            return ActionResult(msg("no_track_found", title=chosen["title"]),
+                                ok=False)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
@@ -161,9 +171,11 @@ def choose_by_name(
     if guard and guard.blocks_item(chosen):
         return ActionResult(msg("blocked"), ok=False, kind=GATE)
     try:
-        _dispatch_play(lms, chosen, mode=mode)
+        if not _dispatch_play(lms, chosen, mode=mode):
+            return ActionResult(msg("no_track_found", title=chosen["title"]),
+                                ok=False)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]

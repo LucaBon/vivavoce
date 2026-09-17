@@ -40,4 +40,14 @@ class SilenceFile:
                 if isinstance(v, (int, float))}
 
     def write(self, marks: Dict[str, float]) -> None:
-        appdata.atomic_write_json(self.path, marks)
+        """Save the marks, or say why not and carry on without.
+
+        Fail open in this direction too: the write happens in the middle of a
+        play, and a full disk or a read-only volume is not a reason for that
+        play to fail. The marks stay in memory until the restart.
+        """
+        try:
+            appdata.atomic_write_json(self.path, marks)
+        except OSError as exc:
+            print(f"services.json non salvato ({exc}): quello che ho imparato "
+                  f"sui servizi vale fino al riavvio.")

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from guard import Guard, is_blocked_item
-from matching import LIST_LIMIT, ActionResult, _label
+from matching import LIST_LIMIT, ActionResult, _label, unreachable
 from messages import msg
 from player.errors import PlayerError
 
@@ -22,7 +22,7 @@ def pause(lms) -> ActionResult:
     try:
         lms.pause()
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("paused"), ok=True)
 
 
@@ -30,7 +30,7 @@ def resume(lms) -> ActionResult:
     try:
         lms.resume()
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("resumed"), ok=True)
 
 
@@ -38,7 +38,7 @@ def next_track(lms) -> ActionResult:
     try:
         lms.next_track()
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("next_track"), ok=True)
 
 
@@ -46,7 +46,7 @@ def previous_track(lms) -> ActionResult:
     try:
         lms.previous_track()
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("previous_track"), ok=True)
 
 
@@ -57,7 +57,7 @@ def change_volume(lms, direction: str) -> ActionResult:
     try:
         lms.volume(delta)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("volume_up" if direction == "up" else "volume_down"),
                         ok=True)
 
@@ -78,7 +78,7 @@ def set_sleep(lms, minutes: int) -> ActionResult:
     try:
         lms.sleep(minutes * 60)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     key = "sleep_set_one" if minutes == 1 else "sleep_set"
     return ActionResult(msg(key, minutes=minutes), ok=True)
 
@@ -87,7 +87,7 @@ def cancel_sleep(lms) -> ActionResult:
     try:
         lms.sleep(0)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("sleep_cancelled"), ok=True)
 
 
@@ -95,7 +95,7 @@ def now_playing(lms) -> ActionResult:
     try:
         info = lms.now_playing_info()
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     if not info or not info.get("title"):
         return ActionResult(msg("nothing_playing"), ok=True)
     # "status - 1" hands back the queue head whatever the transport is doing,
@@ -122,7 +122,7 @@ def clear_queue(lms) -> ActionResult:
     try:
         lms.clear_queue()
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("queue_cleared"), ok=True)
 
 
@@ -131,7 +131,7 @@ def queue_list(lms, limit: int = LIST_LIMIT, *, guard: Optional[Guard] = None) -
     try:
         upcoming = lms.queue_upcoming(limit)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     if guard and guard.restricted:  # never read a blocked title back aloud
         upcoming = [t for t in upcoming if not is_blocked_item(t, guard.blocklist)]
     if not upcoming:

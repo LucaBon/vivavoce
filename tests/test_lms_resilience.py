@@ -277,3 +277,131 @@ def test_a_search_that_answers_with_nothing_at_all_forgets_the_node(monkeypatch)
     state["logged_in"] = False
     assert c.search_categories("time") == {}       # the stale node found nothing
     assert c.can_search() is False                 # ...and we looked again
+
+
+# -- silence, refusal, and what may be sent twice -------------------------------
+# Found in review. The breaker is about reachability and the retry about
+# delivery, and both used to read every failure the same way: an expired token
+# or three slow searches shut out even «pausa» for 15 s, and a reply lost after
+# the LMS had acted sent «volume +5» — or an album to the queue — twice.
+
+from lms import LMSRefused, LMSUnreachable, _lms_repeat_safe  # noqa: E402
+
+
+class FailingWith:
+    """Raises ``exc`` on every call, and counts them."""
+
+    def __init__(self, exc):
+        self.exc = exc
+        self.calls = []
+
+    def __call__(self, params):
+        self.calls.append(params)
+        raise self.exc
+
+
+def test_a_refusal_is_never_retried():
+    transport = FailingWith(LMSRefused("LMS answered 401"))
+    with pytest.raises(LMSRefused):
+        client(transport).command("pause", "1")
+    assert len(transport.calls) == 1
+
+
+def test_refusals_never_open_the_breaker():
+    # A server that says no is a server that is there.
+    transport = FailingWith(LMSRefused("LMS answered 401"))
+    c = client(transport)
+    c._breaker = _Breaker(now=Clock())
+    for _ in range(BREAKER_THRESHOLD + 2):
+        with pytest.raises(LMSRefused):
+            c.command("pause", "1")
+    assert c._breaker.open_for() == 0
+    assert len(transport.calls) == BREAKER_THRESHOLD + 2
+
+
+def test_a_timeout_the_turn_budget_shortened_does_not_count(monkeypatch):
+    # Three slow searches inside a turn used to open the breaker, and the
+    # next «pausa» on a perfectly healthy LMS was refused for 15 s.
+    transport = FailingWith(LMSUnreachable("timed out", delivered=True))
+    c = client(transport)
+    c._breaker = _Breaker(now=Clock())
+    for _ in range(BREAKER_THRESHOLD + 1):
+        with c.turn_deadline(1.0):
+            with pytest.raises(LMSError):
+                c.command("status")
+    assert c._breaker.open_for() == 0
+
+
+def test_a_refused_connection_still_counts_inside_a_turn():
+    # Clipping excuses a slow answer, not a server that is off.
+    transport = FailingWith(LMSUnreachable("refused", delivered=False))
+    c = client(transport)
+    c._breaker = _Breaker(now=Clock())
+    for _ in range(BREAKER_THRESHOLD):
+        with c.turn_deadline(5.0):
+            with pytest.raises(LMSError):
+                c.command("status")
+    assert c._breaker.open_for() > 0
+
+
+@pytest.mark.parametrize("cmd", [
+    ["mixer", "volume", "+5"], ["playlist", "index", "+1"],
+    ["playlistcontrol", "cmd:add", "album_id:42"],
+    ["tidal", "playlist", "add", "item_id:1"], ["button", "jump_fwd"],
+])
+def test_a_command_that_moves_is_not_sent_twice_after_a_lost_reply(cmd):
+    transport = FailingWith(LMSUnreachable("timed out", delivered=True))
+    with pytest.raises(LMSError):
+        client(transport).command(*cmd)
+    assert len(transport.calls) == 1
+
+
+@pytest.mark.parametrize("cmd", [
+    ["mixer", "volume", "+5"], ["playlistcontrol", "cmd:add", "album_id:42"],
+])
+def test_anything_is_sent_again_when_it_never_left(cmd):
+    # A refused connection reached nobody: there is nothing to double.
+    transport = FailingWith(LMSUnreachable("refused", delivered=False))
+    with pytest.raises(LMSError):
+        client(transport).command(*cmd)
+    assert len(transport.calls) == 2
+
+
+@pytest.mark.parametrize("cmd,safe", [
+    (["status", "-", "1"], True), (["pause", "1"], True),
+    (["mixer", "volume", "40"], True), (["playlist", "play", "tidal://1"], True),
+    (["playlistcontrol", "cmd:load", "album_id:1"], True),
+    (["tidal", "items", "0", "20", "search:x"], True),
+    (["mixer", "volume", "-5"], False), (["time", "+10"], False),
+    (["playlist", "insert", "tidal://1"], False),
+])
+def test_which_lms_commands_are_safe_to_repeat(cmd, safe):
+    assert _lms_repeat_safe(cmd) is safe
+
+
+def test_the_http_transport_tells_silence_from_refusal(monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+    c = client(None)
+
+    def raising(exc):
+        def urlopen(req, timeout):
+            raise exc
+        return urlopen
+
+    monkeypatch.setattr(urllib.request, "urlopen", raising(urllib.error.HTTPError(
+        "http://lms:9000/jsonrpc.js", 401, "Unauthorized", {}, io.BytesIO())))
+    with pytest.raises(LMSRefused):
+        c._http_transport(["-", ["status"]])
+
+    monkeypatch.setattr(urllib.request, "urlopen", raising(
+        urllib.error.URLError(ConnectionRefusedError(111, "refused"))))
+    with pytest.raises(LMSUnreachable) as refused:
+        c._http_transport(["-", ["status"]])
+    assert refused.value.delivered is False
+
+    monkeypatch.setattr(urllib.request, "urlopen", raising(TimeoutError("timed out")))
+    with pytest.raises(LMSUnreachable) as timed_out:
+        c._http_transport(["-", ["status"]])
+    assert timed_out.value.delivered is True

@@ -27,7 +27,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from .ma_library import MusicAssistantLibrary
 from .resilience import Resilient
 from .silence import SilentServices
-from .ma_transport import MusicAssistantError, Transport, post
+from .ma_transport import (MusicAssistantCalls, MusicAssistantError,
+                           MusicAssistantRefused, MusicAssistantUnreachable,
+                           Transport, post)
 
 #: How the three enqueue modes the engine speaks are spelled on the wire.
 #: From ``QueueOption``: REPLACE empties the queue and starts at the top, ADD
@@ -77,7 +79,8 @@ def _service(name: Optional[str]) -> MAService:
                      trust_ranking=name != "spotify")
 
 
-class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
+class MusicAssistantClient(MusicAssistantCalls, Resilient,
+                           MusicAssistantLibrary, SilentServices):
     """One MusicAssistant server, aimed at one of its players.
 
     Shaped deliberately like ``LMSClient``, down to the injectable transport
@@ -88,6 +91,8 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
 
     #: Every round trip fails as this, breaker and turn budget included.
     error = MusicAssistantError
+    unreachable = MusicAssistantUnreachable
+    refused = MusicAssistantRefused
 
     def __init__(
         self,
@@ -144,18 +149,6 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
     def _http_transport(self, request: Dict[str, Any]) -> Any:
         return post(self.base_url, self.token, request, self._call_timeout())
 
-    def _call(self, command: str, **args: Any) -> Any:
-        """One command, behind the breaker and the turn budget.
-
-        Arguments that are ``None`` are dropped rather than sent: every
-        optional argument on the server has a default worth having, and
-        spelling it ``null`` overrides it with nothing.
-        """
-        return self._guarded({
-            "command": command,
-            "args": {k: v for k, v in args.items() if v is not None},
-        })
-
     def _queue_id(self) -> str:
         """The queue this player is really on.
 
@@ -168,8 +161,8 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
         cached = self._queues.get(self.player_id)
         if cached is not None and cached[1] > time.monotonic():
             return cached[0]
-        queue = self._call("player_queues/get_active_queue",
-                           player_id=self.player_id) or {}
+        queue = self._dict("player_queues/get_active_queue",
+                           player_id=self.player_id)
         queue_id = queue.get("queue_id") or self.player_id
         self._queues[self.player_id] = (queue_id, time.monotonic() + QUEUE_TTL)
         return queue_id
@@ -225,17 +218,17 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
 
     def queue_upcoming(self, limit: int = 5) -> List[Dict[str, Any]]:
         queue_id = self._queue_id()
-        queue = self._call("player_queues/get", queue_id=queue_id) or {}
+        queue = self._dict("player_queues/get", queue_id=queue_id)
         index = queue.get("current_index")
         offset = 0 if index is None else int(index) + 1
-        rows = self._call("player_queues/items", queue_id=queue_id,
-                          limit=limit, offset=offset) or []
+        rows = self._list("player_queues/items", queue_id=queue_id,
+                          limit=limit, offset=offset)
         return [_queue_entry(row) for row in rows]
 
     # -- what is playing ---------------------------------------------------
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
-        queue = self._call("player_queues/get",
-                           queue_id=self._queue_id()) or {}
+        queue = self._dict("player_queues/get",
+                           queue_id=self._queue_id())
         item = queue.get("current_item")
         if not item:
             return None
@@ -245,12 +238,15 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
         # walking through itself failing every track (engine/playback.py).
         info["index"] = queue.get("current_index") or 0
         info["elapsed"] = queue.get("elapsed_time") or 0
+        # A speaker MA cannot see accepts the queue and plays none of it; that
+        # is the speaker's silence, not the provider's (player/silence.py).
+        info["connected"] = queue.get("available", True) is not False
         return info
 
     def status_info(self) -> Dict[str, Any]:
-        queue = self._call("player_queues/get",
-                           queue_id=self._queue_id()) or {}
-        player = self._call("players/get", player_id=self.player_id) or {}
+        queue = self._dict("player_queues/get",
+                           queue_id=self._queue_id())
+        player = self._dict("players/get", player_id=self.player_id)
         item = queue.get("current_item") or {}
         media = item.get("media_item") or {}
         entry = _queue_entry(item) if item else {}
@@ -310,13 +306,13 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
         room matcher. Renaming it is a change to a published API, not to this
         backend, so the translation happens here.
         """
-        rows = self._call("players/all") or []
+        rows = self._list("players/all")
         return [{"playerid": p.get("player_id"), "name": p.get("name"),
                  "connected": p.get("available", True)} for p in rows]
 
     def _music_providers(self, *, switched_on: bool) -> List[str]:
         """The streaming music providers this server is configured with."""
-        configs = self._call("config/providers", provider_type="music") or []
+        configs = self._list("config/providers", provider_type="music")
         found = []
         for config in configs:
             domain = config.get("domain")

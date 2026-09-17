@@ -25,6 +25,151 @@
 
 ### Fixed
 
+- **Due frasi dette insieme non si mescolano più.** Tutte le richieste di una
+  stessa conversazione condividono un router — due schede del browser con lo
+  stesso identificativo, oppure ogni comando di Home Assistant che non nomina
+  un dispositivo — e ognuna ci scriveva lo stato del proprio turno mentre
+  aspettava il server musicale. Una frase poteva tornare con i dati dell'altra:
+  il pulsante «segnala questa frase» offerto a chi era stato capito benissimo,
+  o un elenco sparito a metà scelta. Ora i turni di una conversazione vanno in
+  fila, e ognuno aspetta al massimo i dieci secondi concessi a una frase.
+
+- **«Sì» suona dove è stata fatta la domanda.** «Metti Time da TIDAL in
+  cucina», con TIDAL scollegato, chiede «Vuoi che la metta da Qobuz?» — e il
+  «sì» faceva partire la musica sul player predefinito, non in cucina.
+
+- **Un'alternativa mal trascritta non chiude più l'elenco aperto.** Il
+  riconoscitore dà più letture della stessa frase e il router le prova in
+  ordine: una lettura che non apriva nessun elenco cancellava quello aperto,
+  così la lettura giusta subito dopo rispondeva «non c'è nessun elenco aperto».
+
+- **Una risposta non parla più la lingua della richiesta precedente.** Sulla
+  stessa connessione riutilizzata, una richiesta in inglese lasciava la lingua
+  impostata per quella dopo: il pannello kid-safe rispondeva in inglese a chi
+  stava usando l'app in italiano. Dietro un proxy che riusa le connessioni —
+  l'ingress di Home Assistant — la richiesta precedente può essere di un altro.
+
+- **Un server che dice «no» non è un server spento.** Dopo tre errori di fila
+  il client smette per 15 secondi di contattare il server musicale, così un
+  impianto spento non costa un timeout a ogni frase. Ma contava come «spento»
+  qualunque errore: un token di Music Assistant scaduto, oppure tre ricerche
+  lente dentro il tempo concesso a una frase, e per 15 secondi anche «pausa»
+  rispondeva «Non riesco a contattare l'impianto» con il server perfettamente
+  acceso. Ora contano solo i silenzi veri: un rifiuto (401, 403, una risposta
+  che non ha senso) dimostra che il server c'è, e un timeout accorciato perché
+  la frase aveva già speso il suo tempo dice che la frase era lenta.
+
+- **Un comando non viene più eseguito due volte.** Se la risposta si perdeva
+  dopo che il server aveva già eseguito il comando, il client lo ritentava:
+  «alza il volume» saliva di due scatti, «prossima» saltava due brani, un album
+  finiva in coda due volte. Ora si ritenta sempre solo ciò che non è mai
+  partito (connessione rifiutata) e, se la richiesta potrebbe essere arrivata,
+  solo i comandi che ripetuti non cambiano niente.
+
+- **Una risposta malformata di Music Assistant non è più un «Errore interno».**
+  Un JSON della forma sbagliata — una lista dove serviva un oggetto — sfuggiva
+  a ogni controllo e arrivava all'utente come «Errore interno: 'str' object has
+  no attribute 'get'». Ora è un rifiuto come gli altri, e una riga strana in un
+  elenco viene scartata senza perdere le altre.
+
+- **Music Assistant suona i brani della tua libreria.** Con la sorgente «auto»
+  la libreria locale viene interrogata per prima, e un brano trovato lì
+  rispondeva «Errore interno: 'id'»: il motore suona un candidato locale per
+  id, e la riga del brano su Music Assistant non ne aveva uno. Succedeva con
+  ogni titolo che la libreria conteneva.
+
+- **Scegliere da un elenco di Spotify suona il brano scelto.** Con TIDAL come
+  servizio predefinito, «quali brani dei Pink Floyd» su Spotify e poi «metti la
+  2» chiedevano l'indirizzo del brano a TIDAL, che non lo conosce: all'impianto
+  arrivava `playlist play None`, e la risposta diceva comunque «Riproduco».
+  Ora la scelta va al servizio da cui è venuto l'elenco, e se un brano non si
+  risolve in niente non si manda nulla e lo si dice.
+
+- **Kid-safe riconosce l'artista di un album.** «Metti l'album The Marshall
+  Mathers LP» con Eminem bloccato suonava: su Spotify il nome «… by Eminem»
+  veniva ripulito del suo artista, e su Music Assistant l'artista non veniva
+  proprio letto. Ora l'album porta con sé il suo artista, e il blocco lo vede.
+
+- **Un brano da un album di Spotify suona quel brano.** «Metti Time dall'album
+  The Dark Side of the Moon» suonava l'album intero: le tracce di un album
+  Spotify non hanno un indirizzo diretto e venivano scartate, esattamente come
+  capitava alle tracce di un artista prima che si imparasse a risolverle.
+
+- **La pagina non si fida più di ciò che non ha scritto lei.** Quattro strade
+  per cui testo arrivato dalla rete finiva nella pagina come codice, o
+  l'impianto si ritrovava con più di quanto gli era stato chiesto:
+
+  - la porta annunciata da una risposta UDP della discovery — a cui può
+    rispondere qualunque dispositivo della rete — finiva così com'era
+    nell'indirizzo ricordato e nel link a Material. Ora una porta che non è
+    un numero tra 1 e 65535 non viene creduta, l'indirizzo ricordato ripassa
+    dalla stessa verifica di uno scritto a mano, e il link viene sempre
+    codificato per l'attributo in cui finisce;
+  - i nomi dei servizi arrivano dal server musicale: nello script della
+    pagina un `</script>` dentro un nome ne usciva, e il menu delle sorgenti
+    li inseriva come HTML. Ora lo script li riceve con ogni `<` codificato e
+    il menu li scrive come testo;
+  - la copertina di una radio o di un plugin veniva letta per intero prima di
+    guardarne il tipo, e un flusso annunciato come copertina finiva tutto in
+    memoria a ogni aggiornamento del «in riproduzione». Ora il tipo si
+    controlla prima di leggere, e più di 5 MB non si legge;
+  - attraverso il pannello di Material, uno script servito dal server
+    musicale poteva registrarsi come service worker davanti all'intera app.
+    Il proxy non lo inoltra più (Material non ne usa), non concede il
+    microfono a ciò che serve, e non trasforma un redirect in un indirizzo
+    che porta su un altro host.
+
+  La pagina dell'app e quella di configurazione non si lasciano più
+  incorniciare da un altro sito (`frame-ancestors 'self'`): i clic dati da
+  dentro una cornice arrivano come richieste della pagina stessa e passavano
+  il controllo cross-site. Il pannello di Material, che è sulla stessa
+  origine, resta com'è.
+
+- **Fermare la musica non fa più sparire TIDAL per un giorno.** Il controllo
+  che, alla richiesta successiva, decide se l'ultimo brano avviato ha davvero
+  suonato leggeva un player fermo oltre il primo brano come «coda che scorre
+  senza suonare». Bastava saltare due brani e fermare dal telecomando o da
+  Material: un'ora dopo «metti…» rispondeva «TIDAL non è collegato», e il
+  marchio restava 24 ore, salvato su disco. Ora si marca solo un player che
+  dice «play» e non avanza, e solo se lo si legge entro dieci minuti
+  dall'avvio: più tardi la lettura racconta la serata, non quell'avvio.
+
+- **Un player scollegato non è un servizio scollegato.** Uno Squeezebox
+  staccato dalla presa accetta la coda e resta fermo, e questo veniva letto
+  come silenzio del servizio: «TIDAL non è collegato», poi lo stesso su Qobuz
+  al secondo tentativo, e un giorno di esclusione per tutti e due. Ora il
+  client riporta se il player è collegato (`player_connected` su LMS,
+  `available` su Music Assistant), e la risposta è «Il lettore non risponde:
+  è spento o scollegato», senza marchi e senza ritentare altrove.
+
+- **Un disco pieno non rompe più una richiesta.** Se `services.json` non si
+  poteva scrivere, l'eccezione arrivava fino alla risposta («Errore interno»)
+  e saltava il passaggio che toglie dalla coda il brano muto. Ora
+  l'impossibilità di salvare si scrive nel log, e quello che l'app ha imparato
+  vale fino al riavvio.
+
+- **La pagina di configurazione non cambia più un server che non è suo da
+  cambiare.** La casella «prova questo indirizzo» non chiede credenziali, e
+  quindi non l'ha a disposizione solo chi guarda la pagina: qualunque
+  dispositivo della rete può scriverci. Finché la pagina restava aperta — dopo
+  un blackout, o con l'add-on partito prima di Music Assistant — un indirizzo
+  mandato lì sostituiva anche quello fissato con `--backend-url`, e la prova di
+  quell'indirizzo portava con sé il token di Music Assistant, consegnandolo a
+  chi rispondeva.
+
+  Ora un indirizzo di configurazione non si sostituisce dalla pagina (403),
+  che infatti non mostra più la casella e dice che l'indirizzo viene dalla
+  configurazione. Anche un server che ha già risposto resta quello (409): in
+  quello stato la casella era già nascosta. Resta correggibile, come prima,
+  l'indirizzo ricordato che ha smesso di rispondere.
+
+- **Un player scollegato non basta a finire la configurazione.** LMS elenca
+  anche i player che non sente da tempo, con `connected: 0`; se uno di questi
+  era in cima alla lista, l'app partiva puntata su un apparecchio che nessuno
+  può sentire, e la pagina «accendi un player» non compariva mai. Ora contano
+  solo i player collegati, sia per finire la configurazione sia per scegliere
+  quello predefinito.
+
 - **Anche il menu a tendina scrive i servizi come li dice la voce.** Restava
   una tabella, `SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" }`, dentro il
   JavaScript della pagina: una tabella che per costruzione poteva conoscere

@@ -48,7 +48,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from player.errors import PlayerError
+from player.errors import (PlayerError, PlayerRefused, PlayerUnreachable,
+                           never_delivered)
 # The breaker and the per-turn budget moved to player/resilience.py when a
 # second backend needed them. The three names beside Resilient are unused
 # here and imported on purpose: they were part of this module's surface
@@ -297,6 +298,36 @@ class LMSError(PlayerError):
     """
 
 
+class LMSUnreachable(LMSError, PlayerUnreachable):
+    """The LMS gave no answer (see :class:`~player.errors.PlayerUnreachable`)."""
+
+
+class LMSRefused(LMSError, PlayerRefused):
+    """The LMS answered with an error or with something that is not a result."""
+
+
+#: A number with a sign: a relative step. «mixer volume +5», «playlist index
+#: +1», «time -10» — each one moves from wherever the player is, so sending it
+#: twice moves twice.
+_RELATIVE_ARG = re.compile(r"^[+-]\d")
+
+#: Queue verbs that append rather than replace. «playlist play» and
+#: «playlistcontrol cmd:load» put the same thing on the queue however many
+#: times they are sent; these add it again each time.
+_APPENDING = frozenset({"add", "insert", "addtracks", "inserttracks",
+                        "cmd:add", "cmd:insert"})
+
+
+def _lms_repeat_safe(cmd: List[str]) -> bool:
+    """Whether an LMS command does the same thing sent twice as sent once."""
+    words = [str(w).lower() for w in cmd]
+    if any(_RELATIVE_ARG.match(w) for w in words):
+        return False
+    if words[:1] == ["button"]:
+        return False
+    return not any(w in _APPENDING for w in words)
+
+
 def find_uri(obj: Any, pattern: "re.Pattern") -> Optional[str]:
     """Recursively search a (possibly nested) OPML item for the first URI
     matching ``pattern``."""
@@ -348,6 +379,8 @@ class LMSClient(Resilient, SilentServices):
     #: Every round trip this client makes fails as an LMSError, breaker
     #: and turn budget included (see player/resilience.py).
     error = LMSError
+    unreachable = LMSUnreachable
+    refused = LMSRefused
 
     def __init__(
         self,
@@ -416,8 +449,11 @@ class LMSClient(Resilient, SilentServices):
     def _rpc(self, player: str, cmd: List[Any]) -> Dict[str, Any]:
         result = self._guarded([player, [str(c) for c in cmd]])
         if not isinstance(result, dict):
-            raise LMSError(f"Unexpected LMS result type: {type(result)!r}")
+            raise LMSRefused(f"Unexpected LMS result type: {type(result)!r}")
         return result
+
+    def _repeat_safe(self, request) -> bool:
+        return _lms_repeat_safe(request[1])
 
     def command(self, *cmd: Any) -> Dict[str, Any]:
         """Run a command scoped to the configured player."""
@@ -450,15 +486,22 @@ class LMSClient(Resilient, SilentServices):
         try:
             with urllib.request.urlopen(req, timeout=self._call_timeout()) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError,
+        except urllib.error.HTTPError as exc:
+            # An answer: a wrong password, a server error. Not silence, so
+            # neither the retry nor the breaker has any business with it.
+            raise LMSRefused(f"LMS answered {exc.code}: {exc.reason}") from exc
+        except ValueError as exc:
+            raise LMSRefused(f"LMS sent something that is not JSON: {exc}") from exc
+        except (urllib.error.URLError, OSError,
                 http.client.HTTPException) as exc:
             # http.client.HTTPException is NOT an OSError: an LMS restarted
             # mid-response raised BadStatusLine/IncompleteRead straight past
             # this handler, and the caller's `except LMSError` never saw it —
             # the page got a traceback instead of the friendly message.
-            raise LMSError(f"LMS request failed: {exc}") from exc
+            raise LMSUnreachable(f"LMS request failed: {exc}",
+                                 delivered=not never_delivered(exc)) from exc
         if not isinstance(body, dict) or "result" not in body:
-            raise LMSError(f"Unexpected LMS response: {body!r}")
+            raise LMSRefused(f"Unexpected LMS response: {body!r}")
         return body["result"]
 
     # -- players -----------------------------------------------------------
@@ -608,8 +651,18 @@ class LMSClient(Resilient, SilentServices):
         Straits from Brothers In Arms"» is not a sentence to say to somebody.
         Services with no ``track_name_re`` are untouched.
         """
+        return self._name_parts(name)[0]
+
+    def _name_parts(self, name: Optional[str]) -> tuple:
+        """``(title, artist)`` out of a feed's packaged name.
+
+        The artist is what :meth:`_clean_name` throws away, and it is the one
+        thing kid-safe needs from an album row: «The Marshall Mathers LP by
+        Eminem» cleaned to its title is an album nobody can tell is Eminem's.
+        ``artist`` is None wherever the name carried none.
+        """
         if not name:
-            return name
+            return name, None
         cleaned = _TRACK_NUMBER_RE.sub("", name.strip())
         # Track form first ("T by A from B"), then the album form ("T by A"),
         # which is the same sentence with the tail missing. Order matters: the
@@ -620,8 +673,17 @@ class LMSClient(Resilient, SilentServices):
                 continue
             match = pattern.match(cleaned)
             if match:
-                return match.group("title").strip() or name
-        return cleaned or name
+                artist = (match.group("artist") or "").strip() or None
+                return match.group("title").strip() or name, artist
+        return cleaned or name, None
+
+    def _named(self, row: Dict[str, Any], name: Optional[str]) -> Dict[str, Any]:
+        """``row`` with the title and, when the name carried one, the artist."""
+        title, artist = self._name_parts(name)
+        row["title"] = title
+        if artist:
+            row["artist"] = artist
+        return row
 
     def _inline_tracks(self, query: str, count: int) -> List[Dict[str, Any]]:
         """Tracks for feeds that list them beside the category links, not under
@@ -752,7 +814,7 @@ class LMSClient(Resilient, SilentServices):
         caller scores these against the request (edition words like 'Live In
         Berlin' surface the right edition)."""
         return [
-            {"id": it["id"], "title": self._clean_name(it.get("name"))}
+            self._named({"id": it["id"]}, it.get("name"))
             for it in self.category_items(query, "Albums", count)
             if it.get("id")
         ]
@@ -762,7 +824,13 @@ class LMSClient(Resilient, SilentServices):
         return cands[0] if cands else None
 
     def album_tracks(self, query: str, count: int = 50) -> Dict[str, Any]:
-        """Return ``{'album': {...} | None, 'tracks': [{'url','title'}, ...]}``."""
+        """Return ``{'album': {...} | None, 'tracks': [{'url','title'}, ...]}``.
+
+        A row carries ``item_id`` instead of ``url`` where the feed keeps the
+        url one level down (Spotty), exactly as :meth:`artist_tracks` does:
+        dropping those rows made every album on Spotify look empty, so «Time
+        dall'album X» played the whole album instead.
+        """
         album = self.find_album(query, count)
         if not album:
             return {"album": None, "tracks": []}
@@ -770,10 +838,14 @@ class LMSClient(Resilient, SilentServices):
         for item in self._app_items(
             "0", str(count), f"item_id:{album['id']}", "want_url:1"
         ):
+            if not item.get("isaudio"):
+                continue
             url = item.get("url") or find_uri(item, self.service.uri_re)
-            if item.get("isaudio") and url:
-                tracks.append({"url": url,
-                               "title": self._clean_name(item.get("name"))})
+            if url:
+                tracks.append(self._named({"url": url}, item.get("name")))
+            elif self.service.tracks_inline and item.get("id"):
+                tracks.append(self._named({"item_id": item["id"]},
+                                          item.get("name")))
         return {"album": album, "tracks": tracks}
 
     def artist_candidates(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
@@ -1059,6 +1131,10 @@ class LMSClient(Resilient, SilentServices):
         matter for the same reason one floor up: they are what tells a queue
         that is playing from one that is walking through itself failing every
         track (``engine/playback.py``). LMS spells the index as a string.
+
+        ``connected`` is False only when LMS says so: a player it has not heard
+        from takes a queue and plays none of it, and that silence belongs to
+        the player, not to the service the queue came from.
         """
         res = self.command("status", "-", "1", "tags:aAlN")
         loop = res.get("playlist_loop") or []
@@ -1067,7 +1143,9 @@ class LMSClient(Resilient, SilentServices):
         item = loop[0]
         return {"title": item.get("title"), "artist": item.get("artist"),
                 "mode": res.get("mode"), "index": _as_int(res.get("playlist_cur_index")),
-                "elapsed": _as_float(res.get("time"))}
+                "elapsed": _as_float(res.get("time")),
+                "connected": res.get("player_connected") is None
+                or _as_int(res.get("player_connected")) != 0}
 
     def status_info(self) -> Dict[str, Any]:
         """Player status for the web now-playing panel.

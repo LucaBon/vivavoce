@@ -146,6 +146,20 @@ def test_the_playback_state_becomes_the_mode_the_engine_knows(ma, ma_transport,
     assert ma.now_playing_info()["mode"] == mode
 
 
+@pytest.mark.parametrize("available,connected", [
+    (True, True), (False, False), (None, True),
+])
+def test_a_speaker_ma_cannot_see_reads_as_not_connected(ma, ma_transport,
+                                                       available, connected):
+    # So a silence on it is not blamed on the provider (player/silence.py).
+    # An answer without the field is not evidence of anything.
+    queue = {"state": "idle", "current_item": {"name": "x"}}
+    if available is not None:
+        queue["available"] = available
+    ma_transport.responses["player_queues/get"] = queue
+    assert ma.now_playing_info()["connected"] is connected
+
+
 def test_nothing_playing_is_None_rather_than_a_blank_track(ma, ma_transport):
     ma_transport.responses["player_queues/get"] = {"state": "idle"}
     assert ma.now_playing_info() is None
@@ -548,3 +562,108 @@ def test_a_client_aimed_at_nothing_still_has_nothing_to_blame(ma, ma_transport):
     # down rather than inventing one (playback.after_play, UNREAD).
     assert playback.after_play(ma) == (None, playback.UNREAD)
     assert ma_transport.calls == []
+
+
+# -- the shapes the engine reads -----------------------------------------------
+# Found in review: the engine plays a local candidate by its ``id`` and checks
+# kid-safe against every name field, and two MusicAssistant shapes had neither.
+
+def test_a_local_track_carries_the_id_the_engine_plays_it_by(ma, ma_transport):
+    # Without it every title the library had answered «Errore interno: 'id'».
+    ma_transport.responses["music/tracks/library_items"] = [
+        track("library://track/7", "Comfortably Numb", artist="Pink Floyd")]
+    ma_transport.responses["music/albums/library_items"] = []
+    ma_transport.responses["music/artists/library_items"] = []
+    res = actions.play_local(ma, "Comfortably Numb")
+    assert res.ok, str(res)
+    assert ma_transport.last_call()[1]["media"] == "library://track/7"
+
+
+def test_an_album_carries_its_artist_so_kid_safe_can_see_it(ma, ma_transport):
+    album = container("tidal://album/1", "The Marshall Mathers LP")
+    album["artists"] = [{"name": "Eminem"}]
+    ma_transport.responses["music/search"] = {"albums": [album]}
+    assert ma.album_candidates("marshall mathers")[0]["artist"] == "Eminem"
+
+
+# -- silence, refusal, and what may be sent twice -------------------------------
+# Found in review: a 401 counted as the server being off, so an expired token
+# shut out «pausa» for 15 s behind the breaker, and an answer of the wrong
+# shape escaped every ``except PlayerError`` as «Errore interno».
+
+from player.ma_transport import (MusicAssistantRefused,  # noqa: E402
+                                 MusicAssistantUnreachable, post)
+
+
+def _wire(monkeypatch, exc):
+    import urllib.request
+
+    def urlopen(req, timeout):
+        raise exc
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+
+@pytest.mark.parametrize("code,kind", [
+    (401, MusicAssistantRefused), (403, MusicAssistantRefused),
+    (400, MusicAssistantRefused), (502, MusicAssistantUnreachable),
+])
+def test_an_error_status_is_an_answer_unless_a_gateway_sent_it(monkeypatch,
+                                                              code, kind):
+    import io
+    import urllib.error
+    _wire(monkeypatch, urllib.error.HTTPError(
+        "http://ma:8095/api", code, "x", {}, io.BytesIO()))
+    with pytest.raises(kind):
+        post("http://ma:8095", "t", {"command": "players/all"}, 1.0)
+
+
+def test_a_refused_connection_never_reached_the_server(monkeypatch):
+    import urllib.error
+    _wire(monkeypatch, urllib.error.URLError(ConnectionRefusedError(111, "no")))
+    with pytest.raises(MusicAssistantUnreachable) as exc:
+        post("http://ma:8095", "t", {"command": "players/all"}, 1.0)
+    assert exc.value.delivered is False
+
+
+def test_an_expired_token_does_not_shut_the_breaker_on_the_house(ma):
+    calls = []
+
+    def refusing(request):
+        calls.append(request)
+        raise MusicAssistantRefused("MusicAssistant refused the access token")
+
+    ma._transport = refusing
+    for _ in range(5):
+        with pytest.raises(MusicAssistantError):
+            ma.pause()
+    assert ma._breaker.open_for() == 0
+    assert len(calls) == 5   # every «pausa» still asked, once, not twice
+
+
+@pytest.mark.parametrize("request_,safe", [
+    ({"command": "players/cmd/pause"}, True),
+    ({"command": "players/cmd/next"}, False),
+    ({"command": "players/cmd/volume_up"}, False),
+    ({"command": "player_queues/play_media", "args": {"option": "replace"}}, True),
+    ({"command": "player_queues/play_media", "args": {"option": "add"}}, False),
+    ({"command": "player_queues/play_media", "args": {"option": "next"}}, False),
+    ({"command": "music/search", "args": {}}, True),
+])
+def test_which_musicassistant_commands_are_safe_to_repeat(ma, request_, safe):
+    assert ma._repeat_safe(request_) is safe
+
+
+def test_an_answer_of_the_wrong_shape_is_a_refusal_not_a_crash(ma, ma_transport):
+    # A JSON list where the search answers an object: «Errore interno: 'str'
+    # object has no attribute 'get'», past every except PlayerError.
+    ma_transport.responses["music/search"] = ["unexpected"]
+    with pytest.raises(MusicAssistantRefused):
+        ma.search_tracks("time")
+    res = actions.play_song(ma, "Time")
+    assert not res.ok and res.kind == actions.UNREACHABLE
+
+
+def test_one_odd_row_does_not_lose_the_others(ma, ma_transport):
+    ma_transport.responses["music/search"] = {"tracks": [
+        "junk", track("tidal://track/1", "Time", artist="Pink Floyd")]}
+    assert [t["title"] for t in ma.search_tracks("time")] == ["Time"]

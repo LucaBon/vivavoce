@@ -399,10 +399,15 @@ def test_album_listings_are_stripped_of_the_feeds_packaging(spotify,
                      "from Brothers In Arms"}]}
 
     transport.responses["spotty"] = handler
+    # The artist the packaging carried is kept as a field of its own: kid-safe
+    # reads it, and a title stripped of it was an album nobody could tell
+    # belonged to a blocked artist.
     assert spotify.album_candidates("brothers in arms") == [
-        {"id": "alb", "title": "Brothers In Arms (Remastered 1996)"}]
+        {"id": "alb", "title": "Brothers In Arms (Remastered 1996)",
+         "artist": "Dire Straits"}]
     assert spotify.album_tracks("brothers in arms")["tracks"] == [
-        {"url": "spotify://track:1", "title": "So Far Away - Remastered 1996"}]
+        {"url": "spotify://track:1", "title": "So Far Away - Remastered 1996",
+         "artist": "Dire Straits"}]
 
 
 # -- the refusal, on every path that resolves to a single first result ----------
@@ -534,3 +539,84 @@ def test_a_track_whose_url_cannot_be_resolved_is_skipped_not_fatal(spotify,
     spotify.play_tracks(spotify.artist_tracks({"id": "ar.1"}))
     assert ["playlist", "play", ARTIST_TRACK_URLS["tt.2"]] in transport.commands()
     assert not any(cmd[:2] == ["playlist", "add"] for cmd in transport.commands())
+
+
+# -- the shapes the engine reads -----------------------------------------------
+# Found in review, all three: a pick resolved against the wrong service, an
+# album whose artist was thrown away with the packaging, and album tracks
+# dropped for want of a url exactly as artist tracks used to be.
+
+def spotty_album_feed(album_name="The Dark Side of the Moon by Pink Floyd"):
+    def handler(cmd):
+        params = cmd[2:]
+        item_id = next((p[len("item_id:"):] for p in params
+                        if p.startswith("item_id:")), None)
+        if item_id is None:
+            return {"loop_loop": [{"id": "1", "name": "Search",
+                                   "type": "link", "hasitems": 1}]}
+        if item_id == "1":
+            return {"loop_loop": [{"id": "1.0", "name": "New Search",
+                                   "type": "search", "hasitems": 1}]}
+        if item_id == "1.0":
+            return {"loop_loop": [{"id": "cat.albums", "name": "Albums",
+                                   "hasitems": 1}]}
+        if item_id == "cat.albums":
+            return {"loop_loop": [{"id": "al.1", "name": album_name,
+                                   "hasitems": 1}]}
+        if item_id == "al.1":                  # tracks: an id, no url
+            return {"loop_loop": [
+                {"id": "al.1.0", "name": "1. Speak to Me", "isaudio": 1},
+                {"id": "al.1.3", "name": "4. Time", "isaudio": 1}]}
+        return {"item_loop": [{"type": "audio", "text": TRACK_URL,
+                               "presetParams": {"favorites_url": TRACK_URL}}]}
+    return handler
+
+
+def test_a_track_from_an_album_is_played_not_the_whole_album(spotify,
+                                                             transport):
+    transport.responses["spotty"] = spotty_album_feed()
+    import actions
+    res = actions.play_song(spotify,
+                            "Time dall'album The Dark Side of the Moon")
+    assert ["playlist", "play", TRACK_URL] in transport.commands(), str(res)
+    assert not any("playlist" in c and "item_id:al.1" in c
+                   for c in transport.commands())
+
+
+def test_kid_safe_sees_the_artist_of_an_album(spotify, transport):
+    # «The Marshall Mathers LP by Eminem» cleaned to its title was an album
+    # nobody could tell was Eminem's, and it played.
+    import actions
+    from guard import Guard
+    transport.responses["spotty"] = spotty_album_feed(
+        "The Marshall Mathers LP by Eminem")
+    res = actions.play_album(spotify, "The Marshall Mathers LP",
+                             guard=Guard(restricted=True,
+                                         blocklist=["Eminem"]))
+    assert res.kind == "gate"
+    assert not any("playlist" in c for c in transport.commands())
+
+
+def test_a_pick_from_a_spotify_list_is_resolved_by_spotify(lms, transport):
+    # TIDAL is the default service. The list came from Spotify, whose rows
+    # are ids only Spotify resolves: asked of TIDAL, the id came back None
+    # and went out as «playlist play None», with «Riproduco» said over it.
+    from router import Router
+    transport.responses["spotty"] = spotty_artist_feed()
+    r = Router(lms, default_service="tidal", services=("tidal", "spotify"))
+    r.handle("quali brani di Pink Floyd", source="spotify")
+    transport.calls.clear()
+    reply = r.handle("metti la 2", source="spotify")
+    assert ["playlist", "play", ARTIST_TRACK_URLS["tt.2"]] in \
+        transport.commands(), str(reply)
+    assert ["playlist", "play", "None"] not in transport.commands()
+
+
+def test_a_pick_that_resolves_to_nothing_plays_nothing_and_says_so(spotify,
+                                                                  transport):
+    import actions
+    transport.responses["spotty"] = spotty_feed(url=None)
+    res = actions.choose_from(spotify, [{"title": "Money For Nothing",
+                                         "item_id": "1.0_money.6"}], 1)
+    assert not res.ok
+    assert not any(c[:2] == ["playlist", "play"] for c in transport.commands())

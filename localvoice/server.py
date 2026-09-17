@@ -224,8 +224,10 @@ def main() -> int:
     if not lms_url and backend.name == "lms":
         # L'indirizzo ricordato e' quello di un LMS: un altro backend non lo
         # eredita, o il primo avvio con Music Assistant proverebbe a parlare
-        # all'hi-fi dell'avvio precedente.
-        lms_url = appdata.remembered_lms(data_dir)
+        # all'hi-fi dell'avvio precedente. Ripassa dalla stessa verifica di
+        # un indirizzo scritto a mano: il file l'ha riempito una risposta UDP.
+        lms_url = setupserver.normalize_lms_url(
+            appdata.remembered_lms(data_dir))
         if lms_url:
             # Not probed here: serve_setup probes every address it is given,
             # so checking it twice would only be a slower way to be wrong.

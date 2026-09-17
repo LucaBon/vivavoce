@@ -22,6 +22,7 @@ import threading
 from http.server import ThreadingHTTPServer
 
 import webguard
+from messages import DEFAULT_LANG, set_lang
 
 # A spoken command is a few hundred bytes; the JSON routes take a body at all
 # only to carry one. 64 KB is a wide margin and turns an upload bomb into a
@@ -33,6 +34,17 @@ MAX_JSON_BYTES = 64 * 1024
 # timeout anywhere, and the thread pool is unbounded (see server.py). Thirty
 # seconds is far more than any real request here needs.
 REQUEST_TIMEOUT = 30
+
+
+#: Sent with every page a person looks at (the app, the setup page). Another
+#: site framing them is clickjacking with a twist this server cannot see: the
+#: clicks come from inside the frame, so they arrive ``Sec-Fetch-Site:
+#: same-origin`` and pass the cross-site guard. ``'self'`` keeps the one frame
+#: that is meant to exist — Material Skin, served from this same origin.
+PAGE_HEADERS = (
+    ("Content-Security-Policy", "frame-ancestors 'self'"),
+    ("X-Frame-Options", "SAMEORIGIN"),
+)
 
 
 class RequestBase:
@@ -47,14 +59,30 @@ class RequestBase:
     # socketserver applies this to the connection socket: a half-open or
     # silent client releases its thread instead of holding it forever.
     timeout = REQUEST_TIMEOUT
+
+    def handle_one_request(self):
+        """One request, starting from the default language.
+
+        ``messages.set_lang`` is per execution context, so it does not leak
+        between connections — but HTTP/1.1 keep-alive serves several requests
+        on one thread, and a route that produces text without setting the
+        language inherited the previous request's. Behind a reverse proxy that
+        reuses connections (the Home Assistant ingress) the previous request
+        may be somebody else's, so the reset is here rather than in the routes
+        that happen to need it today.
+        """
+        set_lang(DEFAULT_LANG)
+        super().handle_one_request()
     # Set by make_handler: which Host values this server acts on.
     host_policy = None
 
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", headers=()):
         data = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 

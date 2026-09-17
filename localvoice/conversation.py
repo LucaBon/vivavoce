@@ -133,7 +133,17 @@ class ConversationState:
         run, self.offer = self.offer, None
         if not yes:
             return actions.ActionResult(msg("offer_declined"), ok=True)
-        return run()
+        # The question was asked about a room («metti Time in cucina» with
+        # TIDAL logged out), and this turn does not name one: the answer
+        # belongs where the question was, not on the default player. The
+        # callable reads ``self.lms``, so aiming the thread is what carries
+        # it — the same mechanism a room turn itself uses.
+        player = self.offer_player
+        if not player or self._room_turn:
+            return run()
+        with self._aimed_at(player[0]):
+            result = run()
+        return self._tag(result, msg("in_room", room=player[1]))
 
     def _settle_offer(self, result) -> None:
         """Record, for the next turn, whether the question is still open.
@@ -192,6 +202,24 @@ class ConversationState:
             self.mood = None
         return self._tag(res, room_suffix)
 
+    def _pick_client(self):
+        """``(client, room suffix)`` for acting on a pick from the open list.
+
+        Aimed where the list came from, twice over. At the room it was read
+        out for (unless this very turn names another one — then ``self.lms``
+        already points there and tagging is the caller's job). And at the
+        service that produced it: a Spotify row is an ``item_id`` only Spotify
+        can resolve, and resolved against the default service it came back
+        None and went out as ``playlist play None``.
+        """
+        lms, room_suffix = self.lms, ""
+        if self.cand_player and not self._room_turn:
+            lms = lms.for_player(self.cand_player[0])
+            room_suffix = msg("in_room", room=self.cand_player[1])
+        if self.cand_source in self.services:
+            lms = lms.for_service(self.cand_source)
+        return lms, room_suffix
+
     def _used_list(self) -> None:
         """A pick was acted on: the list has done its job. Kept alive for a
         short grace window so the choice buttons still on screen keep working,
@@ -205,9 +233,17 @@ class ConversationState:
         self._opened = True
 
     def _remember(self, result: dict, src=None) -> str:
-        self.candidates = result["candidates"] or None
-        self._opened = bool(self.candidates)
-        if self.candidates:
+        """Open the list ``result`` carries, if it carries one.
+
+        A list that is empty leaves the open one alone, exactly as ``_played``
+        does: ``handle_many`` replays the turn once per recognition
+        alternative, and a badly transcribed one that opens nothing must not
+        take away the list the next alternative is about to pick from.
+        """
+        candidates = result["candidates"] or None
+        self._opened = bool(candidates)
+        if candidates:
+            self.candidates = candidates
             # these lists are always meant to be played
             self._open_list(src, "play")
         return result["speech"]
