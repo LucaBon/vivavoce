@@ -9,6 +9,9 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "I can't reach the system right now. Please try again in a moment.",
+    "err_busy":
+        "I'm still answering the phrase before this one. Please try again in "
+        "a moment.",
     "blocked":
         "That song exists, but it's on the blocked-songs list, so I can't "
         "play it.",

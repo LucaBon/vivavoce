@@ -32,7 +32,7 @@ import time
 
 import actions
 from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
-                          OFFER_TTL, ConversationState)
+                          OFFER_TTL, Busy, ConversationState, busy)
 from alternatives import AlternativeSweep
 from intents import IntentTable
 from lang import PACKS
@@ -82,8 +82,9 @@ class Router(ConversationState, IntentTable, SourceChoice,
         # each other's ``_unmatched``, ``candidates`` and mood while each was
         # waiting on the music server. Reentrant because ``handle_many``
         # holds it across the handles it makes. Two turns of one conversation
-        # are sequential by nature; this makes them sequential in fact, and
-        # each waits at most one TURN_BUDGET.
+        # are sequential by nature; this makes them sequential in fact. What
+        # the waiting one is promised — at most one TURN_BUDGET, and an answer
+        # rather than a queue past it — is ``ConversationState._turn``.
         self._turn_lock = threading.RLock()
         self.lms = lms
         # Multi-room (Pro): an injected feature object (pro/multiroom.py) with
@@ -219,10 +220,20 @@ class Router(ConversationState, IntentTable, SourceChoice,
         questo turno. Serve a :meth:`handle_many`, che deve poter provare le
         alternative *così come sono* prima di mettersi a correggerle — vedi lì
         il perché. Chi chiama un turno solo la vuole accesa, ed è il default.
+
+        Un turno per conversazione alla volta: se un'altra frase la sta
+        ancora occupando, questa risponde «un attimo» invece di mettersi in
+        coda dietro di lei (``ConversationState._turn``).
         """
-        with self._turn_lock:
-            with self._base_lms.turn_deadline(self.TURN_BUDGET):
+        # Before the turn is taken, not inside ``_handle``: the reply below is
+        # the one case that answers without getting that far, and it is still
+        # a reply — it has to be in the language that was asked in.
+        set_lang(lang)
+        try:
+            with self._turn():
                 return self._handle(text, source, lang, repair=repair)
+        except Busy:
+            return busy()
 
     def _handle(self, text: str, source: str = "tidal", lang: str = "it",
                 *, repair: bool = True) -> str:

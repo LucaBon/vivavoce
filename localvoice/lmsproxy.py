@@ -126,9 +126,12 @@ def _same_origin_location(value: str, base: str) -> str:
         return "/"
     if not value.startswith(base + "/"):
         return value
-    # One leading slash, however many upstream sent: ``//elsewhere/x`` is a
-    # protocol-relative URL, and relayed as a path it would leave this origin.
-    return "/" + value[len(base):].lstrip("/")
+    # One leading slash, however many upstream sent, and backslashes count as
+    # slashes: ``//elsewhere/x`` is a protocol-relative URL, and a browser
+    # resolves ``/\/elsewhere/x`` as exactly that one (for http(s) the URL
+    # standard reads ``\`` as ``/``). Relayed as a path, either would leave
+    # this origin.
+    return "/" + value[len(base):].lstrip("/\\")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

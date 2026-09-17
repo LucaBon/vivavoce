@@ -16,7 +16,7 @@ lettura sola. È un mixin di :class:`Router`, come gli altri tre.
 from __future__ import annotations
 
 import actions
-from conversation import OFFER
+from conversation import Busy, OFFER, busy
 from messages import msg, set_lang
 from parsing import _reportable
 
@@ -110,20 +110,26 @@ class AlternativeSweep:
             return {"speech": msg("heard_nothing"), "used": "", "ok": False,
                     "terms": [], "choices": [], "needs_choice": False,
                     "unmatched": False}
-        # Both rounds under the turn lock: a sweep is one spoken turn, and
-        # another request arriving between its alternatives would read the
-        # state half-written (see Router.__init__).
-        with self._turn_lock:
-            payload, primary, unmatched = self._sweep(alts, source, lang,
-                                                      repair=False)
-            if payload is None and unmatched:
-                payload, second, _ = self._sweep(unmatched, source, lang,
-                                                 repair=True)
-                # La primaria resta quella del PRIMO giro: se anche il
-                # secondo fallisce, la frase da riportare è quella che
-                # l'utente ha detto, non una riscritta da noi.
-                if payload is None and primary is None:
-                    primary = second
+        # Both rounds inside ONE turn: a sweep is one spoken turn, so another
+        # request arriving between its alternatives would read the state
+        # half-written (see Router.__init__) — and the ten seconds the sweep
+        # is allowed are the ten seconds of that one turn, not ten per
+        # alternative (see ConversationState._turn).
+        try:
+            with self._turn():
+                payload, primary, unmatched = self._sweep(alts, source, lang,
+                                                          repair=False)
+                if payload is None and unmatched:
+                    payload, second, _ = self._sweep(unmatched, source, lang,
+                                                     repair=True)
+                    # La primaria resta quella del PRIMO giro: se anche il
+                    # secondo fallisce, la frase da riportare è quella che
+                    # l'utente ha detto, non una riscritta da noi.
+                    if payload is None and primary is None:
+                        primary = second
+        except Busy:
+            return {"speech": busy(), "used": "", "ok": False, "terms": [],
+                    "choices": [], "needs_choice": False, "unmatched": False}
         if payload is not None:
             return payload
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
