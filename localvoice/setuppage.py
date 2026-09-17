@@ -35,6 +35,9 @@ _STRINGS = {
                     "a cercarlo da solo.",
         "hint_down": "Controlla che sia acceso e sulla stessa rete. Continuo a "
                      "riprovare da solo; puoi anche indicarne un altro.",
+        "hint_pinned": "Controlla che sia acceso e sulla stessa rete. "
+                       "L'indirizzo viene dalla configurazione, quindi non si "
+                       "cambia da qui: continuo a riprovare da solo.",
         "save": "Prova questo indirizzo",
         "looking": "Sto cercando…",
         "found": "Trovato. Apro l'app…",
@@ -49,6 +52,9 @@ _STRINGS = {
                     "on my own in the meantime.",
         "hint_down": "Check it's switched on and on this network. I'll keep "
                      "retrying on my own; you can also point me at another.",
+        "hint_pinned": "Check it's switched on and on this network. The "
+                       "address comes from the configuration, so it can't be "
+                       "changed here: I'll keep retrying on my own.",
         "save": "Try this address",
         "looking": "Looking…",
         "found": "Found it. Opening the app…",
@@ -93,6 +99,10 @@ _BACKEND_STRINGS = {
             "hint_down": "Controlla che sia acceso, sulla stessa rete e che "
                          "il token di accesso sia ancora valido. Continuo a "
                          "riprovare da solo.",
+            "hint_pinned": "Controlla che sia acceso, sulla stessa rete e che "
+                           "il token di accesso sia ancora valido. "
+                           "L'indirizzo viene dalla configurazione: continuo "
+                           "a riprovare da solo.",
             "hint_player": "Accendi un altoparlante che Music Assistant "
                            "conosce — DLNA, Chromecast, Sonos, AirPlay o "
                            "Squeezelite: la pagina va avanti da sola appena "
@@ -108,6 +118,10 @@ _BACKEND_STRINGS = {
             "hint_down": "Check it's switched on, on this network, and that "
                          "the access token is still valid. I'll keep retrying "
                          "on my own.",
+            "hint_pinned": "Check it's switched on, on this network, and that "
+                           "the access token is still valid. The address "
+                           "comes from the configuration: I'll keep retrying "
+                           "on my own.",
             "hint_player": "Switch on a speaker Music Assistant knows — DLNA, "
                            "Chromecast, Sonos, AirPlay or Squeezelite: this "
                            "page moves on by itself as soon as it sees one.",
@@ -227,10 +241,12 @@ const HINT = { no_lms: "hint_lms", lms_down: "hint_down", no_player: "hint_playe
 function render(state) {
   const what = T[state.reason] || "";
   $("what").textContent = state.lms ? what + " (" + state.lms + ")" : what;
-  $("hint").textContent = T[HINT[state.reason] || "hint_lms"];
+  $("hint").textContent = T[state.pinned ? "hint_pinned"
+                                         : HINT[state.reason] || "hint_lms"];
   // The address box is offered whenever naming one could help — which is
   // both "nothing found" and "the one I have is silent", not just the first.
-  $("f").hidden = state.reason === "no_player";
+  // Never for a configured address: the server refuses a replacement.
+  $("f").hidden = state.pinned || state.reason === "no_player";
   if (!busy) $("status").innerHTML = spin(T.looking);
 }
 
