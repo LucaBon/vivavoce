@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### New
+
+- **Audiobookshelf si collega accanto all'impianto — ancora senza frasi.**
+  Tre opzioni nuove, `--library audiobookshelf`, `--library-url` e
+  `--library-token` (con i gemelli `VIVAVOCE_LIBRARY*` e le tre voci
+  nell'app Home Assistant), collegano un catalogo di audiolibri che si
+  ascolta **attraverso** LMS o Music Assistant: i libri da lì, gli
+  altoparlanti da qui. All'avvio l'app dice quante librerie di libri vede, o
+  perché non le vede.
+
+  Per ora è solo il collegamento: nessuna frase raggiunge ancora un libro, e
+  quelle arrivano nei prossimi passi. Senza `--library` non cambia niente —
+  non si costruisce, non si interroga e non si stampa nulla.
+
+  Due cose da sapere già adesso. I file li scarica l'impianto, non questo PC,
+  quindi l'indirizzo dev'essere l'IP di rete e non `localhost` (l'app avvisa).
+  E la chiave API finisce negli indirizzi in coda sull'impianto, perché un
+  hi-fi non sa mandare un'intestazione: va creata per un utente di
+  Audiobookshelf che può solo ascoltare. Un Audiobookshelf spento all'avvio
+  non ferma l'app: la musica non c'entra.
+
 ### Fixed
 
 - **Anche il menu a tendina scrive i servizi come li dice la voce.** Restava

@@ -17,7 +17,7 @@ Home Assistant add-on build with a 404.
 | Path | What |
 |---|---|
 | `engine/` | Business logic: `actions.py`, `lms.py`, `discovery.py`, `messages.py` |
-| `engine/player/` | The player layer: `protocols.py` (what the engine needs), `registry.py`, one module per backend |
+| `engine/player/` | The player layer: `protocols.py` (what the engine needs), `registry.py`, one module per backend or spoken library, `composite.py` (a library heard through a backend) |
 | `localvoice/` | The web app: `server.py` (HTTP), `router.py` (intents), `index.html` |
 | `localvoice/lmsproxy.py` | Reverse proxy to the LMS: Material Skin framed inside the page |
 | `localvoice/pro/` | Pro features (proprietary): kid-safe, multi-room, local ASR |
@@ -46,7 +46,7 @@ Home Assistant add-on build with a 404.
 ## Tests
 
 ```bash
-uv run pytest        # the whole suite: 2362 tests, ~4 min
+uv run pytest        # the whole suite: 2417 tests, ~4 min
 ```
 
 About 1m48s of that is `tests/e2e/`, which drives a real headless browser
@@ -65,9 +65,10 @@ hand.
 `tests/test_player_protocol.py` holds every registered backend to the
 protocols and to its own declared capabilities — a capability set to True with
 no method behind it is how a clean "this player cannot search" turns into an
-`AttributeError` reported as "the hi-fi is not answering". A capability no
-backend claims yet — `streamable` — is covered by a synthetic pair at the foot
-of that file, so its row in the table is exercised instead of merely written.
+`AttributeError` reported as "the hi-fi is not answering". Catalogues that
+play nothing — `SPOKEN_LIBRARY` declarations, Audiobookshelf today — are held
+there too, to `SpokenLibrary` and to `streamable`; they are named by
+`--library` beside the backend, never by `--backend`.
 
 `tests/test_packaging.py` guards what the suite otherwise cannot see: Dockerfile
 `COPY` sources exist, the two version files agree, and the add-on installs a

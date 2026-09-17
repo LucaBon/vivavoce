@@ -21,8 +21,9 @@ resolve, and nothing is ever called on it. Presence is the whole question.
 
 import pytest
 
-from player.protocols import Capabilities, MusicLibrary, PlayerTransport
-from player.registry import BACKENDS
+from player.protocols import (Capabilities, MusicLibrary, PlayerTransport,
+                              SpokenLibrary)
+from player.registry import BACKENDS, LIBRARIES
 
 #: Somewhere that cannot answer, because nothing here asks it anything.
 NOWHERE = "http://player.invalid:9000"
@@ -174,37 +175,78 @@ def test_a_probe_and_a_discovery_are_callable_or_absent(name):
     assert backend.discover is None or callable(backend.discover)
 
 
-# -- the rows no registered backend reaches ------------------------------------
+# -- libraries: catalogues that play nothing -----------------------------------
 #
-# ``streamable`` is declared in the protocols and claimed by nobody: LMS and
-# MusicAssistant each drive players of their own, so neither needs a way to
-# hand an id to somebody else's speakers. Every parametrized check above walks
-# the registry, so none of them ever reaches that row of CAPABILITY_METHODS —
-# and a row nothing reaches is a row that rots quietly until the day it is
-# load-bearing. The first backend to claim it will be a catalogue that plays
-# nothing at all, and by then the table has to already work.
+# Declared as SPOKEN_LIBRARY, not BACKEND (player/registry.py says why), so none of the
+# checks above reach them: they have no player and owe no transport. What they
+# owe instead is the SpokenLibrary protocol and ``streamable`` — a catalogue
+# that can neither play an item nor say where its files are has nothing to
+# offer — and they go through ``unkept_promises`` like everyone else.
+
+LIBRARY_NAMES = sorted(LIBRARIES)
+
+
+def library_client_for(library):
+    return library.build(NOWHERE, token="unused", timeout=1.0)
+
+
+def test_at_least_one_library_is_registered():
+    assert LIBRARY_NAMES, "no library registered — did discovery stop working?"
+
+
+def test_no_name_means_a_backend_and_a_library_at_once():
+    assert set(BACKEND_NAMES).isdisjoint(LIBRARY_NAMES)
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_a_librarys_key_is_its_own_name(name):
+    assert LIBRARIES[name].name == name
+    assert LIBRARIES[name].label, f"{name} has no spoken label"
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_a_library_is_a_spoken_catalogue_built_without_the_network(name):
+    client = library_client_for(LIBRARIES[name])
+    assert isinstance(client, SpokenLibrary)
+    assert callable(LIBRARIES[name].probe)
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_a_library_can_hand_its_files_to_someone_elses_speakers(name):
+    library = LIBRARIES[name]
+    assert library.capabilities.streamable, (
+        f"{name} is a catalogue that plays nothing and cannot say where its "
+        f"files are, so there is no way to hear anything in it")
+    assert unkept_promises(library.capabilities,
+                           library_client_for(library)) == {}
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_a_library_claims_nothing_only_a_player_could_keep(name):
+    # A shelf of books claiming ``search`` would be offered «metti Comfortably
+    # Numb»; claiming ``seek`` or ``sleep_timer`` would be promising controls
+    # that belong to the speakers it is heard through.
+    claimed = {c for c in ("search", "local_library", "favorites", "genres",
+                           "years", "browse_items", "services", "sleep_timer",
+                           "seek", "multi_player", "artwork")
+               if getattr(LIBRARIES[name].capabilities, c)}
+    assert claimed == set(), f"{name} claims {sorted(claimed)}"
+
+
+# -- the row a real library now covers, and the failure it cannot show ---------
 #
-# So the row is exercised here against two backends built for the purpose. They
-# go through ``unkept_promises``, the same function the real ones go through:
-# what is under test is the table, not a restatement of it.
-
-
-class KeepsIt:
-    """A catalogue that plays nothing: the shape the first one will have."""
-
-    def stream_urls(self, item_id):
-        return ["http://books.invalid/%s/01.m4b" % item_id]
+# ``streamable`` was for a while claimed by nobody, and a synthetic pair here
+# kept its row of CAPABILITY_METHODS from rotting. A registered library now
+# walks that row through ``unkept_promises`` above. What a real library cannot
+# show is the row *refusing* something, so the backend that declares the flag
+# with nothing behind it stays.
 
 
 class ClaimsItWithout:
-    """The same declaration with nothing behind it — the bug being guarded."""
+    """A streamable declaration with nothing behind it — the bug being guarded."""
 
 
-def test_the_streamable_row_accepts_a_backend_that_keeps_the_promise():
-    assert unkept_promises(Capabilities(streamable=True), KeepsIt()) == {}
-
-
-def test_the_streamable_row_catches_a_backend_that_does_not():
+def test_the_streamable_row_catches_a_backend_that_does_not_keep_it():
     # The failure this whole file exists for: a flag set to True with no
     # method behind it, which the engine would read as "offer the feature"
     # and pay for with an AttributeError reported as "the hi-fi is not
@@ -213,11 +255,14 @@ def test_the_streamable_row_catches_a_backend_that_does_not():
         "streamable": ["stream_urls"]}
 
 
-def test_no_registered_backend_claims_streamable_yet():
-    # The premise of the two tests above, written down: the day this fails is
-    # the day a real backend covers the row and these synthetic ones stop
-    # being the only thing that does.
+def test_a_registered_library_really_covers_the_streamable_row():
+    # The premise of dropping the synthetic backend that kept the promise.
+    assert any(LIBRARIES[n].capabilities.streamable for n in LIBRARY_NAMES)
+
+
+def test_no_music_system_claims_streamable():
+    # Both drive players of their own; a backend claiming it would be the
+    # first to hand its ids to someone else's speakers, which is worth
+    # noticing rather than slipping in.
     claiming = [n for n in BACKEND_NAMES if BACKENDS[n].capabilities.streamable]
-    assert claiming == [], (
-        f"{claiming} now claims streamable — good; check the parametrized "
-        f"checks above cover it, and consider dropping the synthetic pair")
+    assert claiming == []

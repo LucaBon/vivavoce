@@ -777,6 +777,28 @@ def test_the_string_options_still_reach_the_entrypoint(tmp_path):
 
 
 @_RUN_SH_NEEDS
+def test_the_library_options_reach_the_entrypoint(tmp_path):
+    # Three options, three exports, and the same three flags in the shared
+    # entrypoint: an option the add-on UI offers and nothing forwards is a
+    # setting that silently does nothing.
+    env = _run_addon_script(tmp_path, {
+        "library": "audiobookshelf", "library_url": "http://books.local:13378",
+        "library_token": "k3y",
+    })
+    assert env["VIVAVOCE_LIBRARY"] == "audiobookshelf"
+    assert env["VIVAVOCE_LIBRARY_URL"] == "http://books.local:13378"
+    assert env["VIVAVOCE_LIBRARY_TOKEN"] == "k3y"
+    entrypoint = _read("deploy", "docker", "entrypoint.sh")
+    for flag in ("--library", "--library-url", "--library-token"):
+        assert f'set -- "$@" {flag} ' in entrypoint, f"entrypoint drops {flag}"
+    yaml = pytest.importorskip("yaml")
+    schema = yaml.safe_load(_read("ha-addon", "config.yaml"))["schema"]
+    # The key is a secret: "password" keeps it out of the options panel and
+    # the Supervisor's logs, like backend_token.
+    assert schema["library_token"] == "password?"
+
+
+@_RUN_SH_NEEDS
 def test_an_empty_string_option_is_not_exported(tmp_path):
     # An option left blank in the add-on UI must not become an empty setting
     # the app then tries to use as a URL.

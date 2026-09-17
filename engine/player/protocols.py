@@ -26,13 +26,13 @@ on *that* system's own player rather than on the speakers being aimed at.
 ``stream_urls`` is the way out — the one method that turns an id into
 something any transport can swallow.
 
-**Declared, not yet implemented**, and that is the honest state. LMS and
-MusicAssistant each drive players of their own, so neither needs it and
-neither claims it; the flag costs them nothing. The first backend that will
-need it is a catalogue that plays nothing at all, and wiring one product's
-library to another's transport is its own task after this one. Until then a
-household with dumb speakers is served by pointing Vivavoce at
-MusicAssistant, which drives DLNA, Chromecast, Sonos and AirPlay itself.
+LMS and MusicAssistant each drive players of their own, so neither needs it
+and neither claims it; the flag costs them nothing. What claims it is a
+catalogue that plays nothing at all — :class:`SpokenLibrary`, a shelf of
+audiobooks — and :mod:`player.composite` is the pairing of such a catalogue
+with a transport that belongs to somebody else. A household with dumb
+speakers and *music* is still served by pointing Vivavoce at MusicAssistant,
+which drives DLNA, Chromecast, Sonos and AirPlay itself.
 
 Nothing inherits from these. Backends stay duck-typed exactly as they are
 today; the protocols are for the type checker and for
@@ -261,8 +261,8 @@ class MusicLibrary(Protocol):
     #                  settle_pending, remember_silence_in, silent_services,
     #                  for_service
     #
-    # ``stream_urls(item_id) -> List[str]`` is the newest of them and the only
-    # one nothing implements yet. It answers "what would I have to fetch to
+    # ``stream_urls(item_id) -> List[str]`` is the newest of them, and the
+    # one a music system never needs: see :class:`SpokenLibrary`. It answers "what would I have to fetch to
     # hear this?" with URLs a transport can be handed directly. A list and not
     # a single URL because one catalogue id is routinely several files — an
     # album, a book in chapters — and the caller queues them in order.
@@ -301,3 +301,32 @@ def service_label(client, name: Optional[str] = None) -> str:
             return name
     label = getattr(service, "label", "")
     return label or name or getattr(service, "name", "") or ""
+
+
+@runtime_checkable
+class SpokenLibrary(Protocol):
+    """A catalogue of things read aloud — audiobooks — that plays nothing.
+
+    Not a :class:`MusicLibrary`, and the difference is not pedantry. That
+    protocol is albums, artists and playlists, and a shelf of books claiming
+    it would be the partial catalogue ``tests/test_player_protocol.py`` exists
+    to refuse: offered «metti Comfortably Numb», with nothing to answer it.
+    Nor is it a backend: there is no player in it, so it can never be what
+    ``--backend`` points at. It sits *beside* the music system (``--library``)
+    and is heard through that system's speakers.
+
+    Which is why ``stream_urls`` is not optional here, the way it is for a
+    music system: a catalogue that can neither play an item nor say where the
+    item is has nothing to offer anyone. Every registered library declares
+    :attr:`Capabilities.streamable`, and the protocol tests hold it to that.
+    """
+
+    def book_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
+        """Books matching ``query``, in the catalogue's own relevance order,
+        as ``{"id", "title", "author", "duration"}`` dicts (``duration`` in
+        seconds, ``0.0`` when the catalogue does not know it)."""
+
+    def stream_urls(self, item_id: str) -> List[str]:
+        """The files of one book, in listening order, as URLs a transport can
+        fetch without being told anything else — no headers, no cookies. An
+        empty list for an item with nothing to listen to (an e-book)."""
