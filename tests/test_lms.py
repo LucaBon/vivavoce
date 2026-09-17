@@ -337,7 +337,8 @@ def test_now_playing_info_parses(lms, transport):
     # index and elapsed come back zeroed rather than missing: a status that
     # says nothing about the queue position must not read as "track three".
     assert lms.now_playing_info() == {"title": "Time", "artist": "Pink Floyd",
-                                      "mode": None, "index": 0, "elapsed": 0.0}
+                                      "mode": None, "index": 0, "elapsed": 0.0,
+                                      "connected": True}
 
 
 def test_now_playing_info_reads_the_queue_position_lms_sends_as_a_string(

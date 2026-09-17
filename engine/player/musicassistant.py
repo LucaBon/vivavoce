@@ -245,6 +245,9 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
         # walking through itself failing every track (engine/playback.py).
         info["index"] = queue.get("current_index") or 0
         info["elapsed"] = queue.get("elapsed_time") or 0
+        # A speaker MA cannot see accepts the queue and plays none of it; that
+        # is the speaker's silence, not the provider's (player/silence.py).
+        info["connected"] = queue.get("available", True) is not False
         return info
 
     def status_info(self) -> Dict[str, Any]:
