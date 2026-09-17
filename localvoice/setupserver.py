@@ -25,6 +25,7 @@ from typing import Optional
 
 import webguard
 from http.server import BaseHTTPRequestHandler
+import httpbase
 from httpbase import BoundedThreadingHTTPServer, RequestBase
 from player.errors import PlayerError
 from player.registry import BACKENDS, get as get_backend
@@ -264,7 +265,8 @@ def make_setup_handler(resolution: _Resolution, allowed_hosts=None,
             if self.path == "/setup":
                 self._send(200, json.dumps(resolution.state()))
             elif self.path.split("?", 1)[0] in ("/", "/index.html"):
-                self._send(200, page, "text/html")
+                self._send(200, page, "text/html",
+                           headers=httpbase.PAGE_HEADERS)
             else:
                 # Everything else 404s rather than being proxied anywhere:
                 # there is no LMS behind this server yet, by definition.

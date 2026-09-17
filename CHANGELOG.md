@@ -4,6 +4,36 @@
 
 ### Fixed
 
+- **La pagina non si fida più di ciò che non ha scritto lei.** Quattro strade
+  per cui testo arrivato dalla rete finiva nella pagina come codice, o
+  l'impianto si ritrovava con più di quanto gli era stato chiesto:
+
+  - la porta annunciata da una risposta UDP della discovery — a cui può
+    rispondere qualunque dispositivo della rete — finiva così com'era
+    nell'indirizzo ricordato e nel link a Material. Ora una porta che non è
+    un numero tra 1 e 65535 non viene creduta, l'indirizzo ricordato ripassa
+    dalla stessa verifica di uno scritto a mano, e il link viene sempre
+    codificato per l'attributo in cui finisce;
+  - i nomi dei servizi arrivano dal server musicale: nello script della
+    pagina un `</script>` dentro un nome ne usciva, e il menu delle sorgenti
+    li inseriva come HTML. Ora lo script li riceve con ogni `<` codificato e
+    il menu li scrive come testo;
+  - la copertina di una radio o di un plugin veniva letta per intero prima di
+    guardarne il tipo, e un flusso annunciato come copertina finiva tutto in
+    memoria a ogni aggiornamento del «in riproduzione». Ora il tipo si
+    controlla prima di leggere, e più di 5 MB non si legge;
+  - attraverso il pannello di Material, uno script servito dal server
+    musicale poteva registrarsi come service worker davanti all'intera app.
+    Il proxy non lo inoltra più (Material non ne usa), non concede il
+    microfono a ciò che serve, e non trasforma un redirect in un indirizzo
+    che porta su un altro host.
+
+  La pagina dell'app e quella di configurazione non si lasciano più
+  incorniciare da un altro sito (`frame-ancestors 'self'`): i clic dati da
+  dentro una cornice arrivano come richieste della pagina stessa e passavano
+  il controllo cross-site. Il pannello di Material, che è sulla stessa
+  origine, resta com'è.
+
 - **Fermare la musica non fa più sparire TIDAL per un giorno.** Il controllo
   che, alla richiesta successiva, decide se l'ultimo brano avviato ha davvero
   suonato leggeva un player fermo oltre il primo brano come «coda che scorre

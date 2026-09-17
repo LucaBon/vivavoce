@@ -10,6 +10,8 @@ import json
 import socket
 import threading
 
+import pytest
+
 import appdata
 import discovery
 
@@ -46,6 +48,15 @@ def test_base_url_uses_json_port_with_9000_fallback():
     assert discovery.base_url({"ip": "1.2.3.4", "JSON": "9002"}) == "http://1.2.3.4:9002"
     assert discovery.base_url({"ip": "1.2.3.4"}) == "http://1.2.3.4:9000"
     assert discovery.base_url({"ip": "1.2.3.4", "JSON": ""}) == "http://1.2.3.4:9000"
+
+
+@pytest.mark.parametrize("junk", [
+    '9000/"><svg onload=alert(1)>', "0", "65536", "-1", "90 00", "abc"])
+def test_a_port_that_is_not_a_port_is_not_believed(junk):
+    # Anything on the LAN can answer the broadcast, and this value becomes an
+    # address that is remembered and written into the page.
+    assert discovery.base_url({"ip": "1.2.3.4", "JSON": junk}) == \
+        "http://1.2.3.4:9000"
 
 
 # -- ordine delle subnet candidate --------------------------------------------

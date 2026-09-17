@@ -165,6 +165,33 @@ def test_index_default_material_url_reaches_the_page(live_server):
     assert DEFAULT_MATERIAL_URL in live_server().get("/").text
 
 
+def test_the_page_escapes_what_it_did_not_write():
+    # The Material URL comes from a discovery reply or a remembered file, the
+    # labels from the music server: neither may become markup, and neither
+    # may close the inline script it is written into.
+    import staticfiles
+    page = staticfiles.index_page(
+        material_url='http://1.2.3.4:9000/"><b>x</b>',
+        services=["x</script><b>out</b>"],
+        service_labels={"x": "<img src=x onerror=alert(1)>"},
+        langs=["it"], version="1", browse="")
+    assert '"><b>x</b>' not in page
+    assert "http://1.2.3.4:9000/&quot;&gt;&lt;b&gt;x&lt;/b&gt;" in page
+    assert "</script><b>out</b>" not in page
+    assert "<img src=x" not in page
+    assert json.loads('["x\\u003c/script>\\u003cb>out\\u003c/b>"]') == \
+        ["x</script><b>out</b>"]
+    assert '["x\\u003c/script>\\u003cb>out\\u003c/b>"]' in page
+
+
+def test_the_page_cannot_be_framed_by_another_site(live_server):
+    # Clicks from inside a frame arrive same-origin and pass the cross-site
+    # guard, so framing is the one way round it. 'self' keeps Material's panel.
+    headers = live_server().get("/").headers
+    assert headers["Content-Security-Policy"] == "frame-ancestors 'self'"
+    assert headers["X-Frame-Options"] == "SAMEORIGIN"
+
+
 # -- the static assets (CSS + ES modules) --------------------------------------
 
 def _page_asset_refs():
@@ -434,3 +461,44 @@ def test_the_artwork_proxy_forwards_images_only(live_server, transport):
     assert resp.status == 200
     assert resp.headers["Content-Type"] == "image/jpeg"
     assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
+
+class _Upstream:
+    """Just enough of a urllib response for ``artwork.fetch``."""
+
+    def __init__(self, ctype, body):
+        self.headers = {"Content-Type": ctype} if ctype else {}
+        self.body = body
+        self.asked = []
+
+    def read(self, n=-1):
+        self.asked.append(n)
+        return self.body if n < 0 else self.body[:n]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_the_artwork_fetch_refuses_a_non_image_before_reading_it():
+    import artwork
+    up = _Upstream("audio/mpeg", b"\x00" * 64)
+    with pytest.raises(ValueError):
+        artwork.fetch("http://radio/stream", urlopen=lambda u, timeout: up)
+    assert up.asked == []
+
+
+def test_the_artwork_fetch_never_holds_more_than_a_cover(monkeypatch):
+    # A never-ending body announced as an image was read whole into RAM on
+    # every now-playing poll.
+    import artwork
+    monkeypatch.setattr(artwork, "MAX_ARTWORK_BYTES", 16)
+    up = _Upstream("image/jpeg", b"\xff" * 1000)
+    with pytest.raises(ValueError):
+        artwork.fetch("http://radio/cover", urlopen=lambda u, timeout: up)
+    assert up.asked == [17]
+    fine = _Upstream("image/png", b"\x89PNG")
+    assert artwork.fetch("http://x", urlopen=lambda u, timeout: fine) == \
+        ("image/png", b"\x89PNG")

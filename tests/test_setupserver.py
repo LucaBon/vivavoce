@@ -302,6 +302,13 @@ def test_the_page_is_served_at_the_root(setup_server):
         assert body.count(f'"{reason}"') >= 2
 
 
+def test_the_setup_page_cannot_be_framed_by_another_site(setup_server):
+    base, _ = setup_server
+    with urllib.request.urlopen(base + "/", timeout=5) as resp:
+        assert resp.headers["Content-Security-Policy"] == \
+            "frame-ancestors 'self'"
+
+
 def test_the_state_endpoint_says_what_is_missing(setup_server):
     base, _ = setup_server
     status, body = _get(base + "/setup")

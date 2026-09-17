@@ -19,6 +19,7 @@ Two families of routes live next door rather than here, both mixed into
 
 from __future__ import annotations
 
+import artwork
 import collections
 import json
 import os
@@ -51,16 +52,8 @@ REPLY_LANGS = tuple(sorted(CATALOGS))
 MAX_ROUTERS = 64
 
 
-def _http_fetch(url: str, timeout: float = 5.0):
-    """GET ``url`` returning ``(content_type, bytes)`` — the artwork proxy's
-    default transport (injectable in tests)."""
-    import urllib.request
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
-        return resp.headers.get("Content-Type") or "image/jpeg", resp.read()
-
-
 def make_handler(lms, material_url: str, services, default_service: str,
-                 ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
+                 ca_path=None, artwork_fetch=artwork.fetch, license_mgr=None,
                  kidsafe=None, transcriber=None, multiroom=None,
                  app_version: str = "", wakeword_sessions=None,
                  wake_phrase_store=None,
@@ -131,7 +124,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._send(200, staticfiles.index_page(
                     material_url=material_url, services=services,
                     service_labels=service_labels, langs=REPLY_LANGS,
-                    version=app_version, browse=browse), "text/html")
+                    version=app_version, browse=browse), "text/html",
+                    headers=httpbase.PAGE_HEADERS)
             elif self.path in staticfiles.STATIC:
                 data, ctype = staticfiles.STATIC[self.path]
                 self._send(200, data, ctype)
