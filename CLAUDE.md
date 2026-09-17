@@ -58,7 +58,9 @@ hand.
 `tests/test_player_protocol.py` holds every registered backend to the
 protocols and to its own declared capabilities — a capability set to True with
 no method behind it is how a clean "this player cannot search" turns into an
-`AttributeError` reported as "the hi-fi is not answering".
+`AttributeError` reported as "the hi-fi is not answering". A capability no
+backend claims yet — `streamable` — is covered by a synthetic pair at the foot
+of that file, so its row in the table is exercised instead of merely written.
 
 `tests/test_packaging.py` guards what the suite otherwise cannot see: Dockerfile
 `COPY` sources exist, the two version files agree, and the add-on installs a

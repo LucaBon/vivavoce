@@ -16,18 +16,23 @@ not got. So: :class:`PlayerTransport` is what a *device* does,
 :class:`MusicLibrary` is what a *catalogue* does, and a backend implements one
 or both. LMS and MusicAssistant implement both.
 
-**What is not here yet, and why.** Pairing a catalogue with somebody else's
-speakers — a DLNA renderer, a Chromecast, a bare ``media_player`` — is the
-obvious use of a split like this, and it does not work today. The engine
-starts an album with ``play_browse_item(id)`` and a library record with
+**Pairing a catalogue with somebody else's speakers.** A DLNA renderer, a
+Chromecast, a bare ``media_player``: the obvious use of a split like this, and
+the reason :attr:`Capabilities.streamable` and ``stream_urls`` exist. The
+engine starts an album with ``play_browse_item(id)`` and a library record with
 ``play_local_album(id)``, and an id is a thing only the catalogue understands:
 handed to a catalogue that is also a whole music system, it starts the music
-on *that* system's own player rather than on the speakers being aimed at. A
-composite would need a way to turn an id into playable URLs — one method, on
-:class:`MusicLibrary` — and no backend in the tree needs it, so it has not
-been invented on their behalf. Until then a household with dumb speakers is
-served by pointing Vivavoce at MusicAssistant, which drives DLNA, Chromecast,
-Sonos and AirPlay itself.
+on *that* system's own player rather than on the speakers being aimed at.
+``stream_urls`` is the way out — the one method that turns an id into
+something any transport can swallow.
+
+**Declared, not yet implemented**, and that is the honest state. LMS and
+MusicAssistant each drive players of their own, so neither needs it and
+neither claims it; the flag costs them nothing. The first backend that will
+need it is a catalogue that plays nothing at all, and wiring one product's
+library to another's transport is its own task after this one. Until then a
+household with dumb speakers is served by pointing Vivavoce at
+MusicAssistant, which drives DLNA, Chromecast, Sonos and AirPlay itself.
 
 Nothing inherits from these. Backends stay duck-typed exactly as they are
 today; the protocols are for the type checker and for
@@ -75,6 +80,13 @@ class Capabilities:
     #: Playback keyed by a catalogue id rather than a URL
     #: (``play_browse_item`` and the ``*_local_*`` family).
     browse_items: bool = False
+    #: Turn a catalogue id into URLs anybody can play (``stream_urls``).
+    #: The pair to :attr:`browse_items`, and the difference is *who does the
+    #: playing*: ``play_browse_item`` starts the record on the catalogue's own
+    #: system, which is the wrong system whenever the catalogue and the
+    #: speakers are not the same product. A backend declaring this one can be
+    #: handed to a transport that has never heard of it.
+    streamable: bool = False
     #: Several streaming services behind one system, switchable per request
     #: (``for_service`` / ``can_search`` / ``can_play`` /
     #: ``note_playback_failure`` / ``forget_playback_failure`` /
@@ -241,12 +253,19 @@ class MusicLibrary(Protocol):
     #   years          local_years, play_local_year
     #   browse_items   {play,add,insert}_browse_item and the matching
     #                  {play,add,insert}_local_{album,artist,track} family
+    #   streamable     stream_urls
     #   favorites      favorites_items, favorites_playlist_play
     #   services       installed_services, known_services, can_search,
     #                  can_play, note_playback_failure,
     #                  forget_playback_failure, note_playback_started,
     #                  settle_pending, remember_silence_in, silent_services,
     #                  for_service
+    #
+    # ``stream_urls(item_id) -> List[str]`` is the newest of them and the only
+    # one nothing implements yet. It answers "what would I have to fetch to
+    # hear this?" with URLs a transport can be handed directly. A list and not
+    # a single URL because one catalogue id is routinely several files — an
+    # album, a book in chapters — and the caller queues them in order.
     #
     # Three of those families are reached through
     # ``getattr(client, f"{mode}_...")`` in ``actions`` and ``library``, so
