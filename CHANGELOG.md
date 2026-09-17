@@ -4,6 +4,29 @@
 
 ### Fixed
 
+- **Fermare la musica non fa più sparire TIDAL per un giorno.** Il controllo
+  che, alla richiesta successiva, decide se l'ultimo brano avviato ha davvero
+  suonato leggeva un player fermo oltre il primo brano come «coda che scorre
+  senza suonare». Bastava saltare due brani e fermare dal telecomando o da
+  Material: un'ora dopo «metti…» rispondeva «TIDAL non è collegato», e il
+  marchio restava 24 ore, salvato su disco. Ora si marca solo un player che
+  dice «play» e non avanza, e solo se lo si legge entro dieci minuti
+  dall'avvio: più tardi la lettura racconta la serata, non quell'avvio.
+
+- **Un player scollegato non è un servizio scollegato.** Uno Squeezebox
+  staccato dalla presa accetta la coda e resta fermo, e questo veniva letto
+  come silenzio del servizio: «TIDAL non è collegato», poi lo stesso su Qobuz
+  al secondo tentativo, e un giorno di esclusione per tutti e due. Ora il
+  client riporta se il player è collegato (`player_connected` su LMS,
+  `available` su Music Assistant), e la risposta è «Il lettore non risponde:
+  è spento o scollegato», senza marchi e senza ritentare altrove.
+
+- **Un disco pieno non rompe più una richiesta.** Se `services.json` non si
+  poteva scrivere, l'eccezione arrivava fino alla risposta («Errore interno»)
+  e saltava il passaggio che toglie dalla coda il brano muto. Ora
+  l'impossibilità di salvare si scrive nel log, e quello che l'app ha imparato
+  vale fino al riavvio.
+
 - **La pagina di configurazione non cambia più un server che non è suo da
   cambiare.** La casella «prova questo indirizzo» non chiede credenziali, e
   quindi non l'ha a disposizione solo chi guarda la pagina: qualunque

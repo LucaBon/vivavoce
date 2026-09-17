@@ -32,6 +32,7 @@ MESSAGES = {
         "What I have of {query} in your music comes from {service}, which "
         "isn't connected.",
     "service_not_connected": "{service} isn't connected.",
+    "player_not_connected": "The player isn't answering: it's switched off or disconnected.",
     "offer_play_from": "Shall I play it from {service}?",
     # The two buttons the web app puts under an offer, and the words it
     # sends when one is tapped: they have to be answers the language pack's

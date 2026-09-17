@@ -1059,6 +1059,10 @@ class LMSClient(Resilient, SilentServices):
         matter for the same reason one floor up: they are what tells a queue
         that is playing from one that is walking through itself failing every
         track (``engine/playback.py``). LMS spells the index as a string.
+
+        ``connected`` is False only when LMS says so: a player it has not heard
+        from takes a queue and plays none of it, and that silence belongs to
+        the player, not to the service the queue came from.
         """
         res = self.command("status", "-", "1", "tags:aAlN")
         loop = res.get("playlist_loop") or []
@@ -1067,7 +1071,9 @@ class LMSClient(Resilient, SilentServices):
         item = loop[0]
         return {"title": item.get("title"), "artist": item.get("artist"),
                 "mode": res.get("mode"), "index": _as_int(res.get("playlist_cur_index")),
-                "elapsed": _as_float(res.get("time"))}
+                "elapsed": _as_float(res.get("time")),
+                "connected": res.get("player_connected") is None
+                or _as_int(res.get("player_connected")) != 0}
 
     def status_info(self) -> Dict[str, Any]:
         """Player status for the web now-playing panel.

@@ -20,10 +20,11 @@ from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
                       _covers, _normalize, _rank, _score,
                       parse_song_query)
 from messages import msg
-# PLAYBACK_SETTLE and UNREAD are not used here: they are part of the
-# re-export promise made at the bottom of this file.
-from playback import (PLAYBACK_SETTLE, STREAM_OFFLINE, UNREAD, WALKED_AWAY,
-                      _walked_away, after_play, confirm_song, started,
+# PLAYBACK_SETTLE, PLAYER_OFFLINE and UNREAD are not used here: they are part
+# of the re-export promise made at the bottom of this file.
+from playback import (PLAYBACK_SETTLE, PLAYER_OFFLINE, STREAM_OFFLINE, UNREAD,
+                      WALKED_AWAY, _walked_away, after_play, confirm_song,
+                      player_offline, player_offline_result, started,
                       undo_play)
 from player.errors import PlayerError
 
@@ -46,6 +47,8 @@ def _play_tidal_track(lms, track: Dict, fallback_title: Optional[str], *,
         # Did the audio actually arrive? The same reading carries the artist
         # the search may not have given — see playback.after_play.
         silent, now = after_play(lms)
+        if player_offline(now):
+            return player_offline_result(lms)
         if silent:
             undo_play(lms)
             return ActionResult(msg("service_not_connected", service=silent),

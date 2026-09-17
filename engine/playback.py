@@ -35,6 +35,11 @@ from player.protocols import service_label
 #: audio cannot fetch it.
 STREAM_OFFLINE = "stream_offline"
 
+#: ``kind`` of the reply when the PLAYER is the one not there. Its own kind and
+#: not STREAM_OFFLINE, which sends the request on to the next service: every
+#: service is equally silent on a Squeezebox that is unplugged.
+PLAYER_OFFLINE = "player_offline"
+
 #: How long a stream gets to prove it is playing, in seconds.
 #:
 #: Measured against the real hi-fi (LMS 9.0.3, 2026-09-14): a ``tidal://`` url
@@ -112,6 +117,12 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
         now = lms.now_playing_info()
     except PlayerError:
         return None, None
+    if player_offline(now):
+        # A player that is not there plays nothing whatever it is given. That
+        # is not the service's silence, and a day-long mark on TIDAL for an
+        # unplugged Squeezebox is how every service ended up "not connected".
+        # The caller says so instead (``player_offline_result``).
+        return None, now
     if not now or not (now.get("mode") == "stop" or _walked_away(now)):
         # Nothing wrong so far, which is not the same as audio: a player that
         # says «play» and never advances looks like this too. Leave it for the
@@ -124,6 +135,18 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
     # of which service to ask is made with this in hand (``can_play``).
     lms.note_playback_failure()
     return service, now
+
+
+def player_offline(now: Any) -> bool:
+    """Whether a status reading says the player itself is not connected."""
+    return isinstance(now, dict) and now.get("connected") is False
+
+
+def player_offline_result(lms) -> ActionResult:
+    """Take back what was queued on a player that is not there, and say so."""
+    undo_play(lms)
+    return ActionResult(msg("player_not_connected"), ok=False,
+                        kind=PLAYER_OFFLINE)
 
 
 def undo_play(lms) -> None:
@@ -153,7 +176,9 @@ def started(lms, confirmation: ActionResult) -> ActionResult:
     ``blocking_service``, which knows which service each row's audio belongs
     to because the url says so.
     """
-    silent, _ = after_play(lms)
+    silent, now = after_play(lms)
+    if player_offline(now):
+        return player_offline_result(lms)
     if not silent:
         return confirmation
     undo_play(lms)

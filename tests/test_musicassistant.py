@@ -146,6 +146,20 @@ def test_the_playback_state_becomes_the_mode_the_engine_knows(ma, ma_transport,
     assert ma.now_playing_info()["mode"] == mode
 
 
+@pytest.mark.parametrize("available,connected", [
+    (True, True), (False, False), (None, True),
+])
+def test_a_speaker_ma_cannot_see_reads_as_not_connected(ma, ma_transport,
+                                                       available, connected):
+    # So a silence on it is not blamed on the provider (player/silence.py).
+    # An answer without the field is not evidence of anything.
+    queue = {"state": "idle", "current_item": {"name": "x"}}
+    if available is not None:
+        queue["available"] = available
+    ma_transport.responses["player_queues/get"] = queue
+    assert ma.now_playing_info()["connected"] is connected
+
+
 def test_nothing_playing_is_None_rather_than_a_blank_track(ma, ma_transport):
     ma_transport.responses["player_queues/get"] = {"state": "idle"}
     assert ma.now_playing_info() is None
