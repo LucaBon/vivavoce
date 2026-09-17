@@ -46,8 +46,15 @@ Home Assistant add-on build with a 404.
 ## Tests
 
 ```bash
-uv run pytest        # the whole suite, ~35s
+uv run pytest        # the whole suite: 2362 tests, ~4 min
 ```
+
+About 1m48s of that is `tests/e2e/`, which drives a real headless browser
+(2362 in 4m10s with it, 2292 in 2m22s without — measured 2026-09-17). That
+directory **skips cleanly when the Chromium binary is missing**, so a run that
+finishes in a little over two minutes has tested no frontend at all and still
+reports green. `uv run playwright install chromium` enables it, and
+`VIVAVOCE_REQUIRE_BROWSER=1` turns every such skip into a failure — CI sets it.
 
 `conftest.py` owns the shared scaffolding — `live_server()` runs the real
 handler on an ephemeral port and returns a client with
@@ -58,7 +65,9 @@ hand.
 `tests/test_player_protocol.py` holds every registered backend to the
 protocols and to its own declared capabilities — a capability set to True with
 no method behind it is how a clean "this player cannot search" turns into an
-`AttributeError` reported as "the hi-fi is not answering".
+`AttributeError` reported as "the hi-fi is not answering". A capability no
+backend claims yet — `streamable` — is covered by a synthetic pair at the foot
+of that file, so its row in the table is exercised instead of merely written.
 
 `tests/test_packaging.py` guards what the suite otherwise cannot see: Dockerfile
 `COPY` sources exist, the two version files agree, and the add-on installs a
