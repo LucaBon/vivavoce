@@ -178,10 +178,7 @@ class IntentTable:
             # A pick from a room-opened list keeps playing in that room (unless
             # this very turn names another one — then self.lms already points
             # there and tagging is the caller's job).
-            pick_lms, room_suffix = self.lms, ""
-            if self.cand_player and not self._room_turn:
-                pick_lms = self.lms.for_player(self.cand_player[0])
-                room_suffix = msg("in_room", room=self.cand_player[1])
+            pick_lms, room_suffix = self._pick_client()
             picked = actions.choose_from(pick_lms, self.candidates, number,
                                          mode=self.cand_mode, guard=self._guard)
             if getattr(picked, "ok", False):
@@ -256,10 +253,7 @@ class IntentTable:
         if self.candidates:
             m = P["name_pick"].match(t)
             if m:
-                pick_lms, room_suffix = self.lms, ""
-                if self.cand_player and not self._room_turn:
-                    pick_lms = self.lms.for_player(self.cand_player[0])
-                    room_suffix = msg("in_room", room=self.cand_player[1])
+                pick_lms, room_suffix = self._pick_client()
                 chosen = actions.choose_by_name(
                     pick_lms, self.candidates, m.group(1).strip(),
                     mode=self.cand_mode, guard=self._guard

@@ -199,7 +199,12 @@ def _play_from_album(
             track = ranked[0][1]
             if guard and guard.blocks_item(track):
                 return ActionResult(msg("blocked"), ok=False, kind=GATE)
-            getattr(lms, f"{mode}_url")(track["url"])
+            url = track.get("url") or (lms.track_url(track["item_id"])
+                                       if track.get("item_id") else None)
+            if not url:
+                return ActionResult(msg("no_track_found", title=title),
+                                    ok=False)
+            getattr(lms, f"{mode}_url")(url)
             return ActionResult(
                 msg("playing_track_from_album" + suffix, title=track["title"], album=album_name),
                 ok=True, terms=[track["title"], album_name],

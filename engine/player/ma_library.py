@@ -77,9 +77,17 @@ def _container(item: Dict[str, Any]) -> Dict[str, Any]:
     ``item_id`` and ``provider`` ride along because the per-type listings
     (``artist_tracks``, ``album_tracks``) are addressed by the pair rather than
     by the URI, and the engine hands a candidate back to us unchanged.
+
+    ``artist`` too, where MusicAssistant credits one (an album does): kid-safe
+    checks every name field of what is about to play, and an album row with
+    only its title let a blocked artist's record through.
     """
-    return {"id": item.get("uri"), "title": _name_of(item),
-            "item_id": item.get("item_id"), "provider": item.get("provider")}
+    out = {"id": item.get("uri"), "title": _name_of(item),
+           "item_id": item.get("item_id"), "provider": item.get("provider")}
+    artist = _first_artist(item)
+    if artist:
+        out["artist"] = artist
+    return out
 
 
 class MusicAssistantLibrary:
@@ -181,7 +189,12 @@ class MusicAssistantLibrary:
         return [_container(a) for a in self._library_items("artist", query, count)]
 
     def local_track_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
-        return [_track(t) for t in self._library_items("track", query, count)]
+        # ``id`` beside ``url``: a local candidate is played by id
+        # (``play_local_track``), like an album or an artist, and a track row
+        # without one was an "Errore interno: 'id'" for every title the
+        # library had. The URI is both.
+        return [dict(_track(t), id=t.get("uri"))
+                for t in self._library_items("track", query, count)]
 
     def find_local_album(self, query: str, count: int = 10) -> Optional[Dict[str, Any]]:
         found = self.local_album_candidates(query, count)
