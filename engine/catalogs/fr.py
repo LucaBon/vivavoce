@@ -10,6 +10,9 @@ MESSAGES = {
     "err_unreachable":
         "Je n'arrive pas à joindre le système pour le moment. "
         "Réessaie dans un instant.",
+    "err_busy":
+        "Je réponds encore à la phrase précédente. "
+        "Réessaie dans un instant.",
     "blocked":
         "Ce morceau existe, mais il est dans la liste des morceaux bloqués, "
         "donc je ne peux pas le jouer.",

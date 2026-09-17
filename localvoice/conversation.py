@@ -54,6 +54,22 @@ OFFER_TTL = 300.0
 # it was read out. Same shape as ``actions.GATE``, same reason.
 OFFER = "offer"
 
+# The ``kind`` of «I am still on the phrase before this one» (see
+# :meth:`ConversationState._turn`). A kind and not a sentence to compare
+# against, like every other one here, and NOT ``actions.UNREACHABLE``: the
+# music server may be wide awake, and «non riesco a contattare l'impianto»
+# sends somebody to look at the hi-fi for what is this app's own queue.
+BUSY = "busy"
+
+
+class Busy(Exception):
+    """This conversation is already handling a turn (:meth:`_turn`)."""
+
+
+def busy() -> "actions.ActionResult":
+    """The reply that :class:`Busy` is answered with."""
+    return actions.ActionResult(msg("err_busy"), ok=False, kind=BUSY)
+
 
 class ConversationState:
     """The open-list and open-mood half of the router."""
@@ -88,6 +104,36 @@ class ConversationState:
             yield
         finally:
             self._aim.lms = previous
+
+    @contextlib.contextmanager
+    def _turn(self):
+        """This conversation's turn: one at a time, and bounded once.
+
+        The lock is ``Router._turn_lock`` and the budget
+        ``Router.TURN_BUDGET``; they are taken together because they are the
+        same statement said twice — a turn is the unit of work, so it is also
+        the unit of exclusion and the unit of waiting.
+
+        **Bounded once, not once per call.** ``handle_many`` holds the turn
+        across one ``handle`` per recognition alternative, so this nests; and
+        ``turn_deadline`` keeps the tighter deadline, so the whole sweep
+        spends one turn's ten seconds between its alternatives instead of ten
+        seconds each. Four alternatives over two rounds used to be eighty.
+
+        **And the wait is bounded too.** A request that cannot have the
+        conversation within one budget is answered (:class:`Busy`) rather than
+        queued behind it: the threads that would queue are the server's, there
+        are 128 of them (``httpbase.MAX_CONCURRENT_REQUESTS``) and past that
+        it stops answering anybody — an unbounded queue on a route nothing
+        authenticates is a way to fill them all with one client id.
+        """
+        if not self._turn_lock.acquire(timeout=self.TURN_BUDGET):
+            raise Busy()
+        try:
+            with self._base_lms.turn_deadline(self.TURN_BUDGET):
+                yield
+        finally:
+            self._turn_lock.release()
 
     def _expire_candidates(self) -> None:
         """Forget a list nobody picked from in time (see CANDIDATES_TTL)."""

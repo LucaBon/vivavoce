@@ -11,7 +11,14 @@
   aspettava il server musicale. Una frase poteva tornare con i dati dell'altra:
   il pulsante «segnala questa frase» offerto a chi era stato capito benissimo,
   o un elenco sparito a metà scelta. Ora i turni di una conversazione vanno in
-  fila, e ognuno aspetta al massimo i dieci secondi concessi a una frase.
+  fila, e la fila ha un limite: chi non riesce ad avere la conversazione entro
+  i dieci secondi concessi a una frase risponde «sto ancora rispondendo alla
+  frase precedente» invece di restare in attesa. Restare in attesa senza
+  limite occupa un thread del server, e i thread sono 128: bastava
+  un'automazione che ripete lo stesso comando per non far più rispondere
+  nessuno. Le più letture che il riconoscitore dà della stessa frase, poi,
+  contano come un turno solo anche per il tempo — dieci secondi in tutto, non
+  dieci per lettura.
 
 - **«Sì» suona dove è stata fatta la domanda.** «Metti Time da TIDAL in
   cucina», con TIDAL scollegato, chiede «Vuoi che la metta da Qobuz?» — e il

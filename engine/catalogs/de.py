@@ -13,6 +13,8 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Ich erreiche die Anlage gerade nicht. Bitte versuch es gleich noch mal.",
+    "err_busy":
+        "Ich antworte noch auf den Satz davor. Bitte versuch es gleich noch mal.",
     "blocked":
         "Das Lied gibt es, aber es steht auf der Sperrliste, also kann ich es "
         "nicht abspielen.",

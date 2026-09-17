@@ -13,6 +13,7 @@ the mini-player ``volume`` action, and the Pro gate on all of it.
 import pytest
 
 import actions
+import conversation
 from conftest import FakeLicense
 from messages import msg
 from pro.multiroom import MultiRoom
@@ -1135,3 +1136,75 @@ def test_two_turns_of_one_conversation_take_it_in_turns(room_router, transport,
         actions.play_song = real_play_song
 
     assert seen == [1, 1], "two turns of one conversation ran at once"
+
+
+def test_a_turn_that_cannot_have_the_conversation_says_so(room_router, transport,
+                                                          make_tidal):
+    """Putting the turns in a queue (above) left the queue unbounded, and the
+    threads that wait in it are the server's — 128, and past that it answers
+    nobody. A turn that cannot have the conversation within one budget is a
+    reply, not a wait.
+    """
+    import threading
+
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://42.flc", "name": "Time"}]},
+    )
+    inside = threading.Event()
+    release = threading.Event()
+    real_play_song = actions.play_song
+
+    def parked(*args, **kwargs):
+        inside.set()
+        release.wait(timeout=10)            # a turn that will not give it back
+        return real_play_song(*args, **kwargs)
+
+    room_router.TURN_BUDGET = 0.05
+    actions.play_song = parked
+    held = threading.Thread(
+        target=room_router.handle, args=("metti Time in cucina",),
+        kwargs={"source": "tidal"})
+    try:
+        held.start()
+        assert inside.wait(timeout=10)
+        reply = room_router.handle("metti Time", source="tidal")
+    finally:
+        release.set()
+        actions.play_song = real_play_song
+        held.join(timeout=30)
+
+    assert not reply.ok
+    assert reply.kind == conversation.BUSY
+    assert str(reply) == msg("err_busy")
+
+
+def test_a_sweep_spends_one_budget_and_not_one_per_alternative(room_router):
+    """The alternatives of one utterance are one spoken turn — the point of
+    holding the conversation across them — so they share one turn's ten
+    seconds. Each ``handle`` used to open a budget of its own, which made four
+    alternatives over two rounds eighty seconds of held conversation, and the
+    «at most one TURN_BUDGET» promised to a turn waiting its go untrue.
+
+    Two alternatives nothing understands, so both are tried and then tried
+    again with the verb repaired: four turns, one deadline.
+    """
+    lms = room_router._base_lms
+    real_handle = room_router._handle
+    seen = []
+
+    def spy(text, *args, **kwargs):
+        seen.append((text, getattr(lms._turn, "until", None)))
+        return real_handle(text, *args, **kwargs)
+
+    room_router._handle = spy
+    try:
+        room_router.handle_many(["pippo", "pluto"], source="tidal")
+    finally:
+        del room_router._handle
+
+    deadlines = [until for _text, until in seen]
+    assert len(seen) >= 3, "the sweep did not replay the alternatives: %r" % (seen,)
+    assert None not in deadlines, "an alternative ran outside any budget"
+    assert len(set(deadlines)) == 1, (
+        "each alternative opened a budget of its own: %r" % (seen,))

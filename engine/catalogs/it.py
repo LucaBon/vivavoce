@@ -12,6 +12,8 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.",
+    "err_busy":
+        "Sto ancora rispondendo alla frase precedente. Riprova tra poco.",
     "blocked":
         "Questa canzone c'è, ma è nella lista dei brani bloccati, quindi non "
         "posso metterla.",
