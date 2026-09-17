@@ -25,6 +25,15 @@
 
 ### Fixed
 
+- **Una chiave scaduta di Audiobookshelf non spegne più la libreria.** Il
+  cliente della libreria parlata ereditava il breaker e il retry senza saper
+  distinguere un silenzio da un rifiuto: tre risposte «chiave non valida»
+  (401) e per quindici secondi non veniva più contattato, quindi anche una
+  ricerca che avrebbe funzionato rispondeva che la libreria non risponde. Ora
+  un rifiuto conta come prova che il server c'è, ed è invece una richiesta
+  persa a essere rifatta — la libreria si legge e non si comanda, quindi
+  chiederle due volte la stessa cosa non fa niente due volte.
+
 - **Due frasi dette insieme non si mescolano più.** Tutte le richieste di una
   stessa conversazione condividono un router — due schede del browser con lo
   stesso identificativo, oppure ogni comando di Home Assistant che non nomina
