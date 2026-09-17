@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Callable
 
-from .errors import PlayerError
+from .errors import PlayerError, PlayerRefused, PlayerUnreachable
 
 #: Consecutive transport failures before a client stops dialling for a while.
 #: Three, because one is noise (a dropped packet, a server mid-restart) and the
@@ -93,8 +93,21 @@ class Resilient:
     so a failure arrives wearing the backend's own name.
     """
 
-    #: The exception this client raises. Overridden per backend.
+    #: The exception this client raises. Overridden per backend, together
+    #: with its two kinds (see ``player/errors.py``): the breaker and the
+    #: retry below read the kind, and the caller still catches ``error``.
     error = PlayerError
+    unreachable = PlayerUnreachable
+    refused = PlayerRefused
+
+    def _repeat_safe(self, request) -> bool:
+        """Whether sending ``request`` twice does what sending it once does.
+
+        Asked only after a failure that may have been delivered. Overridden
+        per backend, because only the backend can read its own commands; the
+        default says no, which costs a retry and never doubles an action.
+        """
+        return False
 
     def _init_resilience(self, timeout: float) -> None:
         self.timeout = timeout
@@ -139,28 +152,69 @@ class Resilient:
     def _guarded(self, request):
         """One transport call, behind the breaker and with a single retry.
 
-        Retried once, and only on a transport failure — a refused connection,
-        a dropped socket, a server restarted mid-response. A well-formed answer
-        we happen not to like is never retried: asking again gets the same
-        answer, and the caller has already been told what it means.
+        Retried once, and only when no answer came back — a refused
+        connection, a dropped socket, a server restarted mid-response — and
+        then only if sending it again cannot double it (:meth:`_repeat_safe`,
+        :attr:`PlayerUnreachable.delivered`). An answer, even a refusal or one
+        that makes no sense, is never retried: asking again gets the same
+        answer.
+
+        The breaker counts only silence it can blame on the server. A refusal
+        is proof the server is there, so it counts as a success; and a call
+        that timed out because the turn's budget had already clipped its
+        socket timeout says the turn was slow, not that the server is off.
         """
         wait = self._breaker.open_for()
         if wait > 0:
-            raise self.error(
-                f"music server not answering; not dialled again for {wait:.0f}s")
+            raise self.unreachable(
+                f"music server not answering; not dialled again for {wait:.0f}s",
+                delivered=False)
         if self._call_timeout() <= 0:
-            raise self.error("request skipped: this turn ran out of time")
+            raise self.unreachable("request skipped: this turn ran out of time",
+                                   delivered=False)
+        try:
+            return self._attempt(request)
+        except self.error as exc:
+            if not self._worth_retrying(request, exc):
+                self._count_failure(exc)
+                raise
+        try:
+            return self._attempt(request)
+        except self.error as exc:
+            self._count_failure(exc)
+            raise
+
+    def _attempt(self, request):
+        """One try. A success or a refusal is recorded here; a silence is
+        marked with whether the budget had clipped its timeout, and counted by
+        the caller once per request — the retry is what absorbs a dropped
+        packet, and counting both attempts would open the breaker on half the
+        evidence intended."""
+        clipped = self._call_timeout() < self.timeout
         try:
             result = self._transport(request)
-        except self.error:
-            # Retry only while the turn can still pay for a second attempt.
-            if self._call_timeout() <= 0:
-                self._breaker.record_failure()
-                raise
-            try:
-                result = self._transport(request)
-            except self.error:
-                self._breaker.record_failure()
-                raise
+        except PlayerRefused:
+            self._breaker.record_success()   # it answered: it is there
+            raise
+        except self.error as exc:
+            exc.clipped = clipped
+            raise
         self._breaker.record_success()
         return result
+
+    def _count_failure(self, exc) -> None:
+        if isinstance(exc, PlayerRefused):
+            return
+        if getattr(exc, "clipped", False) and getattr(exc, "delivered", True):
+            return   # a timeout the turn's budget shortened: the turn was slow
+        self._breaker.record_failure()
+
+    def _worth_retrying(self, request, exc) -> bool:
+        if isinstance(exc, PlayerRefused):
+            return False
+        # Only while the turn can still pay for a second attempt.
+        if self._call_timeout() <= 0:
+            return False
+        if not getattr(exc, "delivered", True):
+            return True
+        return self._repeat_safe(request)

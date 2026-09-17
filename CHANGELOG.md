@@ -4,6 +4,29 @@
 
 ### Fixed
 
+- **Un server che dice «no» non è un server spento.** Dopo tre errori di fila
+  il client smette per 15 secondi di contattare il server musicale, così un
+  impianto spento non costa un timeout a ogni frase. Ma contava come «spento»
+  qualunque errore: un token di Music Assistant scaduto, oppure tre ricerche
+  lente dentro il tempo concesso a una frase, e per 15 secondi anche «pausa»
+  rispondeva «Non riesco a contattare l'impianto» con il server perfettamente
+  acceso. Ora contano solo i silenzi veri: un rifiuto (401, 403, una risposta
+  che non ha senso) dimostra che il server c'è, e un timeout accorciato perché
+  la frase aveva già speso il suo tempo dice che la frase era lenta.
+
+- **Un comando non viene più eseguito due volte.** Se la risposta si perdeva
+  dopo che il server aveva già eseguito il comando, il client lo ritentava:
+  «alza il volume» saliva di due scatti, «prossima» saltava due brani, un album
+  finiva in coda due volte. Ora si ritenta sempre solo ciò che non è mai
+  partito (connessione rifiutata) e, se la richiesta potrebbe essere arrivata,
+  solo i comandi che ripetuti non cambiano niente.
+
+- **Una risposta malformata di Music Assistant non è più un «Errore interno».**
+  Un JSON della forma sbagliata — una lista dove serviva un oggetto — sfuggiva
+  a ogni controllo e arrivava all'utente come «Errore interno: 'str' object has
+  no attribute 'get'». Ora è un rifiuto come gli altri, e una riga strana in un
+  elenco viene scartata senza perdere le altre.
+
 - **Music Assistant suona i brani della tua libreria.** Con la sorgente «auto»
   la libreria locale viene interrogata per prima, e un brano trovato lì
   rispondeva «Errore interno: 'id'»: il motore suona un candidato locale per

@@ -584,3 +584,86 @@ def test_an_album_carries_its_artist_so_kid_safe_can_see_it(ma, ma_transport):
     album["artists"] = [{"name": "Eminem"}]
     ma_transport.responses["music/search"] = {"albums": [album]}
     assert ma.album_candidates("marshall mathers")[0]["artist"] == "Eminem"
+
+
+# -- silence, refusal, and what may be sent twice -------------------------------
+# Found in review: a 401 counted as the server being off, so an expired token
+# shut out «pausa» for 15 s behind the breaker, and an answer of the wrong
+# shape escaped every ``except PlayerError`` as «Errore interno».
+
+from player.ma_transport import (MusicAssistantRefused,  # noqa: E402
+                                 MusicAssistantUnreachable, post)
+
+
+def _wire(monkeypatch, exc):
+    import urllib.request
+
+    def urlopen(req, timeout):
+        raise exc
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+
+@pytest.mark.parametrize("code,kind", [
+    (401, MusicAssistantRefused), (403, MusicAssistantRefused),
+    (400, MusicAssistantRefused), (502, MusicAssistantUnreachable),
+])
+def test_an_error_status_is_an_answer_unless_a_gateway_sent_it(monkeypatch,
+                                                              code, kind):
+    import io
+    import urllib.error
+    _wire(monkeypatch, urllib.error.HTTPError(
+        "http://ma:8095/api", code, "x", {}, io.BytesIO()))
+    with pytest.raises(kind):
+        post("http://ma:8095", "t", {"command": "players/all"}, 1.0)
+
+
+def test_a_refused_connection_never_reached_the_server(monkeypatch):
+    import urllib.error
+    _wire(monkeypatch, urllib.error.URLError(ConnectionRefusedError(111, "no")))
+    with pytest.raises(MusicAssistantUnreachable) as exc:
+        post("http://ma:8095", "t", {"command": "players/all"}, 1.0)
+    assert exc.value.delivered is False
+
+
+def test_an_expired_token_does_not_shut_the_breaker_on_the_house(ma):
+    calls = []
+
+    def refusing(request):
+        calls.append(request)
+        raise MusicAssistantRefused("MusicAssistant refused the access token")
+
+    ma._transport = refusing
+    for _ in range(5):
+        with pytest.raises(MusicAssistantError):
+            ma.pause()
+    assert ma._breaker.open_for() == 0
+    assert len(calls) == 5   # every «pausa» still asked, once, not twice
+
+
+@pytest.mark.parametrize("request_,safe", [
+    ({"command": "players/cmd/pause"}, True),
+    ({"command": "players/cmd/next"}, False),
+    ({"command": "players/cmd/volume_up"}, False),
+    ({"command": "player_queues/play_media", "args": {"option": "replace"}}, True),
+    ({"command": "player_queues/play_media", "args": {"option": "add"}}, False),
+    ({"command": "player_queues/play_media", "args": {"option": "next"}}, False),
+    ({"command": "music/search", "args": {}}, True),
+])
+def test_which_musicassistant_commands_are_safe_to_repeat(ma, request_, safe):
+    assert ma._repeat_safe(request_) is safe
+
+
+def test_an_answer_of_the_wrong_shape_is_a_refusal_not_a_crash(ma, ma_transport):
+    # A JSON list where the search answers an object: «Errore interno: 'str'
+    # object has no attribute 'get'», past every except PlayerError.
+    ma_transport.responses["music/search"] = ["unexpected"]
+    with pytest.raises(MusicAssistantRefused):
+        ma.search_tracks("time")
+    res = actions.play_song(ma, "Time")
+    assert not res.ok and res.kind == actions.UNREACHABLE
+
+
+def test_one_odd_row_does_not_lose_the_others(ma, ma_transport):
+    ma_transport.responses["music/search"] = {"tracks": [
+        "junk", track("tidal://track/1", "Time", artist="Pink Floyd")]}
+    assert [t["title"] for t in ma.search_tracks("time")] == ["Time"]
