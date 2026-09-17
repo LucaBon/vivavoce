@@ -4,6 +4,28 @@
 
 ### Fixed
 
+- **La pagina di configurazione non cambia più un server che non è suo da
+  cambiare.** La casella «prova questo indirizzo» non chiede credenziali, e
+  quindi non l'ha a disposizione solo chi guarda la pagina: qualunque
+  dispositivo della rete può scriverci. Finché la pagina restava aperta — dopo
+  un blackout, o con l'add-on partito prima di Music Assistant — un indirizzo
+  mandato lì sostituiva anche quello fissato con `--backend-url`, e la prova di
+  quell'indirizzo portava con sé il token di Music Assistant, consegnandolo a
+  chi rispondeva.
+
+  Ora un indirizzo di configurazione non si sostituisce dalla pagina (403),
+  che infatti non mostra più la casella e dice che l'indirizzo viene dalla
+  configurazione. Anche un server che ha già risposto resta quello (409): in
+  quello stato la casella era già nascosta. Resta correggibile, come prima,
+  l'indirizzo ricordato che ha smesso di rispondere.
+
+- **Un player scollegato non basta a finire la configurazione.** LMS elenca
+  anche i player che non sente da tempo, con `connected: 0`; se uno di questi
+  era in cima alla lista, l'app partiva puntata su un apparecchio che nessuno
+  può sentire, e la pagina «accendi un player» non compariva mai. Ora contano
+  solo i player collegati, sia per finire la configurazione sia per scegliere
+  quello predefinito.
+
 - **Anche il menu a tendina scrive i servizi come li dice la voce.** Restava
   una tabella, `SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" }`, dentro il
   JavaScript della pagina: una tabella che per costruzione poteva conoscere

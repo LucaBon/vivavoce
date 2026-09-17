@@ -162,11 +162,34 @@ class _Resolution:
     def state(self) -> dict:
         with self.lock:
             return {"ready": self.done.is_set(), "reason": self.reason,
-                    "lms": self.lms_url}
+                    "lms": self.lms_url, "pinned": self.pinned}
+
+    def typed_address_refused(self) -> str:
+        """Why an address typed into the page is not tried, or ``""``.
+
+        The box on the page is unauthenticated: anything on the LAN can post
+        to it, not just the person looking at it. So it may only fill a gap.
+        A configured address is not a gap — accepting a replacement would
+        overrule the operator, and a probe carries the backend's token to
+        whoever answers. Nor is a server that already answers: the page hides
+        the box in that state, and the only request that could still arrive
+        is one that did not come from the page.
+        """
+        with self.lock:
+            if self.pinned:
+                return "pinned"
+            if self.lms_url and self.confirmed:
+                return "found"
+            return ""
 
     def offer(self, lms_url: str) -> bool:
         """Try one address. True when it leaves the house controllable."""
         ok, players = self.probe(lms_url)
+        # A player LMS lists but reports as disconnected is not one anybody
+        # can hear: finishing setup on it starts the app aimed at a dead
+        # device, and no page ever says "switch something on".
+        players = [p for p in players
+                   if "connected" not in p or p.get("connected")]
         with self.lock:
             if not ok:
                 if lms_url == self.lms_url:
@@ -252,6 +275,13 @@ def make_setup_handler(resolution: _Resolution, allowed_hosts=None,
                 return
             if self.path.split("?", 1)[0] != "/setup":
                 self._send(404, '{"ok":false}')
+                return
+            refused = resolution.typed_address_refused()
+            if refused:
+                state = resolution.state()
+                state.update(ok=False, error=refused)
+                self._send(409 if refused == "found" else 403,
+                           json.dumps(state))
                 return
             url = normalize_lms_url(
                 self._read_json_object().get("lms") or "", default_port)
