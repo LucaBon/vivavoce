@@ -341,10 +341,11 @@ def main() -> int:
     material_url = args.material_url or (
         lms_url.rstrip("/") + "/material/" if backend.name == "lms" else "")
     ca_path = tls.find_ca(args.cert)
+    BoundedThreadingHTTPServer.allow_public_peers = args.allow_public_peers
     httpd = BoundedThreadingHTTPServer(
         (args.host, args.port),
         make_handler(client, material_url, services, default_service,
-                     lms_from_page=from_page,
+                     lms_from_page=from_page, api_token=args.api_token,
                      ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version(),

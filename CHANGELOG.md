@@ -25,6 +25,28 @@
 
 ### Fixed
 
+- **Una porta esposta su internet non consegna più l'impianto a chi la
+  trova.** L'app non ha account né password, per progetto: è sulla rete di
+  casa e risponde a chi chiede. Ma tutte le difese che aveva guardavano *da
+  quale pagina* arrivava la richiesta, e nessuna sa distinguere il telefono
+  sul divano da uno scanner che ha trovato una porta aperta sul router — con
+  un port forward il `Host` è quello che manda il router, e un client che non
+  è un browser non manda né `Origin` né `Sec-Fetch-Site`. Ora una connessione
+  che non arriva da un indirizzo di casa viene rifiutata prima di essere
+  servita: niente musica, niente PIN di kid-safe, e niente pannello di
+  Material — da cui si installano i plugin dell'LMS. Contano come casa gli
+  indirizzi privati, loopback, link-local e `100.64/10`, che è quello che usa
+  Tailscale: raggiungere il proprio impianto da fuori con una VPN continua a
+  funzionare senza configurare niente. Chi espone la porta di proposito lo
+  dice con `--allow-public-peers`, e allora ha `--api-token` da mettere
+  davanti a `/api/v1` e al proxy. DEPLOY.md spiega perché usarli insieme.
+
+- **Le sessioni della parola chiave lato server hanno un tetto.** La pulizia
+  delle sessioni inattive era un orologio, non un limite: entro i due minuti
+  di attesa, un chiamante che invent(av)a un identificativo per richiesta
+  otteneva un riconoscitore per richiesta, e l'identificativo arriva dalla
+  richiesta stessa. Ora sono al massimo 32 e la più vecchia lascia il posto.
+
 - **La CA locale non può più firmare per qualunque sito.** Installare
   `ca.pem` su un telefono significa che quel telefono crede a chi possiede
   `ca-key.pem` — e quella chiave sta accanto a `ca.pem`, cioè dentro `/data`,

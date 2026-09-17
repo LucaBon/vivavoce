@@ -568,6 +568,37 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 7. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
    **Voci & lingue** panel then lets you pick natural per-language voices.
 
+### Do not put this on the internet — and what to do if you must
+
+This server has **no accounts and no password**, by design: it is on your LAN,
+it answers whoever asks, and that is what makes it a ten-second install. The
+consequence is the obvious one, so it is worth spelling out: a port forward to
+`8730` hands the internet the whole app — the music, the kid-safe PIN (which
+an unauthenticated `POST /kidsafe` can *set* while none exists), and, through
+the in-page Material panel, the music server's own settings pages, where
+plugins are installed.
+
+So connections that do not come from a private address are **refused before
+they are served** — nothing is read, no route runs. Addresses that count as
+"home": RFC 1918 (`10/8`, `172.16/12`, `192.168/16`), loopback, link-local,
+and `100.64/10`, which is what Tailscale gives you (reaching your own hi-fi
+over a VPN keeps working, with nothing to configure).
+
+If you really do mean to expose it — behind a reverse proxy that does not
+preserve the client address, say — two flags, and use both:
+
+```bash
+--allow-public-peers        # or VIVAVOCE_ALLOW_PUBLIC_PEERS=1
+--api-token <long-random>   # or VIVAVOCE_API_TOKEN=...
+```
+
+`--api-token` is asked for on `/api/v1` and on the proxy to the music server,
+as `Authorization: Bearer <token>`, compared in constant time. It is not a
+login for the page: the page is still the page, and a token in front of the
+two machine-facing surfaces is the difference between "a scanner can play
+music" and "a scanner can install LMS plugins". A reverse proxy that requires
+its own authentication in front of everything is better than either.
+
 ### Streaming services (TIDAL / Qobuz / Spotify)
 
 Install and log in the plugin(s) on LMS/Daphile first (**LMS Settings → Plugins**:

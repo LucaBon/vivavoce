@@ -86,7 +86,14 @@ def api_v1_routes(router_for, multiroom=None):
 
     class ApiV1Routes:
         def _command(self):
-            """Handle ``POST /api/v1/command`` (and its ``/command`` alias)."""
+            """Handle ``POST /api/v1/command`` (and its ``/command`` alias).
+
+            Behind ``--api-token`` when there is one: this is the surface a
+            program uses, so it is the one an operator who exposed the port
+            can put a credential in front of (``httpbase``).
+            """
+            if self._reject_untokened():
+                return
             payload = self._read_json_object()
             # Coerce before use, because the first client of this contract is
             # a Home Assistant blueprint and YAML templates render loosely.

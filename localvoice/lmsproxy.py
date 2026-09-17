@@ -197,6 +197,10 @@ def proxy_routes(target_base: str, enabled, opener=None):
                 # An absolute-form request line ("GET http://elsewhere/") is
                 # what a client asks a *forward* proxy; this is not one.
                 return False
+            if self._reject_untokened():
+                # The music server's own interface, reachable through us: if
+                # anything here is worth a credential, this is.
+                return True
             if self.command == "GET" and self._reject_cross_site():
                 # do_POST runs this ahead of every route; do_GET deliberately
                 # does not, because for the routes this server owns a GET is
