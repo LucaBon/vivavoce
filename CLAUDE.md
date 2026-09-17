@@ -46,8 +46,15 @@ Home Assistant add-on build with a 404.
 ## Tests
 
 ```bash
-uv run pytest        # the whole suite, ~35s
+uv run pytest        # the whole suite: 2362 tests, ~4 min
 ```
+
+About 1m48s of that is `tests/e2e/`, which drives a real headless browser
+(2362 in 4m10s with it, 2292 in 2m22s without — measured 2026-09-17). That
+directory **skips cleanly when the Chromium binary is missing**, so a run that
+finishes in a little over two minutes has tested no frontend at all and still
+reports green. `uv run playwright install chromium` enables it, and
+`VIVAVOCE_REQUIRE_BROWSER=1` turns every such skip into a failure — CI sets it.
 
 `conftest.py` owns the shared scaffolding — `live_server()` runs the real
 handler on an ephemeral port and returns a client with
