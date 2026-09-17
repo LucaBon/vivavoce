@@ -321,6 +321,40 @@ Re-issuing the server cert for new IPs reuses the CA, so devices stay trusted.
 The server offers the CA at **`/ca.pem`**; `GET /tls` says whether there is one
 to offer.
 
+**What the CA may and may not vouch for.** Installing a CA means every device
+that did it believes whoever holds `ca-key.pem` — so the certificate says, in
+itself, where that belief stops: it carries *Name Constraints* limiting it to
+private addresses (RFC 1918, loopback, link-local) and local names
+(`localhost`, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`,
+`.localdomain`). A copy of `ca-key.pem` is therefore worth impersonating the
+hi-fi at home, and nothing on the web. It is valid for ten years and issued
+fresh on first run.
+
+- **`--hosts` at first run, if you use it at all.** The CA is created once and
+  reused, so a name outside that set — a real DNS name pointed at the box —
+  has to be permitted when the CA is *created*:
+  `make_cert.py --hosts nas.example.com`. Run with a name the existing CA
+  cannot sign for and the tool says so and issues anyway: it works for anyone
+  who did not install the CA, and fails the handshake for everyone who did.
+- **Keep `ca-key.pem` out of backups.** It sits next to `ca.pem` in the same
+  directory — `/data` in the container, the repo root otherwise — which is a
+  directory backup tools copy whole. Exclude the file, or accept that the
+  backup is as sensitive as the key.
+- **Migrating a CA created before this (it has no Name Constraints).** The
+  tool reports it on every run and never replaces it by itself: the
+  fingerprint is what each phone installed, and swapping it turns a green
+  padlock into a warning on every device at once. When you are ready:
+
+  ```bash
+  rm ca.pem ca-key.pem          # or /data/ca.pem, /data/ca-key.pem
+  uv run python tools/make_cert.py
+  ```
+
+  then remove the old "Vivavoce Local CA" from each device's trusted
+  credentials and install the new `/ca.pem`. Until you do, everything keeps
+  working exactly as before — the old CA is simply trusted for more than it
+  needs to be.
+
 The **text box works everywhere**, even over HTTP.
 
 #### Or skip the warning entirely: a real certificate

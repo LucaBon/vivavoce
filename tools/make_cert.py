@@ -6,7 +6,10 @@ page is opened from another device (e.g. your phone). This creates in the target
 directory (default: the repo root):
 
 - ``ca.pem`` / ``ca-key.pem`` — a private "Vivavoce Local CA", created once and
-  **reused** on later runs. Install ``ca.pem`` once on your phone/PC and the
+  **reused** on later runs. It carries Name Constraints, so it can only ever
+  vouch for private addresses and local names: ``ca-key.pem`` is a key to the
+  hi-fi at home, not a key to the web. Keep it out of backups anyway —
+  everything that installed ``ca.pem`` believes whoever holds it. Install ``ca.pem`` once on your phone/PC and the
   browser trusts the server for good: green lock, no warning, and the service
   worker/PWA install work (Chrome refuses service workers on untrusted certs,
   even after clicking through the warning). The server offers it at ``/ca.pem``.
@@ -44,11 +47,37 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# The CA is a trust anchor installed by hand once, so it may be long-lived:
-# 20 years, from a fixed date, keeps its fingerprint stable across
-# regenerations of the leaf below.
-NOT_BEFORE = _dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc)
-CA_NOT_AFTER = _dt.datetime(2044, 1, 1, tzinfo=_dt.timezone.utc)
+# The CA is a trust anchor installed by hand once, so it has to outlive the
+# hardware it is installed on — but not by much. It used to be issued to 2044
+# from a fixed date, which nothing asked for: this is the window in which a
+# leaked ca-key.pem is still believed by every phone in the house, and ten
+# years already means nobody reinstalls anything for the life of the box.
+# Relative to creation, so a household setting up in 2033 gets ten years too
+# rather than whatever was left of a date compiled in here. The fingerprint
+# stays stable the only way that matters — the CA is created once and reused,
+# and it is the leaf below that gets reissued.
+CA_YEARS = 10
+CA_BACKDATE = _dt.timedelta(days=1)
+
+# Where this CA's authority stops, and the answer to "what is ca-key.pem worth
+# if somebody copies it". It sits in the directory the server publishes
+# /ca.pem from, so it travels in every backup of that directory; without the
+# extension below it is a key that can sign `google.com` for every device in
+# the house. With it, a stolen key is worth a MITM on names that only resolve
+# at home — which whoever is at home could reach anyway — and nothing else.
+#
+# The suffixes are ``webguard._LOCAL_SUFFIXES`` (the names that only ever
+# resolve on a LAN) plus `localhost`. Written out instead of imported because
+# this is a tool and the core is not on its path; a test holds the two lists
+# to each other. An RFC 5280 dNSName constraint matches the name itself and
+# anything under it, so "local" covers "casa.local".
+CA_PERMITTED_SUFFIXES = ("localhost", "local", "lan", "home", "home.arpa",
+                         "internal", "localdomain")
+
+# RFC 1918, loopback and link-local, with their IPv6 equivalents.
+CA_PERMITTED_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                         "127.0.0.0/8", "169.254.0.0/16",
+                         "::1/128", "fc00::/7", "fe80::/10")
 
 # The SERVER certificate cannot be. Apple refuses any TLS server certificate
 # valid for more than 825 days — since iOS 13/macOS 10.15, and regardless of
@@ -69,6 +98,76 @@ def leaf_validity(now: _dt.datetime = None):
     return now - LEAF_BACKDATE, now + _dt.timedelta(days=LEAF_MAX_DAYS)
 
 
+def ca_validity(now: _dt.datetime = None):
+    """``(not_before, not_after)`` for a CA created now (see :data:`CA_YEARS`)."""
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    return now - CA_BACKDATE, now + _dt.timedelta(days=365 * CA_YEARS)
+
+
+def _dns_under(name: str, constraint: str) -> bool:
+    """RFC 5280 dNSName matching: the constraint is the name, or a suffix."""
+    name, constraint = name.lower().rstrip("."), constraint.lower().rstrip(".")
+    return name == constraint or name.endswith("." + constraint)
+
+
+def _ip_under(addr, network) -> bool:
+    return addr.version == network.version and addr in network
+
+
+def permitted_subtrees(hosts=()) -> list:
+    """What the CA is allowed to sign for: home, plus whatever was asked for.
+
+    ``hosts`` is ``--hosts``, which exists because the addresses clients use
+    are not always the ones this machine can see. A name or address outside
+    the local set has to be permitted by name, or the certificate this CA
+    signs for it is one every device that installed the CA will refuse —
+    silently widening the constraint is the only alternative to a padlock
+    that stays red for a reason no browser explains.
+    """
+    subtrees = [x509.DNSName(s) for s in CA_PERMITTED_SUFFIXES]
+    subtrees += [x509.IPAddress(ipaddress.ip_network(n))
+                 for n in CA_PERMITTED_NETWORKS]
+    for host in hosts:
+        try:
+            addr = ipaddress.ip_address(host)
+        except ValueError:
+            if not any(_dns_under(host, s) for s in CA_PERMITTED_SUFFIXES):
+                subtrees.append(x509.DNSName(host))
+            continue
+        if not any(_ip_under(addr, ipaddress.ip_network(n))
+                   for n in CA_PERMITTED_NETWORKS):
+            subtrees.append(x509.IPAddress(ipaddress.ip_network(addr)))
+    return subtrees
+
+
+def unsignable_sans(sans, ca_cert) -> list:
+    """The SANs this CA may not sign for, as strings; ``[]`` when all are fine.
+
+    Exactly the check a device that installed the CA performs, performed here
+    so that "your CA cannot vouch for this address" is a line of output at
+    issue time instead of a failed handshake later. A CA with no constraints
+    at all — one made before they existed — is constrained by nothing, and
+    answers ``[]``.
+    """
+    try:
+        constraints = ca_cert.extensions.get_extension_for_class(
+            x509.NameConstraints).value
+    except x509.ExtensionNotFound:
+        return []
+    permitted = list(constraints.permitted_subtrees or [])
+    networks = [p.value for p in permitted if isinstance(p, x509.IPAddress)]
+    names = [p.value for p in permitted if isinstance(p, x509.DNSName)]
+    refused = []
+    for san in sans:
+        if isinstance(san, x509.IPAddress):
+            if not any(_ip_under(san.value, n) for n in networks):
+                refused.append(str(san.value))
+        elif isinstance(san, x509.DNSName):
+            if not any(_dns_under(san.value, n) for n in names):
+                refused.append(san.value)
+    return refused
+
+
 def local_ipv4s() -> list:
     ips = {"127.0.0.1"}
     try:
@@ -87,11 +186,38 @@ def local_ipv4s() -> list:
     return sorted(ips)
 
 
-def _load_or_create_ca(out_dir: str):
+def ca_is_constrained(ca_cert) -> bool:
+    """Whether this CA says in itself where it may sign."""
+    try:
+        ca_cert.extensions.get_extension_for_class(x509.NameConstraints)
+    except x509.ExtensionNotFound:
+        return False
+    return True
+
+
+#: What to say about a CA created before the constraints existed. Not replaced
+#: automatically, ever: the fingerprint is what every phone in the house
+#: installed, and swapping it under them turns a green padlock into a warning
+#: nobody asked for, on every device at once. Deleting the two files is how an
+#: operator asks for a new one — and then reinstalls it.
+UNCONSTRAINED_CA_WARNING = (
+    "Attenzione: la CA locale in {path} è stata creata senza Name Constraints, "
+    "quindi ca-key.pem può firmare per QUALUNQUE dominio verso i dispositivi "
+    "che l'hanno installata.\n"
+    "  Per passare a una CA vincolata: cancella ca.pem e ca-key.pem, rilancia "
+    "questo comando, e reinstalla la nuova ca.pem sui dispositivi (la vecchia "
+    "va rimossa dalle credenziali attendibili).\n"
+    "  Fino ad allora tieni ca-key.pem fuori dai backup: vedi DEPLOY.md.")
+
+
+def _load_or_create_ca(out_dir: str, hosts=(), warn=print):
     """Return ``(ca_cert, ca_key)``, creating and persisting them on first run.
 
     Reusing the CA is the whole point: devices that installed ``ca.pem`` keep
-    trusting every server cert we issue later (new IPs, new reinstalls)."""
+    trusting every server cert we issue later (new IPs, new reinstalls). Which
+    is also why one created before :func:`permitted_subtrees` existed is
+    reused as it is and merely reported: see
+    :data:`UNCONSTRAINED_CA_WARNING`."""
     ca_cert_path = os.path.join(out_dir, "ca.pem")
     ca_key_path = os.path.join(out_dir, "ca-key.pem")
     if os.path.exists(ca_cert_path) and os.path.exists(ca_key_path):
@@ -99,9 +225,12 @@ def _load_or_create_ca(out_dir: str):
             ca_cert = x509.load_pem_x509_certificate(f.read())
         with open(ca_key_path, "rb") as f:
             ca_key = serialization.load_pem_private_key(f.read(), password=None)
+        if not ca_is_constrained(ca_cert):
+            warn(UNCONSTRAINED_CA_WARNING.format(path=ca_cert_path))
         return ca_cert, ca_key, False
 
     ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_not_before, ca_not_after = ca_validity()
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Vivavoce Local CA")])
     ca_cert = (
         x509.CertificateBuilder()
@@ -109,8 +238,8 @@ def _load_or_create_ca(out_dir: str):
         .issuer_name(name)
         .public_key(ca_key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(NOT_BEFORE)
-        .not_valid_after(CA_NOT_AFTER)
+        .not_valid_before(ca_not_before)
+        .not_valid_after(ca_not_after)
         # Android accetta come CA installabile solo certificati con
         # basicConstraints CA:TRUE (critical) e keyCertSign.
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
@@ -129,6 +258,14 @@ def _load_or_create_ca(out_dir: str):
             x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()),
             critical=False,
         )
+        # Critica, come vuole la RFC 5280 per questa estensione: un client che
+        # non sapesse leggerla deve rifiutare la CA invece di fidarsi senza
+        # confini. Se un dispositivo in casa la rifiutasse, resta la strada
+        # che c'era prima della CA — l'avviso «non privato» da superare una
+        # volta, con tutto funzionante tranne il service worker.
+        .add_extension(x509.NameConstraints(
+            permitted_subtrees=permitted_subtrees(hosts),
+            excluded_subtrees=None), critical=True)
         .sign(ca_key, hashes.SHA256())
     )
     # 0600: this is the key that signs certificates every device in the house
@@ -271,13 +408,16 @@ def main() -> int:
             return 0
         print(f"Rinnovo il certificato del server: {why}.")
 
-    ca_cert, ca_key, ca_created = _load_or_create_ca(args.out)
+    # Read before the CA, because a CA created now is created around them:
+    # what --hosts names is what this household's clients will ask for, and
+    # the CA has to be allowed to sign for it (see permitted_subtrees).
+    hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
+    ca_cert, ca_key, ca_created = _load_or_create_ca(args.out, hosts)
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     leaf_not_before, leaf_not_after = leaf_validity()
 
     ips = local_ipv4s()
-    hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
     sans = [x509.DNSName("localhost")]
     for ip in ips:
         try:
@@ -289,6 +429,19 @@ def main() -> int:
             sans.append(x509.IPAddress(ipaddress.ip_address(host)))
         except ValueError:
             sans.append(x509.DNSName(host))  # non è un IP: lo trattiamo come nome DNS
+
+    # Said now, not discovered later: a device that installed the CA will
+    # refuse this certificate for any address the CA may not sign for, and it
+    # will refuse it with a handshake error that names nothing.
+    refused = unsignable_sans(sans, ca_cert)
+    if refused:
+        print("Attenzione: la CA locale non può firmare per "
+              + ", ".join(refused)
+              + ".\n  Il certificato viene emesso comunque, ma i dispositivi "
+              "che hanno installato ca.pem lo rifiuteranno per quegli "
+              "indirizzi.\n  Rilancia con --hosts che li includa dopo aver "
+              "cancellato ca.pem e ca-key.pem (e reinstalla la nuova CA), "
+              "oppure usali senza installare la CA.")
 
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "vivavoce-locale")])
     cert = (
@@ -348,6 +501,10 @@ def main() -> int:
 
     print(f"CA locale: {os.path.join(args.out, 'ca.pem')}"
           + ("  (creata ora)" if ca_created else "  (riusata)"))
+    if ca_created:
+        print(f"  Vale {CA_YEARS} anni e può firmare solo per indirizzi "
+              "privati e nomi locali (Name Constraints): se ca-key.pem "
+              "finisce in mani altrui, non serve a fingersi un sito.")
     print(f"Creati:\n  {cert_path}\n  {key_path}")
     print(f"Il certificato del server scade il "
           f"{leaf_not_after.date().isoformat()} "

@@ -25,6 +25,19 @@
 
 ### Fixed
 
+- **La CA locale non può più firmare per qualunque sito.** Installare
+  `ca.pem` su un telefono significa che quel telefono crede a chi possiede
+  `ca-key.pem` — e quella chiave sta accanto a `ca.pem`, cioè dentro `/data`,
+  cioè in ogni backup. Finora poteva firmare un certificato per *qualsiasi*
+  dominio, quindi una copia della chiave bastava a mettersi in mezzo fra i
+  dispositivi di casa e il resto del web. Ora il certificato dichiara dove si
+  ferma: solo indirizzi privati e nomi locali (`.local`, `.lan`,
+  `.home.arpa`…), e vale dieci anni invece che fino al 2044. Una CA creata
+  dalle versioni precedenti viene segnalata a ogni avvio e **non** sostituita
+  da sola — l'impronta è quella che ogni telefono ha installato; in DEPLOY.md
+  ci sono i tre comandi per cambiarla quando fa comodo, e fino ad allora
+  tutto continua a funzionare come prima.
+
 - **Una chiave scaduta di Audiobookshelf non spegne più la libreria.** Il
   cliente della libreria parlata ereditava il breaker e il retry senza saper
   distinguere un silenzio da un rifiuto: tre risposte «chiave non valida»
