@@ -562,3 +562,40 @@ def test_two_terms_added_at_once_do_not_erase_each_other(tmp_path, monkeypatch):
     second.join(5)
 
     assert sorted(ks.terms()) == ["Alpha", "Beta"]
+
+
+def test_a_reply_does_not_inherit_the_previous_requests_language(
+        live_server, tmp_path, clock):
+    # Found in review. The language is per request, so it never leaks between
+    # connections — but HTTP/1.1 keep-alive serves several requests on one
+    # thread, and a route that produces text without setting it (the kid-safe
+    # panel's «speech») inherited whatever the request before had set. Behind
+    # a reverse proxy that reuses connections, that request is somebody
+    # else's.
+    import http.client
+    import urllib.parse
+
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
+    srv = live_server(kidsafe=ks)
+    srv.json_post("/kidsafe", {"client": "parent", "action": "enable",
+                               "pin": "123456"})
+    parts = urllib.parse.urlsplit(srv.url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=5)
+    headers = {"Content-Type": "application/json",
+               "Host": f"{parts.hostname}:{parts.port}"}
+
+    def post(path, payload):
+        conn.request("POST", path, json.dumps(payload), headers)
+        resp = conn.getresponse()
+        return json.loads(resp.read().decode("utf-8"))
+
+    try:
+        # An English turn, then a kid-safe edit that fails, on the SAME
+        # connection. Its sentence is the engine's, and it must be Italian.
+        post("/api/v1/command", {"text": "pause", "lang": "en"})
+        refused = post("/kidsafe", {"client": "parent", "action": "add",
+                                    "term": ""})
+        assert refused["ok"] is False
+        assert refused["speech"] == "Non ho capito cosa bloccare. Puoi ripetere?"
+    finally:
+        conn.close()

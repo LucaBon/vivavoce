@@ -22,6 +22,7 @@ import threading
 from http.server import ThreadingHTTPServer
 
 import webguard
+from messages import DEFAULT_LANG, set_lang
 
 # A spoken command is a few hundred bytes; the JSON routes take a body at all
 # only to carry one. 64 KB is a wide margin and turns an upload bomb into a
@@ -58,6 +59,20 @@ class RequestBase:
     # socketserver applies this to the connection socket: a half-open or
     # silent client releases its thread instead of holding it forever.
     timeout = REQUEST_TIMEOUT
+
+    def handle_one_request(self):
+        """One request, starting from the default language.
+
+        ``messages.set_lang`` is per execution context, so it does not leak
+        between connections — but HTTP/1.1 keep-alive serves several requests
+        on one thread, and a route that produces text without setting the
+        language inherited the previous request's. Behind a reverse proxy that
+        reuses connections (the Home Assistant ingress) the previous request
+        may be somebody else's, so the reset is here rather than in the routes
+        that happen to need it today.
+        """
+        set_lang(DEFAULT_LANG)
+        super().handle_one_request()
     # Set by make_handler: which Host values this server acts on.
     host_policy = None
 

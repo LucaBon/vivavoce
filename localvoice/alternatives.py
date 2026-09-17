@@ -110,16 +110,20 @@ class AlternativeSweep:
             return {"speech": msg("heard_nothing"), "used": "", "ok": False,
                     "terms": [], "choices": [], "needs_choice": False,
                     "unmatched": False}
-        payload, primary, unmatched = self._sweep(alts, source, lang,
-                                                  repair=False)
-        if payload is None and unmatched:
-            payload, second, _ = self._sweep(unmatched, source, lang,
-                                             repair=True)
-            # La primaria resta quella del PRIMO giro: se anche il secondo
-            # fallisce, la frase da riportare è quella che l'utente ha detto,
-            # non una riscritta da noi.
-            if payload is None and primary is None:
-                primary = second
+        # Both rounds under the turn lock: a sweep is one spoken turn, and
+        # another request arriving between its alternatives would read the
+        # state half-written (see Router.__init__).
+        with self._turn_lock:
+            payload, primary, unmatched = self._sweep(alts, source, lang,
+                                                      repair=False)
+            if payload is None and unmatched:
+                payload, second, _ = self._sweep(unmatched, source, lang,
+                                                 repair=True)
+                # La primaria resta quella del PRIMO giro: se anche il
+                # secondo fallisce, la frase da riportare è quella che
+                # l'utente ha detto, non una riscritta da noi.
+                if payload is None and primary is None:
+                    primary = second
         if payload is not None:
             return payload
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
