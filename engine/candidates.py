@@ -19,7 +19,8 @@ import re
 from typing import Dict, List, Optional
 
 from guard import Guard, is_blocked_item
-from matching import GATE, LIST_LIMIT, ActionResult, _MODE_KEY, _normalize
+from matching import (GATE, LIST_LIMIT, ActionResult, _MODE_KEY, _normalize,
+                      unreachable)
 from messages import msg
 from player.errors import PlayerError
 
@@ -52,7 +53,7 @@ def top_tracks_list(
     try:
         tracks = lms.artist_top_tracks(artist)["tracks"]
     except PlayerError:
-        return {"speech": ActionResult(msg("err_unreachable"), ok=False),
+        return {"speech": unreachable(),
                 "candidates": []}
     if guard and guard.restricted:  # drop blocked tracks so they can't be chosen
         tracks = [t for t in tracks if not is_blocked_item(t, guard.blocklist)]
@@ -125,7 +126,7 @@ def choose_from(
             return ActionResult(msg("no_track_found", title=chosen["title"]),
                                 ok=False)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]
@@ -174,7 +175,7 @@ def choose_by_name(
             return ActionResult(msg("no_track_found", title=chosen["title"]),
                                 ok=False)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     key = _MODE_KEY[mode]
     return ActionResult(
         msg(key, name=chosen["title"]), ok=True, terms=[chosen["title"]]

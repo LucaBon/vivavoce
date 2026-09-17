@@ -124,9 +124,9 @@ class SourceChoice:
         that stopped answering between the probe and the request says so in
         its own words. What is left is "non ho trovato", which offline is not
         true of the music at all: nobody was asked."""
-        if getattr(res, "ok", False) or getattr(res, "kind", None):
-            return False
-        return str(res) != msg("err_unreachable")
+        # «The hi-fi is not answering» carries its own kind
+        # (``actions.UNREACHABLE``), so it is covered by the check below.
+        return not (getattr(res, "ok", False) or getattr(res, "kind", None))
 
     def _if_searched(self, res, message):
         """``res``, unless nothing was ever searched — then ``message``."""

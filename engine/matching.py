@@ -74,6 +74,13 @@ _MODE_KEY_BY = {"add": "queued_by", "insert": "queued_next_by"}
 # right on its own terms: a refusal is not a play to hang a source or a room on.
 GATE = "gate"
 
+#: The ``kind`` of «the hi-fi is not answering». A kind rather than a sentence
+#: to compare against, because a caller that needs to tell this reply from a
+#: plain miss (``SourceChoice._never_searched``) was comparing the translated
+#: text, and any rewording — a room suffix, a second error message — would
+#: have quietly turned "nobody answered" into "nothing found".
+UNREACHABLE = "unreachable"
+
 # A blocklist reply is about the whole house — the store behind it is global —
 # so ``Router._tag`` must not splice a room into it. «Ok, ho bloccato Eminem in
 # Salotto» describes a per-room blocklist that does not exist, and the read-out
@@ -109,6 +116,11 @@ class ActionResult(str):
         obj.label = label if label is not None else (
             obj.terms[0] if obj.terms else None)
         return obj
+
+
+def unreachable() -> "ActionResult":
+    """The reply for a music server that did not answer (:data:`UNREACHABLE`)."""
+    return ActionResult(msg("err_unreachable"), ok=False, kind=UNREACHABLE)
 
 
 def _score(query: Optional[str], text: Optional[str], *,

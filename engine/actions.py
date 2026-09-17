@@ -14,6 +14,7 @@ from typing import Dict, Optional
 
 from guard import Guard, is_blocked_item
 from matching import (CONFIDENT_SCORE, DIDYOUMEAN_LIMIT, EXACT_SCORE, GATE,
+                      UNREACHABLE, unreachable,
                       near_artist_matches, _resolved_enough, _trusts_ranking,
                       ActionResult, _MODE_KEY, _MODE_KEY_BY, _MODE_SUFFIX,
                       _dedup_by_title_artist, _did_you_mean, _ndistinct_titles,
@@ -95,7 +96,7 @@ def play_song(lms, query: Optional[str], *, mode: str = "play",
         return _resolve_song(lms, tracks, title, artist, mode=mode, guard=guard,
                              whole=_strip_lead_filler(query))
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
 
 
 def _resolve_song(lms, tracks, title, artist, *, mode: str = "play", guard=None,
@@ -238,7 +239,7 @@ def play_album(lms, album: Optional[str], *, guard: Optional[Guard] = None) -> A
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     name = item["title"] or album
     return started(lms, ActionResult(msg("playing_album", album=name),
                                      ok=True, terms=[name]))
@@ -268,7 +269,7 @@ def play_artist(lms, artist: Optional[str], *, guard: Optional[Guard] = None) ->
             return ActionResult(msg("artist_unplayable", artist=artist), ok=False)
         lms.play_tracks(tracks)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return started(lms, ActionResult(msg("playing_artist", artist=artist),
                                      ok=True, terms=[artist]))
 
@@ -290,7 +291,7 @@ def play_playlist(lms, name: Optional[str], *, guard: Optional[Guard] = None) ->
             return ActionResult(msg("blocked"), ok=False, kind=GATE)
         lms.play_browse_item(item["id"])
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return started(lms, ActionResult(msg("playing_playlist", name=name),
                                      ok=True, terms=[name]))
 
@@ -301,7 +302,7 @@ def play_favorites(lms, *, guard: Optional[Guard] = None) -> ActionResult:
     try:
         items = lms.favorites_items()
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     cands = [it for it in items if it.get("id") and it.get("name")]
     if guard and guard.restricted:
         cands = [c for c in cands if not is_blocked_item(c, guard.blocklist)]
@@ -311,7 +312,7 @@ def play_favorites(lms, *, guard: Optional[Guard] = None) -> ActionResult:
     try:
         lms.favorites_playlist_play(chosen["id"])
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("playing_favorites"), ok=True, terms=[chosen["name"]])
 
 
@@ -328,7 +329,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
     try:
         items = lms.favorites_items(query=name)
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     cands = [{"title": it.get("name"), "id": it.get("id")}
              for it in items if it.get("id") and it.get("name")]
     if guard and guard.restricted:
@@ -341,7 +342,7 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
     try:
         lms.favorites_playlist_play(best["id"])
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
     return ActionResult(msg("playing_radio", name=best["title"]), ok=True,
                         terms=[best["title"]])
 

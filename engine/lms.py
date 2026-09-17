@@ -48,7 +48,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from player.errors import PlayerError
+from player.errors import (PlayerError, PlayerRefused, PlayerUnreachable,
+                           never_delivered)
 # The breaker and the per-turn budget moved to player/resilience.py when a
 # second backend needed them. The three names beside Resilient are unused
 # here and imported on purpose: they were part of this module's surface
@@ -297,6 +298,36 @@ class LMSError(PlayerError):
     """
 
 
+class LMSUnreachable(LMSError, PlayerUnreachable):
+    """The LMS gave no answer (see :class:`~player.errors.PlayerUnreachable`)."""
+
+
+class LMSRefused(LMSError, PlayerRefused):
+    """The LMS answered with an error or with something that is not a result."""
+
+
+#: A number with a sign: a relative step. «mixer volume +5», «playlist index
+#: +1», «time -10» — each one moves from wherever the player is, so sending it
+#: twice moves twice.
+_RELATIVE_ARG = re.compile(r"^[+-]\d")
+
+#: Queue verbs that append rather than replace. «playlist play» and
+#: «playlistcontrol cmd:load» put the same thing on the queue however many
+#: times they are sent; these add it again each time.
+_APPENDING = frozenset({"add", "insert", "addtracks", "inserttracks",
+                        "cmd:add", "cmd:insert"})
+
+
+def _lms_repeat_safe(cmd: List[str]) -> bool:
+    """Whether an LMS command does the same thing sent twice as sent once."""
+    words = [str(w).lower() for w in cmd]
+    if any(_RELATIVE_ARG.match(w) for w in words):
+        return False
+    if words[:1] == ["button"]:
+        return False
+    return not any(w in _APPENDING for w in words)
+
+
 def find_uri(obj: Any, pattern: "re.Pattern") -> Optional[str]:
     """Recursively search a (possibly nested) OPML item for the first URI
     matching ``pattern``."""
@@ -348,6 +379,8 @@ class LMSClient(Resilient, SilentServices):
     #: Every round trip this client makes fails as an LMSError, breaker
     #: and turn budget included (see player/resilience.py).
     error = LMSError
+    unreachable = LMSUnreachable
+    refused = LMSRefused
 
     def __init__(
         self,
@@ -416,8 +449,11 @@ class LMSClient(Resilient, SilentServices):
     def _rpc(self, player: str, cmd: List[Any]) -> Dict[str, Any]:
         result = self._guarded([player, [str(c) for c in cmd]])
         if not isinstance(result, dict):
-            raise LMSError(f"Unexpected LMS result type: {type(result)!r}")
+            raise LMSRefused(f"Unexpected LMS result type: {type(result)!r}")
         return result
+
+    def _repeat_safe(self, request) -> bool:
+        return _lms_repeat_safe(request[1])
 
     def command(self, *cmd: Any) -> Dict[str, Any]:
         """Run a command scoped to the configured player."""
@@ -450,15 +486,22 @@ class LMSClient(Resilient, SilentServices):
         try:
             with urllib.request.urlopen(req, timeout=self._call_timeout()) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError,
+        except urllib.error.HTTPError as exc:
+            # An answer: a wrong password, a server error. Not silence, so
+            # neither the retry nor the breaker has any business with it.
+            raise LMSRefused(f"LMS answered {exc.code}: {exc.reason}") from exc
+        except ValueError as exc:
+            raise LMSRefused(f"LMS sent something that is not JSON: {exc}") from exc
+        except (urllib.error.URLError, OSError,
                 http.client.HTTPException) as exc:
             # http.client.HTTPException is NOT an OSError: an LMS restarted
             # mid-response raised BadStatusLine/IncompleteRead straight past
             # this handler, and the caller's `except LMSError` never saw it —
             # the page got a traceback instead of the friendly message.
-            raise LMSError(f"LMS request failed: {exc}") from exc
+            raise LMSUnreachable(f"LMS request failed: {exc}",
+                                 delivered=not never_delivered(exc)) from exc
         if not isinstance(body, dict) or "result" not in body:
-            raise LMSError(f"Unexpected LMS response: {body!r}")
+            raise LMSRefused(f"Unexpected LMS response: {body!r}")
         return body["result"]
 
     # -- players -----------------------------------------------------------
