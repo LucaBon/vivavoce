@@ -305,13 +305,18 @@ def test_a_redirect_somewhere_else_is_left_alone(live_server, upstream):
     assert headers["Location"] == "https://tidal.com/auth"
 
 
-def test_a_redirect_cannot_become_protocol_relative(live_server, upstream):
+@pytest.mark.parametrize("sent", [
+    "http://lms.local:9000//evil.example/x",
+    # For http(s) the URL standard reads a backslash as a slash, so Chrome and
+    # Firefox resolve ``/\\/evil.example/x`` as the line above.
+    "http://lms.local:9000/\\/evil.example/x",
+])
+def test_a_redirect_cannot_become_protocol_relative(live_server, upstream, sent):
     # ``http://lms:9000//elsewhere/x`` with the base cut off is
     # ``//elsewhere/x``, which a browser reads as another host.
     upstream.handler = _raiser(urllib.error.HTTPError(
         "http://lms.local:9000/x", 302, "Found",
-        {"Location": "http://lms.local:9000//evil.example/x",
-         "Content-Length": "0"}, io.BytesIO(b"")))
+        {"Location": sent, "Content-Length": "0"}, io.BytesIO(b"")))
     srv = live_server(proxy_open=upstream)
     _, headers, _ = raw_get(srv, "/x")
     assert headers["Location"] == "/evil.example/x"
