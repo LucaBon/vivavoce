@@ -2,7 +2,37 @@
 
 ## Unreleased
 
+### New
+
+- **Audiobookshelf si collega accanto all'impianto — ancora senza frasi.**
+  Tre opzioni nuove, `--library audiobookshelf`, `--library-url` e
+  `--library-token` (con i gemelli `VIVAVOCE_LIBRARY*` e le tre voci
+  nell'app Home Assistant), collegano un catalogo di audiolibri che si
+  ascolta **attraverso** LMS o Music Assistant: i libri da lì, gli
+  altoparlanti da qui. All'avvio l'app dice quante librerie di libri vede, o
+  perché non le vede.
+
+  Per ora è solo il collegamento: nessuna frase raggiunge ancora un libro, e
+  quelle arrivano nei prossimi passi. Senza `--library` non cambia niente —
+  non si costruisce, non si interroga e non si stampa nulla.
+
+  Due cose da sapere già adesso. I file li scarica l'impianto, non questo PC,
+  quindi l'indirizzo dev'essere l'IP di rete e non `localhost` (l'app avvisa).
+  E la chiave API finisce negli indirizzi in coda sull'impianto, perché un
+  hi-fi non sa mandare un'intestazione: va creata per un utente di
+  Audiobookshelf che può solo ascoltare. Un Audiobookshelf spento all'avvio
+  non ferma l'app: la musica non c'entra.
+
 ### Fixed
+
+- **Una chiave scaduta di Audiobookshelf non spegne più la libreria.** Il
+  cliente della libreria parlata ereditava il breaker e il retry senza saper
+  distinguere un silenzio da un rifiuto: tre risposte «chiave non valida»
+  (401) e per quindici secondi non veniva più contattato, quindi anche una
+  ricerca che avrebbe funzionato rispondeva che la libreria non risponde. Ora
+  un rifiuto conta come prova che il server c'è, ed è invece una richiesta
+  persa a essere rifatta — la libreria si legge e non si comanda, quindi
+  chiederle due volte la stessa cosa non fa niente due volte.
 
 - **Due frasi dette insieme non si mescolano più.** Tutte le richieste di una
   stessa conversazione condividono un router — due schede del browser con lo

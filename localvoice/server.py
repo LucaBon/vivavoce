@@ -37,6 +37,7 @@ from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
 import servicestate  # noqa: E402
 import setupserver  # noqa: E402
+import spoken_library  # noqa: E402
 import tls  # noqa: E402
 import webguard  # noqa: E402
 from http_api import make_handler  # noqa: E402,F401  (re-exported for tests)
@@ -175,6 +176,14 @@ def main() -> int:
     if backend.discover is None and not backend_url:
         print(f"{backend.label} non si annuncia sulla rete: indica dove "
               f"trovarlo con --backend-url.")
+        return 1
+    # Audiobooks (--library) sit beside the music system, never in its place:
+    # without the option nothing is built. Checked before the setup page can
+    # block, so a typo is reported at once. Nothing asks the catalogue
+    # anything yet — the sentences that reach a book are a step of their own.
+    books, complaint = spoken_library.open_library(args)
+    if complaint:
+        print(complaint)
         return 1
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)

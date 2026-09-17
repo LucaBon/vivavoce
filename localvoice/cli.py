@@ -36,6 +36,22 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--backend-token", default=appdata.env("BACKEND_TOKEN"),
                     help="token di accesso del backend, se ne vuole uno. "
                          "Music Assistant lo crea in Impostazioni -> Profilo.")
+    ap.add_argument("--library", default=appdata.env("LIBRARY"),
+                    help="un catalogo di audiolibri da ascoltare sull'impianto "
+                         "qui sopra: "
+                         + ", ".join(sorted(player_registry.LIBRARIES))
+                         + ". Assente: nessun audiolibro, e non cambia niente.")
+    ap.add_argument("--library-url", default=appdata.env("LIBRARY_URL"),
+                    help="indirizzo del catalogo, es. "
+                         "http://192.168.1.50:13378. Deve raggiungerlo "
+                         "l'impianto, non solo questo PC: i file li scarica "
+                         "lui, quindi niente localhost.")
+    ap.add_argument("--library-token", default=appdata.env("LIBRARY_TOKEN"),
+                    help="chiave API del catalogo (Audiobookshelf: "
+                         "Impostazioni -> API Keys). Finisce negli indirizzi "
+                         "dei file in coda sull'impianto, dove chi guarda la "
+                         "coda la vede: creala per un utente che può solo "
+                         "ascoltare.")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=int(appdata.env("PORT", "8730")))
     ap.add_argument("--cert", help="certificato TLS (per il mic da altri device)")

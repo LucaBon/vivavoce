@@ -46,3 +46,13 @@ schema:
   # "password" e non "str": il token non va mostrato in chiaro nel pannello
   # delle opzioni ne' finire nei log del Supervisor.
   backend_token: password?
+  # Un catalogo di audiolibri da ascoltare sull'impianto qui sopra:
+  # audiobookshelf. Vuoto: nessun audiolibro, e non cambia niente.
+  library: str?
+  # Dove trovarlo. Lo deve raggiungere l'impianto, che scarica i file:
+  # l'IP di rete, non localhost. Es. http://192.168.1.50:13378
+  library_url: str?
+  # La chiave API (Audiobookshelf: Impostazioni -> API Keys). Finisce negli
+  # indirizzi in coda sull'impianto: meglio una chiave di un utente che puo'
+  # solo ascoltare.
+  library_token: password?
