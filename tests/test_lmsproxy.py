@@ -305,6 +305,39 @@ def test_a_redirect_somewhere_else_is_left_alone(live_server, upstream):
     assert headers["Location"] == "https://tidal.com/auth"
 
 
+def test_a_redirect_cannot_become_protocol_relative(live_server, upstream):
+    # ``http://lms:9000//elsewhere/x`` with the base cut off is
+    # ``//elsewhere/x``, which a browser reads as another host.
+    upstream.handler = _raiser(urllib.error.HTTPError(
+        "http://lms.local:9000/x", 302, "Found",
+        {"Location": "http://lms.local:9000//evil.example/x",
+         "Content-Length": "0"}, io.BytesIO(b"")))
+    srv = live_server(proxy_open=upstream)
+    _, headers, _ = raw_get(srv, "/x")
+    assert headers["Location"] == "/evil.example/x"
+
+
+@pytest.mark.parametrize("headers", [
+    {"Service-Worker": "script"},
+    {"Sec-Fetch-Dest": "serviceworker"},
+    {"Sec-Fetch-Dest": "sharedworker"},
+])
+def test_no_worker_is_registered_from_the_music_server(live_server, upstream,
+                                                       headers):
+    # A worker from a proxied script would sit in front of this whole origin,
+    # the app included, and outlive the page that registered it. Material
+    # Skin registers none.
+    srv = live_server(proxy_open=upstream)
+    status, _, _ = raw_get(srv, "/sw-evil.js", headers=headers)
+    assert status == 403
+    assert upstream.requests == []
+
+
+def test_nothing_relayed_gets_the_apps_microphone(proxied):
+    assert proxied.get("/material/").headers["Permissions-Policy"] == \
+        "microphone=()"
+
+
 def test_nothing_relayed_may_be_sniffed_past_its_type(proxied):
     # This origin now serves whatever the music server hands out, and
     # Sec-Fetch-Site: same-origin is the whole CSRF defence — a body that gets

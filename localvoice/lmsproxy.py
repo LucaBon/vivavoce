@@ -124,7 +124,11 @@ def _same_origin_location(value: str, base: str) -> str:
     """
     if value == base:
         return "/"
-    return value[len(base):] if value.startswith(base + "/") else value
+    if not value.startswith(base + "/"):
+        return value
+    # One leading slash, however many upstream sent: ``//elsewhere/x`` is a
+    # protocol-relative URL, and relayed as a path it would leave this origin.
+    return "/" + value[len(base):].lstrip("/")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -183,6 +187,15 @@ def proxy_routes(target_base: str, enabled, opener=None):
                 # arriving here is a command, not a read. Worse, it would be a
                 # NEW way in: an https:// page cannot touch the plain-HTTP LMS
                 # at all today, and this origin would hand it the trip.
+                return True
+            if (self.headers.get("Service-Worker")
+                    or (self.headers.get("Sec-Fetch-Dest") or "").lower()
+                    in ("serviceworker", "sharedworker")):
+                # A worker registered from a proxied script would sit in front
+                # of this whole origin — the app included — and outlive the
+                # page that registered it. Material Skin registers none, so
+                # the only script asking to become one is one that should not.
+                self._send(403, "not proxied", "text/plain")
                 return True
             if (self.headers.get("Transfer-Encoding") or "").strip():
                 # content_length() cannot size a chunked body, so it would
@@ -256,6 +269,9 @@ def proxy_routes(target_base: str, enabled, opener=None):
             # way a body becomes a document it never claimed to be. The
             # artwork proxy says the same thing one image at a time.
             self.send_header("X-Content-Type-Options", "nosniff")
+            # Same origin means the same microphone grant as the app. Nothing
+            # the music server serves has a use for it.
+            self.send_header("Permissions-Policy", "microphone=()")
             bodyless = status in NO_BODY
             if not has_length and not bodyless:
                 # HTTP/1.1 with no length has to be delimited by the close
