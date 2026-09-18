@@ -165,7 +165,13 @@ async function ksAction(action, extra) {
         { client: clientId(), action, lang: replyLang() }, extra || {}))
     });
     const d = await r.json();
-    KS = d;
+    // Only when the reply actually carries the state. renderKidsafe() decides
+    // from `enabled`/`locked` whether the Material Skin browser is reachable,
+    // so a reply missing them would read as "kid-safe is off" and un-hide it
+    // on a locked device. The server sends the state even when a write fails
+    // (settings_api.py says why); this is the belt for the case where some
+    // future reply does not.
+    if ("enabled" in d) { KS = d; }
     renderKidsafe();
     if (!d.ok) {
       const st = $("ksstatus");

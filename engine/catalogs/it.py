@@ -186,6 +186,9 @@ MESSAGES = {
     "already_blocked": "{term} è già nella lista dei brani bloccati.",
     "blocklist_save_error":
         "Non riesco a salvare la lista in questo momento. Riprova tra poco.",
+    "settings_save_error":
+        "Non riesco a salvare le impostazioni in questo momento. "
+        "Riprova tra poco.",
     "block_added": "Ok, ho bloccato {term}.",
     "ask_unblock": "Non ho capito cosa sbloccare. Puoi ripetere?",
     "not_in_blocklist": "{term} non è nella lista dei brani bloccati.",

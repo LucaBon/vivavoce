@@ -727,13 +727,16 @@ class _FullDisk:
 
     def enabled(self):
         self.reads += 1
-        return False
+        return True
 
     def has_pin(self):
-        return False
+        return True
 
     def is_unlocked(self, client_id):
-        return True
+        # Enabled AND locked: the state in which the page hides the Material
+        # Skin browser. It is the only state in which losing the state does
+        # visible damage, so it is the one the doubles are in.
+        return False
 
     def terms(self):
         return []
@@ -758,6 +761,16 @@ def test_a_write_that_cannot_happen_is_answered_not_dropped(
     assert reply["error"] == "save_failed"
     # A sentence, not a token: the page prints this one as text.
     assert reply["speech"]
+    # And the state comes back with it. Found by review of the first cut of
+    # this fix, which replaced the whole reply: the page assigns it over its
+    # kid-safe state and re-renders, and with `enabled`/`locked` missing it
+    # read the panel as OFF — putting the Material Skin browser back on a
+    # locked child's device on the very failure this was written to handle.
+    assert reply["enabled"] is True
+    assert reply["locked"] is True
+    # Which write failed decides which sentence: the PIN and the lockout
+    # counter are not "the list".
+    assert "impostazioni" in reply["speech"]
 
 
 def test_the_connection_survives_a_write_that_cannot_happen(live_server,
@@ -804,3 +817,22 @@ def test_an_activation_that_cannot_be_saved_does_not_say_the_key_is_invalid(
     assert reply["ok"] is False
     assert reply["error"] == "save_failed"
     assert "invalid" not in json.dumps(reply)
+
+
+def test_a_blocklist_write_still_blames_the_blocklist(live_server, tmp_path,
+                                                      clock):
+    # The other half of the sentence choice above: add/remove really are the
+    # list, and must keep saying so.
+    class _UnwritableStore(JsonBlocklistStore):
+        def put(self, terms):
+            raise BlocklistStoreError("no space")
+
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
+    ks.store = _UnwritableStore(os.path.join(str(tmp_path), "kidsafe.json"))
+    srv = live_server(kidsafe=ks)
+    srv.json_post("/kidsafe", {"client": "parent", "action": "enable",
+                               "pin": "123456"})
+    reply = srv.json_post("/kidsafe", {"client": "parent", "action": "add",
+                                       "term": "qualcosa"})
+    assert reply["ok"] is False
+    assert "lista" in reply["speech"]

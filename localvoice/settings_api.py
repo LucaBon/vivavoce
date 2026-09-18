@@ -90,6 +90,21 @@ def settings_routes(kidsafe=None, license_mgr=None):
             # api_v1.py and audio_api.py, which do the same). That promise is
             # not kept by a narrower catch. The engine keeps the opposite
             # rule, and keeps it: nothing here is inside engine/.
+            #
+            # The snapshot is taken BEFORE the write, and it is not an
+            # optimisation. The page assigns this whole reply over its kid-safe
+            # state and re-renders from it, and one of the things it renders is
+            # whether the Material Skin browser is reachable — hidden only
+            # while ``enabled`` and ``locked`` are both true. An error reply
+            # that carried neither read as "kid-safe is off" and put a screen
+            # the child can start anything from back on their locked device.
+            # A write that failed changed nothing, so the state from before it
+            # is the true one, and it is what goes back.
+            try:
+                state = self._kidsafe_state(client_id)
+            except Exception:
+                traceback.print_exc()
+                state = {}
             try:
                 if action == "unlock":
                     if kidsafe.unlock(client_id, pin):
@@ -115,11 +130,16 @@ def settings_routes(kidsafe=None, license_mgr=None):
                 # The reason is for the log, never for the page: it carries
                 # the path of the data directory.
                 traceback.print_exc()
-                # Both already exist and are already rendered: the page shows
-                # ``save_failed`` with its ``speech`` as text, and every
-                # catalogue has the sentence. Nothing new to translate.
+                # Which list could not be saved matters to whoever reads it:
+                # ``add``/``remove`` really are the blocklist, but ``enable``,
+                # ``disable`` and ``unlock`` write the PIN and the lockout
+                # counter, and telling a parent that "the list" failed points
+                # them at the wrong thing.
                 result = {"ok": False, "error": "save_failed",
-                          "speech": msg("blocklist_save_error")}
+                          "speech": msg("blocklist_save_error"
+                                        if action in ("add", "remove")
+                                        else "settings_save_error")}
+                result.update(state)
             self._send(200, json.dumps(result, ensure_ascii=False))
 
         def _activate_license(self):

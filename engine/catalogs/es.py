@@ -196,6 +196,9 @@ MESSAGES = {
     "blocklist_save_error":
         "No consigo guardar la lista en este momento. "
         "Inténtalo de nuevo en un momento.",
+    "settings_save_error":
+        "No consigo guardar los ajustes en este momento. "
+        "Inténtalo de nuevo en un momento.",
     "block_added": "Vale, he bloqueado {term}.",
     "ask_unblock": "No he entendido qué desbloquear. ¿Puedes repetirlo?",
     "not_in_blocklist": "{term} no está en la lista de temas bloqueados.",

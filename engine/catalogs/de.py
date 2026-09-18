@@ -193,6 +193,9 @@ MESSAGES = {
     "already_blocked": "{term} steht schon auf der Sperrliste.",
     "blocklist_save_error":
         "Ich kann die Liste gerade nicht speichern. Bitte versuch es gleich noch mal.",
+    "settings_save_error":
+        "Ich kann die Einstellungen gerade nicht speichern. "
+        "Bitte versuch es gleich noch mal.",
     "block_added": "Ok, ich habe {term} gesperrt.",
     "ask_unblock": "Ich habe nicht verstanden, was ich freigeben soll. Kannst du "
                    "das wiederholen?",
