@@ -349,6 +349,15 @@ class LMSClient(Resilient, SilentServices):
     #: and turn budget included (see player/resilience.py).
     error = LMSError
 
+    #: How the music system in front of the listener is spelled when a reply
+    #: names it out loud — «Apri le impostazioni di …». It lives on the client
+    #: and not in the message catalogs for the reason ``service`` labels do
+    #: (see ``player.protocols.system_label``): the five catalogs said "LMS"
+    #: to every household, including the ones whose hi-fi is a MusicAssistant
+    #: and has no LMS settings page to open. ``lms_backend.BACKEND`` reads its
+    #: own label from here, so the two cannot drift.
+    SYSTEM_LABEL = "Lyrion Music Server"
+
     def __init__(
         self,
         base_url: str,
@@ -719,7 +728,8 @@ class LMSClient(Resilient, SilentServices):
             if item.get("isaudio") == 0:
                 continue
             preset = item.get("presetParams") or {}
-            url = item.get("url") or preset.get("favorites_url") or find_uri(item, self.service.uri_re)
+            url = (item.get("url") or preset.get("favorites_url")
+                   or find_uri(item, self.service.uri_re))
             if not url:
                 continue
             title, artist = _split_text(item.get("text"))

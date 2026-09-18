@@ -281,7 +281,7 @@ class IntentTable:
             res = actions.top_tracks_list(stream, m.group(1).strip(),
                                           guard=self._guard)
             if offline:
-                return self._if_searched(res, msg("no_service_online"))
+                return self._if_searched(res, msg("no_service_online", system=self._system_label()))
             return self._remember(res, name)
 
         # 4b) name-based choice from the last read-out list (only while a list is
@@ -319,7 +319,7 @@ class IntentTable:
             stream, name, offline = self._streaming(source)
             res = actions.play_playlist(stream, arg, guard=self._guard)
             if offline:
-                return self._if_searched(res, msg("no_service_online"))
+                return self._if_searched(res, msg("no_service_online", system=self._system_label()))
             # Like album, artist and song: a service that took the playlist
             # and played none of it is a reason to ask the next one, not a
             # reason to stop. (This branch builds its own answer instead of

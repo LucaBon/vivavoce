@@ -23,11 +23,11 @@ MESSAGES = {
     "not_owner":
         "Solo un padre o una madre puede cambiar la lista de temas bloqueados.",
     "service_offline":
-        "{service} no está conectado. Abre los ajustes de LMS y "
+        "{service} no está conectado. Abre los ajustes de {system} y "
         "vuelve a iniciar sesión.",
     "no_service_online":
         "No hay ningún servicio de streaming conectado. Abre los ajustes "
-        "de LMS y vuelve a iniciar sesión.",
+        "de {system} y vuelve a iniciar sesión.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a

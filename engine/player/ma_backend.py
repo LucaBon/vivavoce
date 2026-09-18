@@ -40,7 +40,7 @@ def probe(url: str, *, token: Optional[str] = None,
 
 BACKEND = Backend(
     name="musicassistant",
-    label="Music Assistant",
+    label=MusicAssistantClient.SYSTEM_LABEL,  # see lms_backend.py
     capabilities=Capabilities(
         search=True, local_library=True, favorites=True, genres=True,
         browse_items=True, services=True, sleep_timer=True, seek=True,

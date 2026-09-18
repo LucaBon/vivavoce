@@ -35,6 +35,7 @@ import audio_engines  # noqa: E402
 import cli  # noqa: E402
 from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
+import pro_features  # noqa: E402
 import servicestate  # noqa: E402
 import setupserver  # noqa: E402
 import spoken_library  # noqa: E402
@@ -140,17 +141,24 @@ def explicit_services(client, backend, spec: str):
     everything.
     """
     services = [s.strip().lower() for s in spec.split(",") if s.strip()]
-    try:
-        known = client.known_services() if backend.capabilities.services else []
-    except Exception:
-        # Detto ad alta voce: da qui un token sbagliato e un server occupato
-        # si assomigliano, e prendere la lista per buona in silenzio manda a
-        # cercare il guasto dalla parte sbagliata.
-        print("Non sono riuscito a chiedere all'impianto quali servizi ha: "
-              "prendo --services come l'hai scritto.")
-        known = []
-    unknown = [s for s in services if s not in known] if known else []
-    if unknown or not services:
+    # ``None`` is "nobody could be asked", which is NOT the empty list and was
+    # read as it: a MusicAssistant with no providers answers ``[]``, so the old
+    # ``if known else []`` accepted ``--services tidal`` unvalidated and the
+    # selector offered a plugin that server has never had.
+    known = None
+    if backend.capabilities.services:
+        try:
+            known = client.known_services()
+        except Exception:
+            # Detto ad alta voce: da qui un token sbagliato e un server
+            # occupato si assomigliano, e prendere la lista per buona in
+            # silenzio manda a cercare il guasto dalla parte sbagliata.
+            print("Non sono riuscito a chiedere all'impianto quali servizi ha: "
+                  "prendo --services come l'hai scritto.")
+    if known is None:  # niente da validare: la lista vale com'è scritta
+        return (services, "") if services else (
+            [], f"--services non valido: {spec!r}")
+    if not services or [s for s in services if s not in known]:
         available = f" (disponibili: {', '.join(known)})" if known else ""
         return [], f"--services non valido: {spec!r}{available}"
     return services, ""
@@ -203,8 +211,10 @@ def main() -> int:
         trial = license_mgr.trial_status()
         if trial["active"] and not license_mgr.status()["key"]:
             print(f"Prova Pro: restano {trial['days_left']} giorni.")
-    from pro.kidsafe import KidSafe
-    kidsafe = KidSafe(data_dir, license_mgr)
+    kidsafe = pro_features.build_kidsafe(data_dir, license_mgr)
+    if kidsafe is None:
+        print("Kid-safe non incluso in questa build (il modulo Pro non c'è): "
+              "i comandi funzionano, la lista dei brani bloccati no.")
     # The optional audio engines (local ASR, server-side wake word) and
     # the household's wake phrase, in audio_engines.py — including which
     # of the two wake-word engines this box can actually run.
@@ -286,10 +296,7 @@ def main() -> int:
     # nothing to choose between and nothing to remember.
     if backend.capabilities.services:
         client.remember_silence_in(servicestate.SilenceFile(data_dir))
-    # Multi-stanza (Pro): come il kid-safe, il modulo vive in pro/ e il core
-    # riceve solo l'oggetto col suo piccolo contratto.
-    from pro.multiroom import MultiRoom
-    multiroom = MultiRoom(license_mgr, client.get_players, lms=client)
+    multiroom = pro_features.build_multiroom(license_mgr, client)
 
     # Which streaming services the source selector offers. "auto" asks the
     # music system what it has; an explicit list is the escape hatch for when
@@ -304,9 +311,14 @@ def main() -> int:
         if services:
             print(f"Servizi streaming rilevati: {', '.join(services)}")
         else:
-            services = ["tidal"]
-            print("Nessun servizio streaming rilevato: assumo TIDAL "
-                  "(indica i tuoi con --services tidal,qobuz).")
+            # No invented list. Assuming TIDAL was a guess printed as a
+            # fact, and a hi-fi that streams from nothing — a MusicAssistant
+            # with no providers, a backend with no notion of them — got a
+            # selector offering a plugin it has never had, and «TIDAL non è
+            # collegato» to every request aimed at it.
+            print("Nessun servizio streaming rilevato: restano la libreria "
+                  "locale e i comandi di riproduzione (se l'impianto ne ha "
+                  "uno, indicalo con --services tidal,qobuz).")
     else:
         services, complaint = explicit_services(client, backend, args.services)
         if complaint:
@@ -323,8 +335,12 @@ def main() -> int:
               f"propongo finché non tornano — per riprovare subito basta "
               f"nominarne uno («metti ... da {muted[0]}»).")
 
+    # Empty when nothing streams here: ``SourceChoice`` reads that as "no
+    # service to aim at" rather than aiming at a name nobody configured.
     default_service = args.default_service.strip().lower()
-    if default_service not in services:
+    if not services:
+        default_service = ""
+    elif default_service not in services:
         default_service = services[0]
         print(f"--default-service non tra i servizi attivi: uso {default_service}")
 

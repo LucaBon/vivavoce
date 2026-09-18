@@ -18,11 +18,11 @@ MESSAGES = {
         "nicht abspielen.",
     "not_owner": "Nur die Eltern d\u00fcrfen die Sperrliste \u00e4ndern.",
     "service_offline":
-        "{service} ist nicht verbunden. \u00d6ffne die LMS-Einstellungen und "
-        "melde dich neu an.",
+        "{service} ist nicht verbunden. \u00d6ffne die Einstellungen von "
+        "{system} und melde dich neu an.",
     "no_service_online":
-        "Es ist kein Streaming-Dienst verbunden. \u00d6ffne die "
-        "LMS-Einstellungen und melde dich neu an.",
+        "Es ist kein Streaming-Dienst verbunden. \u00d6ffne die Einstellungen "
+        "von {system} und melde dich neu an.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a
@@ -55,7 +55,9 @@ MESSAGES = {
     "ask_title": "Ich habe den Titel nicht verstanden. Kannst du das wiederholen?",
     "no_track_found": "Ich habe keinen Titel f\u00fcr {title} gefunden.",
     "no_track_by": "Ich habe {title} von {artist} nicht gefunden.",
-    "no_track_by_offer": "Ich habe {query} von {artist} nicht. Ich habe diese: {listing}. Welches soll ich spielen?",
+    "no_track_by_offer":
+        "Ich habe {query} von {artist} nicht. Ich habe diese: {listing}. "
+        "Welches soll ich spielen?",
     "playing": "Ich spiele {name}.",
     "playing_by": "Ich spiele {name} von {artist}.",
     "album_not_found": "Ich habe das Album {album} nicht gefunden.",

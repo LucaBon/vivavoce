@@ -31,7 +31,7 @@ def probe(url: str, *, token: Optional[str] = None,
 
 SPOKEN_LIBRARY = Library(
     name="audiobookshelf",
-    label="Audiobookshelf",
+    label=AudiobookshelfClient.SYSTEM_LABEL,  # see lms_backend.py
     # Not ``search``: that flag promises the music catalogue — albums,
     # artists, playlists — and a shelf of books claiming it is the partial
     # library the protocol tests exist to refuse.

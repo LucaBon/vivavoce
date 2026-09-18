@@ -14,10 +14,11 @@ MESSAGES = {
         "play it.",
     "not_owner": "Only the parent can change the blocked-songs list.",
     "service_offline":
-        "{service} isn't connected. Open the LMS settings and sign in again.",
+        "{service} isn't connected. Open the {system} settings and sign in "
+        "again.",
     "no_service_online":
-        "No streaming service is connected. Open the LMS settings and sign "
-        "in again.",
+        "No streaming service is connected. Open the {system} settings and "
+        "sign in again.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a
@@ -50,7 +51,9 @@ MESSAGES = {
     "ask_title": "I didn't catch the title. Can you repeat?",
     "no_track_found": "I couldn't find any track for {title}.",
     "no_track_by": "I couldn't find {title} by {artist}.",
-    "no_track_by_offer": "I couldn't find {query} by {artist}. I do have: {listing}. Which one should I play?",
+    "no_track_by_offer":
+        "I couldn't find {query} by {artist}. I do have: {listing}. "
+        "Which one should I play?",
     "playing": "Playing {name}.",
     "playing_by": "Playing {name} by {artist}.",
     "album_not_found": "I couldn't find the album {album}.",
@@ -132,7 +135,9 @@ MESSAGES = {
     # -- lists -> numbered choice -------------------------------------------
     "which_artist": "Which artist?",
     "no_tracks_for": "I couldn't find tracks for {artist}.",
-    "top_tracks": "Here are the most played tracks by {artist}. {listing}. Which one should I play?",
+    "top_tracks":
+        "Here are the most played tracks by {artist}. {listing}. "
+        "Which one should I play?",
     "no_open_list":
         "First ask me for a list, for example: which are the top tracks by Pink Floyd.",
     "pick_range": "Pick a number from 1 to {n}.",

@@ -21,11 +21,11 @@ MESSAGES = {
     # trovato nessun brano" here is a lie about the music library — nobody
     # was asked. Both name the fix, because it is one the user can act on.
     "service_offline":
-        "{service} non \u00e8 collegato. Apri le impostazioni di LMS e "
+        "{service} non \u00e8 collegato. Apri le impostazioni di {system} e "
         "rifai l'accesso.",
     "no_service_online":
         "Nessun servizio di streaming \u00e8 collegato. Apri le impostazioni "
-        "di LMS e rifai l'accesso.",
+        "di {system} e rifai l'accesso.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a

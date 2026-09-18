@@ -89,6 +89,10 @@ class MusicAssistantClient(Resilient, MusicAssistantLibrary, SilentServices):
     #: Every round trip fails as this, breaker and turn budget included.
     error = MusicAssistantError
 
+    #: How this system is spelled in a reply that names it — see
+    #: ``player.protocols.system_label``, and ``LMSClient.SYSTEM_LABEL``.
+    SYSTEM_LABEL = "Music Assistant"
+
     def __init__(
         self,
         base_url: str,

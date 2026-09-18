@@ -22,7 +22,7 @@ resolve, and nothing is ever called on it. Presence is the whole question.
 import pytest
 
 from player.protocols import (Capabilities, MusicLibrary, PlayerTransport,
-                              SpokenLibrary)
+                              SpokenLibrary, system_label)
 from player.registry import BACKENDS, LIBRARIES
 
 #: Somewhere that cannot answer, because nothing here asks it anything.
@@ -136,6 +136,19 @@ def test_a_backend_has_every_method_it_claims(name):
 
 
 @pytest.mark.parametrize("name", BACKEND_NAMES)
+def test_a_backend_says_out_loud_what_it_is_called(name):
+    # «{service} non è collegato. Apri le impostazioni di …» — the engine
+    # cannot know which music system it is holding, so it asks the client, and
+    # the answer has to be the same one the log lines use. For five languages
+    # the catalogs said "LMS" outright, which sent every MusicAssistant
+    # household to a settings page that does not exist.
+    backend = BACKENDS[name]
+    assert system_label(client_for(backend)) == backend.label, (
+        f"{name}: the label on the registry declaration and the one on the "
+        f"client disagree, so a reply and a log line name different systems")
+
+
+@pytest.mark.parametrize("name", BACKEND_NAMES)
 def test_a_searching_backend_is_a_whole_library(name):
     # Partial catalogues are the trap: enough of the protocol to be offered
     # the request, not enough to answer it.
@@ -202,6 +215,12 @@ def test_no_name_means_a_backend_and_a_library_at_once():
 def test_a_librarys_key_is_its_own_name(name):
     assert LIBRARIES[name].name == name
     assert LIBRARIES[name].label, f"{name} has no spoken label"
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_a_library_says_out_loud_what_it_is_called(name):
+    library = LIBRARIES[name]
+    assert system_label(library_client_for(library)) == library.label
 
 
 @pytest.mark.parametrize("name", LIBRARY_NAMES)

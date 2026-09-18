@@ -262,7 +262,8 @@ class MusicLibrary(Protocol):
     #                  for_service
     #
     # ``stream_urls(item_id) -> List[str]`` is the newest of them, and the
-    # one a music system never needs: see :class:`SpokenLibrary`. It answers "what would I have to fetch to
+    # one a music system never needs: see :class:`SpokenLibrary`. It answers
+    # "what would I have to fetch to
     # hear this?" with URLs a transport can be handed directly. A list and not
     # a single URL because one catalogue id is routinely several files — an
     # album, a book in chapters — and the caller queues them in order.
@@ -301,6 +302,25 @@ def service_label(client, name: Optional[str] = None) -> str:
             return name
     label = getattr(service, "label", "")
     return label or name or getattr(service, "name", "") or ""
+
+
+def system_label(client) -> str:
+    """How the music system in front of the listener is spelled when a reply
+    names it: «Apri le impostazioni di Music Assistant».
+
+    Read off the client with ``getattr``, exactly as :func:`service_label`
+    reads a service's — and for the same reason, one level up. The five
+    message catalogs used to say "LMS" in the sentence that tells somebody
+    where to go and log a plugin back in. A household whose hi-fi is a
+    MusicAssistant was sent to a settings page that does not exist, in every
+    language at once, and the engine cannot know which system it is holding:
+    that is the backend's own fact (``Backend.label``, which each backend now
+    reads off its client so the two cannot drift).
+
+    Empty for a client that declares nothing, which is a client from outside
+    this repository; the sentence loses a word and keeps its meaning.
+    """
+    return getattr(client, "SYSTEM_LABEL", "") or ""
 
 
 @runtime_checkable

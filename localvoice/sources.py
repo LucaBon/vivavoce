@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import actions
 from player.errors import PlayerError
-from player.protocols import service_label
+from player.protocols import service_label, system_label
 from messages import msg
 
 
@@ -39,6 +39,16 @@ class SourceChoice:
         calls its own providers.
         """
         return service_label(self.lms, name)
+
+    def _system_label(self) -> str:
+        """How the music system this app is driving is spelled out loud.
+
+        Asked of the client for the same reason the service spelling is: the
+        sentence that says «apri le impostazioni di …» named LMS in all five
+        catalogs, so a household running MusicAssistant was sent to a page
+        that does not exist. See ``player.protocols.system_label``.
+        """
+        return system_label(self.lms)
 
     def _source_suffix(self, name) -> str:
         """The localized ' da TIDAL' / ' from your music' tag for a source
@@ -79,6 +89,8 @@ class SourceChoice:
         asks for the search node, which the search itself asks for moments
         later and finds memoized (``LMSClient.SEARCH_NODE_TTL``).
         """
+        if not self.services:
+            return None  # this hi-fi streams from nothing — see _streaming
         nominal = source if source in self.services else self.default_service
         try:
             # Before choosing, close the book on the last start: the shape of
@@ -114,6 +126,14 @@ class SourceChoice:
         if name is not None:
             return self.lms.for_service(name), name, False
         name = source if source in self.services else self.default_service
+        if not name:
+            # Nothing streams on this hi-fi: a music system with no plugin
+            # installed, or one with no notion of services at all. There is
+            # nothing to aim at, so the request runs against the client as it
+            # stands — the action may still have an answer of its own, which
+            # is the whole reason this method never returns None — and the
+            # reply says no service is connected.
+            return self.lms, None, True
         return self.lms.for_service(name), name, True
 
     def _never_searched(self, res) -> bool:
@@ -273,8 +293,9 @@ class SourceChoice:
                 msg("service_not_connected", service=label),
                 service,
                 lambda alt: self._resolve_named(arg, play_fn, alt),
-                actions.ActionResult(msg("service_offline", service=label),
-                                     ok=False))
+                actions.ActionResult(
+                    msg("service_offline", service=label,
+                        system=self._system_label()), ok=False))
         return self._played(self._tag(res, self._source_suffix(service)), service)
 
     def _retry_elsewhere(self, res, name, run):
@@ -324,7 +345,7 @@ class SourceChoice:
         stream, name, offline = self._streaming(source)
         res = stream_fn(stream, arg, guard=guard)
         if offline:
-            return self._if_searched(res, msg("no_service_online"))
+            return self._if_searched(res, msg("no_service_online", system=self._system_label()))
         res, name = self._retry_elsewhere(
             res, name, lambda alt: stream_fn(alt, arg, guard=guard))
         return self._played(self._tag(res, self._source_suffix(name)), name)
@@ -347,5 +368,5 @@ class SourceChoice:
         stream, name, offline = self._streaming(source)
         res = actions.play_song(stream, arg, mode=mode, guard=guard)
         if offline:
-            return self._if_searched(res, msg("no_service_online"))
+            return self._if_searched(res, msg("no_service_online", system=self._system_label()))
         return self._played(self._tag(res, self._source_suffix(name)), name, mode=mode)

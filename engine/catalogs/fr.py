@@ -16,11 +16,11 @@ MESSAGES = {
     "not_owner":
         "Seul un parent peut modifier la liste des morceaux bloqués.",
     "service_offline":
-        "{service} n'est pas connect\u00e9. Ouvre les r\u00e9glages de LMS et "
-        "reconnecte-toi.",
+        "{service} n'est pas connect\u00e9. Ouvre les r\u00e9glages de {system} "
+        "et reconnecte-toi.",
     "no_service_online":
         "Aucun service de streaming n'est connect\u00e9. Ouvre les r\u00e9glages "
-        "de LMS et reconnecte-toi.",
+        "de {system} et reconnecte-toi.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a
@@ -54,7 +54,9 @@ MESSAGES = {
     "ask_title": "Je n'ai pas saisi le titre. Tu peux répéter ?",
     "no_track_found": "Je n'ai trouvé aucun morceau pour {title}.",
     "no_track_by": "Je n'ai pas trouvé {title} de {artist}.",
-    "no_track_by_offer": "Je n'ai pas {query} de {artist}. J'ai ceux-ci : {listing}. Lequel je mets ?",
+    "no_track_by_offer":
+        "Je n'ai pas {query} de {artist}. J'ai ceux-ci : {listing}. "
+        "Lequel je mets ?",
     "playing": "Je mets {name}.",
     "playing_by": "Je mets {name} de {artist}.",
     "album_not_found": "Je n'ai pas trouvé l'album {album}.",

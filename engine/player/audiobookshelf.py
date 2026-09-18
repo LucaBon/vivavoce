@@ -109,6 +109,10 @@ class AudiobookshelfClient(Resilient):
     #: Every round trip fails as this, breaker and turn budget included.
     error = AudiobookshelfError
 
+    #: How this catalogue is spelled in a reply that names it — see
+    #: ``player.protocols.system_label``.
+    SYSTEM_LABEL = "Audiobookshelf"
+
     def __init__(self, base_url: str, token: str = "", timeout: float = 8.0,
                  transport: Optional[Transport] = None) -> None:
         if not base_url:

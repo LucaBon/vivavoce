@@ -45,7 +45,10 @@ def discover(*, on_progress=None, timeout: float = 2.0) -> Optional[str]:
 
 BACKEND = Backend(
     name="lms",
-    label="Lyrion Music Server",
+    # Read off the client rather than written again here: the same string
+    # answers «da dove viene la musica» in a log line and «apri le
+    # impostazioni di …» in a spoken reply, and two copies of it would drift.
+    label=LMSClient.SYSTEM_LABEL,
     # LMS is the system every one of these was written against, so it does all
     # of it: three streaming services behind one server, a local library
     # indexed by artist/album/genre/year, favourites, and a sleep timer of its

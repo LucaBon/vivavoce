@@ -115,8 +115,12 @@ def test_a_named_service_that_is_logged_out_is_named_in_the_answer(
     # is the fix. The offer itself is in test_online_imports.py.
     transport.responses["qobuz"] = lambda cmd: LOGGED_OUT
     reply = router.handle("da qobuz metti Time")
-    assert str(reply) == ("Qobuz non è collegato. Apri le impostazioni di LMS "
-                          "e rifai l'accesso.")
+    # The system is named from the client (``player.protocols.system_label``)
+    # and not spelled "LMS" in the catalog: a household running a
+    # MusicAssistant was sent to a settings page that does not exist, in all
+    # five languages at once.
+    assert str(reply) == ("Qobuz non è collegato. Apri le impostazioni di "
+                          "Lyrion Music Server e rifai l'accesso.")
 
 
 def test_a_kid_safe_refusal_outranks_the_offline_message(lms, transport,

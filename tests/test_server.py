@@ -227,6 +227,36 @@ def test_a_name_no_lms_has_is_refused_with_the_lms_list(lms, transport):
     assert "tidal" in complaint
 
 
+def test_a_server_with_no_providers_still_refuses_a_name_it_has_not_got(
+        ma, ma_transport):
+    # "Could not ask" and "asked, and the answer is none" are different facts,
+    # and reading the second as the first accepted --services unvalidated: the
+    # selector then offered a plugin this server has never had, and every
+    # streaming request answered «TIDAL non è collegato» — the invented list
+    # the auto branch was rewritten to stop printing.
+    ma_transport.responses["config/providers"] = []
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "tidal")
+    assert services == []
+    assert "tidal" in complaint
+
+
+def test_a_backend_with_no_services_at_all_takes_the_list_as_typed(lms,
+                                                                   transport):
+    # The other side of it: a music system with no notion of services has
+    # nothing to validate against, and refusing everything would be reading
+    # "no table" as "an empty table".
+    from player.registry import Backend
+    from player.protocols import Capabilities
+
+    speakers = Backend(name="speakers", label="Speakers",
+                       capabilities=Capabilities(), build=lambda *a, **k: lms,
+                       probe=lambda *a, **k: [])
+    services, complaint = server.explicit_services(lms, speakers, "tidal")
+    assert (services, complaint) == (["tidal"], "")
+    assert transport.commands() == []
+
+
 def test_a_server_that_will_not_answer_does_not_get_to_refuse(ma, ma_transport):
     # An escape hatch that needs the detection to work is not one: with no
     # answer to validate against, the list is taken as typed.
@@ -240,3 +270,53 @@ def test_an_empty_list_is_still_refused(lms, transport):
     services, complaint = server.explicit_services(lms, BACKENDS["lms"], " , ")
     assert services == []
     assert complaint.startswith("--services non valido")
+
+
+# -- a hi-fi that streams from nothing -----------------------------------------
+#
+# «auto» used to answer an empty detection with ``["tidal"]``: a guess printed
+# as a fact. A MusicAssistant with no providers, or a backend with no notion of
+# services at all, got a source selector offering a plugin it has never had,
+# and every streaming request was aimed at it and answered «TIDAL non è
+# collegato» — a sentence about a service nobody has installed, naming a
+# settings page nobody has. The truthful answer is that this hi-fi streams from
+# nothing, and everything else still works.
+
+def test_no_service_is_not_a_reason_to_invent_one(lms, transport):
+    from router import Router
+
+    router = Router(lms, services=(), default_service="")
+    # The local library and the transport controls, which is what is left.
+    assert str(router.handle("pausa")) == "In pausa."
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    reply = router.handle("metti Time", source="auto")
+    # Never «TIDAL non è collegato»: nobody named TIDAL, nobody installed it,
+    # and the tag that says where music came from has nothing to say either.
+    assert "TIDAL" not in str(reply)
+    assert router.services == ()
+
+
+def test_a_streaming_request_with_nothing_to_stream_from_says_so(lms, transport):
+    from router import Router
+
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    reply = Router(lms, services=(), default_service="").handle(
+        "metti Time", source="tidal")
+    assert str(reply) == ("Nessun servizio di streaming è collegato. Apri le "
+                          "impostazioni di Lyrion Music Server e rifai "
+                          "l'accesso.")
+
+
+def test_the_system_named_in_that_sentence_is_the_one_in_front_of_you(
+        ma, ma_transport):
+    from router import Router
+
+    ma_transport.responses["music/search"] = {}
+    reply = Router(ma, services=(), default_service="").handle(
+        "metti Time", source="tidal")
+    assert "Music Assistant" in str(reply)
+    assert "Lyrion" not in str(reply)
