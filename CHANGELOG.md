@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — September 2026
 
 ### New
 
@@ -23,29 +23,44 @@
   Audiobookshelf che può solo ascoltare. Un Audiobookshelf spento all'avvio
   non ferma l'app: la musica non c'entra.
 
-### Internal
 
-- **Il motore chiede all'impianto cosa sa fare, prima di offrirlo.** La
-  tabella delle capacità la dichiarava ogni backend e non la leggeva nessuno:
-  un impianto con gli altoparlanti e nessun catalogo avrebbe risposto a
-  «metti Time» con un errore interno, che all'ascoltatore arriva come «non
-  riesco a contattare l'impianto» — una bugia su un impianto che risponde
-  benissimo. Ora ogni ramo che offre qualcosa chiede prima, e quello che
-  l'impianto non sa fare lo dice in tutte e cinque le lingue: cercare, la
-  libreria locale, i preferiti, i generi e gli anni, il timer, le stanze. Con
-  LMS e Music Assistant non cambia nulla — sanno fare tutto — ed è il
-  presupposto per aggiungerne uno che sa fare meno.
+- **Vivavoce può sapere da che stanza gli hai parlato.** Finora la stanza
+  esisteva in un modo solo: dirla. «metti Time in cucina» funziona dal
+  2026-08-26 ed era la risposta giusta a metà, perché nella stanza in cui sei
+  già non hai voglia di nominarla — e un satellite vocale in cucina sa
+  benissimo dov'è, semplicemente non aveva modo di dirlo. Ora ce l'ha: il
+  contratto `POST /api/v1/command` accetta un campo `room`, e il blueprint di
+  Home Assistant può riempirlo con l'**area** del dispositivo che ha sentito
+  la frase.
 
-- **`engine/lms.py` non è più un file da 1317 righe.** Era l'unico esentato
-  dalla regola che questo repo dà a se stesso — 400 righe per file — e
-  l'esenzione era lì da quando la regola è nata. Ora il client LMS è sei file:
-  il client (il filo, i cloni per servizio e per stanza, l'elenco dei player),
-  la tabella dei servizi, e un mixin per ciascuna delle quattro cose che quel
-  client sa fare — camminare il feed di un plugin, chiedergli un catalogo,
-  leggere il disco locale, comandare la riproduzione. Nessun comportamento
-  cambia: `LMSClient` ha esattamente gli stessi metodi con le stesse firme, e
-  ogni nome che si importava da `lms` si importa ancora. La lista delle
-  esenzioni è vuota, e un test la tiene vuota.
+  Sono due cose diverse e la precedenza lo dice: un `player` esplicito (che è
+  un id, non un nome) batte tutto; una stanza **detta nella frase** batte
+  quella d'origine, perché chiedere il salotto stando in cucina è
+  un'intenzione e non un errore; l'origine vale quando non c'è nient'altro. La
+  risoluzione nome→lettore non è nuova: è la stessa di `pro/multiroom.py` che
+  la frase parlata usa da sempre, così la soglia è una e la regola sui lettori
+  scollegati è una.
+
+  **Se il nome non corrisponde a nessun lettore collegato, Vivavoce lo dice e
+  non fa niente.** Non ripiega sul lettore di default, ed è la parte da capire
+  prima di accendere l'opzione: far partire la musica in salotto perché la
+  cucina non si è risolta è un fatto fisico in casa di qualcuno, che qualcuno
+  deve alzarsi e disfare — mentre un rifiuto costa una ripetizione. È la
+  stessa asimmetria già scelta per la stanza detta a voce. Il rovescio onesto
+  della medaglia: un'area scritta male fallisce *ogni* comando da quel
+  satellite finché non la si sistema, ed è esattamente per questo che nel
+  blueprint l'opzione **«Play in the room that was spoken to» è spenta di
+  default** — si accende quando i nomi delle aree e quelli dei lettori
+  combaciano.
+
+  Il campo richiede Pro (multi-room). Senza, viene **ignorato e non
+  rifiutato**: chi lo manda non ha chiesto Pro, ha detto dov'era, e
+  un'installazione free ha un lettore solo. Il contratto v1 permette di
+  aggiungere campi e non di toglierne: `docs/api.md` ora porta sia il campo
+  sia la sezione che spiegava perché in v1 non c'era — due dei suoi tre
+  argomenti reggono ancora, e il terzo (progettare senza un client vero) è
+  scaduto il giorno in cui il blueprint è stato provato su un Home Assistant
+  vero.
 
 ### Fixed
 
@@ -658,47 +673,30 @@
   una sola modifica confonde lo spagnolo «pon» con «con», «son», «por», e la
   tolleranza costerebbe più di quanto rende.
 
-### New
-
-- **Vivavoce può sapere da che stanza gli hai parlato.** Finora la stanza
-  esisteva in un modo solo: dirla. «metti Time in cucina» funziona dal
-  2026-08-26 ed era la risposta giusta a metà, perché nella stanza in cui sei
-  già non hai voglia di nominarla — e un satellite vocale in cucina sa
-  benissimo dov'è, semplicemente non aveva modo di dirlo. Ora ce l'ha: il
-  contratto `POST /api/v1/command` accetta un campo `room`, e il blueprint di
-  Home Assistant può riempirlo con l'**area** del dispositivo che ha sentito
-  la frase.
-
-  Sono due cose diverse e la precedenza lo dice: un `player` esplicito (che è
-  un id, non un nome) batte tutto; una stanza **detta nella frase** batte
-  quella d'origine, perché chiedere il salotto stando in cucina è
-  un'intenzione e non un errore; l'origine vale quando non c'è nient'altro. La
-  risoluzione nome→lettore non è nuova: è la stessa di `pro/multiroom.py` che
-  la frase parlata usa da sempre, così la soglia è una e la regola sui lettori
-  scollegati è una.
-
-  **Se il nome non corrisponde a nessun lettore collegato, Vivavoce lo dice e
-  non fa niente.** Non ripiega sul lettore di default, ed è la parte da capire
-  prima di accendere l'opzione: far partire la musica in salotto perché la
-  cucina non si è risolta è un fatto fisico in casa di qualcuno, che qualcuno
-  deve alzarsi e disfare — mentre un rifiuto costa una ripetizione. È la
-  stessa asimmetria già scelta per la stanza detta a voce. Il rovescio onesto
-  della medaglia: un'area scritta male fallisce *ogni* comando da quel
-  satellite finché non la si sistema, ed è esattamente per questo che nel
-  blueprint l'opzione **«Play in the room that was spoken to» è spenta di
-  default** — si accende quando i nomi delle aree e quelli dei lettori
-  combaciano.
-
-  Il campo richiede Pro (multi-room). Senza, viene **ignorato e non
-  rifiutato**: chi lo manda non ha chiesto Pro, ha detto dov'era, e
-  un'installazione free ha un lettore solo. Il contratto v1 permette di
-  aggiungere campi e non di toglierne: `docs/api.md` ora porta sia il campo
-  sia la sezione che spiegava perché in v1 non c'era — due dei suoi tre
-  argomenti reggono ancora, e il terzo (progettare senza un client vero) è
-  scaduto il giorno in cui il blueprint è stato provato su un Home Assistant
-  vero.
-
 ### Internal
+
+- **Il motore chiede all'impianto cosa sa fare, prima di offrirlo.** La
+  tabella delle capacità la dichiarava ogni backend e non la leggeva nessuno:
+  un impianto con gli altoparlanti e nessun catalogo avrebbe risposto a
+  «metti Time» con un errore interno, che all'ascoltatore arriva come «non
+  riesco a contattare l'impianto» — una bugia su un impianto che risponde
+  benissimo. Ora ogni ramo che offre qualcosa chiede prima, e quello che
+  l'impianto non sa fare lo dice in tutte e cinque le lingue: cercare, la
+  libreria locale, i preferiti, i generi e gli anni, il timer, le stanze. Con
+  LMS e Music Assistant non cambia nulla — sanno fare tutto — ed è il
+  presupposto per aggiungerne uno che sa fare meno.
+
+- **`engine/lms.py` non è più un file da 1317 righe.** Era l'unico esentato
+  dalla regola che questo repo dà a se stesso — 400 righe per file — e
+  l'esenzione era lì da quando la regola è nata. Ora il client LMS è sei file:
+  il client (il filo, i cloni per servizio e per stanza, l'elenco dei player),
+  la tabella dei servizi, e un mixin per ciascuna delle quattro cose che quel
+  client sa fare — camminare il feed di un plugin, chiedergli un catalogo,
+  leggere il disco locale, comandare la riproduzione. Nessun comportamento
+  cambia: `LMSClient` ha esattamente gli stessi metodi con le stesse firme, e
+  ogni nome che si importava da `lms` si importa ancora. La lista delle
+  esenzioni è vuota, e un test la tiene vuota.
+
 
 - **Il cuore AGPL parte davvero senza `pro/`.** `licenses/README.md` presenta
   questo repository come open-core — tutto AGPL-3.0 tranne `localvoice/pro/`,

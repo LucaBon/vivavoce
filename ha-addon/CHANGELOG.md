@@ -11,6 +11,99 @@ versioni [SemVer](https://semver.org/lang/it/). La versione dell'app coincide
 sempre con quella del progetto: l'immagine viene compilata dal tag
 `v<versione>`, non da un branch.
 
+## [0.7.0] - 2026-09-18
+
+### Aggiunto
+
+- **Un catalogo di audiolibri accanto all'impianto.** Tre opzioni nuove —
+  `library`, `library_url`, `library_token` — collegano un Audiobookshelf che
+  si ascolta **attraverso** l'impianto che già hai: i libri da lì, gli
+  altoparlanti da qui. All'avvio l'app dice quante librerie di libri vede, o
+  perché non le vede.
+
+  Per ora è **solo il collegamento**: nessuna frase raggiunge ancora un libro,
+  e quelle arrivano nei prossimi passi. Senza `library` non cambia niente.
+  Due cose da sapere subito: i file li scarica l'impianto, non Home Assistant,
+  quindi l'indirizzo dev'essere l'IP di rete e non `localhost`; e la chiave API
+  finisce negli indirizzi in coda sull'impianto, quindi va creata per un utente
+  di Audiobookshelf che può solo ascoltare.
+
+- **Vivavoce può sapere da che stanza gli hai parlato.** Il comando
+  `POST /api/v1/command` accetta un campo `room`, e il blueprint di Home
+  Assistant può riempirlo con l'**area** del dispositivo che ha sentito la
+  frase: in cucina non serve più dire «in cucina». Una stanza detta nella frase
+  batte comunque quella d'origine — chiedere il salotto stando in cucina è
+  un'intenzione, non un errore. Richiede Pro (multi-stanza); senza, il campo
+  viene ignorato e non rifiutato.
+
+### Corretto
+
+- **Un elenco aperto non si mangia più la richiesta dopo.** «Quali brani dei
+  Pink Floyd», poi «metti Money for Nothing dei Dire Straits»: partiva
+  «Money», quello dell'elenco, e l'elenco resta scegliibile per cinque minuti.
+  Ora una frase che porta altro contenuto è una richiesta nuova.
+
+- **«Tra un'ora e mezza» sono novanta minuti, non sessanta.** Il timer di
+  spegnimento leggeva solo l'inizio della durata e partiva mezz'ora corto,
+  senza dirlo. Valgono ora anche «due ore e mezza», «un'ora e venti minuti» e
+  le forme equivalenti in tutte e cinque le lingue.
+
+- **Gli ordinali con l'accento sono di nuovo una scelta.** Con un elenco
+  aperto, «troisième», «fünfte» e «séptima» detti da soli non venivano
+  riconosciuti.
+
+- **Un titolo col punto dentro non viene più spezzato in due.** «Riproduco Mr.
+  Brightside» tornava come «Riproduco Mr da TIDAL. Brightside.»
+
+- **Quello che l'impianto non sa fare, adesso lo dice.** Un sistema musicale
+  senza catalogo rispondeva «non riesco a contattare l'impianto» — una bugia
+  su un impianto che risponde benissimo. E le frasi che mandano a riconnettere
+  un plugin non dicono più «Apri le impostazioni di LMS» a chi ha un Music
+  Assistant.
+
+- **Music Assistant: i brani della tua libreria, e gli album giusti.** Con la
+  sorgente «auto» un brano locale rispondeva «Errore interno»; il kid-safe non
+  riconosceva l'artista di un album; una risposta malformata diventava un
+  errore interno invece di un guasto normale.
+
+- **Spotify: scegliere da un elenco suona il brano scelto**, e «metti Time
+  dall'album X» suona quel brano invece dell'album intero.
+
+- **Fermare la musica non fa più sparire TIDAL per un giorno.** Bastava
+  saltare due brani e premere stop perché il servizio risultasse «non
+  collegato» per 24 ore. Un player scollegato non è più un servizio
+  scollegato, e non basta più a finire la configurazione al posto tuo.
+
+- **Due frasi dette insieme non si mescolano più**, e una risposta non parla
+  più la lingua della richiesta precedente.
+
+- **Un comando non viene più eseguito due volte** quando la risposta si
+  perdeva per strada: volume, salto brano e aggiunte alla coda non si ripetono.
+
+- **Il PIN del kid-safe non sparisce più** se il file di stato non si riesce a
+  leggere durante un salvataggio.
+
+- **Un campo dell'API con il tipo sbagliato riceve una risposta.** I template
+  YAML di Home Assistant rendono in modo disinvolto: un `lang` che arrivava
+  come lista faceva cadere la connessione senza risposta.
+
+- **Un Audiobookshelf che risponde a sproposito non impedisce più l'avvio.**
+  La musica non c'entra niente con i libri.
+
+### Sicurezza
+
+- **La pagina di configurazione non cambia più un server che non è suo da
+  cambiare**, e un indirizzo scritto nella casella non presta più la propria
+  origine al resto della pagina.
+
+- **La CA locale non può più firmare per qualunque sito.** Il certificato
+  generato al primo avvio vale ora solo per indirizzi privati e nomi locali,
+  e dura meno. Chi ha già installato la CA sui propri dispositivi la deve
+  reinstallare dopo l'aggiornamento.
+
+- **Una porta esposta su internet non consegna più l'impianto a chi la
+  trova**, e la pagina non si fida più di ciò che non ha scritto lei.
+
 ## [0.6.0] - 2026-09-14
 
 ### Rimosso
