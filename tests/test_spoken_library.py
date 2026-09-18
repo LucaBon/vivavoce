@@ -91,6 +91,31 @@ def test_a_catalogue_that_is_down_does_not_stop_the_app(probes):
     assert "non risponde" in said[0] and "la musica no" in said[0]
 
 
+def test_a_bookshelf_answering_nonsense_does_not_stop_the_app(monkeypatch):
+    """The whole promise, through the real client rather than a fake probe.
+
+    A 200 whose body is valid JSON but not the object the API documents — a
+    captive portal, a reverse proxy's error page — used to reach ``.get()``
+    inside the client as an ``AttributeError``. Not a ``PlayerError``, so the
+    ``except PlayerError`` below did not catch it, and it came out of
+    ``server.main``: the voice assistant refusing to start because a
+    bookshelf answered oddly. The probe here is the real one.
+    """
+    from player.audiobookshelf import AudiobookshelfClient
+
+    monkeypatch.setattr(
+        AudiobookshelfClient, "_http_transport",
+        lambda self, request: ["this is not an Audiobookshelf"])
+    said = []
+    composite, complaint = spoken_library.open_library(
+        args_for("--library", "audiobookshelf",
+                 "--library-url", "http://books.local:13378",
+                 "--library-token", "k"), say=said.append)
+    assert complaint == "", complaint
+    assert composite is not None
+    assert "non risponde" in said[0] and "la musica no" in said[0]
+
+
 def test_a_key_that_sees_no_book_library_is_said_out_loud(probes):
     probes.answer = []
     said = []

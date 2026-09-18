@@ -164,16 +164,40 @@ class AudiobookshelfClient(Resilient):
         """
         return True
 
-    def _get(self, path: str, **query: Any) -> Any:
-        return self._guarded({"path": path, "query": query})
+    def _get(self, path: str, **query: Any) -> Dict[str, Any]:
+        """One ``GET``, and its body as the JSON **object** the API documents.
+
+        Anything else that is still valid JSON — a list, a string, a number —
+        is an answer from something that is not an Audiobookshelf: a captive
+        portal, a reverse-proxy error page that happens to parse, or a schema
+        that moved under us. ``get()`` above already converts a body that is
+        not JSON at all; this is the other half of the same boundary, and
+        without it the shape reached ``.get()`` three frames up as
+        ``AttributeError: 'list' object has no attribute 'get'``.
+
+        Which is not a :class:`~player.errors.PlayerError`, so nobody caught
+        it: ``spoken_library.open_library`` guards the probe with
+        ``except PlayerError``, and the exception came out of ``server.main``
+        instead — the whole voice assistant refusing to start because a
+        bookshelf answered oddly. The music has nothing to do with the books.
+        """
+        answer = self._guarded({"path": path, "query": query})
+        if answer is None or isinstance(answer, dict):
+            return answer or {}
+        raise AudiobookshelfRefused(
+            f"Audiobookshelf answered {path} with a "
+            f"{type(answer).__name__}, not an object")
 
     # -- the catalogue -----------------------------------------------------
     def book_libraries(self) -> List[Dict[str, Any]]:
         """``[{"id", "name"}, ...]`` for every book library the key can see."""
-        answer = self._get("/api/libraries") or {}
         return [{"id": lib["id"], "name": lib.get("name") or ""}
-                for lib in answer.get("libraries") or []
-                if lib.get("mediaType") == "book" and lib.get("id")]
+                for lib in self._get("/api/libraries").get("libraries") or []
+                # ``isinstance`` per row, not just on the envelope: one shelf
+                # that is not an object must not take the shelves beside it
+                # that are perfectly fine.
+                if isinstance(lib, dict)
+                and lib.get("mediaType") == "book" and lib.get("id")]
 
     def book_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         """Books matching ``query`` across every book library, in the order
@@ -191,9 +215,11 @@ class AudiobookshelfClient(Resilient):
         seen = set()
         for library in self.book_libraries():
             answer = self._get(f"/api/libraries/{library['id']}/search",
-                               q=query, limit=count) or {}
+                               q=query, limit=count)
             for match in answer.get("book") or []:
-                book = _book(match.get("libraryItem") or {})
+                if not isinstance(match, dict):
+                    continue
+                book = _book(match.get("libraryItem"))
                 if book is None or book["id"] in seen:
                     continue
                 seen.add(book["id"])
@@ -213,25 +239,41 @@ class AudiobookshelfClient(Resilient):
         a key of its own, on a user that can only listen.
         """
         item = self._get(f"/api/items/{urllib.parse.quote(item_id, safe='')}",
-                         expanded=1) or {}
-        tracks = (item.get("media") or {}).get("tracks") or []
+                         expanded=1)
+        media = item.get("media")
+        tracks = media.get("tracks") if isinstance(media, dict) else None
         suffix = "?" + urllib.parse.urlencode({"token": self.token})
         return [self.base_url + track["contentUrl"] + suffix
-                for track in tracks if track.get("contentUrl")]
+                for track in tracks or []
+                if isinstance(track, dict)
+                and isinstance(track.get("contentUrl"), str)]
 
 
-def _book(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _book(item: Any) -> Optional[Dict[str, Any]]:
     """An expanded library item as the engine reads a book, or None for an
-    item that has no audio to offer."""
-    media = item.get("media") or {}
+    item that has no audio to offer — or no shape this can read at all."""
+    if not isinstance(item, dict):
+        return None
+    media = item.get("media")
+    media = media if isinstance(media, dict) else {}
     if not item.get("id") or not media.get("tracks"):
         # An e-book with no audio, or an item whose files are all excluded:
         # found by the words, and nothing to listen to.
         return None
-    metadata = media.get("metadata") or {}
+    metadata = media.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
     return {
         "id": item["id"],
         "title": metadata.get("title") or "",
         "author": metadata.get("authorName") or "",
-        "duration": float(media.get("duration") or 0.0),
+        # A duration the server wrote as words is not a reason to lose the
+        # book: it is read out nowhere, and only orders the list.
+        "duration": _seconds(media.get("duration")),
     }
+
+
+def _seconds(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0

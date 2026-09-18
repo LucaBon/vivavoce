@@ -49,6 +49,22 @@
 
 ### Fixed
 
+- **Un Audiobookshelf che risponde a sproposito non impedisce più l'avvio.**
+  Il client trasformava in errore di dominio un corpo che non è JSON, e
+  lasciava passare un corpo che **è** JSON valido ma non è l'oggetto che l'API
+  documenta: la pagina di errore di un reverse proxy, un captive portal, uno
+  schema che si è mosso. Tre frame più su diventava
+  `AttributeError: 'list' object has no attribute 'get'` — che non è un
+  `PlayerError`, quindi nessuno lo prendeva, e usciva da `server.main()`:
+  l'assistente vocale si rifiutava di partire per colpa di uno scaffale di
+  libri. La musica non c'entra niente con i libri, ed è la promessa che questo
+  modulo fa dal primo giorno.
+
+  Ora il controllo di forma sta al confine del client, dov'è già la regola
+  «ogni guasto è un errore di Audiobookshelf», e vale riga per riga e non solo
+  sulla busta: una libreria scritta male non si porta via quelle accanto. Una
+  durata scritta a parole vale zero invece di far sparire il libro.
+
 - **Un elenco aperto non si mangia più la richiesta dopo.** «Quali brani dei
   Pink Floyd», poi «metti Money for Nothing dei Dire Straits»: partiva
   «Money», quello dell'elenco. La scelta per nome accettava un titolo che

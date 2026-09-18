@@ -347,3 +347,69 @@ def test_a_lost_reply_is_asked_for_again(shelf):
     assert shelf.book_libraries()
     assert len(calls) == 2
 
+
+
+# -- a 200 that is not the object the API documents ----------------------------
+#
+# ``get()`` turns a body that is not JSON into an AudiobookshelfRefused, and
+# let a body that IS valid JSON but not an object straight through: a captive
+# portal or a reverse-proxy error page rendered as a JSON array or string, or
+# a schema that moved. Three frames up that became
+# ``AttributeError: 'list' object has no attribute 'get'`` — which is not a
+# PlayerError, so ``spoken_library.open_library`` does not catch it and the
+# whole voice assistant refuses to start over a bookshelf. The music has
+# nothing to do with the books; that is the promise this file's docstring and
+# the changelog both make.
+
+@pytest.mark.parametrize("body", [[], ["nope"], "hello", 5, True])
+def test_a_reply_that_is_not_an_object_is_a_player_error(abs_transport, body):
+    # The EMPTY list is in here on purpose. It is tempting to read it as
+    # "no shelves" and carry on, and that would be a guess: this endpoint
+    # answers `{"libraries": [...]}` and says "none" with an empty list
+    # INSIDE that object. A bare `[]` is the same fact as `["nope"]` — the
+    # thing that replied is not an Audiobookshelf — and guessing otherwise
+    # would turn a misconfigured URL into a silent empty bookshelf.
+    abs_transport.responses["/api/libraries"] = body
+    client = AudiobookshelfClient(BASE, KEY, transport=abs_transport)
+    with pytest.raises(PlayerError):
+        client.book_libraries()
+
+
+@pytest.mark.parametrize("rows", [["nope"], [None], [5]])
+def test_a_shelf_that_is_not_an_object_is_skipped(abs_transport, rows):
+    # The envelope is right and a row inside it is not. One bad row must not
+    # take the shelves that are fine with it.
+    abs_transport.responses["/api/libraries"] = {
+        "libraries": rows + [{"id": "ok", "name": "Audiolibri",
+                              "mediaType": "book"}]}
+    client = AudiobookshelfClient(BASE, KEY, transport=abs_transport)
+    assert client.book_libraries() == [{"id": "ok", "name": "Audiolibri"}]
+
+
+def test_a_track_row_that_is_not_an_object_is_skipped(abs_transport):
+    abs_transport.responses["/api/items/b1"] = {
+        "media": {"tracks": ["nope", {"contentUrl": "/s/1.m4b"}, None]}}
+    client = AudiobookshelfClient(BASE, KEY, transport=abs_transport)
+    urls = client.stream_urls("b1")
+    assert len(urls) == 1 and urls[0].startswith(BASE + "/s/1.m4b?")
+
+
+def test_a_media_block_that_is_not_an_object_is_no_audio(abs_transport):
+    abs_transport.responses["/api/items/b1"] = {"media": "gone"}
+    client = AudiobookshelfClient(BASE, KEY, transport=abs_transport)
+    assert client.stream_urls("b1") == []
+
+
+def test_a_duration_that_is_not_a_number_does_not_escape(abs_transport):
+    # float("soon") is a ValueError, which is not a PlayerError either — same
+    # failure, one layer in.
+    abs_transport.responses["/api/libraries"] = {
+        "libraries": [{"id": "l1", "name": "Audiolibri", "mediaType": "book"}]}
+    abs_transport.responses["/api/libraries/l1/search"] = {
+        "book": [{"libraryItem": {"id": "b1", "media": {
+            "duration": "soon", "tracks": [{"contentUrl": "/s/1.m4b"}],
+            "metadata": {"title": "Il Nome della Rosa"}}}}]}
+    client = AudiobookshelfClient(BASE, KEY, transport=abs_transport)
+    found = client.book_candidates("rosa")
+    assert [b["title"] for b in found] == ["Il Nome della Rosa"]
+    assert found[0]["duration"] == 0.0
