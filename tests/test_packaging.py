@@ -1259,3 +1259,21 @@ def test_the_api_contract_names_every_language_the_engine_answers_in():
         f"engine/catalogs/ answers in {sorted(missing)} and docs/api.md does "
         f"not say so — a client author reads that row, not the README")
 
+
+def test_every_ci_job_has_a_timeout():
+    # Found in review: not one job in either workflow declared a tetto, so a
+    # deadlock — the plausible failure in code that runs semaphores, an RLock
+    # and a thread pool — would have burned GitHub's 360-minute default before
+    # failing. On a matrix this wide that is an afternoon of runners for
+    # something visible in twenty minutes. The numbers come from real run
+    # durations (pytest 213s, e2e 138s, docker 56s) with room for a cold cache.
+    yaml = pytest.importorskip("yaml")
+    for name in ("ci.yml", "release.yml"):
+        jobs = yaml.safe_load(_read(".github", "workflows", name))["jobs"]
+        for job, spec in jobs.items():
+            assert "timeout-minutes" in spec, (
+                f"{name}: job '{job}' has no timeout-minutes, so a hang costs "
+                f"GitHub's 360-minute default")
+            assert spec["timeout-minutes"] <= 30, (
+                f"{name}: job '{job}' allows {spec['timeout-minutes']} minutes; "
+                f"nothing here legitimately takes that long")
