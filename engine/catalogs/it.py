@@ -14,6 +14,22 @@ MESSAGES = {
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.",
     "err_busy":
         "Sto ancora rispondendo alla frase precedente. Riprova tra poco.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "Questo impianto non sa cercare la musica: posso comandare quello "
+        "che sta suonando.",
+    "no_local_library": "Questo impianto non ha una libreria locale.",
+    "no_favorites": "Questo impianto non tiene preferiti.",
+    "no_moods": "Questo impianto non sa sfogliare per genere o per anno.",
+    "no_sleep_timer": "Questo impianto non ha un timer di spegnimento.",
+    "no_rooms":
+        "Questo impianto ha un solo lettore, quindi non posso scegliere la "
+        "stanza.",
+
     "blocked":
         "Questa canzone c'è, ma è nella lista dei brani bloccati, quindi non "
         "posso metterla.",

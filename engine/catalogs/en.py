@@ -12,6 +12,20 @@ MESSAGES = {
     "err_busy":
         "I'm still answering the phrase before this one. Please try again in "
         "a moment.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "This system can't search for music: I can control what's playing, "
+        "though.",
+    "no_local_library": "This system has no local library.",
+    "no_favorites": "This system doesn't keep favourites.",
+    "no_moods": "This system can't browse by genre or by year.",
+    "no_sleep_timer": "This system has no sleep timer.",
+    "no_rooms": "This system has only one player, so I can't pick a room.",
+
     "blocked":
         "That song exists, but it's on the blocked-songs list, so I can't "
         "play it.",

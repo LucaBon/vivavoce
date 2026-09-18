@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import actions
 from player.errors import PlayerError
+from player.protocols import supports
 from player.protocols import service_label
 from messages import msg
 
@@ -110,6 +111,14 @@ class SourceChoice:
         streaming service is connected" is answering a question nobody put.
         ``offline`` says the reply needs re-wording *if* it comes back a plain
         miss; ``_if_searched`` is where that judgement is made."""
+        if not supports(self.lms, "services"):
+            # A catalogue that is not several services behind one system: it
+            # *is* the source. Asking which of its services can play, or
+            # aiming a clone at one of them, would be asking a question it has
+            # no words for — and unlike the branches that refuse, there is
+            # nothing to refuse here: it can search, so the request has an
+            # answer. Degrade instead of gate.
+            return self.lms, self.default_service, False
         name = self._stream_name(source)
         if name is not None:
             return self.lms.for_service(name), name, False
@@ -219,6 +228,9 @@ class SourceChoice:
         carries on to a service that can play them — but this one DID name a
         source, and "I couldn't find it" would be a lie about a library that
         has it. Say what is in the way, and offer the way round it."""
+        refused = self._unable("local_library", say="no_local_library")
+        if refused is not None:
+            return refused
         branch, query = self._play_branch(text, P)
         play_fn = self._NAMED_LOCAL.get(branch, actions.play_local)
         arg = query if branch else text
@@ -307,9 +319,10 @@ class SourceChoice:
         guard = self._guard
         local_fn = local_fn or actions.play_local
         if source == "local":
-            return self._local_answer(
-                local_fn(self.lms, arg, guard=guard), arg, stream_fn)
-        if source == "auto":
+            return (self._unable("local_library", say="no_local_library")
+                    or self._local_answer(
+                        local_fn(self.lms, arg, guard=guard), arg, stream_fn))
+        if source == "auto" and supports(self.lms, "local_library"):
             # Auto: prefer a confident local-library hit, else fall back to the
             # default streaming service (no cascading across services).
             # local_fn only plays when it matches, so a miss has no effect.
@@ -321,6 +334,11 @@ class SourceChoice:
             res = local_fn(self.lms, arg, guard=guard)
             if getattr(res, "ok", False):
                 return self._played(res, "local")
+        # Past the library, so past the point where a system with only
+        # speakers has anything to answer with.
+        refused = self._unable("search", say="no_search")
+        if refused is not None:
+            return refused
         stream, name, offline = self._streaming(source)
         res = stream_fn(stream, arg, guard=guard)
         if offline:
@@ -337,13 +355,17 @@ class SourceChoice:
         source selector still decides where a queued song comes from."""
         guard = self._guard
         if source == "local":
-            return self._played(
-                actions.play_local(self.lms, arg, mode=mode, guard=guard),
-                "local", mode=mode)
-        if source == "auto":
+            return (self._unable("local_library", say="no_local_library")
+                    or self._played(
+                        actions.play_local(self.lms, arg, mode=mode, guard=guard),
+                        "local", mode=mode))
+        if source == "auto" and supports(self.lms, "local_library"):
             res = actions.play_local(self.lms, arg, mode=mode, guard=guard)
             if getattr(res, "ok", False):
                 return self._played(res, "local", mode=mode)
+        refused = self._unable("search", say="no_search")
+        if refused is not None:
+            return refused
         stream, name, offline = self._streaming(source)
         res = actions.play_song(stream, arg, mode=mode, guard=guard)
         if offline:

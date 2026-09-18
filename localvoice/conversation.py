@@ -20,6 +20,7 @@ import contextlib
 import actions
 import moods
 from messages import msg
+from player.protocols import supports
 
 
 # How long a read-out list stays pickable. Without a clock on it, the list
@@ -69,6 +70,18 @@ class Busy(Exception):
 def busy() -> "actions.ActionResult":
     """The reply that :class:`Busy` is answered with."""
     return actions.ActionResult(msg("err_busy"), ok=False, kind=BUSY)
+
+
+def cannot(message: str) -> "actions.ActionResult":
+    """The reply for something this music system does not do.
+
+    ``kind=actions.GATE`` on purpose, which is the kind kid-safe and Pro use:
+    the turn is over, and it is over for a reason that has nothing to do with
+    the words. So ``handle_many`` stops trying recognition alternatives (a
+    better transcription will not make a speaker grow a catalogue) and
+    ``SourceChoice._never_searched`` leaves the sentence alone.
+    """
+    return actions.ActionResult(msg(message), ok=False, kind=actions.GATE)
 
 
 class ConversationState:
@@ -134,6 +147,21 @@ class ConversationState:
                 yield
         finally:
             self._turn_lock.release()
+
+    def _unable(self, *capabilities: str, say: str):
+        """The reply that says this system cannot, or ``None`` when it can.
+
+        ``capabilities`` is an *any-of*: a mood wants genres or years and is
+        happy with either. Used as ``return self._unable(...) or <the real
+        thing>``, which reads as "unless it cannot, do it".
+
+        Asked of ``self.lms``, which is the client aimed at this turn — a room
+        turn aims it elsewhere, and «in cucina» could in principle be a system
+        that can do less than the default one.
+        """
+        if any(supports(self.lms, name) for name in capabilities):
+            return None
+        return cannot(say)
 
     def _expire_candidates(self) -> None:
         """Forget a list nobody picked from in time (see CANDIDATES_TTL)."""

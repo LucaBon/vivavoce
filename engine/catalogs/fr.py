@@ -13,6 +13,22 @@ MESSAGES = {
     "err_busy":
         "Je réponds encore à la phrase précédente. "
         "Réessaie dans un instant.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "Ce système ne sait pas chercher de musique : je peux commander ce "
+        "qui joue.",
+    "no_local_library": "Ce système n'a pas de bibliothèque locale.",
+    "no_favorites": "Ce système ne garde pas de favoris.",
+    "no_moods": "Ce système ne sait pas parcourir par genre ou par année.",
+    "no_sleep_timer": "Ce système n'a pas de minuteur d'arrêt.",
+    "no_rooms":
+        "Ce système n'a qu'un seul lecteur, je ne peux donc pas choisir la "
+        "pièce.",
+
     "blocked":
         "Ce morceau existe, mais il est dans la liste des morceaux bloqués, "
         "donc je ne peux pas le jouer.",

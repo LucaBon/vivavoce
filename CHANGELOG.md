@@ -25,6 +25,17 @@
 
 ### Internal
 
+- **Il motore chiede all'impianto cosa sa fare, prima di offrirlo.** La
+  tabella delle capacità la dichiarava ogni backend e non la leggeva nessuno:
+  un impianto con gli altoparlanti e nessun catalogo avrebbe risposto a
+  «metti Time» con un errore interno, che all'ascoltatore arriva come «non
+  riesco a contattare l'impianto» — una bugia su un impianto che risponde
+  benissimo. Ora ogni ramo che offre qualcosa chiede prima, e quello che
+  l'impianto non sa fare lo dice in tutte e cinque le lingue: cercare, la
+  libreria locale, i preferiti, i generi e gli anni, il timer, le stanze. Con
+  LMS e Music Assistant non cambia nulla — sanno fare tutto — ed è il
+  presupposto per aggiungerne uno che sa fare meno.
+
 - **`engine/lms.py` non è più un file da 1317 righe.** Era l'unico esentato
   dalla regola che questo repo dà a se stesso — 400 righe per file — e
   l'esenzione era lì da quando la regola è nata. Ora il client LMS è sei file:
