@@ -48,6 +48,9 @@ volume», «cosa sta suonando».
 | `backend` | quale sistema musicale pilotare: `lms` o `musicassistant` | `lms` |
 | `backend_url` | dove trovarlo quando non è un LMS, es. `http://192.168.1.50:8095` | — |
 | `backend_token` | token di accesso del backend | — |
+| `library` | un catalogo di audiolibri da ascoltare sull'impianto qui sopra: `audiobookshelf` | — |
+| `library_url` | dove trovarlo, es. `http://192.168.1.50:13378` | — |
+| `library_token` | la chiave API del catalogo | — |
 
 ### Music Assistant invece di LMS
 
@@ -67,6 +70,23 @@ Il certificato TLS viene generato al **primo avvio** nello storage persistente
 dell'app, quindi l'avviso del browser va accettato una sola volta. Se cambi
 `cert_hosts` dopo il primo avvio, riavvia l'app dopo aver cancellato i file
 `cert.pem`/`key.pem` dallo storage per rigenerarlo.
+
+### Audiobookshelf accanto all'impianto
+
+`library: audiobookshelf`, `library_url` (porta 13378) e `library_token` (una
+chiave API da **Impostazioni → API Keys**) collegano un catalogo di audiolibri
+che si ascolta *attraverso* LMS o Music Assistant: i libri da lì, gli
+altoparlanti da qui.
+
+> [!IMPORTANT]
+> **Per ora è solo il collegamento.** Nessuna frase raggiunge ancora un libro:
+> all'avvio l'app dice quante librerie vede, e finisce lì. Le frasi arrivano
+> nei prossimi passi. Senza `library` non cambia niente.
+
+Due cose da sapere già adesso. I file li scarica l'impianto, non Home
+Assistant, quindi `library_url` dev'essere l'**IP di rete** e non `localhost`.
+E la chiave API finisce negli indirizzi in coda sull'impianto, perché un hi-fi
+non sa mandare un'intestazione: creala per un utente che può solo ascoltare.
 
 ## Requisiti
 
