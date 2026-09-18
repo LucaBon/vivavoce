@@ -74,6 +74,13 @@ _MODE_KEY_BY = {"add": "queued_by", "insert": "queued_next_by"}
 # right on its own terms: a refusal is not a play to hang a source or a room on.
 GATE = "gate"
 
+#: The ``kind`` of «the hi-fi is not answering». A kind rather than a sentence
+#: to compare against, because a caller that needs to tell this reply from a
+#: plain miss (``SourceChoice._never_searched``) was comparing the translated
+#: text, and any rewording — a room suffix, a second error message — would
+#: have quietly turned "nobody answered" into "nothing found".
+UNREACHABLE = "unreachable"
+
 # A blocklist reply is about the whole house — the store behind it is global —
 # so ``Router._tag`` must not splice a room into it. «Ok, ho bloccato Eminem in
 # Salotto» describes a per-room blocklist that does not exist, and the read-out
@@ -101,24 +108,23 @@ class ActionResult(str):
         # while the Italian frame is read by an Italian voice.
         obj.terms = [t for t in (terms or []) if t]
         # What this result CHOSE, for a caller that must not choose it again —
-        # «un'altra» (see engine/moods.py). Almost always the same string as
-        # the foreign name, so it defaults to it; not always, and the
-        # difference matters. A year is a choice and not a name in any
-        # language, and carrying it in `terms` to keep the ledger fed had the
-        # web client hand "1985" to a foreign voice mid-sentence.
+        # «un'altra» (see engine/moods.py). Defaults to the foreign name, and
+        # is not always it: a year is a choice and not a name in any language,
+        # and carrying "1985" in `terms` had the web client hand it to a
+        # foreign voice mid-sentence.
         obj.label = label if label is not None else (
             obj.terms[0] if obj.terms else None)
         # How to say this again with a source or room tag spliced in:
-        # ``(suffix) -> speech``, or None to let the caller put the tag at the
-        # end. Only a message with something AFTER the first sentence needs
-        # one, and only three have: the mood read-backs, which end by inviting
-        # «un'altra». ``Router._tag`` used to find that boundary by splitting
-        # on ". ", which is also what sits inside "Mr. Brightside" — so a tag
-        # landed in the middle of a title and the rest of it became a second
-        # sentence. The sentence knows where its own tag goes; nothing else
-        # can be made to.
+        # ``(suffix) -> speech``, or None to put the tag before the final full
+        # stop. Only a message with a SECOND sentence needs one; see
+        # ``moods._mood_result``, which is the only thing that builds one.
         obj.retag = retag
         return obj
+
+
+def unreachable() -> "ActionResult":
+    """The reply for a music server that did not answer (:data:`UNREACHABLE`)."""
+    return ActionResult(msg("err_unreachable"), ok=False, kind=UNREACHABLE)
 
 
 def _score(query: Optional[str], text: Optional[str], *,

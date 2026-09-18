@@ -204,3 +204,161 @@ def test_an_unreadable_certificate_is_left_where_it_is(make_cert, tmp_path):
     renew, why = make_cert._renewal_verdict(str(tmp_path), 30)
     assert renew is False
     assert "non lo tocco" in why
+
+
+# -- dove la CA locale può firmare ---------------------------------------------
+#
+# ca-key.pem sta nella directory da cui il server pubblica /ca.pem, quindi
+# viaggia in ogni backup di quella directory. Senza Name Constraints è una
+# chiave che firma per qualunque dominio verso tutti i dispositivi di casa che
+# hanno installato la CA (SEC-2). Questi test fissano il confine; che un
+# client lo applichi davvero è stato verificato con `openssl verify`, che
+# risponde «permitted subtree violation» per un nome fuori dai permessi.
+
+def _ca(path):
+    from cryptography import x509
+    with open(path, "rb") as f:
+        return x509.load_pem_x509_certificate(f.read())
+
+
+def test_the_ca_says_where_it_may_sign_and_says_it_critically(issued):
+    from cryptography import x509
+
+    ca = _ca(issued / "ca.pem")
+    ext = ca.extensions.get_extension_for_class(x509.NameConstraints)
+    assert ext.critical, "RFC 5280 la vuole critica, e un client che non la "\
+                         "legge deve rifiutare la CA invece di fidarsi"
+    names = [s.value for s in ext.value.permitted_subtrees
+             if isinstance(s, x509.DNSName)]
+    nets = [str(s.value) for s in ext.value.permitted_subtrees
+            if isinstance(s, x509.IPAddress)]
+    assert "local" in names and "localhost" in names
+    assert "192.168.0.0/16" in nets and "10.0.0.0/8" in nets
+    assert "0.0.0.0/0" not in nets
+
+
+def test_the_permitted_names_are_the_ones_the_server_answers_for(make_cert):
+    # La stessa lista di webguard._LOCAL_SUFFIXES: i nomi che risolvono solo
+    # su una LAN. Sono duplicati perché questo è un tool e il core non è sul
+    # suo path — quindi la parità la tiene questo test, non l'import.
+    sys.path.insert(0, os.path.join(ROOT, "localvoice"))
+    try:
+        import webguard
+    finally:
+        sys.path.pop(0)
+    local = {s.lstrip(".") for s in webguard._LOCAL_SUFFIXES}
+    assert local <= set(make_cert.CA_PERMITTED_SUFFIXES)
+
+
+def test_a_public_name_is_outside_what_the_ca_may_sign(make_cert, issued):
+    from cryptography import x509
+
+    ca = _ca(issued / "ca.pem")
+    sans = [x509.DNSName("nas.example.com"),
+            x509.IPAddress(__import__("ipaddress").ip_address("8.8.8.8"))]
+    assert make_cert.unsignable_sans(sans, ca) == ["nas.example.com", "8.8.8.8"]
+
+
+def test_what_the_house_actually_uses_is_inside_it(make_cert, issued):
+    from cryptography import x509
+    import ipaddress
+
+    ca = _ca(issued / "ca.pem")
+    sans = [x509.DNSName("localhost"), x509.DNSName("casa.local"),
+            x509.IPAddress(ipaddress.ip_address("192.168.1.50")),
+            x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+    assert make_cert.unsignable_sans(sans, ca) == []
+
+
+def test_a_name_asked_for_by_hand_is_permitted_when_the_ca_is_created(tmp_path):
+    # --hosts esiste perché gli indirizzi che i client usano non sono sempre
+    # quelli che questa macchina vede. Se la CA non potesse firmarli, il
+    # certificato sarebbe rifiutato proprio dai dispositivi che hanno fatto
+    # tutto il giro dell'installazione.
+    from cryptography import x509
+
+    proc = subprocess.run(
+        [sys.executable, "tools/make_cert.py", "--out", str(tmp_path),
+         "--hosts", "nas.example.com"],
+        cwd=ROOT, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-500:]
+    assert "Attenzione" not in proc.stdout
+    ca = _ca(tmp_path / "ca.pem")
+    ext = ca.extensions.get_extension_for_class(x509.NameConstraints)
+    assert x509.DNSName("nas.example.com") in ext.value.permitted_subtrees
+
+
+def test_an_address_the_ca_cannot_vouch_for_is_said_out_loud(own_copy):
+    # Emesso comunque — senza la CA installata funziona come sempre — ma
+    # detto, perché altrimenti si scopre da un handshake che non spiega
+    # niente.
+    (own_copy / "cert.pem").unlink()
+    (own_copy / "key.pem").unlink()
+    proc = subprocess.run(
+        [sys.executable, "tools/make_cert.py", "--out", str(own_copy),
+         "--hosts", "nas.example.com"],
+        cwd=ROOT, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-500:]
+    assert "non può firmare per nas.example.com" in proc.stdout
+    assert (own_copy / "cert.pem").exists()
+
+
+def test_a_ca_made_before_the_constraints_is_reported_not_replaced(make_cert,
+                                                                   own_copy):
+    """La CA è l'impronta che ogni telefono di casa ha installato: sostituirla
+    da sotto trasforma un lucchetto verde in un avviso, su tutti i dispositivi
+    insieme. Quindi si riusa e si dice; cancellare i due file è il modo in cui
+    un operatore chiede una CA nuova (DEPLOY.md).
+    """
+    unconstrained = _unconstrained_ca(own_copy)
+    assert make_cert.ca_is_constrained(unconstrained) is False
+    before = (own_copy / "ca.pem").read_bytes()
+    said = []
+    _cert, _key, created = make_cert._load_or_create_ca(
+        str(own_copy), warn=said.append)
+    assert created is False, "ha creato una CA nuova al posto di quella installata"
+    assert (own_copy / "ca.pem").read_bytes() == before, "ha sostituito la CA"
+    assert said and "Name Constraints" in said[0]
+    assert "cancella ca.pem e ca-key.pem" in said[0]
+
+
+def _unconstrained_ca(out_dir):
+    """A CA exactly like the ones this tool used to make: no constraints."""
+    import datetime as _dt
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,
+                                         "Vivavoce Local CA")])
+    now = _dt.datetime.now(_dt.timezone.utc)
+    cert = (x509.CertificateBuilder()
+            .subject_name(name).issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - _dt.timedelta(days=1))
+            .not_valid_after(now + _dt.timedelta(days=365))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0),
+                           critical=True)
+            .sign(key, hashes.SHA256()))
+    (out_dir / "ca.pem").write_bytes(
+        cert.public_bytes(serialization.Encoding.PEM))
+    (out_dir / "ca-key.pem").write_bytes(key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption()))
+    return cert
+
+
+def test_the_ca_no_longer_runs_to_2044(make_cert, issued):
+    # Era la finestra in cui una ca-key.pem trapelata resta creduta.
+    ca = _ca(issued / "ca.pem")
+    try:
+        expires = ca.not_valid_after_utc
+    except AttributeError:      # cryptography < 42
+        expires = ca.not_valid_after.replace(tzinfo=dt.timezone.utc)
+    years = (expires - dt.datetime.now(dt.timezone.utc)).days / 365.0
+    assert make_cert.CA_YEARS - 0.1 <= years <= make_cert.CA_YEARS + 0.1
+

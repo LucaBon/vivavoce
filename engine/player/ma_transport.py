@@ -23,9 +23,10 @@ import http.client
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List
 
-from .errors import PlayerError
+from .errors import (PlayerError, PlayerRefused, PlayerUnreachable,
+                     never_delivered)
 
 #: The port MusicAssistant serves its API and web interface on.
 DEFAULT_PORT = 8095
@@ -38,6 +39,20 @@ Transport = Callable[[Dict[str, Any]], Any]
 
 class MusicAssistantError(PlayerError):
     """Raised when MusicAssistant cannot be reached or refuses a command."""
+
+
+class MusicAssistantUnreachable(MusicAssistantError, PlayerUnreachable):
+    """MusicAssistant gave no answer (see ``player/errors.py``)."""
+
+
+class MusicAssistantRefused(MusicAssistantError, PlayerRefused):
+    """MusicAssistant answered, and it was an error or not what was asked."""
+
+
+#: Statuses that come from something standing in front of MusicAssistant
+#: rather than from it: a reverse proxy that could not reach it. That is
+#: silence wearing a status code, and it counts as silence.
+_GATEWAY_STATUSES = (502, 504)
 
 
 #: What the server's own error statuses mean, in words worth putting in a log.
@@ -79,11 +94,13 @@ def post(base_url: str, token: str, request: Dict[str, Any],
             payload = response.read()
     except urllib.error.HTTPError as exc:
         hint = _STATUS_HINTS.get(exc.code, "MusicAssistant returned an error")
-        raise MusicAssistantError(
-            f"{hint} ({exc.code}) for {request['command']}") from exc
+        kind = (MusicAssistantUnreachable if exc.code in _GATEWAY_STATUSES
+                else MusicAssistantRefused)
+        raise kind(f"{hint} ({exc.code}) for {request['command']}") from exc
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
-        raise MusicAssistantError(
-            f"MusicAssistant at {base_url} is not answering: {exc}") from exc
+        raise MusicAssistantUnreachable(
+            f"MusicAssistant at {base_url} is not answering: {exc}",
+            delivered=not never_delivered(exc)) from exc
     if not payload:
         # A command that returns nothing (every players/cmd/*) answers with an
         # empty body rather than a JSON null. Not an error, and not a result.
@@ -91,5 +108,69 @@ def post(base_url: str, token: str, request: Dict[str, Any],
     try:
         return json.loads(payload)
     except ValueError as exc:
-        raise MusicAssistantError(
+        raise MusicAssistantRefused(
             f"MusicAssistant sent something that is not JSON: {exc}") from exc
+
+
+class MusicAssistantCalls:
+    """How the client puts one command on the wire, and reads what comes back.
+
+    A mixin, next to the wire it speaks: ``_call`` goes through the client's
+    ``_guarded`` (breaker, budget, retry), and the rest are what that retry
+    and the callers need to know about MusicAssistant's commands — which ones
+    are safe to send twice, and what shape an answer has to have.
+    """
+
+    #: Commands that move from where the player is, or add to the queue: sent
+    #: twice after a lost reply, they skip two tracks or queue an album twice.
+    _NOT_REPEATABLE = frozenset({
+        "players/cmd/next", "players/cmd/previous",
+        "players/cmd/volume_up", "players/cmd/volume_down",
+    })
+
+    def _repeat_safe(self, request: Dict[str, Any]) -> bool:
+        command = request.get("command")
+        if command in self._NOT_REPEATABLE:
+            return False
+        if command == "player_queues/play_media":
+            # "replace" puts the same thing on the queue however often it is
+            # sent; "add" and "next" put it there again.
+            return (request.get("args") or {}).get("option") == "replace"
+        return True
+
+    def _dict(self, command: str, **args: Any) -> Dict[str, Any]:
+        """A command whose answer is an object: ``{}`` for nothing, and a
+        refusal for anything else. A JSON list where an object was expected
+        used to become «Errore interno: 'list' object has no attribute
+        'get'» three frames up, past every ``except PlayerError``."""
+        result = self._call(command, **args)
+        if result is None:
+            return {}
+        if not isinstance(result, dict):
+            raise MusicAssistantRefused(
+                f"{command} answered {type(result).__name__}, not an object")
+        return result
+
+    def _list(self, command: str, **args: Any) -> List[Dict[str, Any]]:
+        """A command whose answer is a list of objects: ``[]`` for nothing,
+        a refusal for a non-list, and any row that is not an object dropped —
+        one odd row is not a reason to lose the other nineteen."""
+        result = self._call(command, **args)
+        if result is None:
+            return []
+        if not isinstance(result, list):
+            raise MusicAssistantRefused(
+                f"{command} answered {type(result).__name__}, not a list")
+        return [row for row in result if isinstance(row, dict)]
+
+    def _call(self, command: str, **args: Any) -> Any:
+        """One command, behind the breaker and the turn budget.
+
+        Arguments that are ``None`` are dropped rather than sent: every
+        optional argument on the server has a default worth having, and
+        spelling it ``null`` overrides it with nothing.
+        """
+        return self._guarded({
+            "command": command,
+            "args": {k: v for k, v in args.items() if v is not None},
+        })

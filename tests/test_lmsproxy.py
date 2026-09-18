@@ -31,7 +31,8 @@ import pytest
 
 import lmsproxy
 
-from conftest import ELSEWHERE_MATERIAL_URL, FakeUpstream, UpstreamResponse
+from conftest import (DEFAULT_MATERIAL_URL, ELSEWHERE_MATERIAL_URL,
+                      FakeUpstream, UpstreamResponse)
 
 
 @pytest.fixture
@@ -204,6 +205,30 @@ def test_material_elsewhere_leaves_the_server_exactly_as_it_was(live_server,
     assert upstream.requests == []
 
 
+def test_an_address_from_the_setup_page_is_not_lent_this_origin(live_server,
+                                                                upstream):
+    """The finding this closes: ``POST /setup`` is unauthenticated, so while
+    the household is not controllable anything on the LAN can have an address
+    of its own adopted — and that address became the reverse proxy's target,
+    which serves HTML and JavaScript same-origin with the page. Now it is
+    the music server and nothing else.
+    """
+    srv = live_server(lms_from_page=True, proxy_open=upstream)
+    assert srv.try_get("/nope").status == 404
+    assert srv.try_get("/material/").status == 404
+    assert srv.try_post_json("/jsonrpc.js", {}).status == 404
+    assert upstream.requests == []
+
+
+def test_a_typed_address_still_opens_in_a_tab_of_its_own(live_server):
+    # Refusing the origin is not refusing the address: it is the hi-fi this
+    # household chose from the page, and the link at the bottom still opens
+    # it — in its own origin, which is the whole difference.
+    page = live_server(lms_from_page=True).get("/").text
+    assert 'browse: ""' in page
+    assert DEFAULT_MATERIAL_URL in page
+
+
 # -- what the page is told -----------------------------------------------------
 
 def test_the_page_learns_where_to_browse(live_server):
@@ -303,6 +328,44 @@ def test_a_redirect_somewhere_else_is_left_alone(live_server, upstream):
     srv = live_server(proxy_open=upstream)
     _, headers, _ = raw_get(srv, "/x")
     assert headers["Location"] == "https://tidal.com/auth"
+
+
+@pytest.mark.parametrize("sent", [
+    "http://lms.local:9000//evil.example/x",
+    # For http(s) the URL standard reads a backslash as a slash, so Chrome and
+    # Firefox resolve ``/\\/evil.example/x`` as the line above.
+    "http://lms.local:9000/\\/evil.example/x",
+])
+def test_a_redirect_cannot_become_protocol_relative(live_server, upstream, sent):
+    # ``http://lms:9000//elsewhere/x`` with the base cut off is
+    # ``//elsewhere/x``, which a browser reads as another host.
+    upstream.handler = _raiser(urllib.error.HTTPError(
+        "http://lms.local:9000/x", 302, "Found",
+        {"Location": sent, "Content-Length": "0"}, io.BytesIO(b"")))
+    srv = live_server(proxy_open=upstream)
+    _, headers, _ = raw_get(srv, "/x")
+    assert headers["Location"] == "/evil.example/x"
+
+
+@pytest.mark.parametrize("headers", [
+    {"Service-Worker": "script"},
+    {"Sec-Fetch-Dest": "serviceworker"},
+    {"Sec-Fetch-Dest": "sharedworker"},
+])
+def test_no_worker_is_registered_from_the_music_server(live_server, upstream,
+                                                       headers):
+    # A worker from a proxied script would sit in front of this whole origin,
+    # the app included, and outlive the page that registered it. Material
+    # Skin registers none.
+    srv = live_server(proxy_open=upstream)
+    status, _, _ = raw_get(srv, "/sw-evil.js", headers=headers)
+    assert status == 403
+    assert upstream.requests == []
+
+
+def test_nothing_relayed_gets_the_apps_microphone(proxied):
+    assert proxied.get("/material/").headers["Permissions-Policy"] == \
+        "microphone=()"
 
 
 def test_nothing_relayed_may_be_sniffed_past_its_type(proxied):

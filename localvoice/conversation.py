@@ -20,6 +20,7 @@ import contextlib
 import actions
 import moods
 from messages import msg
+from player.protocols import supports
 
 
 # How long a read-out list stays pickable. Without a clock on it, the list
@@ -53,6 +54,34 @@ OFFER_TTL = 300.0
 # straight over the question and the offer nobody answered would be gone before
 # it was read out. Same shape as ``actions.GATE``, same reason.
 OFFER = "offer"
+
+# The ``kind`` of «I am still on the phrase before this one» (see
+# :meth:`ConversationState._turn`). A kind and not a sentence to compare
+# against, like every other one here, and NOT ``actions.UNREACHABLE``: the
+# music server may be wide awake, and «non riesco a contattare l'impianto»
+# sends somebody to look at the hi-fi for what is this app's own queue.
+BUSY = "busy"
+
+
+class Busy(Exception):
+    """This conversation is already handling a turn (:meth:`_turn`)."""
+
+
+def busy() -> "actions.ActionResult":
+    """The reply that :class:`Busy` is answered with."""
+    return actions.ActionResult(msg("err_busy"), ok=False, kind=BUSY)
+
+
+def cannot(message: str) -> "actions.ActionResult":
+    """The reply for something this music system does not do.
+
+    ``kind=actions.GATE`` on purpose, which is the kind kid-safe and Pro use:
+    the turn is over, and it is over for a reason that has nothing to do with
+    the words. So ``handle_many`` stops trying recognition alternatives (a
+    better transcription will not make a speaker grow a catalogue) and
+    ``SourceChoice._never_searched`` leaves the sentence alone.
+    """
+    return actions.ActionResult(msg(message), ok=False, kind=actions.GATE)
 
 
 class ConversationState:
@@ -88,6 +117,51 @@ class ConversationState:
             yield
         finally:
             self._aim.lms = previous
+
+    @contextlib.contextmanager
+    def _turn(self):
+        """This conversation's turn: one at a time, and bounded once.
+
+        The lock is ``Router._turn_lock`` and the budget
+        ``Router.TURN_BUDGET``; they are taken together because they are the
+        same statement said twice — a turn is the unit of work, so it is also
+        the unit of exclusion and the unit of waiting.
+
+        **Bounded once, not once per call.** ``handle_many`` holds the turn
+        across one ``handle`` per recognition alternative, so this nests; and
+        ``turn_deadline`` keeps the tighter deadline, so the whole sweep
+        spends one turn's ten seconds between its alternatives instead of ten
+        seconds each. Four alternatives over two rounds used to be eighty.
+
+        **And the wait is bounded too.** A request that cannot have the
+        conversation within one budget is answered (:class:`Busy`) rather than
+        queued behind it: the threads that would queue are the server's, there
+        are 128 of them (``httpbase.MAX_CONCURRENT_REQUESTS``) and past that
+        it stops answering anybody — an unbounded queue on a route nothing
+        authenticates is a way to fill them all with one client id.
+        """
+        if not self._turn_lock.acquire(timeout=self.TURN_BUDGET):
+            raise Busy()
+        try:
+            with self._base_lms.turn_deadline(self.TURN_BUDGET):
+                yield
+        finally:
+            self._turn_lock.release()
+
+    def _unable(self, *capabilities: str, say: str):
+        """The reply that says this system cannot, or ``None`` when it can.
+
+        ``capabilities`` is an *any-of*: a mood wants genres or years and is
+        happy with either. Used as ``return self._unable(...) or <the real
+        thing>``, which reads as "unless it cannot, do it".
+
+        Asked of ``self.lms``, which is the client aimed at this turn — a room
+        turn aims it elsewhere, and «in cucina» could in principle be a system
+        that can do less than the default one.
+        """
+        if any(supports(self.lms, name) for name in capabilities):
+            return None
+        return cannot(say)
 
     def _expire_candidates(self) -> None:
         """Forget a list nobody picked from in time (see CANDIDATES_TTL)."""
@@ -133,7 +207,17 @@ class ConversationState:
         run, self.offer = self.offer, None
         if not yes:
             return actions.ActionResult(msg("offer_declined"), ok=True)
-        return run()
+        # The question was asked about a room («metti Time in cucina» with
+        # TIDAL logged out), and this turn does not name one: the answer
+        # belongs where the question was, not on the default player. The
+        # callable reads ``self.lms``, so aiming the thread is what carries
+        # it — the same mechanism a room turn itself uses.
+        player = self.offer_player
+        if not player or self._room_turn:
+            return run()
+        with self._aimed_at(player[0]):
+            result = run()
+        return self._tag(result, msg("in_room", room=player[1]))
 
     def _settle_offer(self, result) -> None:
         """Record, for the next turn, whether the question is still open.
@@ -192,6 +276,24 @@ class ConversationState:
             self.mood = None
         return self._tag(res, room_suffix)
 
+    def _pick_client(self):
+        """``(client, room suffix)`` for acting on a pick from the open list.
+
+        Aimed where the list came from, twice over. At the room it was read
+        out for (unless this very turn names another one — then ``self.lms``
+        already points there and tagging is the caller's job). And at the
+        service that produced it: a Spotify row is an ``item_id`` only Spotify
+        can resolve, and resolved against the default service it came back
+        None and went out as ``playlist play None``.
+        """
+        lms, room_suffix = self.lms, ""
+        if self.cand_player and not self._room_turn:
+            lms = lms.for_player(self.cand_player[0])
+            room_suffix = msg("in_room", room=self.cand_player[1])
+        if self.cand_source in self.services:
+            lms = lms.for_service(self.cand_source)
+        return lms, room_suffix
+
     def _used_list(self) -> None:
         """A pick was acted on: the list has done its job. Kept alive for a
         short grace window so the choice buttons still on screen keep working,
@@ -205,9 +307,17 @@ class ConversationState:
         self._opened = True
 
     def _remember(self, result: dict, src=None) -> str:
-        self.candidates = result["candidates"] or None
-        self._opened = bool(self.candidates)
-        if self.candidates:
+        """Open the list ``result`` carries, if it carries one.
+
+        A list that is empty leaves the open one alone, exactly as ``_played``
+        does: ``handle_many`` replays the turn once per recognition
+        alternative, and a badly transcribed one that opens nothing must not
+        take away the list the next alternative is about to pick from.
+        """
+        candidates = result["candidates"] or None
+        self._opened = bool(candidates)
+        if candidates:
+            self.candidates = candidates
             # these lists are always meant to be played
             self._open_list(src, "play")
         return result["speech"]

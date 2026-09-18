@@ -39,7 +39,13 @@ export function buildSourceOptions() {
   const cur = sel.value || localStorage.getItem("source") || "auto";
   const opts = [["auto", ui("src_auto")], ["local", ui("src_local")]]
     .concat(SERVICES.map(s => [s, ui("src_only") + (SERVICE_LABELS[s] || s)]));
-  sel.innerHTML = opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+  // Built as nodes, not markup: the labels come from the music server.
+  sel.replaceChildren(...opts.map(([v, n]) => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = n;
+    return o;
+  }));
   // A saved service that is no longer offered falls back to auto.
   sel.value = opts.some(([v]) => v === cur) ? cur : "auto";
   sel.onchange = () => localStorage.setItem("source", sel.value);

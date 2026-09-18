@@ -14,7 +14,9 @@ import pytest
 
 from player import PlayerError
 from player import audiobookshelf
-from player.audiobookshelf import AudiobookshelfClient, AudiobookshelfError
+from player.audiobookshelf import (AudiobookshelfClient, AudiobookshelfError,
+                                   AudiobookshelfRefused,
+                                   AudiobookshelfUnreachable)
 
 BASE = "http://books.local:13378"
 KEY = "k3y/with+odd=chars"
@@ -259,3 +261,89 @@ def test_a_body_that_is_not_json_is_an_error(monkeypatch):
                         lambda request, timeout: _Response(b"<html>login</html>"))
     with pytest.raises(AudiobookshelfError, match="not JSON"):
         audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+
+
+# -- silence and refusal are not the same thing --------------------------------
+
+@pytest.mark.parametrize("code, kind", [
+    (401, AudiobookshelfRefused), (403, AudiobookshelfRefused),
+    (404, AudiobookshelfRefused), (502, AudiobookshelfUnreachable),
+    (504, AudiobookshelfUnreachable),
+])
+def test_an_error_status_is_an_answer_unless_a_gateway_sent_it(monkeypatch,
+                                                               code, kind):
+    def urlopen(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, code, "no", {}, None)
+
+    monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
+    with pytest.raises(kind):
+        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+
+
+def test_a_refused_connection_never_reached_the_shelf(monkeypatch):
+    def urlopen(request, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError(111, "no"))
+
+    monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
+    with pytest.raises(AudiobookshelfUnreachable) as exc:
+        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+    assert exc.value.delivered is False
+
+
+def test_a_timeout_may_have_been_delivered(monkeypatch):
+    # Not a certainty either way, so the cautious reading: the request may
+    # have been carried out, and only what is safe to repeat is repeated.
+    def urlopen(request, timeout):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
+    with pytest.raises(AudiobookshelfUnreachable) as exc:
+        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+    assert exc.value.delivered is True
+
+
+def test_an_expired_key_does_not_shut_the_breaker_on_the_shelf(shelf):
+    """The whole point of the two kinds: a key that expired answers 401, and
+    three of those used to stop the client dialling for fifteen seconds — so
+    a shelf that is plainly awake became "not answering" for every request
+    after the third.
+    """
+    calls = []
+
+    def refusing(request):
+        calls.append(request)
+        raise AudiobookshelfRefused("Audiobookshelf refused the API key")
+
+    shelf._transport = refusing
+    for _ in range(5):
+        with pytest.raises(AudiobookshelfError):
+            shelf.book_libraries()
+    assert shelf._breaker.open_for() == 0
+    assert len(calls) == 5      # each one asked once, and never twice
+
+
+def test_every_request_a_shelf_makes_is_safe_to_repeat(shelf):
+    # A GET of the catalogue and nothing else, so a lost reply is worth
+    # asking about again — see AudiobookshelfClient._repeat_safe.
+    for path in ("/api/libraries", "/api/libraries/lib-a/search",
+                 "/api/items/abc"):
+        assert shelf._repeat_safe({"path": path, "query": {}}) is True
+
+
+def test_a_lost_reply_is_asked_for_again(shelf):
+    """And the retry is the reason it matters: one dropped packet on a
+    read-only GET must not become «l'impianto non risponde».
+    """
+    calls = []
+    libraries = LIBRARIES
+
+    def flaky(request):
+        calls.append(request)
+        if len(calls) == 1:
+            raise AudiobookshelfUnreachable("dropped")
+        return libraries
+
+    shelf._transport = flaky
+    assert shelf.book_libraries()
+    assert len(calls) == 2
+

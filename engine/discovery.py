@@ -57,9 +57,16 @@ def _server_from(data: bytes, ip: str) -> Optional[Dict[str, str]]:
 
 
 def base_url(server: Dict[str, str]) -> str:
-    """The HTTP base URL of a discovered server record."""
-    port = server.get("JSON") or "9000"
-    return f"http://{server['ip']}:{port}"
+    """The HTTP base URL of a discovered server record.
+
+    The port is whatever a UDP reply said, and anything on the LAN can reply.
+    It becomes an address that is remembered and written into the page, so a
+    value that is not a port is not believed: the LMS default instead.
+    """
+    port = (server.get("JSON") or "").strip()
+    if not (port.isdigit() and 0 < int(port) < 65536):
+        port = "9000"
+    return f"http://{server['ip']}:{int(port)}"
 
 
 def discover(timeout: float = 2.0, port: int = DISCOVERY_PORT) -> List[Dict[str, str]]:

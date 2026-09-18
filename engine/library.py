@@ -18,7 +18,7 @@ from candidates import _dispatch_play
 from guard import Guard, is_blocked_item
 from matching import (GATE, LIST_LIMIT, LOCAL_CONFIDENT, ActionResult,
                       _MODE_SUFFIX, _dedup_by_title_artist, _did_you_mean,
-                      _score, _strip_lead_filler)
+                      _score, _strip_lead_filler, unreachable)
 from messages import msg
 from player.errors import PlayerError
 from player.protocols import service_label
@@ -177,7 +177,7 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
         )
         return ActionResult(speech, ok=True, terms=[item["title"]])
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
 
 
 def play_local_artist(lms, query: Optional[str], *,
@@ -219,7 +219,7 @@ def play_local_artist(lms, query: Optional[str], *,
         return ActionResult(msg("playing_local", title=item["title"]),
                             ok=True, terms=[item["title"]])
     except PlayerError:
-        return ActionResult(msg("err_unreachable"), ok=False)
+        return unreachable()
 
 
 def local_albums_list(
@@ -237,7 +237,7 @@ def local_albums_list(
     try:
         result = lms.local_albums_by_artist(artist)
     except PlayerError:
-        return {"speech": ActionResult(msg("err_unreachable"), ok=False),
+        return {"speech": unreachable(),
                 "candidates": []}
     if not result["artist"]:
         return {"speech": ActionResult(msg("local_no_artist", artist=artist), ok=False),

@@ -5,6 +5,13 @@
 # spegne per sicurezza la ri-validazione della licenza: i test iniettano già
 # un http_post finto, questa è la cintura oltre alle bretelle.
 #
+# Le action sono fissate al SHA del commit, con il tag nel commento accanto.
+# Un tag come `@v7` si sposta, e chi lo sposta esegue codice in questa CI; il
+# SHA no. Il commento serve a due cose: si legge quale versione è, e
+# l'annotazione «Node.js 20 is deprecated» continua a nominare l'action, così
+# il trucco descritto qui sotto funziona come prima. Per alzarne una:
+#   gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+#
 # Le action girano su Node 24: dal 16 giugno 2026 i runner ci forzano sopra
 # tutto comunque, e finché una sola pin resta indietro il job stampa
 # l'annotazione «Node.js 20 is deprecated» — che elenca i colpevoli, ed è il
@@ -31,6 +38,12 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Il minimo, per tutti i job: nessuno di questi ha bisogno di scrivere
+# niente nel repo. Chi serve di piu' lo dice da se' (il job dell'immagine
+# in release.yml chiede packages: write per la ghcr).
+permissions:
+  contents: read
 
 env:
   VIVAVOCE_NO_REVALIDATE: "1"
@@ -61,10 +74,10 @@ jobs:
           - os: ubuntu-24.04-arm
             python: "3.13"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
 
@@ -78,10 +91,10 @@ jobs:
     name: e2e (chromium)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
 
@@ -144,10 +157,10 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: aarch64
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
 
@@ -167,7 +180,7 @@ jobs:
       # fires, with no error anywhere. Only a real model catches that.
       - name: Cache the Vosk model
         id: vosk-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: vosk-ci/vosk-models
           key: vosk-model-small-it-0.22
@@ -214,10 +227,10 @@ jobs:
     name: free-phrase wake word (macOS)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
 
@@ -255,7 +268,7 @@ jobs:
       # then detect at 0% with no error anywhere.
       - name: Cache the Vosk model
         id: vosk-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: vosk-ci/vosk-models
           key: vosk-model-small-it-0.22-macos
@@ -302,10 +315,10 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: aarch64
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
 
@@ -345,10 +358,10 @@ jobs:
     name: sanity checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
 
@@ -391,15 +404,15 @@ jobs:
               ASR=0
               WAKEWORD_VOSK=1
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4
 
       # Nessun push, nessun segreto: serve solo a scoprire una COPY che punta
       # a un file spostato (cosa che la suite Python non può vedere) e un pin
       # opzionale che non si installa più.
       - name: Build the image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7
         with:
           context: .
           push: false
@@ -413,7 +426,7 @@ jobs:
     outputs:
       legs: ${{ steps.legs.outputs.legs }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       # Il fatto vive in ha-addon/config.yaml e ha-addon/build.yaml, e questo
       # lo legge: aggiungere un'architettura all'app è una riga in ognuno di
@@ -436,7 +449,7 @@ jobs:
         include: ${{ fromJSON(needs.addon-matrix.outputs.legs) }}
     steps:
       # I tag servono: il passo qui sotto sceglie da quale costruire.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
 
@@ -450,8 +463,8 @@ jobs:
       # esiste, quindi vale la pena dirlo: se un giorno questa immagine
       # dovesse compilare qualcosa, la strada è ubuntu-24.04-arm per la gamba
       # aarch64, non una build QEMU più lunga.
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4
 
       # BUILD_VERSION è l'ULTIMO TAG CHE ESISTE, non la versione dichiarata in
       # config.yaml, ed è l'unica cosa che questo job fa diversamente dal suo

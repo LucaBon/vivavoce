@@ -47,7 +47,8 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional
 
-from .errors import PlayerError
+from .errors import (PlayerError, PlayerRefused, PlayerUnreachable,
+                     never_delivered)
 from .resilience import Resilient
 
 #: The port Audiobookshelf listens on out of the box (its Docker image maps
@@ -62,6 +63,21 @@ class AudiobookshelfError(PlayerError):
     """Raised when Audiobookshelf cannot be reached or refuses a request."""
 
 
+class AudiobookshelfUnreachable(AudiobookshelfError, PlayerUnreachable):
+    """Audiobookshelf gave no answer (see ``player/errors.py``)."""
+
+
+class AudiobookshelfRefused(AudiobookshelfError, PlayerRefused):
+    """Audiobookshelf answered, and it was a refusal or not what was asked."""
+
+
+#: Statuses that come from whatever stands in front of Audiobookshelf rather
+#: than from it. Not a hypothetical here: this client is written for a server
+#: reached through a reverse proxy (see the module docstring), and a proxy
+#: that cannot reach it is silence wearing a status code.
+_GATEWAY_STATUSES = (502, 504)
+
+
 #: What the server's own refusals mean, in words worth putting in a log.
 _STATUS_HINTS = {
     401: "Audiobookshelf refused the API key",
@@ -74,9 +90,12 @@ def get(base_url: str, token: str, request: Dict[str, Any],
         timeout: float) -> Any:
     """One ``GET``, and its body as JSON.
 
-    Every failure becomes an :class:`AudiobookshelfError`, the refusals the
-    server states politely included: from here up "the bookshelf did not
-    answer" is one outcome, and the detail is for the log.
+    Every failure is an :class:`AudiobookshelfError`, because from the engine
+    up "the bookshelf did not answer" is one outcome and the detail is for
+    the log. The client itself does care which it was, in the two ways
+    ``player/resilience.py`` describes: a refused key is proof the server is
+    there, and a reply that never came may still have been acted on. So the
+    two kinds are told apart here, where the difference is visible.
     """
     query = {k: v for k, v in (request.get("query") or {}).items()
              if v is not None}
@@ -91,23 +110,28 @@ def get(base_url: str, token: str, request: Dict[str, Any],
             payload = response.read()
     except urllib.error.HTTPError as exc:
         hint = _STATUS_HINTS.get(exc.code, "Audiobookshelf returned an error")
-        raise AudiobookshelfError(
-            f"{hint} ({exc.code}) for {request['path']}") from exc
+        kind = (AudiobookshelfUnreachable if exc.code in _GATEWAY_STATUSES
+                else AudiobookshelfRefused)
+        raise kind(f"{hint} ({exc.code}) for {request['path']}") from exc
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
-        raise AudiobookshelfError(
-            f"Audiobookshelf at {base_url} is not answering: {exc}") from exc
+        raise AudiobookshelfUnreachable(
+            f"Audiobookshelf at {base_url} is not answering: {exc}",
+            delivered=not never_delivered(exc)) from exc
     try:
         return json.loads(payload)
     except ValueError as exc:
-        raise AudiobookshelfError(
+        raise AudiobookshelfRefused(
             f"Audiobookshelf sent something that is not JSON: {exc}") from exc
 
 
 class AudiobookshelfClient(Resilient):
     """One Audiobookshelf server, as the books its API key may read."""
 
-    #: Every round trip fails as this, breaker and turn budget included.
+    #: Every round trip fails as this, breaker and turn budget included,
+    #: and as one of its two kinds where the wire says which (see above).
     error = AudiobookshelfError
+    unreachable = AudiobookshelfUnreachable
+    refused = AudiobookshelfRefused
 
     #: How this catalogue is spelled in a reply that names it — see
     #: ``player.protocols.system_label``.
@@ -127,6 +151,18 @@ class AudiobookshelfClient(Resilient):
 
     def _http_transport(self, request: Dict[str, Any]) -> Any:
         return get(self.base_url, self.token, request, self._call_timeout())
+
+    def _repeat_safe(self, request: Dict[str, Any]) -> bool:
+        """Every request this client makes is a ``GET`` of the catalogue.
+
+        There is nothing here that sending twice could do twice: no queue to
+        append to, no volume to step. A shelf is read, and the books on it
+        are played by whatever backend the engine was handed
+        (``player/composite.py``). So a reply that went missing is always
+        worth asking for again — which is the difference between one dropped
+        packet and «l'impianto non risponde».
+        """
+        return True
 
     def _get(self, path: str, **query: Any) -> Any:
         return self._guarded({"path": path, "query": query})

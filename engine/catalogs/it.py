@@ -12,6 +12,24 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.",
+    "err_busy":
+        "Sto ancora rispondendo alla frase precedente. Riprova tra poco.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "Questo impianto non sa cercare la musica: posso comandare quello "
+        "che sta suonando.",
+    "no_local_library": "Questo impianto non ha una libreria locale.",
+    "no_favorites": "Questo impianto non tiene preferiti.",
+    "no_moods": "Questo impianto non sa sfogliare per genere o per anno.",
+    "no_sleep_timer": "Questo impianto non ha un timer di spegnimento.",
+    "no_rooms":
+        "Questo impianto ha un solo lettore, quindi non posso scegliere la "
+        "stanza.",
+
     "blocked":
         "Questa canzone c'è, ma è nella lista dei brani bloccati, quindi non "
         "posso metterla.",
@@ -40,6 +58,7 @@ MESSAGES = {
         "Quello che ho di {query} nella tua musica arriva da {service}, che "
         "non \u00e8 collegato.",
     "service_not_connected": "{service} non \u00e8 collegato.",
+    "player_not_connected": "Il lettore non risponde: \u00e8 spento o scollegato.",
     "offer_play_from": "Vuoi che la metta da {service}?",
     # The two buttons the web app puts under an offer, and the words it
     # sends when one is tapped: they have to be answers the language pack's

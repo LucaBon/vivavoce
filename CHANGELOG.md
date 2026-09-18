@@ -23,6 +23,30 @@
   Audiobookshelf che può solo ascoltare. Un Audiobookshelf spento all'avvio
   non ferma l'app: la musica non c'entra.
 
+### Internal
+
+- **Il motore chiede all'impianto cosa sa fare, prima di offrirlo.** La
+  tabella delle capacità la dichiarava ogni backend e non la leggeva nessuno:
+  un impianto con gli altoparlanti e nessun catalogo avrebbe risposto a
+  «metti Time» con un errore interno, che all'ascoltatore arriva come «non
+  riesco a contattare l'impianto» — una bugia su un impianto che risponde
+  benissimo. Ora ogni ramo che offre qualcosa chiede prima, e quello che
+  l'impianto non sa fare lo dice in tutte e cinque le lingue: cercare, la
+  libreria locale, i preferiti, i generi e gli anni, il timer, le stanze. Con
+  LMS e Music Assistant non cambia nulla — sanno fare tutto — ed è il
+  presupposto per aggiungerne uno che sa fare meno.
+
+- **`engine/lms.py` non è più un file da 1317 righe.** Era l'unico esentato
+  dalla regola che questo repo dà a se stesso — 400 righe per file — e
+  l'esenzione era lì da quando la regola è nata. Ora il client LMS è sei file:
+  il client (il filo, i cloni per servizio e per stanza, l'elenco dei player),
+  la tabella dei servizi, e un mixin per ciascuna delle quattro cose che quel
+  client sa fare — camminare il feed di un plugin, chiedergli un catalogo,
+  leggere il disco locale, comandare la riproduzione. Nessun comportamento
+  cambia: `LMSClient` ha esattamente gli stessi metodi con le stesse firme, e
+  ogni nome che si importava da `lms` si importa ancora. La lista delle
+  esenzioni è vuota, e un test la tiene vuota.
+
 ### Fixed
 
 - **Un elenco aperto non si mangia più la richiesta dopo.** «Quali brani dei
@@ -128,6 +152,242 @@
   lo legge chi può farci qualcosa, e la risposta porta una parola sola. Anche
   l'errore interno di `/api/v1/command` finisce finalmente nel log: prima non
   ce n'era traccia da nessuna parte.
+
+- **Il modello della parola chiave viene verificato prima di essere usato.**
+  Di un download da ~50 MB si controllava solo che lo zip si aprisse e
+  contenesse una cartella col nome giusto: qualunque archivio che rispondesse
+  sì diventava il modello con cui la casa ascolta. Ora di ogni modello sono
+  fissate dimensione e impronta SHA-256 (calcolate una volta e verificate
+  contro l'MD5 e la dimensione che upstream pubblica), il download si ferma
+  se supera il previsto invece di riempire il disco, e un archivio che
+  dichiara di scompattarsi in più di 1 GB viene rifiutato prima di scrivere
+  un byte. Anche il modello di riconoscimento vocale è fissato a una
+  revisione precisa invece di «quello che c'è oggi».
+
+- **I token non passano più dalla riga di comando** del processo, che è
+  leggibile da chiunque possa fare `ps` e finisce nei dump di debug. Arrivano
+  dall'ambiente, dove già stavano.
+
+- **L'unità systemd gira con un utente suo e il disco in sola lettura.**
+  `NoNewPrivileges`, `ProtectSystem=strict` e un elenco esplicito di ciò che
+  il servizio può scrivere. **Chi installa o reinstalla l'unità deve creare
+  l'utente prima** — i due comandi sono in DEPLOY.md; un'installazione già in
+  funzione continua a girare con la sua unità attuale finché non la sostituisce.
+
+- **La catena di costruzione è fissata.** L'immagine Docker parte da un digest
+  e non da un'etichetta che si muove, installa versioni esatte invece di
+  «l'ultima di oggi», e le action della CI sono fissate al commit con il tag
+  nel commento accanto. Nessun job ha più il permesso di scrivere nel
+  repository, tranne quello che pubblica l'immagine.
+
+- **Una porta esposta su internet non consegna più l'impianto a chi la
+  trova.** L'app non ha account né password, per progetto: è sulla rete di
+  casa e risponde a chi chiede. Ma tutte le difese che aveva guardavano *da
+  quale pagina* arrivava la richiesta, e nessuna sa distinguere il telefono
+  sul divano da uno scanner che ha trovato una porta aperta sul router — con
+  un port forward il `Host` è quello che manda il router, e un client che non
+  è un browser non manda né `Origin` né `Sec-Fetch-Site`. Ora una connessione
+  che non arriva da un indirizzo di casa viene rifiutata prima di essere
+  servita: niente musica, niente PIN di kid-safe, e niente pannello di
+  Material — da cui si installano i plugin dell'LMS. Contano come casa gli
+  indirizzi privati, loopback, link-local e `100.64/10`, che è quello che usa
+  Tailscale: raggiungere il proprio impianto da fuori con una VPN continua a
+  funzionare senza configurare niente. Chi espone la porta di proposito lo
+  dice con `--allow-public-peers`, e allora ha `--api-token` da mettere
+  davanti a `/api/v1` e al proxy. DEPLOY.md spiega perché usarli insieme.
+
+- **Le sessioni della parola chiave lato server hanno un tetto.** La pulizia
+  delle sessioni inattive era un orologio, non un limite: entro i due minuti
+  di attesa, un chiamante che invent(av)a un identificativo per richiesta
+  otteneva un riconoscitore per richiesta, e l'identificativo arriva dalla
+  richiesta stessa. Ora sono al massimo 32 e la più vecchia lascia il posto.
+
+- **La CA locale non può più firmare per qualunque sito.** Installare
+  `ca.pem` su un telefono significa che quel telefono crede a chi possiede
+  `ca-key.pem` — e quella chiave sta accanto a `ca.pem`, cioè dentro `/data`,
+  cioè in ogni backup. Finora poteva firmare un certificato per *qualsiasi*
+  dominio, quindi una copia della chiave bastava a mettersi in mezzo fra i
+  dispositivi di casa e il resto del web. Ora il certificato dichiara dove si
+  ferma: solo indirizzi privati e nomi locali (`.local`, `.lan`,
+  `.home.arpa`…), e vale dieci anni invece che fino al 2044. Una CA creata
+  dalle versioni precedenti viene segnalata a ogni avvio e **non** sostituita
+  da sola — l'impronta è quella che ogni telefono ha installato; in DEPLOY.md
+  ci sono i tre comandi per cambiarla quando fa comodo, e fino ad allora
+  tutto continua a funzionare come prima.
+
+- **Un indirizzo scritto nella pagina di configurazione non presta più
+  l'indirizzo dell'app.** Quella casella non risponde solo a chi guarda la
+  pagina: risponde a qualunque dispositivo della rete di casa. Finché
+  l'impianto non risponde, un indirizzo mandato lì veniva adottato — e
+  diventava anche il bersaglio del proxy che apre il pannello di Material
+  dentro la pagina, cioè quell'indirizzo poteva servire pagine e codice
+  *sotto l'indirizzo dell'app*, con tutto quello che la pagina è autorizzata
+  a fare. Ora un indirizzo che arriva da lì è il server musicale e nient'
+  altro: il pannello dentro la pagina non si apre per lui — il link in fondo
+  alla pagina sì, in una scheda sua, come ha sempre fatto — e da dove viene
+  l'indirizzo si ricorda insieme all'indirizzo, così al riavvio quello
+  scritto a mano non torna a sembrare quello trovato sulla rete.
+
+- **Una chiave scaduta di Audiobookshelf non spegne più la libreria.** Il
+  cliente della libreria parlata ereditava il breaker e il retry senza saper
+  distinguere un silenzio da un rifiuto: tre risposte «chiave non valida»
+  (401) e per quindici secondi non veniva più contattato, quindi anche una
+  ricerca che avrebbe funzionato rispondeva che la libreria non risponde. Ora
+  un rifiuto conta come prova che il server c'è, ed è invece una richiesta
+  persa a essere rifatta — la libreria si legge e non si comanda, quindi
+  chiederle due volte la stessa cosa non fa niente due volte.
+
+- **Due frasi dette insieme non si mescolano più.** Tutte le richieste di una
+  stessa conversazione condividono un router — due schede del browser con lo
+  stesso identificativo, oppure ogni comando di Home Assistant che non nomina
+  un dispositivo — e ognuna ci scriveva lo stato del proprio turno mentre
+  aspettava il server musicale. Una frase poteva tornare con i dati dell'altra:
+  il pulsante «segnala questa frase» offerto a chi era stato capito benissimo,
+  o un elenco sparito a metà scelta. Ora i turni di una conversazione vanno in
+  fila, e la fila ha un limite: chi non riesce ad avere la conversazione entro
+  i dieci secondi concessi a una frase risponde «sto ancora rispondendo alla
+  frase precedente» invece di restare in attesa. Restare in attesa senza
+  limite occupa un thread del server, e i thread sono 128: bastava
+  un'automazione che ripete lo stesso comando per non far più rispondere
+  nessuno. Le più letture che il riconoscitore dà della stessa frase, poi,
+  contano come un turno solo anche per il tempo — dieci secondi in tutto, non
+  dieci per lettura.
+
+- **«Sì» suona dove è stata fatta la domanda.** «Metti Time da TIDAL in
+  cucina», con TIDAL scollegato, chiede «Vuoi che la metta da Qobuz?» — e il
+  «sì» faceva partire la musica sul player predefinito, non in cucina.
+
+- **Un'alternativa mal trascritta non chiude più l'elenco aperto.** Il
+  riconoscitore dà più letture della stessa frase e il router le prova in
+  ordine: una lettura che non apriva nessun elenco cancellava quello aperto,
+  così la lettura giusta subito dopo rispondeva «non c'è nessun elenco aperto».
+
+- **Una risposta non parla più la lingua della richiesta precedente.** Sulla
+  stessa connessione riutilizzata, una richiesta in inglese lasciava la lingua
+  impostata per quella dopo: il pannello kid-safe rispondeva in inglese a chi
+  stava usando l'app in italiano. Dietro un proxy che riusa le connessioni —
+  l'ingress di Home Assistant — la richiesta precedente può essere di un altro.
+
+- **Un server che dice «no» non è un server spento.** Dopo tre errori di fila
+  il client smette per 15 secondi di contattare il server musicale, così un
+  impianto spento non costa un timeout a ogni frase. Ma contava come «spento»
+  qualunque errore: un token di Music Assistant scaduto, oppure tre ricerche
+  lente dentro il tempo concesso a una frase, e per 15 secondi anche «pausa»
+  rispondeva «Non riesco a contattare l'impianto» con il server perfettamente
+  acceso. Ora contano solo i silenzi veri: un rifiuto (401, 403, una risposta
+  che non ha senso) dimostra che il server c'è, e un timeout accorciato perché
+  la frase aveva già speso il suo tempo dice che la frase era lenta.
+
+- **Un comando non viene più eseguito due volte.** Se la risposta si perdeva
+  dopo che il server aveva già eseguito il comando, il client lo ritentava:
+  «alza il volume» saliva di due scatti, «prossima» saltava due brani, un album
+  finiva in coda due volte. Ora si ritenta sempre solo ciò che non è mai
+  partito (connessione rifiutata) e, se la richiesta potrebbe essere arrivata,
+  solo i comandi che ripetuti non cambiano niente.
+
+- **Una risposta malformata di Music Assistant non è più un «Errore interno».**
+  Un JSON della forma sbagliata — una lista dove serviva un oggetto — sfuggiva
+  a ogni controllo e arrivava all'utente come «Errore interno: 'str' object has
+  no attribute 'get'». Ora è un rifiuto come gli altri, e una riga strana in un
+  elenco viene scartata senza perdere le altre.
+
+- **Music Assistant suona i brani della tua libreria.** Con la sorgente «auto»
+  la libreria locale viene interrogata per prima, e un brano trovato lì
+  rispondeva «Errore interno: 'id'»: il motore suona un candidato locale per
+  id, e la riga del brano su Music Assistant non ne aveva uno. Succedeva con
+  ogni titolo che la libreria conteneva.
+
+- **Scegliere da un elenco di Spotify suona il brano scelto.** Con TIDAL come
+  servizio predefinito, «quali brani dei Pink Floyd» su Spotify e poi «metti la
+  2» chiedevano l'indirizzo del brano a TIDAL, che non lo conosce: all'impianto
+  arrivava `playlist play None`, e la risposta diceva comunque «Riproduco».
+  Ora la scelta va al servizio da cui è venuto l'elenco, e se un brano non si
+  risolve in niente non si manda nulla e lo si dice.
+
+- **Kid-safe riconosce l'artista di un album.** «Metti l'album The Marshall
+  Mathers LP» con Eminem bloccato suonava: su Spotify il nome «… by Eminem»
+  veniva ripulito del suo artista, e su Music Assistant l'artista non veniva
+  proprio letto. Ora l'album porta con sé il suo artista, e il blocco lo vede.
+
+- **Un brano da un album di Spotify suona quel brano.** «Metti Time dall'album
+  The Dark Side of the Moon» suonava l'album intero: le tracce di un album
+  Spotify non hanno un indirizzo diretto e venivano scartate, esattamente come
+  capitava alle tracce di un artista prima che si imparasse a risolverle.
+
+- **La pagina non si fida più di ciò che non ha scritto lei.** Quattro strade
+  per cui testo arrivato dalla rete finiva nella pagina come codice, o
+  l'impianto si ritrovava con più di quanto gli era stato chiesto:
+
+  - la porta annunciata da una risposta UDP della discovery — a cui può
+    rispondere qualunque dispositivo della rete — finiva così com'era
+    nell'indirizzo ricordato e nel link a Material. Ora una porta che non è
+    un numero tra 1 e 65535 non viene creduta, l'indirizzo ricordato ripassa
+    dalla stessa verifica di uno scritto a mano, e il link viene sempre
+    codificato per l'attributo in cui finisce;
+  - i nomi dei servizi arrivano dal server musicale: nello script della
+    pagina un `</script>` dentro un nome ne usciva, e il menu delle sorgenti
+    li inseriva come HTML. Ora lo script li riceve con ogni `<` codificato e
+    il menu li scrive come testo;
+  - la copertina di una radio o di un plugin veniva letta per intero prima di
+    guardarne il tipo, e un flusso annunciato come copertina finiva tutto in
+    memoria a ogni aggiornamento del «in riproduzione». Ora il tipo si
+    controlla prima di leggere, e più di 5 MB non si legge;
+  - attraverso il pannello di Material, uno script servito dal server
+    musicale poteva registrarsi come service worker davanti all'intera app.
+    Il proxy non lo inoltra più (Material non ne usa), non concede il
+    microfono a ciò che serve, e non trasforma un redirect in un indirizzo
+    che porta su un altro host.
+
+  La pagina dell'app e quella di configurazione non si lasciano più
+  incorniciare da un altro sito (`frame-ancestors 'self'`): i clic dati da
+  dentro una cornice arrivano come richieste della pagina stessa e passavano
+  il controllo cross-site. Il pannello di Material, che è sulla stessa
+  origine, resta com'è.
+
+- **Fermare la musica non fa più sparire TIDAL per un giorno.** Il controllo
+  che, alla richiesta successiva, decide se l'ultimo brano avviato ha davvero
+  suonato leggeva un player fermo oltre il primo brano come «coda che scorre
+  senza suonare». Bastava saltare due brani e fermare dal telecomando o da
+  Material: un'ora dopo «metti…» rispondeva «TIDAL non è collegato», e il
+  marchio restava 24 ore, salvato su disco. Ora si marca solo un player che
+  dice «play» e non avanza, e solo se lo si legge entro dieci minuti
+  dall'avvio: più tardi la lettura racconta la serata, non quell'avvio.
+
+- **Un player scollegato non è un servizio scollegato.** Uno Squeezebox
+  staccato dalla presa accetta la coda e resta fermo, e questo veniva letto
+  come silenzio del servizio: «TIDAL non è collegato», poi lo stesso su Qobuz
+  al secondo tentativo, e un giorno di esclusione per tutti e due. Ora il
+  client riporta se il player è collegato (`player_connected` su LMS,
+  `available` su Music Assistant), e la risposta è «Il lettore non risponde:
+  è spento o scollegato», senza marchi e senza ritentare altrove.
+
+- **Un disco pieno non rompe più una richiesta.** Se `services.json` non si
+  poteva scrivere, l'eccezione arrivava fino alla risposta («Errore interno»)
+  e saltava il passaggio che toglie dalla coda il brano muto. Ora
+  l'impossibilità di salvare si scrive nel log, e quello che l'app ha imparato
+  vale fino al riavvio.
+
+- **La pagina di configurazione non cambia più un server che non è suo da
+  cambiare.** La casella «prova questo indirizzo» non chiede credenziali, e
+  quindi non l'ha a disposizione solo chi guarda la pagina: qualunque
+  dispositivo della rete può scriverci. Finché la pagina restava aperta — dopo
+  un blackout, o con l'add-on partito prima di Music Assistant — un indirizzo
+  mandato lì sostituiva anche quello fissato con `--backend-url`, e la prova di
+  quell'indirizzo portava con sé il token di Music Assistant, consegnandolo a
+  chi rispondeva.
+
+  Ora un indirizzo di configurazione non si sostituisce dalla pagina (403),
+  che infatti non mostra più la casella e dice che l'indirizzo viene dalla
+  configurazione. Anche un server che ha già risposto resta quello (409): in
+  quello stato la casella era già nascosta. Resta correggibile, come prima,
+  l'indirizzo ricordato che ha smesso di rispondere.
+
+- **Un player scollegato non basta a finire la configurazione.** LMS elenca
+  anche i player che non sente da tempo, con `connected: 0`; se uno di questi
+  era in cima alla lista, l'app partiva puntata su un apparecchio che nessuno
+  può sentire, e la pagina «accendi un player» non compariva mai. Ora contano
+  solo i player collegati, sia per finire la configurazione sia per scegliere
+  quello predefinito.
 
 - **Anche il menu a tendina scrive i servizi come li dice la voce.** Restava
   una tabella, `SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" }`, dentro il

@@ -6,21 +6,30 @@
 #
 # L'immagine contiene la web app locale (localvoice/ + motore engine/).
 # Il certificato TLS viene generato al primo avvio nel volume /data.
-FROM python:3.12-slim
+# Per digest e non per tag: `python:3.12-slim` è un'etichetta che si muove, e
+# un'immagine che si muove è una build che non si può ripetere e un contenuto
+# che nessuno ha rivisto. Per alzarla: leggi il digest nuovo con
+#   docker buildx imagetools inspect python:3.12-slim
+# e sostituiscilo qui, deliberatamente.
+FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
 
 # Senza TTY lo stdout di Python resta nel buffer: senza questo, `docker logs`
 # non mostrerebbe la riga "Pronto: https://..." con l'indirizzo da aprire.
 ENV PYTHONUNBUFFERED=1
 
 # cryptography serve solo a generare il certificato self-signed al primo avvio.
-RUN pip install --no-cache-dir "cryptography>=42.0"
+# Versione esatta, come le due sotto: `>=42.0` significava "qualunque cosa ci
+# sia su PyPI il giorno della build", quindi due build dello stesso commit non
+# contenevano lo stesso software. 50.0.1 è anche la prima senza l'advisory
+# PYSEC-2026-3552, che riguardava la 49.
+RUN pip install --no-cache-dir "cryptography==50.0.1"
 
 # Variante ASR (opzionale): --build-arg ASR=1 preinstalla faster-whisper per
 # il riconoscimento vocale locale (endpoint /transcribe, funzione Pro).
 # Aggiunge ~600 MB all'immagine; il modello Whisper viene scaricato al primo
 # uso dentro /data (il volume), quindi sopravvive agli aggiornamenti.
 ARG ASR=0
-RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper>=1.0"; fi
+RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper==1.2.1"; fi
 
 # Variante parola chiave lato server (opzionale, separata da ASR apposta):
 # --build-arg WAKEWORD_VOSK=1 preinstalla vosk, il motore che sente la frase
@@ -29,7 +38,7 @@ RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper>=1.0"; 
 # cioe' nel volume, cosi' sopravvive agli aggiornamenti — come i modelli
 # Whisper e per la stessa ragione.
 ARG WAKEWORD_VOSK=0
-RUN if [ "$WAKEWORD_VOSK" = "1" ]; then pip install --no-cache-dir "vosk>=0.3.45"; fi
+RUN if [ "$WAKEWORD_VOSK" = "1" ]; then pip install --no-cache-dir "vosk==0.3.45"; fi
 
 WORKDIR /app
 COPY engine/ engine/

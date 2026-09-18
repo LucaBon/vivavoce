@@ -62,7 +62,8 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from actions import ActionResult, Guard, _normalize, is_blocked_item
+from actions import (ActionResult, Guard, _normalize, is_blocked_item,
+                     unreachable)
 from player.errors import PlayerError
 from messages import msg
 # The table lives next door because it is a list, not a program — see
@@ -217,13 +218,13 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
         try:
             years = lms.local_years(YEAR_LIMIT)
         except PlayerError:
-            return ActionResult(msg("err_unreachable"), ok=False)
+            return unreachable()
         year, offered = _pick_year(years, mood["years"], exclude)
         if year is not None:
             try:
                 lms.play_local_year(year)
             except PlayerError:
-                return ActionResult(msg("err_unreachable"), ok=False)
+                return unreachable()
             # `label`, not `terms`: the re-roll has to remember this year,
             # and `terms` are the FOREIGN names in the sentence, which the web
             # client gives to a foreign-language voice (static/js/tts.js).
@@ -236,7 +237,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
         try:
             genres = lms.local_genres(GENRE_LIMIT)
         except PlayerError:
-            return ActionResult(msg("err_unreachable"), ok=False)
+            return unreachable()
         if guard and guard.restricted:
             genres = [g for g in genres
                       if not is_blocked_item(g, guard.blocklist)]
@@ -245,7 +246,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
             try:
                 lms.play_local_genre(chosen["id"])
             except PlayerError:
-                return ActionResult(msg("err_unreachable"), ok=False)
+                return unreachable()
             name = chosen.get("title") or ""
             return _mood_result("playing_mood_genre", terms=[name],
                                 genre=name)
@@ -258,7 +259,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
             try:
                 cands = stream.playlist_candidates(query, PLAYLIST_LIMIT)
             except PlayerError:
-                return ActionResult(msg("err_unreachable"), ok=False)
+                return unreachable()
             if guard and guard.restricted:
                 cands = [c for c in cands
                          if not is_blocked_item(c, guard.blocklist)]
@@ -271,7 +272,7 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
                 try:
                     stream.play_browse_item(cand["id"])
                 except PlayerError:
-                    return ActionResult(msg("err_unreachable"), ok=False)
+                    return unreachable()
                 name = cand.get("title") or query
                 return _mood_result("playing_mood_playlist", terms=[name],
                                     name=name)

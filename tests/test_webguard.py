@@ -205,3 +205,104 @@ def test_an_allowed_name_can_read_too(live_server):
     srv = live_server(allowed_hosts=["hifi.example.com"])
     assert srv.try_get("/tls",
                        headers={"Host": "hifi.example.com"}).status == 200
+
+
+# -- the fourth check: where the connection came from --------------------------
+#
+# The three above ask which *page* sent the request. None of them can tell a
+# phone on the sofa from a scanner that found a forwarded port: through a
+# forward the Host is whatever the router sends (commonly the LAN address,
+# which is an IP literal, which passes), and a non-browser client sends no
+# Origin and no Sec-Fetch-Site at all. So the address the connection came from
+# is its own check, and it runs before any route (SEC-3).
+
+@pytest.mark.parametrize("address", [
+    "192.168.1.50", "10.0.0.4", "172.16.9.9", "127.0.0.1", "::1",
+    "fe80::1", "fd00::1", "169.254.7.7",
+    "::ffff:192.168.1.50",      # a v4 client on a server bound to ::
+    "100.64.0.9",               # RFC 6598: carrier NAT, and Tailscale
+    "not-an-address",           # unjudgeable: not something the internet did
+])
+def test_these_are_addresses_a_house_has(address):
+    assert webguard.peer_is_local(address) is True
+
+
+@pytest.mark.parametrize("address", [
+    "8.8.8.8", "1.1.1.1", "2001:4860:4860::8888",
+    "::ffff:8.8.8.8",           # the same public address, mapped
+])
+def test_and_these_are_not(address):
+    # Not in the list: the documentation ranges (203.0.113.0/24 and friends).
+    # `ipaddress` calls those private too, because they are not globally
+    # reachable — so nothing legitimate arrives from them and letting them
+    # through costs nothing.
+    assert webguard.peer_is_local(address) is False
+
+
+@pytest.fixture
+def httpd(lms):
+    """The production server class, bound but never served from."""
+    import http_api
+    import httpbase
+
+    handler = http_api.make_handler(
+        lms, "http://lms.local:9000/material/", ["tidal"], "tidal")
+    server = httpbase.BoundedThreadingHTTPServer(("127.0.0.1", 0), handler)
+    yield server
+    server.server_close()
+
+
+def test_a_connection_from_outside_the_house_is_not_served(httpd):
+    """Refused before a byte is read, and before any route decides anything:
+    a port forwarded to this server used to hand a scanner the whole app —
+    the music, the kid-safe PIN, and the music server's own settings pages
+    through the proxy.
+    """
+    assert httpd.allow_public_peers is False, "non è più il default"
+    assert httpd.verify_request(None, ("8.8.8.8", 51234)) is False
+    assert httpd.verify_request(None, ("192.168.1.50", 51234)) is True
+
+
+def test_an_operator_who_means_to_expose_it_says_so(httpd):
+    # The opt-in exists because a household behind a VPN or a reverse proxy
+    # may legitimately see a public source address; it is not the default,
+    # and DEPLOY.md says what to put in front of it.
+    httpd.allow_public_peers = True
+    assert httpd.verify_request(None, ("8.8.8.8", 51234)) is True
+
+
+def test_the_refusal_is_explained_once_and_not_per_packet(httpd, capsys):
+    for _ in range(3):
+        httpd.verify_request(None, ("8.8.8.8", 51234))
+    said = capsys.readouterr().out
+    assert said.count("Rifiutata una connessione") == 1
+    assert "--allow-public-peers" in said
+
+
+# -- the optional token --------------------------------------------------------
+
+def test_no_token_configured_asks_for_nothing(srv):
+    # The LAN-only design is the default and stays the default.
+    assert srv.post_json("/api/v1/command", {"text": "pausa"}).status == 200
+
+
+def test_the_api_and_the_proxy_ask_for_the_token_when_there_is_one(live_server):
+    srv = live_server(api_token="s3cret")
+    body = _body({"text": "pausa"})
+    assert srv.try_post("/api/v1/command", body).status == 401
+    assert srv.try_get("/material/").status == 401
+    good = {"Authorization": "Bearer s3cret"}
+    assert srv.try_post("/api/v1/command", body, headers=good).status == 200
+
+
+@pytest.mark.parametrize("header", [
+    {}, {"Authorization": "Bearer wrong"}, {"Authorization": "s3cret"},
+    {"Authorization": "Basic s3cret"}, {"Authorization": "Bearer "},
+])
+def test_anything_that_is_not_the_token_is_a_401(live_server, header):
+    srv = live_server(api_token="s3cret")
+    r = srv.try_post("/api/v1/command", _body({"text": "pausa"}),
+                     headers=header)
+    assert r.status == 401
+    assert r.json()["error"] == "unauthorized"
+

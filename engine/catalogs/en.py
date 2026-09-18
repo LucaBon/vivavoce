@@ -9,6 +9,23 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "I can't reach the system right now. Please try again in a moment.",
+    "err_busy":
+        "I'm still answering the phrase before this one. Please try again in "
+        "a moment.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "This system can't search for music: I can control what's playing, "
+        "though.",
+    "no_local_library": "This system has no local library.",
+    "no_favorites": "This system doesn't keep favourites.",
+    "no_moods": "This system can't browse by genre or by year.",
+    "no_sleep_timer": "This system has no sleep timer.",
+    "no_rooms": "This system has only one player, so I can't pick a room.",
+
     "blocked":
         "That song exists, but it's on the blocked-songs list, so I can't "
         "play it.",
@@ -33,6 +50,7 @@ MESSAGES = {
         "What I have of {query} in your music comes from {service}, which "
         "isn't connected.",
     "service_not_connected": "{service} isn't connected.",
+    "player_not_connected": "The player isn't answering: it's switched off or disconnected.",
     "offer_play_from": "Shall I play it from {service}?",
     # The two buttons the web app puts under an offer, and the words it
     # sends when one is tapped: they have to be answers the language pack's

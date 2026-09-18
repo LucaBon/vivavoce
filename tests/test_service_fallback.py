@@ -106,6 +106,35 @@ def test_an_unreachable_server_is_not_a_disconnected_service(router, transport):
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco."
 
 
+def test_a_player_that_is_not_connected_is_not_a_disconnected_service(
+        lms, transport, make_feed, tmp_path, monkeypatch):
+    # An unplugged Squeezebox takes the queue and stays at stop. That read as
+    # «TIDAL non è collegato», then the retry on Qobuz said the same, and both
+    # services were out for a day — on a house whose services were fine.
+    import playback
+    import servicestate
+
+    monkeypatch.setattr(playback.time, "sleep", lambda _s: None)
+    lms.remember_silence_in(servicestate.SilenceFile(str(tmp_path)))
+    for name, url in (("tidal", "tidal://42.flc"), ("qobuz", "qobuz://42.flac")):
+        transport.responses[name] = make_feed(
+            categories={"Songs": "S"},
+            items={"S": [{"isaudio": 1, "url": url, "name": "Time",
+                          "artist": "Pink Floyd"}]})
+    transport.responses["status"] = {"mode": "stop", "player_connected": 0,
+                                     "time": 0, "playlist_cur_index": "0",
+                                     "playlist_loop": [{"title": "Time"}]}
+    reply = Router(lms, services=("tidal", "qobuz")).handle(
+        "metti Time dei Pink Floyd", source="tidal")
+    assert reply.kind == actions.PLAYER_OFFLINE
+    assert str(reply) == "Il lettore non risponde: è spento o scollegato."
+    assert lms.silent_services() == {}
+    assert not (tmp_path / "services.json").exists()
+    plays = [c for c in transport.commands() if c[:2] == ["playlist", "play"]]
+    assert plays == [["playlist", "play", "tidal://42.flc"]], \
+        "no retry on another service: they are all silent on this player"
+
+
 def test_a_named_service_that_is_logged_out_is_named_in_the_answer(
         router, transport):
     # Named outright, so nothing is substituted for it — the user asked about

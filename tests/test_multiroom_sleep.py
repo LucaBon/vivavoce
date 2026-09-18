@@ -13,6 +13,7 @@ the mini-player ``volume`` action, and the Pro gate on all of it.
 import pytest
 
 import actions
+import conversation
 from conftest import FakeLicense
 from messages import msg
 from pro.multiroom import MultiRoom
@@ -1037,14 +1038,18 @@ def test_a_room_turn_does_not_retarget_the_router_for_good(room_router,
 
 def test_a_room_turn_is_invisible_to_another_thread(room_router, transport,
                                                     make_tidal):
-    """Two room turns held open at once, and an observer that is in neither.
+    """A turn held open in a room, and an observer that is in no room at all.
 
     Timing alone will not show this: with a fake transport a turn is over in
-    microseconds, so the window between overwriting self.lms and restoring it
-    is almost never open when the second thread reads it. So both turns are
-    parked *inside* the routed action, and a third party looks at the router
-    while they are. The aim belongs to the turn that set it; anyone not in a
-    room turn must still see the default player.
+    microseconds, so the window between aiming at a player and letting go is
+    almost never open when another thread reads it. So the turn is parked
+    *inside* the routed action, and a third party looks at the router while it
+    is. The aim belongs to the turn that set it; anyone else must still see
+    the default player.
+
+    One turn parked and not two, which is the other half of the same rule: a
+    Router serialises the turns of its conversation (``_turn_lock``), so two
+    are never inside at once — the test below is about that.
     """
     import threading
 
@@ -1053,12 +1058,12 @@ def test_a_room_turn_is_invisible_to_another_thread(room_router, transport,
         items={"S": [{"isaudio": 1, "url": "tidal://42.flc", "name": "Time"}]},
     )
     default = room_router.lms
-    both_inside = threading.Barrier(3)      # two turns + this thread
+    inside = threading.Barrier(2)           # the turn + this thread
     real_play_song = actions.play_song
     failures = []
 
     def parked(*args, **kwargs):
-        both_inside.wait(timeout=10)        # hold the turn open
+        inside.wait(timeout=10)             # hold the turn open
         return real_play_song(*args, **kwargs)
 
     def turn(phrase):
@@ -1069,20 +1074,137 @@ def test_a_room_turn_is_invisible_to_another_thread(room_router, transport,
 
     actions.play_song = parked
     try:
-        threads = [threading.Thread(target=turn, args=(p,)) for p in
-                   ("metti Time in cucina", "metti Time in salotto")]
-        for t in threads:
-            t.start()
-        both_inside.wait(timeout=10)
-        # Both turns are aimed at a room right now. This thread asked for
+        thread = threading.Thread(target=turn, args=("metti Time in cucina",))
+        thread.start()
+        inside.wait(timeout=10)
+        # That turn is aimed at a room right now. This thread asked for
         # nothing, so it must still be looking at the default player.
         observed = room_router.lms
-        for t in threads:
-            t.join(timeout=30)
+        thread.join(timeout=30)
     finally:
         actions.play_song = real_play_song
 
     assert not failures, failures
     assert observed is default, (
         "a room turn in another thread changed which player this one sees")
-    assert room_router.lms is default, "the aim outlived the turns that set it"
+    assert room_router.lms is default, "the aim outlived the turn that set it"
+
+
+def test_two_turns_of_one_conversation_take_it_in_turns(room_router, transport,
+                                                        make_tidal):
+    """Found in review, and it needed no rare timing at all: one Router is
+    shared by every request on a conversation (two browser tabs with one
+    client id, every Home Assistant turn without a device), and each turn
+    writes the state of the turn — the room, the open list, «non ho capito» —
+    while the music server is being waited on. Turn A came back carrying B's
+    flags.
+    """
+    import threading
+    import time as time_module
+
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://42.flc", "name": "Time"}]},
+    )
+    inside = threading.Event()
+    seen = []
+    running = []
+    real_play_song = actions.play_song
+
+    def parked(*args, **kwargs):
+        running.append(1)
+        seen.append(len(running))
+        inside.set()
+        time_module.sleep(0.05)             # a slow music server
+        running.pop()
+        return real_play_song(*args, **kwargs)
+
+    actions.play_song = parked
+    try:
+        first = threading.Thread(
+            target=room_router.handle, args=("metti Time in cucina",),
+            kwargs={"source": "tidal"})
+        first.start()
+        assert inside.wait(timeout=10)
+        second = threading.Thread(
+            target=room_router.handle, args=("metti Time in salotto",),
+            kwargs={"source": "tidal"})
+        second.start()
+        for t in (first, second):
+            t.join(timeout=30)
+    finally:
+        actions.play_song = real_play_song
+
+    assert seen == [1, 1], "two turns of one conversation ran at once"
+
+
+def test_a_turn_that_cannot_have_the_conversation_says_so(room_router, transport,
+                                                          make_tidal):
+    """Putting the turns in a queue (above) left the queue unbounded, and the
+    threads that wait in it are the server's — 128, and past that it answers
+    nobody. A turn that cannot have the conversation within one budget is a
+    reply, not a wait.
+    """
+    import threading
+
+    transport.responses["tidal"] = make_tidal(
+        categories={"Songs": "S"},
+        items={"S": [{"isaudio": 1, "url": "tidal://42.flc", "name": "Time"}]},
+    )
+    inside = threading.Event()
+    release = threading.Event()
+    real_play_song = actions.play_song
+
+    def parked(*args, **kwargs):
+        inside.set()
+        release.wait(timeout=10)            # a turn that will not give it back
+        return real_play_song(*args, **kwargs)
+
+    room_router.TURN_BUDGET = 0.05
+    actions.play_song = parked
+    held = threading.Thread(
+        target=room_router.handle, args=("metti Time in cucina",),
+        kwargs={"source": "tidal"})
+    try:
+        held.start()
+        assert inside.wait(timeout=10)
+        reply = room_router.handle("metti Time", source="tidal")
+    finally:
+        release.set()
+        actions.play_song = real_play_song
+        held.join(timeout=30)
+
+    assert not reply.ok
+    assert reply.kind == conversation.BUSY
+    assert str(reply) == msg("err_busy")
+
+
+def test_a_sweep_spends_one_budget_and_not_one_per_alternative(room_router):
+    """The alternatives of one utterance are one spoken turn — the point of
+    holding the conversation across them — so they share one turn's ten
+    seconds. Each ``handle`` used to open a budget of its own, which made four
+    alternatives over two rounds eighty seconds of held conversation, and the
+    «at most one TURN_BUDGET» promised to a turn waiting its go untrue.
+
+    Two alternatives nothing understands, so both are tried and then tried
+    again with the verb repaired: four turns, one deadline.
+    """
+    lms = room_router._base_lms
+    real_handle = room_router._handle
+    seen = []
+
+    def spy(text, *args, **kwargs):
+        seen.append((text, getattr(lms._turn, "until", None)))
+        return real_handle(text, *args, **kwargs)
+
+    room_router._handle = spy
+    try:
+        room_router.handle_many(["pippo", "pluto"], source="tidal")
+    finally:
+        del room_router._handle
+
+    deadlines = [until for _text, until in seen]
+    assert len(seen) >= 3, "the sweep did not replay the alternatives: %r" % (seen,)
+    assert None not in deadlines, "an alternative ran outside any budget"
+    assert len(set(deadlines)) == 1, (
+        "each alternative opened a budget of its own: %r" % (seen,))

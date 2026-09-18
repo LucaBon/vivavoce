@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import actions
 from player.errors import PlayerError
-from player.protocols import service_label, system_label
+from player.protocols import service_label, supports, system_label
 from messages import msg
 
 
@@ -36,18 +36,12 @@ class SourceChoice:
         Asked of the client rather than looked up in a table here: the
         spelling belongs to the music system in front of us, and a table in
         the web app would be this module deciding what somebody else's server
-        calls its own providers.
-        """
+        calls its own providers."""
         return service_label(self.lms, name)
 
     def _system_label(self) -> str:
-        """How the music system this app is driving is spelled out loud.
-
-        Asked of the client for the same reason the service spelling is: the
-        sentence that says «apri le impostazioni di …» named LMS in all five
-        catalogs, so a household running MusicAssistant was sent to a page
-        that does not exist. See ``player.protocols.system_label``.
-        """
+        """The music system's own name, asked of the client for the reason the
+        service spelling is, one level up (``protocols.system_label``)."""
         return system_label(self.lms)
 
     def _source_suffix(self, name) -> str:
@@ -122,17 +116,23 @@ class SourceChoice:
         streaming service is connected" is answering a question nobody put.
         ``offline`` says the reply needs re-wording *if* it comes back a plain
         miss; ``_if_searched`` is where that judgement is made."""
+        if not supports(self.lms, "services"):
+            # A catalogue that is not several services behind one system: it
+            # *is* the source. Asking which of its services can play, or
+            # aiming a clone at one of them, would be asking a question it has
+            # no words for — and unlike the branches that refuse, there is
+            # nothing to refuse here: it can search, so the request has an
+            # answer. Degrade instead of gate.
+            return self.lms, self.default_service, False
         name = self._stream_name(source)
         if name is not None:
             return self.lms.for_service(name), name, False
         name = source if source in self.services else self.default_service
         if not name:
-            # Nothing streams on this hi-fi: a music system with no plugin
-            # installed, or one with no notion of services at all. There is
-            # nothing to aim at, so the request runs against the client as it
-            # stands — the action may still have an answer of its own, which
-            # is the whole reason this method never returns None — and the
-            # reply says no service is connected.
+            # Nothing streams here: no plugin installed, nothing to aim at. The
+            # request still runs against the client as it stands — the action
+            # may have an answer of its own, which is why this never returns
+            # None — and the reply says no service is connected.
             return self.lms, None, True
         return self.lms.for_service(name), name, True
 
@@ -144,9 +144,9 @@ class SourceChoice:
         that stopped answering between the probe and the request says so in
         its own words. What is left is "non ho trovato", which offline is not
         true of the music at all: nobody was asked."""
-        if getattr(res, "ok", False) or getattr(res, "kind", None):
-            return False
-        return str(res) != msg("err_unreachable")
+        # «The hi-fi is not answering» carries its own kind
+        # (``actions.UNREACHABLE``), so it is covered by the check below.
+        return not (getattr(res, "ok", False) or getattr(res, "kind", None))
 
     def _if_searched(self, res, message):
         """``res``, unless nothing was ever searched — then ``message``."""
@@ -197,18 +197,13 @@ class SourceChoice:
         «… in cucina» into an instruction about where to say it.
 
         Where that first sentence ENDS is the catalog's business, not this
-        method's. It used to be found by splitting on ". ", and a great many
-        titles carry one: «Mr. Brightside» came back as «Riproduco Mr da
-        TIDAL. Brightside.», and so did every "Pt. 2", "Vol. 1" and "St.
-        Louis" in the library. The three messages with a second sentence carry
-        a ``{tag}`` slot and hand back a ``retag`` that fills it (see
-        ``moods._mood_result``); every other message has nothing after the
-        full stop, so the tag goes in front of the last one.
-
-        Tagged twice — source, then room — is ordinary: the second call finds
-        the ``retag`` this one leaves behind and re-renders with both suffixes
-        at once, rather than filling the slot with the second and losing the
-        first."""
+        method's: it used to be found by splitting on ". ", and «Mr.
+        Brightside» came back as «Riproduco Mr da TIDAL. Brightside.». A
+        message with a second sentence carries a ``{tag}`` slot and a
+        ``retag`` that fills it (``moods._mood_result``); every other one has
+        nothing after the full stop, so the tag goes in front of the last.
+        Tagged twice — source, then room — the second call re-renders through
+        that slot with both suffixes rather than losing the first."""
         if not suffix or not getattr(res, "ok", False) or getattr(res, "kind", None):
             return res
         retag = getattr(res, "retag", None)
@@ -259,6 +254,9 @@ class SourceChoice:
         carries on to a service that can play them — but this one DID name a
         source, and "I couldn't find it" would be a lie about a library that
         has it. Say what is in the way, and offer the way round it."""
+        refused = self._unable("local_library", say="no_local_library")
+        if refused is not None:
+            return refused
         branch, query = self._play_branch(text, P)
         play_fn = self._NAMED_LOCAL.get(branch, actions.play_local)
         arg = query if branch else text
@@ -348,9 +346,10 @@ class SourceChoice:
         guard = self._guard
         local_fn = local_fn or actions.play_local
         if source == "local":
-            return self._local_answer(
-                local_fn(self.lms, arg, guard=guard), arg, stream_fn)
-        if source == "auto":
+            return (self._unable("local_library", say="no_local_library")
+                    or self._local_answer(
+                        local_fn(self.lms, arg, guard=guard), arg, stream_fn))
+        if source == "auto" and supports(self.lms, "local_library"):
             # Auto: prefer a confident local-library hit, else fall back to the
             # default streaming service (no cascading across services).
             # local_fn only plays when it matches, so a miss has no effect.
@@ -362,6 +361,11 @@ class SourceChoice:
             res = local_fn(self.lms, arg, guard=guard)
             if getattr(res, "ok", False):
                 return self._played(res, "local")
+        # Past the library, so past the point where a system with only
+        # speakers has anything to answer with.
+        refused = self._unable("search", say="no_search")
+        if refused is not None:
+            return refused
         stream, name, offline = self._streaming(source)
         res = stream_fn(stream, arg, guard=guard)
         if offline:
@@ -378,13 +382,17 @@ class SourceChoice:
         source selector still decides where a queued song comes from."""
         guard = self._guard
         if source == "local":
-            return self._played(
-                actions.play_local(self.lms, arg, mode=mode, guard=guard),
-                "local", mode=mode)
-        if source == "auto":
+            return (self._unable("local_library", say="no_local_library")
+                    or self._played(
+                        actions.play_local(self.lms, arg, mode=mode, guard=guard),
+                        "local", mode=mode))
+        if source == "auto" and supports(self.lms, "local_library"):
             res = actions.play_local(self.lms, arg, mode=mode, guard=guard)
             if getattr(res, "ok", False):
                 return self._played(res, "local", mode=mode)
+        refused = self._unable("search", say="no_search")
+        if refused is not None:
+            return refused
         stream, name, offline = self._streaming(source)
         res = actions.play_song(stream, arg, mode=mode, guard=guard)
         if offline:

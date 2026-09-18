@@ -78,7 +78,9 @@ class IntentTable:
         # Favorites & radio — LMS core feature, source-independent (not a
         # streaming service, so the source selector doesn't apply).
         if P["favorites"].search(t):
-            return actions.play_favorites(self.lms, guard=self._guard)
+            # «unless it cannot, do it» — see ConversationState._unable.
+            return (self._unable("favorites", say="no_favorites")
+                    or actions.play_favorites(self.lms, guard=self._guard))
         m = P["radio"].search(t)
         if m:
             return actions.play_radio(self.lms, m.group(1).strip(), guard=self._guard)
@@ -109,12 +111,16 @@ class IntentTable:
         # today, and lifting it means letting the prefix run first.
         if self.mood is not None and P["mood_another"].search(t):
             self._mood_turn = True
-            return self._play_mood(source)
+            return (self._unable("genres", "years", say="no_moods")
+                    or self._play_mood(source))
         m = P["mood"].search(t)
         if m:
             tail = m.group(1).strip()
             key = moods.match_mood(tail, self._mood_words)
             if key:
+                refused = self._unable("genres", "years", say="no_moods")
+                if refused is not None:
+                    return refused
                 self.mood = {"key": key, "used": []}
                 self.mood_until = self.now() + MOOD_TTL
                 self._mood_turn = True
@@ -140,12 +146,14 @@ class IntentTable:
         # verb, and used to reach pause_explicit and pause the music at once.
         # The duration requirement is the guard a title needs.
         if not is_play and P["sleep_cancel"].search(t):
-            return actions.cancel_sleep(self.lms)
+            return (self._unable("sleep_timer", say="no_sleep_timer")
+                    or actions.cancel_sleep(self.lms))
         m = P["sleep"].search(t)
         if m:
             minutes = _parse_minutes(m.group(1))
             if minutes:
-                return actions.set_sleep(self.lms, minutes)
+                return (self._unable("sleep_timer", say="no_sleep_timer")
+                        or actions.set_sleep(self.lms, minutes))
         # A HALF-READ duration is not a pause. Every sleep pattern carries a
         # stop verb and the word that introduces a delay, and every one of
         # those verbs is also what ``pause_explicit`` looks for — so a delay
@@ -210,10 +218,7 @@ class IntentTable:
             # A pick from a room-opened list keeps playing in that room (unless
             # this very turn names another one — then self.lms already points
             # there and tagging is the caller's job).
-            pick_lms, room_suffix = self.lms, ""
-            if self.cand_player and not self._room_turn:
-                pick_lms = self.lms.for_player(self.cand_player[0])
-                room_suffix = msg("in_room", room=self.cand_player[1])
+            pick_lms, room_suffix = self._pick_client()
             picked = actions.choose_from(pick_lms, self.candidates, number,
                                          mode=self.cand_mode, guard=self._guard)
             if getattr(picked, "ok", False):
@@ -272,9 +277,10 @@ class IntentTable:
         # 4) lists that open a numbered choice
         m = P["albums_list"].search(t)
         if m:  # "quali album ho di X" / "which albums do I have by X" -> local
-            return self._remember(
-                actions.local_albums_list(self.lms, m.group(1).strip(),
-                                          guard=self._guard), "local")
+            return (self._unable("local_library", say="no_local_library")
+                    or self._remember(
+                        actions.local_albums_list(self.lms, m.group(1).strip(),
+                                                  guard=self._guard), "local"))
         m = P["toptracks"].search(t)
         if m:  # top tracks -> streaming (selected or default service)
             stream, name, offline = self._streaming(source)
@@ -292,10 +298,7 @@ class IntentTable:
         if self.candidates:
             m = P["name_pick"].match(t)
             if m:
-                pick_lms, room_suffix = self.lms, ""
-                if self.cand_player and not self._room_turn:
-                    pick_lms = self.lms.for_player(self.cand_player[0])
-                    room_suffix = msg("in_room", room=self.cand_player[1])
+                pick_lms, room_suffix = self._pick_client()
                 chosen = actions.choose_by_name(
                     pick_lms, self.candidates, m.group(1).strip(),
                     mode=self.cand_mode, guard=self._guard

@@ -22,6 +22,15 @@ nessun cloud, nessun account, i comandi restano nella tua rete.
    certificato CA — lucchetto verde, niente avvisi, e la pagina si installa
    come **app vera** (PWA) sul telefono.
 
+   La CA locale può firmare **solo** per indirizzi privati e nomi locali
+   (`.local`, `.lan`, `.home.arpa`…): installarla non dà a nessuno il potere
+   di fingersi un sito. La sua chiave privata, `/data/ca-key.pem`, finisce
+   però nei backup di Home Assistant come tutto il resto di `/data`: chi
+   tiene i backup fuori casa la escluda. Se la tua CA è stata creata da una
+   versione precedente a questa nota, l'app lo scrive nel log a ogni avvio e
+   non la sostituisce da sola — le istruzioni per cambiarla sono in
+   [DEPLOY.md](https://github.com/LucaBon/vivavoce/blob/main/DEPLOY.md).
+
 Poi parla (o scrivi), in italiano: «metti l'album The Wall», «dalla mia musica
 metti Aerosmith», «quali album ho di Yes» → «metti la 2», «pausa», «alza il
 volume», «cosa sta suonando».

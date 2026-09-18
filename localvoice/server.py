@@ -37,6 +37,9 @@ from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
 import pro_features  # noqa: E402
 import servicestate  # noqa: E402
+# Re-exported: ``explicit_services`` was here until the 400-line rule
+# asked for the split, and tests reach it through this module.
+from services import explicit_services  # noqa: E402,F401
 import setupserver  # noqa: E402
 import spoken_library  # noqa: E402
 import tls  # noqa: E402
@@ -124,45 +127,6 @@ def _announce_setup(scheme: str, hosts: list, port: int, line: str) -> None:
     print(line)
 
 
-def explicit_services(client, backend, spec: str):
-    """``(services, complaint)`` for a ``--services`` list typed by hand.
-
-    Which names are legal is a fact about the music system in front of us and
-    not about LMS. A MusicAssistant provider domain is whatever that server
-    has been configured with, so holding one against the LMS table rejected a
-    perfectly good provider before the app had started once — and printed the
-    LMS list of alternatives while doing it, which is the wrong list twice.
-
-    A backend that has no services to speak of, or that would not answer, is
-    taken at its word instead of being argued with: this branch is the escape
-    hatch for when the detection misbehaves (see ``--services`` in
-    ``cli.py``), and an escape hatch that needs the detection to work is not
-    one. So an unanswerable question validates nothing rather than refusing
-    everything.
-    """
-    services = [s.strip().lower() for s in spec.split(",") if s.strip()]
-    # ``None`` is "nobody could be asked", which is NOT the empty list and was
-    # read as it: a MusicAssistant with no providers answers ``[]``, so the old
-    # ``if known else []`` accepted ``--services tidal`` unvalidated and the
-    # selector offered a plugin that server has never had.
-    known = None
-    if backend.capabilities.services:
-        try:
-            known = client.known_services()
-        except Exception:
-            # Detto ad alta voce: da qui un token sbagliato e un server
-            # occupato si assomigliano, e prendere la lista per buona in
-            # silenzio manda a cercare il guasto dalla parte sbagliata.
-            print("Non sono riuscito a chiedere all'impianto quali servizi ha: "
-                  "prendo --services come l'hai scritto.")
-    if known is None:  # niente da validare: la lista vale com'è scritta
-        return (services, "") if services else (
-            [], f"--services non valido: {spec!r}")
-    if not services or [s for s in services if s not in known]:
-        available = f" (disponibili: {', '.join(known)})" if known else ""
-        return [], f"--services non valido: {spec!r}{available}"
-    return services, ""
-
 
 def _discovery_progress(phase: str) -> None:
     line = _DISCOVERY_PHASES.get(phase)
@@ -213,8 +177,8 @@ def main() -> int:
             print(f"Prova Pro: restano {trial['days_left']} giorni.")
     kidsafe = pro_features.build_kidsafe(data_dir, license_mgr)
     if kidsafe is None:
-        print("Kid-safe non incluso in questa build (il modulo Pro non c'è): "
-              "i comandi funzionano, la lista dei brani bloccati no.")
+        print("Kid-safe non incluso in questa build: i comandi funzionano, "
+              "la lista dei brani bloccati no.")
     # The optional audio engines (local ASR, server-side wake word) and
     # the household's wake phrase, in audio_engines.py — including which
     # of the two wake-word engines this box can actually run.
@@ -231,11 +195,17 @@ def main() -> int:
         hosts = lan_ips() or ["<ip-di-questo-pc>"]
 
     lms_url = backend_url
+    # Where that address came from, which is not a detail: see
+    # lmsproxy.browse_path and appdata.remembered_from_page.
+    from_page = False
     if not lms_url and backend.name == "lms":
         # L'indirizzo ricordato e' quello di un LMS: un altro backend non lo
         # eredita, o il primo avvio con Music Assistant proverebbe a parlare
-        # all'hi-fi dell'avvio precedente.
-        lms_url = appdata.remembered_lms(data_dir)
+        # all'hi-fi dell'avvio precedente. Ripassa dalla stessa verifica di
+        # un indirizzo scritto a mano: il file l'ha riempito una risposta UDP.
+        lms_url = setupserver.normalize_lms_url(
+            appdata.remembered_lms(data_dir))
+        from_page = bool(lms_url) and appdata.remembered_from_page(data_dir)
         if lms_url:
             # Not probed here: serve_setup probes every address it is given,
             # so checking it twice would only be a slower way to be wrong.
@@ -267,9 +237,10 @@ def main() -> int:
     # An explicit --player is trusted the way it always was: it means the LMS
     # has to answer, not that the list has to be non-empty.
     try:
-        lms_url, players = setupserver.serve_setup(
+        lms_url, players, from_page = setupserver.serve_setup(
             args.host, args.port, lms_url, discover,
             pinned=bool(backend_url), require_player=not args.player,
+            from_page=from_page,
             backend=backend.name, token=args.backend_token,
             allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
             wrap=(lambda httpd: tls.wrap_server(httpd, args.cert, args.key))
@@ -284,11 +255,11 @@ def main() -> int:
         player = players[0]["playerid"]
         print(f"Player: {players[0].get('name')} ({player})")
     if backend.name == "lms":
-        appdata.remember_lms(data_dir, lms_url)
+        appdata.remember_lms(data_dir, lms_url, from_page=from_page)
 
     # The engine talks to whatever this hands back, and has no idea which of
     # them it got (see engine/player/protocols.py).
-    client = backend.build(lms_url, player, token=args.backend_token)
+    client = backend.client(lms_url, player, token=args.backend_token)
     # What the app learned about which services actually play, kept next to
     # the licence so no household buys the same silent play twice
     # (engine/player/silence.py). Behind the capability, like every other
@@ -311,11 +282,9 @@ def main() -> int:
         if services:
             print(f"Servizi streaming rilevati: {', '.join(services)}")
         else:
-            # No invented list. Assuming TIDAL was a guess printed as a
-            # fact, and a hi-fi that streams from nothing — a MusicAssistant
-            # with no providers, a backend with no notion of them — got a
-            # selector offering a plugin it has never had, and «TIDAL non è
-            # collegato» to every request aimed at it.
+            # No invented list: assuming TIDAL was a guess printed as a
+            # fact, and got a selector offering a plugin this house has never
+            # had plus «TIDAL non è collegato» to every request aimed at it.
             print("Nessun servizio streaming rilevato: restano la libreria "
                   "locale e i comandi di riproduzione (se l'impianto ne ha "
                   "uno, indicalo con --services tidal,qobuz).")
@@ -350,9 +319,11 @@ def main() -> int:
     material_url = args.material_url or (
         lms_url.rstrip("/") + "/material/" if backend.name == "lms" else "")
     ca_path = tls.find_ca(args.cert)
+    BoundedThreadingHTTPServer.allow_public_peers = args.allow_public_peers
     httpd = BoundedThreadingHTTPServer(
         (args.host, args.port),
         make_handler(client, material_url, services, default_service,
+                     lms_from_page=from_page, api_token=args.api_token,
                      ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version(),

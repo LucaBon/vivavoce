@@ -10,7 +10,9 @@ rediscovered, with a real silent play, after every restart.
 import pytest
 
 from lms import LMSClient
-from player.silence import PLAYBACK_MISS_TTL, PLAYBACK_PROOF_AFTER
+import playback
+from player.silence import (PLAYBACK_MISS_TTL, PLAYBACK_PROOF_AFTER,
+                            PLAYBACK_PROOF_WITHIN)
 from servicestate import SilenceFile
 
 
@@ -223,6 +225,84 @@ def test_a_walking_queue_never_counts_as_proof_of_life(client, transport, clock)
     clock.tick(PLAYBACK_PROOF_AFTER + 1)
     client.settle_pending()
     assert "tidal" in client.silent_services()
+
+
+def test_a_queue_somebody_skipped_and_then_stopped_is_not_a_failure(
+        client, transport, clock):
+    # Found in review: «prossima» twice, then stop from the remote. Stopped,
+    # past the first entry, elapsed zero — the reading a silent queue that
+    # walked to its end would leave too, so it proves neither, and it used to
+    # put TIDAL out for a day.
+    client.note_playback_started()
+    clock.tick(PLAYBACK_PROOF_AFTER + 1)
+    transport.responses["status"] = {"mode": "stop", "time": 0,
+                                     "playlist_cur_index": "2",
+                                     "playlist_loop": [{"title": "Money"}]}
+    client.settle_pending()
+    assert client.silent_services() == {}
+
+
+def test_a_reading_long_after_the_start_is_not_evidence(
+        client, transport, clock):
+    # An hour later the player describes the evening, not our start: a track
+    # changing over at that instant reads «play», elapsed zero.
+    client.note_playback_started()
+    clock.tick(PLAYBACK_PROOF_WITHIN + 1)
+    transport.responses["status"] = {"mode": "play", "time": 0,
+                                     "playlist_cur_index": "0",
+                                     "playlist_loop": [{"title": "Time"}]}
+    client.settle_pending()
+    assert client.silent_services() == {}
+    assert not client._pending, "closed: a later request must not re-read it"
+
+
+def test_a_player_that_is_not_connected_blames_no_service(
+        client, transport, clock):
+    client.note_playback_started()
+    clock.tick(PLAYBACK_PROOF_AFTER + 1)
+    transport.responses["status"] = {"mode": "play", "time": 0,
+                                     "player_connected": 0,
+                                     "playlist_loop": [{"title": "Time"}]}
+    client.settle_pending()
+    assert client.silent_services() == {}
+
+
+def test_a_start_on_a_disconnected_player_says_so_and_marks_nothing(
+        client, transport, monkeypatch):
+    # An unplugged Squeezebox takes the queue and stays at stop. That used to
+    # read as «TIDAL non è collegato» — and then Qobuz, on the retry — with a
+    # day-long mark on each.
+    monkeypatch.setattr(playback.time, "sleep", lambda _s: None)
+    transport.responses["status"] = {"mode": "stop", "time": 0,
+                                     "player_connected": 0,
+                                     "playlist_loop": [{"title": "Time"}]}
+    client.play_url("tidal://42.flc")
+    res = playback.started(client, "Riproduco Time.")
+    assert res.kind == playback.PLAYER_OFFLINE and not res.ok
+    assert "lettore" in str(res)
+    assert client.silent_services() == {}
+    assert ["playlist", "clear"] in transport.commands()
+
+
+class BrokenStore(FakeStore):
+    def write(self, marks):
+        raise OSError(28, "No space left on device")
+
+
+def test_a_store_that_cannot_write_costs_the_restart_not_the_request(
+        client, transport, clock):
+    # The write happens in the middle of a play. Raising there skipped the
+    # undo that takes a silent track back off the queue.
+    client.remember_silence_in(BrokenStore())
+    client.note_playback_failure()
+    assert "tidal" in client.silent_services()   # still known in memory
+    assert not client.can_play()
+
+
+def test_the_file_says_it_could_not_save_and_carries_on(tmp_path, capsys):
+    store = SilenceFile(str(tmp_path / "gone"))   # a directory that isn't there
+    store.write({"tidal": 1789404000.0})
+    assert "services.json" in capsys.readouterr().out
 
 
 def test_another_room_settles_nothing(client, transport, clock):
