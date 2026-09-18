@@ -87,8 +87,14 @@ class KidSafe:
     # -- PIN -------------------------------------------------------------------
 
     def _save(self, **changes: Any) -> None:
+        # ``read_json_for_update``, not ``_state``: this is the read half of a
+        # read-modify-write, and a read that fails open turns "I could not read
+        # the file" into "the file was empty" — which the write below then
+        # makes true, taking the PIN and the lockout counter with it. Raising
+        # here leaves the file as it was and lets the caller say the save did
+        # not work.
         with self._lock:
-            state = self._state()
+            state = appdata.read_json_for_update(self.path, {}) or {}
             state.update(changes)
             # 0600: this file holds the PIN hash and the lockout counter.
             appdata.atomic_write_json(self.path, state, mode=0o600)

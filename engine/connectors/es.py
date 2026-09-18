@@ -48,3 +48,10 @@ NOT_AN_ARTIST = {
     "vivir", "amar", "sonar", "volver", "morir", "querer", "ti misma",
     "ti mismo", "mi misma", "mi mismo",
 }
+
+# See connectors/it.py.
+PICK_FILLER = {
+    "el", "la", "los", "las", "un", "una", "cancion", "tema", "pista",
+    "corte", "album", "disco", "playlist", "por", "favor", "gracias",
+    "me", "ya",
+}

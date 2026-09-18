@@ -32,7 +32,7 @@ import time
 
 import actions
 from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
-                          OFFER_TTL, ConversationState)
+                          OFFER_TTL, Busy, ConversationState, busy)
 from alternatives import AlternativeSweep
 from intents import IntentTable
 from lang import PACKS
@@ -73,6 +73,19 @@ class Router(ConversationState, IntentTable, SourceChoice,
         # thread, because this Router is shared by every request on the
         # conversation. See _aimed_at there.
         self._aim = threading.local()
+        # One turn at a time on a conversation. Every attribute below is the
+        # state of the turn being handled, and the Router holding them is
+        # shared: http_api caches one per (client id, player) and the server
+        # runs a thread per connection, so two requests on the same
+        # conversation — two tabs with one client id, a Home Assistant
+        # automation whose turns all say ``ha-default`` — were writing over
+        # each other's ``_unmatched``, ``candidates`` and mood while each was
+        # waiting on the music server. Reentrant because ``handle_many``
+        # holds it across the handles it makes. Two turns of one conversation
+        # are sequential by nature; this makes them sequential in fact. What
+        # the waiting one is promised — at most one TURN_BUDGET, and an answer
+        # rather than a queue past it — is ``ConversationState._turn``.
+        self._turn_lock = threading.RLock()
         self.lms = lms
         # Multi-room (Pro): an injected feature object (pro/multiroom.py) with
         # a narrow contract — extract_room(text, lang) and pro_ok(). Like
@@ -130,6 +143,10 @@ class Router(ConversationState, IntentTable, SourceChoice,
         self.offer = None
         self.offer_until = 0.0
         self._offered = False
+        # (playerid, name) when the question was asked by a room-targeted
+        # command, so «sì» plays where it was asked rather than on the default
+        # player. Same idea as cand_player and mood_player.
+        self.offer_player = None
         # Whether the mood is still what the conversation is about, as far as
         # the NEXT turn is concerned. See handle() for the rule.
         self._mood_alive = True
@@ -203,9 +220,20 @@ class Router(ConversationState, IntentTable, SourceChoice,
         questo turno. Serve a :meth:`handle_many`, che deve poter provare le
         alternative *così come sono* prima di mettersi a correggerle — vedi lì
         il perché. Chi chiama un turno solo la vuole accesa, ed è il default.
+
+        Un turno per conversazione alla volta: se un'altra frase la sta
+        ancora occupando, questa risponde «un attimo» invece di mettersi in
+        coda dietro di lei (``ConversationState._turn``).
         """
-        with self._base_lms.turn_deadline(self.TURN_BUDGET):
-            return self._handle(text, source, lang, repair=repair)
+        # Before the turn is taken, not inside ``_handle``: the reply below is
+        # the one case that answers without getting that far, and it is still
+        # a reply — it has to be in the language that was asked in.
+        set_lang(lang)
+        try:
+            with self._turn():
+                return self._handle(text, source, lang, repair=repair)
+        except Busy:
+            return busy()
 
     def _handle(self, text: str, source: str = "tidal", lang: str = "it",
                 *, repair: bool = True) -> str:
@@ -312,6 +340,8 @@ class Router(ConversationState, IntentTable, SourceChoice,
                 self.cand_player = None  # a fresh list belongs to this player
             if self._mood_turn:
                 self.mood_player = None  # a mood started here stays here
+            if self._offered:
+                self.offer_player = None  # and so does a question asked here
             self._settle_mood(result)
             self._settle_offer(result)
             if overruled:  # _tag itself skips misses and questions
@@ -325,6 +355,9 @@ class Router(ConversationState, IntentTable, SourceChoice,
             self.cand_player = (target["playerid"], room)
         if self._mood_turn:
             self.mood_player = (target["playerid"], room)
+        if self._offered:
+            # «sì» to a question asked for a room plays in that room.
+            self.offer_player = (target["playerid"], room)
         self._settle_mood(result)
         self._settle_offer(result)
         return self._tag(result, msg("in_room", room=room))

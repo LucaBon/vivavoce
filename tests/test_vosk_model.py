@@ -9,6 +9,7 @@ raises on every 320 ms chunk for the rest of the session. That is the bug this
 module is shaped around.
 """
 
+import hashlib
 import io
 import os
 import urllib.error
@@ -20,6 +21,11 @@ from pro import vosk_model
 from pro.vosk_wake import looks_like_model, models_dir
 
 MODEL_NAME = "vosk-model-small-it-0.22"
+
+# La tabella come sta nel modulo, letta prima che la fixture `unpinned` qui
+# sotto la tocchi: serve al test di parità in fondo, che è l'unico a parlare
+# dei modelli veri invece di quelli finti.
+PINNED_AT_IMPORT = dict(vosk_model.MODEL_DIGESTS)
 
 
 def _zip_bytes(names):
@@ -60,6 +66,18 @@ def _opener(payload=GOOD_ZIP, error=None):
 
     open_url.calls = calls
     return open_url
+
+
+@pytest.fixture(autouse=True)
+def unpinned(monkeypatch):
+    """No fingerprint for the model these tests download.
+
+    The real pin is of the real 47 MiB archive, and no test here may fetch it.
+    So the tests below — which are about half-unpacked models, traversal and
+    cleanup — run the path taken by a model nobody has pinned yet, and the
+    fingerprint has tests of its own at the bottom of this file.
+    """
+    monkeypatch.delitem(vosk_model.MODEL_DIGESTS, MODEL_NAME, raising=False)
 
 
 def _logged(tmp_path, opener, lang="it"):
@@ -204,3 +222,84 @@ def test_every_language_has_a_url(tmp_path):
     for lang, url in vosk_model.MODEL_URLS.items():
         assert url.endswith(f"{MODEL_DIRNAMES[lang]}.zip"), lang
         assert url.startswith("https://"), lang
+
+
+# -- the archive has to be the archive ---------------------------------------
+#
+# Until this, the only questions asked of a 50 MB download were "does the zip
+# open" and "does it contain a directory of the right name". Anything that
+# answered yes became the model this house listens with, and Kaldi loads what
+# it is given. The digests in MODEL_DIGESTS were computed by streaming each
+# URL once and cross-checked against the MD5 and byte size upstream publishes
+# in its model-list.json, so the pin is checked against a digest this repo did
+# not compute.
+
+def _pin(monkeypatch, payload, size=None):
+    monkeypatch.setitem(vosk_model.MODEL_DIGESTS, MODEL_NAME,
+                        (len(payload) if size is None else size,
+                         hashlib.sha256(payload).hexdigest()))
+
+
+def test_every_model_the_app_offers_has_a_fingerprint():
+    # Adding a language means adding its digest. Without this test the pin is
+    # a thing that silently applies to four models out of five.
+    from pro.vosk_wake import MODEL_DIRNAMES
+
+    missing = sorted(set(MODEL_DIRNAMES.values()) - set(PINNED_AT_IMPORT))
+    assert missing == [], f"modelli senza impronta in MODEL_DIGESTS: {missing}"
+
+
+def test_the_pinned_archive_is_accepted(tmp_path, monkeypatch):
+    _pin(monkeypatch, GOOD_ZIP)
+    path, log = _logged(tmp_path, _opener())
+    assert path and looks_like_model(path)
+    assert "sha256" not in log      # nothing to report: it matched
+
+
+def test_an_archive_that_is_not_the_pinned_one_is_refused(tmp_path, monkeypatch):
+    # Same size, different bytes: a mirror, a proxy, a DNS answer.
+    other = _zip_bytes([f"{MODEL_NAME}/conf/model.conf",
+                        f"{MODEL_NAME}/am/final.mdl", "extra/pad"])
+    _pin(monkeypatch, other, size=len(GOOD_ZIP))
+    path, log = _logged(tmp_path, _opener())
+    assert path is None
+    assert "non è quello atteso" in log
+    assert _leftovers(tmp_path) == []
+
+
+def test_an_archive_of_the_wrong_size_is_refused(tmp_path, monkeypatch):
+    _pin(monkeypatch, GOOD_ZIP, size=len(GOOD_ZIP) + 1)
+    path, log = _logged(tmp_path, _opener())
+    assert path is None
+    assert "non è quello atteso" in log
+
+
+def test_a_download_that_never_ends_is_cut_off(tmp_path, monkeypatch):
+    # Without a pinned size the ceiling is MAX_ARCHIVE_BYTES: the wall-clock
+    # deadline alone let a fast server deliver gigabytes into /data.
+    monkeypatch.setattr(vosk_model, "MAX_ARCHIVE_BYTES", 8)
+    path, log = _logged(tmp_path, _opener())
+    assert path is None
+    assert "riempire il disco" in log
+    assert _leftovers(tmp_path) == []
+
+
+def test_a_zip_that_declares_too_much_is_refused_before_unpacking(tmp_path,
+                                                                  monkeypatch):
+    # Read from the central directory, so it costs nothing and happens before
+    # anything is written: extractall would find out by filling the disk.
+    monkeypatch.setattr(vosk_model, "MAX_UNPACKED_BYTES", 1)
+    path, log = _logged(tmp_path, _opener())
+    assert path is None
+    assert "da scompattare" in log
+    assert _leftovers(tmp_path) == []
+
+
+def test_an_unpinned_model_says_what_its_fingerprint_was(tmp_path):
+    # How the next line of MODEL_DIGESTS gets written. Nothing here may stop
+    # the server, so an unpinned model still installs.
+    path, log = _logged(tmp_path, _opener())
+    assert path and looks_like_model(path)
+    assert hashlib.sha256(GOOD_ZIP).hexdigest() in log
+    assert "MODEL_DIGESTS" in log
+

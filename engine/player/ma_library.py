@@ -77,9 +77,17 @@ def _container(item: Dict[str, Any]) -> Dict[str, Any]:
     ``item_id`` and ``provider`` ride along because the per-type listings
     (``artist_tracks``, ``album_tracks``) are addressed by the pair rather than
     by the URI, and the engine hands a candidate back to us unchanged.
+
+    ``artist`` too, where MusicAssistant credits one (an album does): kid-safe
+    checks every name field of what is about to play, and an album row with
+    only its title let a blocked artist's record through.
     """
-    return {"id": item.get("uri"), "title": _name_of(item),
-            "item_id": item.get("item_id"), "provider": item.get("provider")}
+    out = {"id": item.get("uri"), "title": _name_of(item),
+           "item_id": item.get("item_id"), "provider": item.get("provider")}
+    artist = _first_artist(item)
+    if artist:
+        out["artist"] = artist
+    return out
 
 
 class MusicAssistantLibrary:
@@ -95,10 +103,15 @@ class MusicAssistantLibrary:
                 providers: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         if not (query or "").strip():
             return []
-        results = self._call("music/search", search_query=query,
+        results = self._dict("music/search", search_query=query,
                              media_types=[media_type], limit=count,
-                             providers=providers or self._providers()) or {}
-        return list(results.get(_RESULT_KEY[media_type]) or [])
+                             providers=providers or self._providers())
+        rows = results.get(_RESULT_KEY[media_type]) or []
+        # The search answers an object of lists; the lists are read the way
+        # ``_list`` reads a whole answer, one odd row dropped rather than
+        # raised past every ``except PlayerError`` above.
+        return [row for row in rows if isinstance(row, dict)] \
+            if isinstance(rows, list) else []
 
     def _providers(self) -> Optional[List[str]]:
         """The providers a search should ask, or None for "all of them".
@@ -132,8 +145,8 @@ class MusicAssistantLibrary:
         album = self.find_album(query, count)
         if not album:
             return {"album": None, "tracks": []}
-        rows = self._call("music/albums/album_tracks", item_id=album["item_id"],
-                          provider_instance_id_or_domain=album["provider"]) or []
+        rows = self._list("music/albums/album_tracks", item_id=album["item_id"],
+                          provider_instance_id_or_domain=album["provider"])
         return {"album": album, "tracks": [_track(t) for t in rows[:count]]}
 
     def artist_candidates(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
@@ -145,17 +158,17 @@ class MusicAssistantLibrary:
 
     def artist_tracks(self, artist: Dict[str, Any],
                       count: int = 20) -> List[Dict[str, Any]]:
-        rows = self._call("music/artists/artist_tracks",
+        rows = self._list("music/artists/artist_tracks",
                           item_id=artist.get("item_id"),
-                          provider_instance_id_or_domain=artist.get("provider")) or []
+                          provider_instance_id_or_domain=artist.get("provider"))
         return [_track(t) for t in rows[:count]]
 
     def artist_top_tracks(self, query: str, count: int = 20) -> Dict[str, Any]:
         artist = self.find_artist(query, count)
         if not artist:
             return {"artist": None, "tracks": []}
-        rows = self._call("music/artists/top_tracks", item_id=artist["item_id"],
-                          provider_instance_id_or_domain=artist["provider"]) or []
+        rows = self._list("music/artists/top_tracks", item_id=artist["item_id"],
+                          provider_instance_id_or_domain=artist["provider"])
         return {"artist": artist, "tracks": [_track(t) for t in rows[:count]]}
 
     def playlist_candidates(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
@@ -171,8 +184,8 @@ class MusicAssistantLibrary:
     # than by relevance, and it does not consult a single streaming provider.
     def _library_items(self, media_type: str, query: Optional[str],
                        count: int) -> List[Dict[str, Any]]:
-        return list(self._call(f"music/{media_type}s/library_items",
-                               search=query, limit=count) or [])
+        return self._list(f"music/{media_type}s/library_items",
+                          search=query, limit=count)
 
     def local_album_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         return [_container(a) for a in self._library_items("album", query, count)]
@@ -181,7 +194,12 @@ class MusicAssistantLibrary:
         return [_container(a) for a in self._library_items("artist", query, count)]
 
     def local_track_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
-        return [_track(t) for t in self._library_items("track", query, count)]
+        # ``id`` beside ``url``: a local candidate is played by id
+        # (``play_local_track``), like an album or an artist, and a track row
+        # without one was an "Errore interno: 'id'" for every title the
+        # library had. The URI is both.
+        return [dict(_track(t), id=t.get("uri"))
+                for t in self._library_items("track", query, count)]
 
     def find_local_album(self, query: str, count: int = 10) -> Optional[Dict[str, Any]]:
         found = self.local_album_candidates(query, count)
@@ -199,8 +217,8 @@ class MusicAssistantLibrary:
         artist = self.find_local_artist(query)
         if not artist:
             return {"artist": None, "albums": []}
-        rows = self._call("music/artists/artist_albums", item_id=artist["item_id"],
-                          provider_instance_id_or_domain=artist["provider"]) or []
+        rows = self._list("music/artists/artist_albums", item_id=artist["item_id"],
+                          provider_instance_id_or_domain=artist["provider"])
         return {"artist": artist, "albums": [_container(a) for a in rows[:count]]}
 
     def local_genres(self, count: int = 200) -> List[Dict[str, Any]]:
@@ -250,7 +268,7 @@ class MusicAssistantLibrary:
     insert_local_album = insert_local_artist = insert_local_track = insert_browse_item
 
     def play_local_genre(self, genre_id: Any) -> Any:
-        rows = self._call("music/genres/tracks", item_id=genre_id) or []
+        rows = self._list("music/genres/tracks", item_id=genre_id)
         return self.play_tracks([_track(t) for t in rows])
 
     # -- favourites --------------------------------------------------------
@@ -264,8 +282,8 @@ class MusicAssistantLibrary:
         """
         items = []
         for media_type in ("radio", "playlist"):
-            rows = self._call(f"music/{media_type}s/library_items",
-                              favorite=True, search=query, limit=count) or []
+            rows = self._list(f"music/{media_type}s/library_items",
+                              favorite=True, search=query, limit=count)
             items += [{"id": r.get("uri"), "name": _name_of(r)} for r in rows]
         return items[:count]
 

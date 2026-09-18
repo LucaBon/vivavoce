@@ -44,12 +44,37 @@ MINUTE_WORDS.update({
     "fünfzig": 50, "funfzig": 50, "sechzig": 60, "neunzig": 90,
 })
 
-# The tail of a sleep command («… in <tail>»), most specific first. The tail
-# keeps whatever the separable verb left behind it («30 Minuten aus»); every
-# pattern here is anchored at the start and simply ignores it.
+_NUMTOK = r"(?:\d+|[a-zäöüß]+)"
+
+# The tail of a sleep command («… in <tail>»), most specific first — see
+# numbers_it.py for why the order carries the half-hour forms. «anderthalb»
+# and «eineinhalb» are the reason German needed them most: read by the plain
+# hour pattern, «in anderthalb Stunden» parsed as nothing at all and the
+# phrase fell through to ``pause_explicit``, which paused the music on the
+# spot instead of in ninety minutes.
 DURATIONS = (
     (c(r"^(?:einer\s+)?halben?\s+stunde\b"), 30),
+    (c(r"^(?:anderthalb|eineinhalb)\s*stunden?\b"), 90),
+    (c(rf"^({_NUMTOK})\s*stunden?\s+und\s+({_NUMTOK})\s*(?:minut\w*|min\b)"),
+     "hours_minutes"),
     (c(r"^(?:einer|eine|einem|ein|1)\W?\s*stunde\b"), 60),
-    (c(r"^(\d+|[a-zäöüß]+)\s*stunden\b"), "hours"),
-    (c(r"^(\d+|[a-zäöüß]+)\s*(?:minut\w*|min\b)"), "minutes"),
+    (c(rf"^({_NUMTOK})\s*stunden\b"), "hours"),
+    (c(rf"^({_NUMTOK})\s*(?:minut\w*|min\b)"), "minutes"),
 )
+
+# German is why this table exists at all. The sleep pattern in de.py captures
+# everything after «in», and German writes the rest of its verb *after* the
+# duration — «in 30 Minuten aus», «in 30 Minuten ausschalten», «in 30 Minuten
+# auf zu spielen» — so "the whole tail has to be a duration" would refuse the
+# three most ordinary phrasings the language has. These are the words that may
+# be left over; every pack declares its own, see numbers_it.py.
+#
+# The verb half is the same alternation de.py's ``sleep`` pattern requires,
+# written out again rather than imported: the two answer different questions
+# (is a stop verb PRESENT anywhere / may this word be left OVER), and a shared
+# constant would make the next edit to one of them silently an edit to both.
+DURATION_TAIL = (r"(?:aus|ab|an|ein)?schalt\w*", r"stopp?\w*", r"pausier\w*",
+                 r"aufh(?:ö|oe)ren", r"schluss",
+                 r"aus", r"ab", r"an", r"auf",
+                 r"zu\s+spielen", r"zu\s+h(?:ö|oe)ren",
+                 r"bitte", r"danke", r"genau", r"ungef(?:ä|ae)hr")

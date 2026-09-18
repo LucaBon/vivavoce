@@ -51,7 +51,7 @@ from .base import c
 from .moods_de import MOOD_WORDS  # noqa: F401
 # Spoken numbers and durations, same reasoning — see numbers_de.py.
 from .numbers_de import (  # noqa: F401
-    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
+    DURATION_TAIL, DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "de"
 # The closed word lists these patterns are built from.
@@ -319,7 +319,8 @@ PATTERNS = {
     "local_prefix": c(rf"{_LOCAL}\s+(.+)$"),
     "local_suffix": c(rf"(\b(?:spiel(?:e|en)?|leg(?:e)?|starte?)\s+.+?)\s+"
                       rf"{_LOCAL}\s*$"),
-    "service": r"(?:von {s}|auf {s}|mit {s}|(?:ü|ue)ber {s})\s+(.+)$",
+    # ``\b`` in front — see it.py.
+    "service": r"\b(?:von {s}|auf {s}|mit {s}|(?:ü|ue)ber {s})\s+(.+)$",
     # «spiel X auf Qobuz» — see it.py for why the suffix form exists at all.
     # ``von`` is left out of this half on purpose: German names an artist with
     # it («Comfortably Numb von Pink Floyd» — see connectors/de.py), so a

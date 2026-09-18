@@ -3,6 +3,7 @@ plumbing, voice management intents, and the fail-safe policy (a revoked
 license keeps ENFORCING an enabled blocklist; it only locks changes)."""
 
 import json
+import os
 import threading
 
 import pytest
@@ -469,7 +470,10 @@ def test_a_pin_write_does_not_drop_a_concurrent_blocklist_edit(tmp_path,
 
     reading = threading.Event()
     release = threading.Event()
-    real_read = appdata.read_json
+    # The read half of ``_save``'s read-modify-write, which is the strict
+    # reader and not the fail-open one: a state file that is THERE and cannot
+    # be read is not a default (see appdata.read_json_for_update).
+    real_read = appdata.read_json_for_update
 
     def slow_read(path, default=None):
         state = real_read(path, default)
@@ -478,7 +482,7 @@ def test_a_pin_write_does_not_drop_a_concurrent_blocklist_edit(tmp_path,
             release.wait(5)  # hold the read-modify-write open
         return state
 
-    monkeypatch.setattr(appdata, "read_json", slow_read)
+    monkeypatch.setattr(appdata, "read_json_for_update", slow_read)
 
     saver = threading.Thread(target=ks._save, kwargs={"enabled": True})
     saver.start()
@@ -497,6 +501,66 @@ def test_a_pin_write_does_not_drop_a_concurrent_blocklist_edit(tmp_path,
 
     assert ks.terms() == ["Old", "New"]
     assert ks.enabled() is True, "the blocklist edit dropped the enabled flag"
+
+
+def _truncate(path):
+    """Half a JSON object: what a machine that lost power mid-write leaves.
+
+    ``json.load`` raises, which is a *read* failure on a file that is very
+    much there — the one shape the fail-open reader could not tell from "there
+    is nothing here yet".
+    """
+    whole = open(path, encoding="utf-8").read()
+    open(path, "w", encoding="utf-8").write(whole[:len(whole) // 2])
+
+
+def test_a_state_file_that_cannot_be_read_does_not_erase_the_pin(tmp_path):
+    """The read half of a read-modify-write may not fail open.
+
+    ``_save`` read the whole file, changed one key and wrote the whole thing
+    back. The read was ``read_json``, which answers ``{}`` on ANY error — so a
+    truncated file from a machine that lost power came back empty and the
+    write that followed made it empty: the PIN hash and the lockout counter
+    gone, silently, leaving a household with a kid-safe nobody could unlock
+    and no sign of what had happened. Now the save raises, the file is left as
+    it was, and somebody can go and look at it.
+    """
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    ks.enable("123456", "parent")
+    _truncate(ks.path)
+    damaged = open(ks.path, encoding="utf-8").read()
+
+    with pytest.raises(ValueError):
+        ks._save(enabled=False)
+
+    assert open(ks.path, encoding="utf-8").read() == damaged
+
+
+def test_a_state_file_that_cannot_be_read_does_not_erase_the_blocklists_neighbours(
+        tmp_path):
+    # The same file, written by the other half of kid-safe. ``put`` keeps
+    # everything it is not changing by reading it and writing it back, so the
+    # same fail-open read took the PIN with it — and this half had somewhere
+    # to report it, because ``put`` already raises on a write it could not do.
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    ks.enable("123456", "parent")
+    _truncate(ks.path)
+    damaged = open(ks.path, encoding="utf-8").read()
+
+    with pytest.raises(BlocklistStoreError):
+        ks.store.put(["Eminem"])
+
+    assert open(ks.path, encoding="utf-8").read() == damaged
+
+
+def test_a_state_file_that_is_not_there_yet_is_still_an_empty_one(tmp_path):
+    # The one case where "I could not read it" really does mean "there is
+    # nothing in it": a first run, before anything has been saved.
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True))
+    assert not os.path.exists(ks.path)
+    ks._save(enabled=True)
+    assert ks.enabled() is True
+    JsonBlocklistStore(str(tmp_path / "fresh.json")).put(["Eminem"])
 
 
 def test_a_term_that_cannot_be_saved_is_not_reported_as_saved(ks):
@@ -562,3 +626,40 @@ def test_two_terms_added_at_once_do_not_erase_each_other(tmp_path, monkeypatch):
     second.join(5)
 
     assert sorted(ks.terms()) == ["Alpha", "Beta"]
+
+
+def test_a_reply_does_not_inherit_the_previous_requests_language(
+        live_server, tmp_path, clock):
+    # Found in review. The language is per request, so it never leaks between
+    # connections — but HTTP/1.1 keep-alive serves several requests on one
+    # thread, and a route that produces text without setting it (the kid-safe
+    # panel's «speech») inherited whatever the request before had set. Behind
+    # a reverse proxy that reuses connections, that request is somebody
+    # else's.
+    import http.client
+    import urllib.parse
+
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
+    srv = live_server(kidsafe=ks)
+    srv.json_post("/kidsafe", {"client": "parent", "action": "enable",
+                               "pin": "123456"})
+    parts = urllib.parse.urlsplit(srv.url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=5)
+    headers = {"Content-Type": "application/json",
+               "Host": f"{parts.hostname}:{parts.port}"}
+
+    def post(path, payload):
+        conn.request("POST", path, json.dumps(payload), headers)
+        resp = conn.getresponse()
+        return json.loads(resp.read().decode("utf-8"))
+
+    try:
+        # An English turn, then a kid-safe edit that fails, on the SAME
+        # connection. Its sentence is the engine's, and it must be Italian.
+        post("/api/v1/command", {"text": "pause", "lang": "en"})
+        refused = post("/kidsafe", {"client": "parent", "action": "add",
+                                    "term": ""})
+        assert refused["ok"] is False
+        assert refused["speech"] == "Non ho capito cosa bloccare. Puoi ripetere?"
+    finally:
+        conn.close()

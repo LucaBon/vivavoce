@@ -173,6 +173,37 @@ def test_choose_without_list_en(router, transport):
     assert router.handle("play number two", lang="en").startswith("First ask me for a list")
 
 
+# -- the sleep timer ------------------------------------------------------------
+@pytest.mark.parametrize("phrase, minutes", [
+    ("stop in 30 minutes", 30),
+    ("stop in thirty minutes", 30),
+    ("stop in an hour", 60),
+    ("stop in two hours", 120),
+    ("stop in half an hour", 30),
+    # Read on its first two words alone, "an hour and a half" armed a timer
+    # thirty minutes short and said so in the confirmation.
+    ("stop in an hour and a half", 90),
+    ("stop in two hours and a half", 150),
+    ("stop in an hour and ten minutes", 70),
+    ("stop in 30 minutes please", 30),
+])
+def test_sleep_timer_en(router, transport, phrase, minutes):
+    router.handle(phrase, lang="en")
+    assert ["sleep", str(minutes * 60)] in transport.commands()
+
+
+def test_a_half_read_duration_does_not_pause_instead_en(router, transport):
+    # Starts as a duration, and then does not finish as one.
+    reply = router.handle("stop in two hours and a quarter", lang="en")
+    assert not any(c[0] in ("pause", "sleep") for c in transport.commands()), reply
+
+
+def test_a_tail_that_is_no_duration_at_all_still_pauses_en(router, transport):
+    # "in" introduces the delay AND the room. See tests/test_router.py.
+    reply = router.handle("pause in the kitchen", lang="en")
+    assert ["pause", "1"] in transport.commands(), reply
+
+
 # -- language isolation ----------------------------------------------------------
 def test_italian_still_default(router, transport):
     assert router.handle("pausa") == "In pausa."

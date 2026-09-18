@@ -34,6 +34,19 @@ from typing import Optional
 # veduta. (Soglia a 3.5 così una "4 GB" reale, che ne riporta ~3.8, passa.)
 MIN_RAM_GIB = 3.5
 
+# Quale istantanea di ciascun modello. faster-whisper risolve un nome nudo
+# come "small" in Systran/faster-whisper-small su Hugging Face e segue il
+# branch principale di quel repository: senza `revision`, ciò che viene
+# scaricato è quello che c'è lì quel giorno, e nessuno se ne accorge. Fissate
+# le tre taglie di cui parla questo modulo; un nome che questa tabella non
+# conosce scarica come prima, perché --asr-model è una stringa libera e
+# rifiutare una scelta legittima sarebbe peggio del rischio che copre.
+MODEL_REVISIONS = {
+    "tiny": "d90ca5fe260221311c53c58e660288d3deb8d356",
+    "base": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+    "small": "536b0662742c02347bc0e980a01041f333bce120",
+}
+
 # Un comando parlato dura pochi secondi. Il limite di 15 MB in audio_api.py
 # tiene lontano l'upload-bomba, ma 15 MB di wav sono ~8 minuti di audio: con
 # beam 5 su un Raspberry Pi sono minuti di CPU per UNA richiesta. Qui il
@@ -146,9 +159,11 @@ class WhisperTranscriber:
                 from faster_whisper import WhisperModel
                 # int8 su CPU: il compromesso giusto per un mini-PC/NAS di
                 # casa — niente GPU richiesta, ~1 GB di RAM col modello small.
+                revision = MODEL_REVISIONS.get(self.model_name)
                 self._model = WhisperModel(
                     self.model_name, device="cpu", compute_type="int8",
-                    download_root=self.cache_dir)
+                    download_root=self.cache_dir,
+                    **({"revision": revision} if revision else {}))
             return self._model
 
     def transcribe(self, audio: bytes, lang: str = "it") -> dict:

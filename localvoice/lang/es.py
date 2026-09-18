@@ -49,7 +49,7 @@ from .base import c
 from .moods_es import MOOD_WORDS  # noqa: F401
 # Spoken numbers and durations, same reasoning — see numbers_es.py.
 from .numbers_es import (  # noqa: F401
-    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
+    DURATION_TAIL, DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "es"
 # The closed word lists these patterns are built from, and the two builders
@@ -259,7 +259,8 @@ PATTERNS = {
     # The play verb stays inside the capture — see it.py for why.
     "local_prefix": c(rf"{_LOCAL}\s+(.+?){_END}"),
     "local_suffix": c(rf"((?:{_PLAY})\s+.+?)\s+{_LOCAL}{_END}"),
-    "service": r"(?:en {s}|desde {s}|con {s}|por {s})\s+(.+)$",
+    # ``\b`` in front — see it.py.
+    "service": r"\b(?:en {s}|desde {s}|con {s}|por {s})\s+(.+)$",
     # «pon X en Qobuz» — see it.py for why the suffix form exists at all.
     # «de» is left out of both halves, for the reason connectors/es.py gives:
     # «de» is how Spanish names an artist, so a trailing «de …» is a singer far

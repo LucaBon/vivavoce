@@ -19,6 +19,7 @@ Two families of routes live next door rather than here, both mixed into
 
 from __future__ import annotations
 
+import artwork
 import collections
 import json
 import os
@@ -32,6 +33,7 @@ from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
 from lmsproxy import browse_path, proxy_routes
 from messages import CATALOGS
+from player.protocols import service_label
 from router import Router
 
 # The languages the router can answer in, for the page's read-back: the voice
@@ -50,20 +52,12 @@ REPLY_LANGS = tuple(sorted(CATALOGS))
 MAX_ROUTERS = 64
 
 
-def _http_fetch(url: str, timeout: float = 5.0):
-    """GET ``url`` returning ``(content_type, bytes)`` — the artwork proxy's
-    default transport (injectable in tests)."""
-    import urllib.request
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
-        return resp.headers.get("Content-Type") or "image/jpeg", resp.read()
-
-
 def make_handler(lms, material_url: str, services, default_service: str,
-                 ca_path=None, artwork_fetch=_http_fetch, license_mgr=None,
+                 ca_path=None, artwork_fetch=artwork.fetch, license_mgr=None,
                  kidsafe=None, transcriber=None, multiroom=None,
                  app_version: str = "", wakeword_sessions=None,
-                 wake_phrase_store=None,
-                 allowed_hosts=None, proxy_open=None):
+                 wake_phrase_store=None, api_token="",
+                 allowed_hosts=None, proxy_open=None, lms_from_page=False):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -71,11 +65,17 @@ def make_handler(lms, material_url: str, services, default_service: str,
     routers = collections.OrderedDict()
     lock = threading.Lock()
     services = list(services)
+    # How each is spelled where the page says it out loud. Asked of the client
+    # — the spelling belongs to the music system, and a table in the JS could
+    # only ever know the ones LMS has. No round trip (player.protocols).
+    service_labels = {name: service_label(lms, name) for name in services}
 
     # Material Skin opens inside the page rather than in another tab, which
     # needs it served under this origin — see lmsproxy.py, which also decides
     # whether that is possible at all and what the panel should open.
-    browse = browse_path(material_url, lms.base_url)
+    # ``lms_from_page`` is where it says no: this origin is not forwarded to
+    # an address that came from the setup page rather than from configuration.
+    browse = browse_path(material_url, lms.base_url, lms_from_page)
 
     def multiroom_ok() -> bool:
         """Multi-room (player selector + «in cucina» targeting) is Pro; the
@@ -107,12 +107,15 @@ def make_handler(lms, material_url: str, services, default_service: str,
     # versioned command route (/api/v1/command) live in audio_api.py and
     # api_v1.py; here is the only place the halves meet, and they call back
     # into _send/_query_params/_read_json_object below.
+    token = api_token or ""
+
     class Handler(api_v1_routes(router_for, multiroom),
                   audio_routes(license_mgr, transcriber, wakeword_sessions,
                                wake_phrase_store),
                   proxy_routes(lms.base_url, browse, proxy_open),
                   httpbase.RequestBase, BaseHTTPRequestHandler):
         host_policy = webguard.HostPolicy(allowed_hosts)
+        api_token = token
 
         def do_GET(self):
             # Reads are guarded too: /license, /players, /kidsafe and
@@ -123,15 +126,11 @@ def make_handler(lms, material_url: str, services, default_service: str,
             if self._reject_bad_host():
                 return
             if self.path in ("/", "/index.html"):
-                page = staticfiles.index_html().replace("__MATERIAL_URL__",
-                                                        material_url)
-                page = page.replace("__SERVICES__", json.dumps(services))
-                page = page.replace("__LANGS__", json.dumps(REPLY_LANGS))
-                # json.dumps: the version lands in the inline config script
-                # as a quoted JS string.
-                page = page.replace("__VERSION__", json.dumps(app_version))
-                page = page.replace("__BROWSE__", json.dumps(browse))
-                self._send(200, page, "text/html")
+                self._send(200, staticfiles.index_page(
+                    material_url=material_url, services=services,
+                    service_labels=service_labels, langs=REPLY_LANGS,
+                    version=app_version, browse=browse), "text/html",
+                    headers=httpbase.PAGE_HEADERS)
             elif self.path in staticfiles.STATIC:
                 data, ctype = staticfiles.STATIC[self.path]
                 self._send(200, data, ctype)

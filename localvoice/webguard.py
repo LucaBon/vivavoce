@@ -9,7 +9,15 @@ exists yet, which locks the parent out of the feature meant to protect their
 child. None of that needs a reply to be read back, so the same-origin policy
 never gets in the way; only these checks do.
 
-Three of them, cheapest first:
+Four of them now, and the fourth is about the connection rather than the
+page: :func:`peer_is_local`. The three below all assume the request came from
+somewhere in the house, because that is what "on the LAN" meant when they
+were written; a forwarded port makes that assumption false and none of them
+notices. So a connection from a public address is refused before any of this
+runs (``httpbase.BoundedThreadingHTTPServer.verify_request``), unless the
+household says otherwise.
+
+The other three, cheapest first:
 
 1. **Content-Type** on the JSON routes. A cross-origin ``fetch`` may send
    ``text/plain`` (or a form encoding) with no preflight at all — a "simple
@@ -44,6 +52,39 @@ JSON_ROUTES = frozenset({"/api/v1/command", "/command", "/kidsafe",
 # pointed at us by an attacker who controls a public zone.
 _LOCAL_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".internal",
                    ".localdomain")
+
+
+# Shared address space (RFC 6598). Carrier NAT uses it, and so does Tailscale
+# — which is how a household that never opened a port reaches its own hi-fi
+# from outside. A peer really behind carrier NAT cannot reach this server at
+# all without a forward, and through one it arrives at its public address
+# instead, so counting this range as local costs nothing and keeps a setup
+# people actually have from breaking.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+
+def peer_is_local(address: str) -> bool:
+    """Whether a client address is one only somebody in the house could have.
+
+    The Host allow-list cannot answer this. A request forwarded in from the
+    internet carries whatever ``Host`` the router sends — commonly the LAN
+    address, which is an IP literal, which passes. This is the other axis,
+    where the connection came *from*, and the only one that tells a phone on
+    the sofa from a scanner that found a forwarded port.
+
+    An address this cannot parse is treated as local: it is not an address
+    the internet reached us from, and refusing what we cannot judge would
+    turn an oddity into an outage.
+    """
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return True
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    return bool(ip.is_private or ip.is_loopback or ip.is_link_local
+                or (ip.version == 4 and ip in _SHARED_ADDRESS_SPACE))
 
 
 def _split_host(value: str) -> str:

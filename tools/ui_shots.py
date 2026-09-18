@@ -11,6 +11,7 @@ the app uses at home, just answered from here.
 import http.server
 import json
 import pathlib
+import re
 import threading
 
 from playwright.sync_api import sync_playwright
@@ -49,20 +50,44 @@ PLAYERS = {"ok": True, "pro": False, "current": "aa:bb",
                        {"id": "cc:dd", "name": "Cucina"}]}
 
 
+#: What the real handler substitutes, as this harness fakes it. Served raw, a
+#: leftover ``__SERVICES__`` is a SyntaxError that kills the inline config
+#: script and leaves the source selector empty — so a placeholder added to
+#: index.html and forgotten here has to fail loudly rather than produce a
+#: screenshot of a half-dead page (see :func:`_fill_placeholders`).
+PLACEHOLDERS = {
+    "__SERVICES__": '["tidal", "qobuz"]',
+    "__SERVICE_LABELS__": '{"tidal": "TIDAL", "qobuz": "Qobuz"}',
+    "__LANGS__": '["de", "en", "es", "fr", "it"]',
+    "__VERSION__": '"dev"',
+    "__BROWSE__": "null",
+    "__MATERIAL_URL__": "#",
+}
+
+
+def _fill_placeholders(page: str) -> str:
+    """``index.html`` with every server-side token filled in, or a loud error
+    naming the one this harness has not learned about yet."""
+    for token, value in PLACEHOLDERS.items():
+        page = page.replace(token, value)
+    left = re.findall(r"__[A-Z_]+__", page)
+    if left:
+        raise SystemExit(
+            f"index.html has placeholders this harness does not fill: "
+            f"{sorted(set(left))} — add them to PLACEHOLDERS")
+    return page
+
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
-    """Static file server that fills the server-side placeholders: served raw,
-    ``__SERVICES__`` is a SyntaxError that kills the inline config script and
-    leaves the source selector empty."""
+    """Static file server that fills the server-side placeholders."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
-            page = (ROOT / "index.html").read_text(encoding="utf-8")
-            page = page.replace("__SERVICES__", '["tidal", "qobuz"]')
-            page = page.replace("__MATERIAL_URL__", "#")
-            page = page.replace("__VERSION__", '"dev"')
+            page = _fill_placeholders(
+                (ROOT / "index.html").read_text(encoding="utf-8"))
             data = page.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

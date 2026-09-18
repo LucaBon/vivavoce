@@ -45,7 +45,7 @@ from .base import c
 from .moods_fr import MOOD_WORDS  # noqa: F401
 # Spoken numbers and durations, same reasoning — see numbers_fr.py.
 from .numbers_fr import (  # noqa: F401
-    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
+    DURATION_TAIL, DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "fr"
 # The closed word lists these patterns are built from, and the two builders
@@ -270,7 +270,8 @@ PATTERNS = {
     # The play verb stays inside the capture — see it.py for why.
     "local_prefix": c(rf"{_LOCAL}\s+(.+?){_END}"),
     "local_suffix": c(rf"((?:{_PLAY})\s*{_MOI}\s+.+?)\s+{_LOCAL}{_END}"),
-    "service": (r"(?:sur {s}|depuis {s}|avec {s}|via {s}|de {s})\s+"
+    # ``\b`` in front — see it.py.
+    "service": (r"\b(?:sur {s}|depuis {s}|avec {s}|via {s}|de {s})\s+"
                 r"(.+)$"),
     # «mets X sur Qobuz» — see it.py for why the suffix form exists at all.
     # ``de`` is left out of this half, for the reason connectors/fr.py gives

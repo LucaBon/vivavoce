@@ -20,3 +20,10 @@ NOT_AN_ARTIST = {
     "me", "you", "us", "it", "her", "him", "them", "myself", "yourself",
     "now", "here", "there", "one", "two", "all", "more", "less", "everyone",
 }
+
+# See connectors/it.py: what may be left over once a candidate's title is
+# taken out of a request and the pick still stands.
+PICK_FILLER = {
+    "the", "a", "an", "song", "track", "tune", "album", "record", "disc",
+    "playlist", "please", "thanks", "now",
+}

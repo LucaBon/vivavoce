@@ -21,8 +21,16 @@ import threading
 from typing import Any, Dict, Optional
 
 # Il namespace delle variabili d'ambiente. LEGACY_PREFIX (il nome pre-rebrand)
-# viene letto come ripiego per un rilascio, poi sparisce: chi ha ancora i
-# vecchi nomi configurati continua a funzionare ma vede l'avviso.
+# viene letto come ripiego: chi ha ancora i vecchi nomi configurati continua a
+# funzionare ma vede l'avviso.
+#
+# «Per un rilascio», diceva questa riga, ed è rimasta per quattro (dalla
+# 0.2.0, luglio 2026). Una data, quindi, invece di una promessa: **esce con la
+# 1.1.0**, il primo rilascio dopo il lancio pubblico — che è la 1.0.0, dove
+# togliere una compatibilità sarebbe la cosa sbagliata da fare nella settimana
+# in cui arrivano le prime installazioni. Metterlo a ``None`` è tutto ciò che
+# serve; ``tests/test_appdata.py`` regge entrambi i rami.
+LEGACY_PREFIX_REMOVED_IN = "1.1.0"
 PRIMARY_PREFIX = "VIVAVOCE"
 LEGACY_PREFIX: Optional[str] = "SQUEEZESAY"
 
@@ -48,7 +56,8 @@ def env(name: str, default: Optional[str] = None,
         if value is not None:
             if name not in _warned_legacy:
                 _warned_legacy.add(name)
-                print(f"Nota: {LEGACY_PREFIX}_{name} è deprecata, "
+                print(f"Nota: {LEGACY_PREFIX}_{name} è deprecata e sparisce "
+                      f"con la {LEGACY_PREFIX_REMOVED_IN}: "
                       f"usa {PRIMARY_PREFIX}_{name}.")
             return value
     return default
@@ -99,12 +108,40 @@ def read_json(path: str, default: Any = None) -> Any:
     """Parsed JSON content of ``path``, or ``default`` on any error.
 
     Fail-open on purpose: a missing or corrupt state file degrades to the
-    defaults instead of taking the server down.
+    defaults instead of taking the server down. Right for a READ — see
+    :func:`read_json_for_update` for why it is wrong for the read half of a
+    read-modify-write.
     """
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
+        return default
+
+
+def read_json_for_update(path: str, default: Any = None) -> Any:
+    """:func:`read_json` for the read half of a read-modify-write, where a
+    failed read is not a default — it is everything the file holds.
+
+    A state file is read, one key is changed and the whole thing is written
+    back. With the fail-open read, a file that was there and could not be read
+    — a permission that changed, a truncated write from a machine that lost
+    power, an NFS hiccup — came back as ``{}``, and the write that followed
+    made that true: the PIN, the lockout counter and the kid-safe switch were
+    gone, silently, and the next request found a household with no parent.
+    The blocklist has the same shape (``blocklist_store.put``).
+
+    So only "there is no file yet" is a default here, and it is the one case
+    where ``{}`` really is the whole truth. Anything else raises, the write
+    never happens, and the caller reports a save that did not work — which is
+    a thing a household can act on, unlike a PIN that has quietly become no
+    PIN. The cost is declared: a corrupt file can no longer be repaired by
+    writing over it, and has to be moved out of the way by hand.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
         return default
 
 
@@ -205,10 +242,31 @@ def remembered_lms(data_dir: str) -> str:
     return (cached.get("lms") or "") if isinstance(cached, dict) else ""
 
 
-def remember_lms(data_dir: str, url: str) -> None:
-    """Remember ``url`` for the next start. Best-effort by design."""
+def remembered_from_page(data_dir: str) -> bool:
+    """Whether the remembered address is one somebody typed into the page.
+
+    The provenance is written down because it has to outlive the restart.
+    Without it, an address the box on the setup page accepted became an
+    ordinary remembered address at the next start, and everything the app
+    refuses to build on a typed address — the reverse proxy, and with it the
+    in-page Material panel (``lmsproxy.browse_path``) — got built on it
+    anyway one reboot later. A file written before this existed says nothing
+    and is read as not typed: it holds what discovery found on a household
+    that has been running all along.
+    """
+    cached = read_json(_lms_cache_path(data_dir), {})
+    return bool(cached.get("from_page")) if isinstance(cached, dict) else False
+
+
+def remember_lms(data_dir: str, url: str, *, from_page: bool = False) -> None:
+    """Remember ``url`` for the next start, and where it came from.
+
+    Best-effort by design. ``from_page`` travels with it: see
+    :func:`remembered_from_page` for why it is not enough to know it once.
+    """
     try:
-        atomic_write_json(_lms_cache_path(data_dir), {"lms": url})
+        atomic_write_json(_lms_cache_path(data_dir),
+                          {"lms": url, "from_page": from_page})
     except OSError:
         pass  # read-only directory: it just gets discovered again next time
 

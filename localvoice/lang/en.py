@@ -10,7 +10,7 @@ from .base import c
 from .moods_en import MOOD_WORDS  # noqa: F401
 # Spoken numbers and durations, same reasoning — see numbers_en.py.
 from .numbers_en import (  # noqa: F401
-    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
+    DURATION_TAIL, DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "en"
 # The closed word lists these patterns are built from.
@@ -56,7 +56,8 @@ PATTERNS = {
     "queue_list": c(r"what'?s\s+(?:in|on)\s+the\s+queue|queue\s+list"),
     # Vague requests — see it.py for the three conditions and why the anchor
     # is one of them ("stop playing something sad" and "I don't want something
-    # sad" both used to start the music), and engine/moods.py for the lookup. "for" is deliberately never consumed: "for dinner" is the
+    # sad" both used to start the music), and engine/moods.py for the lookup.
+    # "for" is deliberately never consumed: "for dinner" is the
     # whole tail MOOD_WORDS is asked about, not "dinner" with a stray word.
     "mood": c(r"^(?:(?:play|put\s+on|start"
               r"|i\s+want\s+to\s+(?:hear|listen\s+to))\s+(?:me\s+)?)?"
@@ -91,7 +92,8 @@ PATTERNS = {
     # The play verb stays inside the capture — see it.py for why.
     "local_prefix": c(rf"{_LOCAL}\s+(.+)$"),
     "local_suffix": c(rf"((?:play|put\s+on|start)\s+.+?)\s+{_LOCAL}\s*$"),
-    "service": r"(?:from {s}|on {s}|with {s})\s+(.+)$",
+    # ``\b`` in front — see it.py.
+    "service": r"\b(?:from {s}|on {s}|with {s})\s+(.+)$",
     # "play X on Qobuz" — see it.py for why the suffix form exists at all.
     # ``put`` stands without its particle here, and only here: "put Dark Side
     # on Spotify" splits the two words the ``service`` form keeps together.
@@ -100,7 +102,8 @@ PATTERNS = {
     "albums_list": c(r"(?:which|what).{0,12}albums?.{0,16}(?:by|of|from)\s+(.+)$"),
     "toptracks": c(r"(?:top\s+tracks|best\s+(?:songs|tracks)|most\s+(?:played|listened)"
                    r"|which\s+songs).*?(?:by|of|from)\s+(.+)$"),
-    "name_pick": c(r"(?:(?:i\s+want\s+to\s+(?:hear|listen\s+to)|play|choose|pick|put\s+on|start)\s+)?(.+)$"),
+    "name_pick": c(r"(?:(?:i\s+want\s+to\s+(?:hear|listen\s+to)|play|choose"
+                   r"|pick|put\s+on|start)\s+)?(.+)$"),
     "album": c(r"(?:play|put\s+on|start)\s+(?:the\s+)?album\s+(.+)$"),
     "playlist": c(r"(?:play|put\s+on|start)\s+(?:the\s+)?playlist\s+(.+)$"),
     # Only "by" for songs/tracks: "songs of/from" collide with real titles

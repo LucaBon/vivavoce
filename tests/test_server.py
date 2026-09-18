@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 import server
+from player.registry import BACKENDS
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -79,6 +80,27 @@ def test_wakeword_unavailable_message_points_at_the_right_group():
     message = source[source.index(marker):source.index(marker) + 200]
     assert "uv sync --group wakeword" in message
     assert "uv sync --group asr" not in message
+
+
+def test_main_carries_where_the_address_came_from_to_all_four_places():
+    """Source scan, for the reason the test above gives: this wiring sits
+    after discovery and reaching it for real would need a live LMS.
+
+    What it guards is a security decision spread over four lines of
+    ``main()`` — seed the provenance from the remembered file, hand it to
+    ``serve_setup``, write it back, hand it to ``make_handler`` — and the
+    reason each one matters is in ``lmsproxy.browse_path``. Drop any of them
+    and the reverse proxy is pointed at an address that arrived over the
+    network again, with nothing failing to say so.
+    """
+    with open(os.path.join(ROOT, "localvoice", "server.py"),
+              encoding="utf-8") as f:
+        source = f.read()
+    assert "appdata.remembered_from_page(data_dir)" in source
+    assert "lms_url, players, from_page = setupserver.serve_setup(" in source
+    assert "from_page=from_page," in source
+    assert "remember_lms(data_dir, lms_url, from_page=from_page)" in source
+    assert "lms_from_page=from_page," in source
 
 
 # -- 32-bit machines -----------------------------------------------------------
@@ -165,3 +187,157 @@ def test_the_architecture_note_actually_reaches_the_engine_messages():
         source = f.read()
     call = source[source.index("audio_engines.build("):]
     assert "optional_groups_unavailable_here()" in call.split(")\n")[0]
+
+
+# -- --services is validated by the backend, not by LMS ------------------------
+# The list somebody types is a list of names the music system in front of us
+# has to recognise. Held against the LMS table on a MusicAssistant, a provider
+# that server really has was refused before the app had started once, and the
+# alternatives printed underneath were the wrong music system's.
+
+def test_a_music_assistant_provider_is_not_measured_against_the_lms_table(
+        ma, ma_transport):
+    ma_transport.responses["config/providers"] = [
+        {"domain": "apple_music", "enabled": True},
+        {"domain": "filesystem", "enabled": True},
+    ]
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "apple_music")
+    assert complaint == ""
+    assert services == ["apple_music"]
+
+
+def test_a_name_this_music_assistant_has_not_got_is_still_refused(
+        ma, ma_transport):
+    # "spotify" is a perfectly good LMS service and a perfectly good MA
+    # provider — and not one THIS server has, which is the only question.
+    ma_transport.responses["config/providers"] = [
+        {"domain": "apple_music", "enabled": True}]
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "spotify")
+    assert services == []
+    assert "spotify" in complaint and "apple_music" in complaint
+
+
+def test_a_provider_switched_off_does_not_stop_the_app_from_starting(
+        ma, ma_transport):
+    # The escape hatch again, from the other side: a provider mid-re-auth
+    # answers `enabled: false`, and refusing to boot the voice assistant over
+    # it would be calling an outage a misspelling.
+    ma_transport.responses["config/providers"] = [
+        {"domain": "tidal", "enabled": False},
+        {"domain": "qobuz", "enabled": True},
+    ]
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "tidal")
+    assert (services, complaint) == (["tidal"], "")
+
+
+def test_the_lms_list_is_the_lms_table_and_costs_no_round_trip(lms, transport):
+    # Unchanged, and deliberately still answered offline: --services is the
+    # escape hatch for when asking the server misbehaves.
+    services, complaint = server.explicit_services(
+        lms, BACKENDS["lms"], "tidal,qobuz")
+    assert (services, complaint) == (["tidal", "qobuz"], "")
+    assert transport.commands() == []
+
+
+def test_a_name_no_lms_has_is_refused_with_the_lms_list(lms, transport):
+    services, complaint = server.explicit_services(lms, BACKENDS["lms"], "spotty")
+    assert services == []
+    assert "tidal" in complaint
+
+
+def test_a_server_with_no_providers_still_refuses_a_name_it_has_not_got(
+        ma, ma_transport):
+    # "Could not ask" and "asked, and the answer is none" are different facts,
+    # and reading the second as the first accepted --services unvalidated: the
+    # selector then offered a plugin this server has never had, and every
+    # streaming request answered «TIDAL non è collegato» — the invented list
+    # the auto branch was rewritten to stop printing.
+    ma_transport.responses["config/providers"] = []
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "tidal")
+    assert services == []
+    assert "tidal" in complaint
+
+
+def test_a_backend_with_no_services_at_all_takes_the_list_as_typed(lms,
+                                                                   transport):
+    # The other side of it: a music system with no notion of services has
+    # nothing to validate against, and refusing everything would be reading
+    # "no table" as "an empty table".
+    from player.registry import Backend
+    from player.protocols import Capabilities
+
+    speakers = Backend(name="speakers", label="Speakers",
+                       capabilities=Capabilities(), build=lambda *a, **k: lms,
+                       probe=lambda *a, **k: [])
+    services, complaint = server.explicit_services(lms, speakers, "tidal")
+    assert (services, complaint) == (["tidal"], "")
+    assert transport.commands() == []
+
+
+def test_a_server_that_will_not_answer_does_not_get_to_refuse(ma, ma_transport):
+    # An escape hatch that needs the detection to work is not one: with no
+    # answer to validate against, the list is taken as typed.
+    ma_transport.raise_on.add("config/providers")
+    services, complaint = server.explicit_services(
+        ma, BACKENDS["musicassistant"], "apple_music")
+    assert (services, complaint) == (["apple_music"], "")
+
+
+def test_an_empty_list_is_still_refused(lms, transport):
+    services, complaint = server.explicit_services(lms, BACKENDS["lms"], " , ")
+    assert services == []
+    assert complaint.startswith("--services non valido")
+
+
+# -- a hi-fi that streams from nothing -----------------------------------------
+#
+# «auto» used to answer an empty detection with ``["tidal"]``: a guess printed
+# as a fact. A MusicAssistant with no providers, or a backend with no notion of
+# services at all, got a source selector offering a plugin it has never had,
+# and every streaming request was aimed at it and answered «TIDAL non è
+# collegato» — a sentence about a service nobody has installed, naming a
+# settings page nobody has. The truthful answer is that this hi-fi streams from
+# nothing, and everything else still works.
+
+def test_no_service_is_not_a_reason_to_invent_one(lms, transport):
+    from router import Router
+
+    router = Router(lms, services=(), default_service="")
+    # The local library and the transport controls, which is what is left.
+    assert str(router.handle("pausa")) == "In pausa."
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    reply = router.handle("metti Time", source="auto")
+    # Never «TIDAL non è collegato»: nobody named TIDAL, nobody installed it,
+    # and the tag that says where music came from has nothing to say either.
+    assert "TIDAL" not in str(reply)
+    assert router.services == ()
+
+
+def test_a_streaming_request_with_nothing_to_stream_from_says_so(lms, transport):
+    from router import Router
+
+    transport.responses["albums"] = {"count": 0}
+    transport.responses["artists"] = {"count": 0}
+    transport.responses["titles"] = {"count": 0}
+    reply = Router(lms, services=(), default_service="").handle(
+        "metti Time", source="tidal")
+    assert str(reply) == ("Nessun servizio di streaming è collegato. Apri le "
+                          "impostazioni di Lyrion Music Server e rifai "
+                          "l'accesso.")
+
+
+def test_the_system_named_in_that_sentence_is_the_one_in_front_of_you(
+        ma, ma_transport):
+    from router import Router
+
+    ma_transport.responses["music/search"] = {}
+    reply = Router(ma, services=(), default_service="").handle(
+        "metti Time", source="tidal")
+    assert "Music Assistant" in str(reply)
+    assert "Lyrion" not in str(reply)

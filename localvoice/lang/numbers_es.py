@@ -57,7 +57,14 @@ _NUMTOK = r"[a-záéíóúüñ]+(?:\s+y\s+[a-záéíóúüñ]+)?"
 DURATIONS = (
     (c(r"^media\s+hora\b"), 30),
     (c(r"^(?:una\s+|1\s*)?hora\s+y\s+media\b"), 90),
+    (c(rf"^(\d+|{_NUMTOK})\s*horas\s+y\s+media\b"), "hours_half"),
+    (c(rf"^(\d+|{_NUMTOK})\s*horas?\s+y\s+(\d+|{_NUMTOK})"
+       rf"\s*(?:minut\w*|min\b)"), "hours_minutes"),
     (c(r"^(?:una|1)\s*hora\b"), 60),
     (c(rf"^(\d+|{_NUMTOK})\s*horas\b"), "hours"),
     (c(rf"^(\d+|{_NUMTOK})\s*(?:minut\w*|min\b)"), "minutes"),
 )
+
+# See DURATION_TAIL in numbers_it.py.
+DURATION_TAIL = (r"por\s+favor", r"gracias", r"exactamente",
+                 r"m[aá]s\s+o\s+menos")

@@ -327,6 +327,9 @@ def test_the_article_is_the_whole_difference(router, transport, make_tidal):
     # «una hora y media» read in the wrong order matches its first two words
     # and silently drops the half.
     ("apaga en una hora y media", 90),
+    ("apaga en dos horas y media", 150),
+    ("apaga en una hora y diez minutos", 70),
+    ("apaga en 30 minutos por favor", 30),
 ])
 def test_sleep_timer_es(router, transport, phrase, minutes):
     speech = router.handle(phrase, lang="es")

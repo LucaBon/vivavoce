@@ -11,6 +11,14 @@ hardware; only real hardware in the user's hands can confirm those.
 
 The wake-word engine itself is faked (no vosk install needed here);
 everything else — the page, the endpoints, the audio graph — is real.
+
+**About the fixed waits below.** What is left of ``wait_for_timeout`` here
+proves a NEGATIVE — that the wake stream posted no chunk while a command
+capture was open, that a cancelled start began nothing anyway, that a second
+tap opened no second microphone. There is no condition to poll for "nothing
+ever happens", so a fixed wait past the window the app could still act in is
+the right instrument rather than a leftover, and each one names the window it
+is past. Everything with something to wait FOR polls for it.
 """
 
 
@@ -45,7 +53,7 @@ class FakeDetector:
 
 
 class FakeSessions:
-    """Stands in for pro.wakeword.ServerWakeWordSessions, wired straight into
+    """Stands in for pro.vosk_wake.ServerVoskWakeSessions, wired straight into
     the real live_server so the test observes real HTTP traffic, not a
     page.route stub."""
 

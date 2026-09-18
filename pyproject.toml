@@ -1,6 +1,6 @@
 [project]
 name = "vivavoce"
-version = "0.6.0"
+version = "0.7.0"
 description = "Vivavoce — hands-free voice control for a Daphile/LMS hi-fi (TIDAL and Qobuz included), in Italian, English, French and German."
 readme = "README.md"
 # Open-core: tutto AGPL-3.0 tranne localvoice/pro/ (vedi licenses/README.md).
@@ -11,14 +11,26 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest>=7.0",
-    "cryptography>=42.0",  # solo per generare il certificato TLS locale (tools/make_cert.py)
+    # La 49 ha l'advisory PYSEC-2026-3552, risolto nella 50 — che pero' non
+    # supporta 3.9.0 e 3.9.1 esatti, mentre requires-python qui dice >=3.9.
+    # Due righe con i marker, come per vosk piu' sotto e per la stessa
+    # ragione: dove si puo' stare sulla 50 ci si sta, e uv risolve una sola
+    # versione per ambiente. Serve solo a generare il certificato locale
+    # (tools/make_cert.py), quindi non e' nel percorso del server.
+    "cryptography>=50.0; python_full_version > '3.9.1'",
+    "cryptography>=42.0; python_full_version <= '3.9.1'",
     "playwright>=1.40",  # screenshot della UI web (tools/ui_shots.py)
     "pyyaml>=6.0",  # valida i descrittori di deploy (tests/test_packaging.py)
+    "ruff>=0.14",  # il linter, configurato sotto in [tool.ruff]
 ]
 # Riconoscimento vocale locale (/transcribe, Pro): opzionale, il core resta
 # stdlib-only. Installa con: uv sync --group asr
 asr = [
-    "faster-whisper>=1.0",
+    # >=1.2.1 e non >=1.0: e' la versione in cui `WhisperModel(revision=...)`
+    # esiste (verificata, non dedotta), ed e' quella che il Dockerfile
+    # installa. Senza quel parametro il modello arriva da qualunque cosa ci
+    # sia sul branch principale del repository Hugging Face quel giorno.
+    "faster-whisper>=1.2.1",
 ]
 # Parola chiave LIBERA lato server (/wakeword, Pro): Vosk (Kaldi) a
 # riconoscimento libero, l'unico dei motori misurati che sente la frase
@@ -56,6 +68,42 @@ wakeword-vosk = [
 # installabile: diciamo a uv di non provare a "buildarlo".
 [tool.uv]
 package = false
+
+# Il linter. `engine/actions.py` portava un `# ruff: noqa` da prima che ruff
+# esistesse nel progetto: il riferimento c'era, lo strumento no, e
+# `uv run ruff check` falliva con «comando non trovato». Ora c'è, gira in CI
+# accanto a pytest, ed è verde — quindi una violazione nuova è visibile invece
+# di sparire in un rumore di fondo di ottocento.
+#
+# La selezione è stretta apposta. `E`/`W`/`F` sono pycodestyle e pyflakes (un
+# nome non definito, un import morto, una variabile mai letta: difetti, non
+# gusti) e `B` è flake8-bugbear, che trova gli errori veri del linguaggio —
+# un default mutabile, un `except` che perde la causa. Tutto il resto di ciò
+# che ruff sa fare riscriverebbe codice che questo repo ha scritto apposta in
+# un modo, con un commento accanto che dice perché.
+[tool.ruff]
+# Non 88: i moduli di questo repo portano commenti lunghi e tabelle di
+# messaggi, e 88 segnalava 167 righe contro le 15 che questa larghezza
+# lascia — un limite che nessuno rispetta non è un limite.
+line-length = 100
+extend-exclude = ["localvoice/static/js"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Il bootstrap di `sys.path` deve girare PRIMA degli import che ne dipendono:
+# `engine/` e `localvoice/` non sono un pacchetto installabile (vedi
+# `[tool.uv] package = false`), quindi l'ordine è la cosa che li fa funzionare.
+"localvoice/server.py" = ["E402"]
+"tests/conftest.py" = ["E402"]
+# Ogni pack di lingua espone le sue tabelle ri-esportandole DOPO `PATTERNS`,
+# che è l'ordine in cui si legge: prima la grammatica, poi le parole (vedi
+# `localvoice/lang/base.py`).
+"localvoice/lang/*.py" = ["E402"]
+# `engine/messages.py` importa `contextvars` accanto alla ContextVar che ne
+# fa, dove la riga che spiega il perché è leggibile.
+"engine/messages.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

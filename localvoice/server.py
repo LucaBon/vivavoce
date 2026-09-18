@@ -35,12 +35,16 @@ import audio_engines  # noqa: E402
 import cli  # noqa: E402
 from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
+import pro_features  # noqa: E402
 import servicestate  # noqa: E402
+# Re-exported: ``explicit_services`` was here until the 400-line rule
+# asked for the split, and tests reach it through this module.
+from services import explicit_services  # noqa: E402,F401
 import setupserver  # noqa: E402
+import spoken_library  # noqa: E402
 import tls  # noqa: E402
 import webguard  # noqa: E402
 from http_api import make_handler  # noqa: E402,F401  (re-exported for tests)
-from lms import SERVICES  # noqa: E402
 from player import registry as player_registry  # noqa: E402
 
 
@@ -123,6 +127,7 @@ def _announce_setup(scheme: str, hosts: list, port: int, line: str) -> None:
     print(line)
 
 
+
 def _discovery_progress(phase: str) -> None:
     line = _DISCOVERY_PHASES.get(phase)
     if line:
@@ -144,6 +149,14 @@ def main() -> int:
         print(f"{backend.label} non si annuncia sulla rete: indica dove "
               f"trovarlo con --backend-url.")
         return 1
+    # Audiobooks (--library) sit beside the music system, never in its place:
+    # without the option nothing is built. Checked before the setup page can
+    # block, so a typo is reported at once. Nothing asks the catalogue
+    # anything yet — the sentences that reach a book are a step of their own.
+    books, complaint = spoken_library.open_library(args)
+    if complaint:
+        print(complaint)
+        return 1
     data_dir = appdata.data_dir(args.data_dir)
     license_mgr = licensing.LicenseManager(data_dir)
     license_mgr.revalidate_async()  # settimanale, best-effort, mai bloccante
@@ -162,8 +175,10 @@ def main() -> int:
         trial = license_mgr.trial_status()
         if trial["active"] and not license_mgr.status()["key"]:
             print(f"Prova Pro: restano {trial['days_left']} giorni.")
-    from pro.kidsafe import KidSafe
-    kidsafe = KidSafe(data_dir, license_mgr)
+    kidsafe = pro_features.build_kidsafe(data_dir, license_mgr)
+    if kidsafe is None:
+        print("Kid-safe non incluso in questa build: i comandi funzionano, "
+              "la lista dei brani bloccati no.")
     # The optional audio engines (local ASR, server-side wake word) and
     # the household's wake phrase, in audio_engines.py — including which
     # of the two wake-word engines this box can actually run.
@@ -180,11 +195,17 @@ def main() -> int:
         hosts = lan_ips() or ["<ip-di-questo-pc>"]
 
     lms_url = backend_url
+    # Where that address came from, which is not a detail: see
+    # lmsproxy.browse_path and appdata.remembered_from_page.
+    from_page = False
     if not lms_url and backend.name == "lms":
         # L'indirizzo ricordato e' quello di un LMS: un altro backend non lo
         # eredita, o il primo avvio con Music Assistant proverebbe a parlare
-        # all'hi-fi dell'avvio precedente.
-        lms_url = appdata.remembered_lms(data_dir)
+        # all'hi-fi dell'avvio precedente. Ripassa dalla stessa verifica di
+        # un indirizzo scritto a mano: il file l'ha riempito una risposta UDP.
+        lms_url = setupserver.normalize_lms_url(
+            appdata.remembered_lms(data_dir))
+        from_page = bool(lms_url) and appdata.remembered_from_page(data_dir)
         if lms_url:
             # Not probed here: serve_setup probes every address it is given,
             # so checking it twice would only be a slower way to be wrong.
@@ -216,9 +237,10 @@ def main() -> int:
     # An explicit --player is trusted the way it always was: it means the LMS
     # has to answer, not that the list has to be non-empty.
     try:
-        lms_url, players = setupserver.serve_setup(
+        lms_url, players, from_page = setupserver.serve_setup(
             args.host, args.port, lms_url, discover,
             pinned=bool(backend_url), require_player=not args.player,
+            from_page=from_page,
             backend=backend.name, token=args.backend_token,
             allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
             wrap=(lambda httpd: tls.wrap_server(httpd, args.cert, args.key))
@@ -233,11 +255,11 @@ def main() -> int:
         player = players[0]["playerid"]
         print(f"Player: {players[0].get('name')} ({player})")
     if backend.name == "lms":
-        appdata.remember_lms(data_dir, lms_url)
+        appdata.remember_lms(data_dir, lms_url, from_page=from_page)
 
     # The engine talks to whatever this hands back, and has no idea which of
     # them it got (see engine/player/protocols.py).
-    client = backend.build(lms_url, player, token=args.backend_token)
+    client = backend.client(lms_url, player, token=args.backend_token)
     # What the app learned about which services actually play, kept next to
     # the licence so no household buys the same silent play twice
     # (engine/player/silence.py). Behind the capability, like every other
@@ -245,14 +267,13 @@ def main() -> int:
     # nothing to choose between and nothing to remember.
     if backend.capabilities.services:
         client.remember_silence_in(servicestate.SilenceFile(data_dir))
-    # Multi-stanza (Pro): come il kid-safe, il modulo vive in pro/ e il core
-    # riceve solo l'oggetto col suo piccolo contratto.
-    from pro.multiroom import MultiRoom
-    multiroom = MultiRoom(license_mgr, client.get_players, lms=client)
+    multiroom = pro_features.build_multiroom(license_mgr, client)
 
-    # Which streaming services the source selector offers. "auto" asks the LMS
-    # which plugins are installed; an explicit list skips the detection (the
-    # escape hatch if the apps query misbehaves on some LMS version).
+    # Which streaming services the source selector offers. "auto" asks the
+    # music system what it has; an explicit list is the escape hatch for when
+    # that answer misbehaves — it is still checked against the names the
+    # system recognises, which costs no round trip on LMS and one on
+    # MusicAssistant (see explicit_services).
     if args.services.strip().lower() == "auto":
         try:
             services = client.installed_services()
@@ -261,15 +282,16 @@ def main() -> int:
         if services:
             print(f"Servizi streaming rilevati: {', '.join(services)}")
         else:
-            services = ["tidal"]
-            print("Nessun servizio streaming rilevato: assumo TIDAL "
-                  "(indica i tuoi con --services tidal,qobuz).")
+            # No invented list: assuming TIDAL was a guess printed as a
+            # fact, and got a selector offering a plugin this house has never
+            # had plus «TIDAL non è collegato» to every request aimed at it.
+            print("Nessun servizio streaming rilevato: restano la libreria "
+                  "locale e i comandi di riproduzione (se l'impianto ne ha "
+                  "uno, indicalo con --services tidal,qobuz).")
     else:
-        services = [s.strip().lower() for s in args.services.split(",") if s.strip()]
-        unknown = [s for s in services if s not in SERVICES]
-        if unknown or not services:
-            print(f"--services non valido: {args.services!r} "
-                  f"(disponibili: {', '.join(SERVICES)})")
+        services, complaint = explicit_services(client, backend, args.services)
+        if complaint:
+            print(complaint)
             return 1
 
     silent = client.silent_services() if backend.capabilities.services else {}
@@ -282,8 +304,12 @@ def main() -> int:
               f"propongo finché non tornano — per riprovare subito basta "
               f"nominarne uno («metti ... da {muted[0]}»).")
 
+    # Empty when nothing streams here: ``SourceChoice`` reads that as "no
+    # service to aim at" rather than aiming at a name nobody configured.
     default_service = args.default_service.strip().lower()
-    if default_service not in services:
+    if not services:
+        default_service = ""
+    elif default_service not in services:
         default_service = services[0]
         print(f"--default-service non tra i servizi attivi: uso {default_service}")
 
@@ -293,9 +319,11 @@ def main() -> int:
     material_url = args.material_url or (
         lms_url.rstrip("/") + "/material/" if backend.name == "lms" else "")
     ca_path = tls.find_ca(args.cert)
+    BoundedThreadingHTTPServer.allow_public_peers = args.allow_public_peers
     httpd = BoundedThreadingHTTPServer(
         (args.host, args.port),
         make_handler(client, material_url, services, default_service,
+                     lms_from_page=from_page, api_token=args.api_token,
                      ca_path=ca_path, license_mgr=license_mgr,
                      kidsafe=kidsafe, transcriber=transcriber,
                      multiroom=multiroom, app_version=appdata.app_version(),

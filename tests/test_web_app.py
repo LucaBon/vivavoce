@@ -11,8 +11,8 @@ Why each check earns its place:
   atomic — one 404 rejects the whole service-worker install and the app
   silently stops being installable. Renaming an icon would do it.
 * ``index.html`` is served with ``__MATERIAL_URL__`` / ``__SERVICES__`` /
-  ``__LANGS__`` substituted at request time; a typo in any of those tokens
-  ships a page with a raw placeholder in it.
+  ``__SERVICE_LABELS__`` / ``__LANGS__`` substituted at request time; a typo
+  in any of those tokens ships a page with a raw placeholder in it.
 * the page reaches the server through ~10 hard-coded ``fetch()`` paths. Nothing
   but a test ties those strings to the handler's routing table.
 """
@@ -146,8 +146,50 @@ def test_index_reflects_the_configured_services(live_server):
     assert json.dumps(["tidal", "qobuz"]) not in page
 
 
+def test_index_carries_the_backends_own_spelling_of_each_service(
+        live_server, ma, ma_transport):
+    # The dropdown used to keep its own {tidal: "TIDAL", qobuz: "Qobuz"}, a
+    # table that could only ever know the services LMS has: on Music
+    # Assistant the selector read `apple_music` while the spoken reply had
+    # already learned to say «Apple Music».
+    page = live_server(client=ma, services=("apple_music",)).get("/").text
+    assert json.dumps({"apple_music": "Apple Music"}) in page
+
+
+def test_the_lms_spelling_is_the_one_it_always_was(live_server):
+    page = live_server(services=("tidal", "qobuz")).get("/").text
+    assert json.dumps({"tidal": "TIDAL", "qobuz": "Qobuz"}) in page
+
+
 def test_index_default_material_url_reaches_the_page(live_server):
     assert DEFAULT_MATERIAL_URL in live_server().get("/").text
+
+
+def test_the_page_escapes_what_it_did_not_write():
+    # The Material URL comes from a discovery reply or a remembered file, the
+    # labels from the music server: neither may become markup, and neither
+    # may close the inline script it is written into.
+    import staticfiles
+    page = staticfiles.index_page(
+        material_url='http://1.2.3.4:9000/"><b>x</b>',
+        services=["x</script><b>out</b>"],
+        service_labels={"x": "<img src=x onerror=alert(1)>"},
+        langs=["it"], version="1", browse="")
+    assert '"><b>x</b>' not in page
+    assert "http://1.2.3.4:9000/&quot;&gt;&lt;b&gt;x&lt;/b&gt;" in page
+    assert "</script><b>out</b>" not in page
+    assert "<img src=x" not in page
+    assert json.loads('["x\\u003c/script>\\u003cb>out\\u003c/b>"]') == \
+        ["x</script><b>out</b>"]
+    assert '["x\\u003c/script>\\u003cb>out\\u003c/b>"]' in page
+
+
+def test_the_page_cannot_be_framed_by_another_site(live_server):
+    # Clicks from inside a frame arrive same-origin and pass the cross-site
+    # guard, so framing is the one way round it. 'self' keeps Material's panel.
+    headers = live_server().get("/").headers
+    assert headers["Content-Security-Policy"] == "frame-ancestors 'self'"
+    assert headers["X-Frame-Options"] == "SAMEORIGIN"
 
 
 # -- the static assets (CSS + ES modules) --------------------------------------
@@ -419,3 +461,44 @@ def test_the_artwork_proxy_forwards_images_only(live_server, transport):
     assert resp.status == 200
     assert resp.headers["Content-Type"] == "image/jpeg"
     assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
+
+class _Upstream:
+    """Just enough of a urllib response for ``artwork.fetch``."""
+
+    def __init__(self, ctype, body):
+        self.headers = {"Content-Type": ctype} if ctype else {}
+        self.body = body
+        self.asked = []
+
+    def read(self, n=-1):
+        self.asked.append(n)
+        return self.body if n < 0 else self.body[:n]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_the_artwork_fetch_refuses_a_non_image_before_reading_it():
+    import artwork
+    up = _Upstream("audio/mpeg", b"\x00" * 64)
+    with pytest.raises(ValueError):
+        artwork.fetch("http://radio/stream", urlopen=lambda u, timeout: up)
+    assert up.asked == []
+
+
+def test_the_artwork_fetch_never_holds_more_than_a_cover(monkeypatch):
+    # A never-ending body announced as an image was read whole into RAM on
+    # every now-playing poll.
+    import artwork
+    monkeypatch.setattr(artwork, "MAX_ARTWORK_BYTES", 16)
+    up = _Upstream("image/jpeg", b"\xff" * 1000)
+    with pytest.raises(ValueError):
+        artwork.fetch("http://radio/cover", urlopen=lambda u, timeout: up)
+    assert up.asked == [17]
+    fine = _Upstream("image/png", b"\x89PNG")
+    assert artwork.fetch("http://x", urlopen=lambda u, timeout: fine) == \
+        ("image/png", b"\x89PNG")

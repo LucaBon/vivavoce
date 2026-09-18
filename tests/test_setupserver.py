@@ -121,6 +121,29 @@ def test_a_player_switched_on_finishes_it(probe):
     assert r.players == SALA
 
 
+def test_a_disconnected_player_does_not_finish_it(probe):
+    # LMS lists players it has not heard from in a while, with connected: 0.
+    # Finishing on one started the app aimed at a device nobody can hear, and
+    # the page that says "switch something on" never came up.
+    probe.answers["http://lms:9000"] = [
+        {"playerid": "00:04:20:old", "name": "Soffitta", "connected": 0}]
+    r = setupserver._Resolution("http://lms:9000", lambda: "")
+    r.sweep()
+    assert not r.done.is_set()
+    assert r.reason == setupserver.NO_PLAYER
+
+
+def test_only_connected_players_are_handed_on(probe):
+    # server.main takes players[0] as the default player.
+    probe.answers["http://lms:9000"] = [
+        {"playerid": "00:04:20:old", "name": "Soffitta", "connected": 0},
+        dict(SALA[0], connected=1)]
+    r = setupserver._Resolution("http://lms:9000", lambda: "")
+    r.sweep()
+    assert r.done.is_set()
+    assert [p["playerid"] for p in r.players] == [SALA[0]["playerid"]]
+
+
 def test_an_explicit_player_only_needs_the_lms_to_answer(probe):
     # --player names a device the household knows about; an empty player list
     # is then not this server's business to argue with.
@@ -232,12 +255,10 @@ def test_a_probe_that_raises_does_not_stop_the_loop(monkeypatch):
 
 # -- the HTTP surface ----------------------------------------------------------
 
-@pytest.fixture
-def setup_server(probe):
-    """A live setup server on an ephemeral port; yields ``(base, resolution)``."""
+def _serve(resolution):
+    """A live setup server for ``resolution``; yields ``(base, resolution)``."""
     from httpbase import BoundedThreadingHTTPServer
 
-    resolution = setupserver._Resolution("", lambda: "")
     httpd = BoundedThreadingHTTPServer(
         ("127.0.0.1", 0), setupserver.make_setup_handler(resolution))
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -248,6 +269,12 @@ def setup_server(probe):
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5)
+
+
+@pytest.fixture
+def setup_server(probe):
+    """A live setup server on an ephemeral port; yields ``(base, resolution)``."""
+    yield from _serve(setupserver._Resolution("", lambda: ""))
 
 
 def _get(url):
@@ -275,12 +302,19 @@ def test_the_page_is_served_at_the_root(setup_server):
         assert body.count(f'"{reason}"') >= 2
 
 
+def test_the_setup_page_cannot_be_framed_by_another_site(setup_server):
+    base, _ = setup_server
+    with urllib.request.urlopen(base + "/", timeout=5) as resp:
+        assert resp.headers["Content-Security-Policy"] == \
+            "frame-ancestors 'self'"
+
+
 def test_the_state_endpoint_says_what_is_missing(setup_server):
     base, _ = setup_server
     status, body = _get(base + "/setup")
     assert status == 200
     assert json.loads(body) == {"ready": False, "reason": setupserver.NO_LMS,
-                                "lms": ""}
+                                "lms": "", "pinned": False}
 
 
 def test_a_typed_address_that_works_finishes_setup(setup_server, probe):
@@ -335,7 +369,141 @@ def test_the_cross_site_guard_still_applies(setup_server):
     assert excinfo.value.code == 403
 
 
+def _post_status(url, payload):
+    """``(status, body)`` for a POST, keeping a 4xx instead of raising."""
+    try:
+        return 200, _post(url, payload)
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+@pytest.fixture
+def pinned_server(probe):
+    """A setup server whose address came from configuration (--backend-url)."""
+    yield from _serve(setupserver._Resolution(
+        "http://configured:8095", lambda: "", pinned=True,
+        probe=setupserver.prober_for("musicassistant", "sekrit")))
+
+
+def test_a_configured_address_cannot_be_replaced_from_the_page(
+        pinned_server, probe):
+    # The box is unauthenticated: anything on the LAN can post to it. With an
+    # address from the configuration, a replacement would overrule the
+    # operator and carry the backend's token to whoever answered.
+    base, resolution = pinned_server
+    probe.answers["http://192.168.1.66:8095"] = SALA
+    status, out = _post_status(base + "/setup", {"lms": "192.168.1.66:8095"})
+    assert status == 403
+    assert out["ok"] is False and out["error"] == "pinned"
+    assert probe.calls == []  # never dialled, so no token went anywhere
+    assert resolution.lms_url == "http://configured:8095"
+    assert not resolution.done.is_set()
+
+
+def test_the_state_says_when_the_address_is_configured(pinned_server):
+    # So the page can hide a box the server would refuse anyway.
+    base, _ = pinned_server
+    _, body = _get(base + "/setup")
+    assert json.loads(body)["pinned"] is True
+
+
+def test_a_server_that_answers_cannot_be_swapped_from_the_page(
+        setup_server, probe):
+    # Once an address answers, the page hides the box ("switch something
+    # on"). A post that still arrives did not come from the page.
+    base, resolution = setup_server
+    probe.answers["http://192.168.1.50:9000"] = []
+    probe.answers["http://192.168.1.66:9000"] = SALA
+    _post(base + "/setup", {"lms": "192.168.1.50"})
+    status, out = _post_status(base + "/setup", {"lms": "192.168.1.66"})
+    assert status == 409
+    assert out["error"] == "found"
+    assert resolution.lms_url == "http://192.168.1.50:9000"
+    assert "http://192.168.1.66:9000" not in probe.calls
+
+
+def test_a_silent_address_can_still_be_corrected_from_the_page(probe):
+    # The case the box exists for: a remembered address that stopped
+    # answering (a new DHCP lease) is not configuration, and not found.
+    probe.answers["http://192.168.1.50:9000"] = SALA
+    gen = _serve(setupserver._Resolution("http://192.168.1.9:9000",
+                                         lambda: ""))
+    base, resolution = next(gen)
+    try:
+        resolution.sweep(search=False)
+        assert resolution.reason == setupserver.LMS_DOWN
+        out = _post(base + "/setup", {"lms": "192.168.1.50"})
+        assert out["ok"] is True
+        assert resolution.lms_url == "http://192.168.1.50:9000"
+    finally:
+        gen.close()
+
+
+def test_an_address_from_the_box_is_remembered_as_the_pages(probe):
+    # What the app then refuses to build on it lives in
+    # lmsproxy.browse_path: this is only where the fact is recorded.
+    probe.answers["http://192.168.1.50:9000"] = SALA
+    gen = _serve(setupserver._Resolution("http://192.168.1.9:9000",
+                                         lambda: ""))
+    base, resolution = next(gen)
+    try:
+        resolution.sweep(search=False)
+        assert resolution.from_page() is False      # the remembered one
+        assert _post(base + "/setup", {"lms": "192.168.1.50"})["ok"] is True
+        assert resolution.from_page() is True
+    finally:
+        gen.close()
+
+
+def test_an_address_discovered_or_configured_is_nobodys_typing(probe):
+    probe.answers["http://192.168.1.50:9000"] = SALA
+    found = setupserver._Resolution("", lambda: "http://192.168.1.50:9000")
+    found.sweep()
+    assert (found.lms_url, found.from_page()) == ("http://192.168.1.50:9000",
+                                                  False)
+    configured = setupserver._Resolution("http://192.168.1.50:9000",
+                                         lambda: "", pinned=True)
+    configured.sweep(search=False)
+    assert configured.from_page() is False
+
+
+def test_retyping_the_address_we_already_had_changes_nothing(probe):
+    # It asks for a retry, which is exactly what the box is for after a power
+    # cut; the address is still the one the file named, so the panel it was
+    # allowed to open stays allowed.
+    gen = _serve(setupserver._Resolution("http://192.168.1.9:9000",
+                                         lambda: ""))
+    base, resolution = next(gen)
+    try:
+        resolution.sweep(search=False)          # silent: this is the state
+        assert resolution.reason == setupserver.LMS_DOWN
+        probe.answers["http://192.168.1.9:9000"] = SALA      # switched on
+        assert _post(base + "/setup", {"lms": "192.168.1.9"})["ok"] is True
+        assert resolution.from_page() is False
+    finally:
+        gen.close()
+
+
+def test_the_page_hides_the_box_for_a_configured_address():
+    page = setuppage.setup_page("lms")
+    assert "state.pinned ||" in page
+    assert '"hint_pinned"' in page
+
+
 # -- serve_setup ---------------------------------------------------------------
+
+def test_a_typed_address_is_still_the_pages_after_a_restart(probe):
+    """The provenance comes back IN, or the reboot launders it: this run only
+    probes a remembered address, so without the seed it would look like an
+    ordinary one and the reverse proxy would be pointed at it after all.
+    """
+    probe.answers["http://192.168.1.50:9000"] = SALA
+    lms_url, players, from_page = setupserver.serve_setup(
+        "127.0.0.1", 0, "http://192.168.1.50:9000", lambda: "",
+        from_page=True, announce=lambda _l: None)
+    assert (lms_url, players) == ("http://192.168.1.50:9000", SALA)
+    assert from_page is True
+
 
 def test_the_network_is_never_searched_before_the_port_is_bound(probe):
     # A first-ever start has no address to probe, and searching for one is a
@@ -358,9 +526,9 @@ def test_a_healthy_house_never_sees_the_page(probe, monkeypatch):
         raise AssertionError("must not bind a setup server when nothing is wrong")
 
     monkeypatch.setattr(setupserver, "BoundedThreadingHTTPServer", unexpected)
-    lms_url, players = setupserver.serve_setup(
+    lms_url, players, from_page = setupserver.serve_setup(
         "127.0.0.1", 0, "http://lms:9000", lambda: "", announce=lambda _l: None)
-    assert (lms_url, players) == ("http://lms:9000", SALA)
+    assert (lms_url, players, from_page) == ("http://lms:9000", SALA, False)
 
 
 def test_the_page_is_torn_down_once_the_house_is_controllable(probe):
@@ -371,10 +539,10 @@ def test_the_page_is_torn_down_once_the_house_is_controllable(probe):
         probe.answers["http://lms:9000"] = SALA
 
     threading.Timer(0.05, turn_it_on).start()
-    lms_url, players = setupserver.serve_setup(
+    lms_url, players, from_page = setupserver.serve_setup(
         "127.0.0.1", 0, "http://lms:9000", lambda: "", interval=0.02,
         sleep=lambda s: threading.Event().wait(s), announce=lambda _l: None)
-    assert (lms_url, players) == ("http://lms:9000", SALA)
+    assert (lms_url, players, from_page) == ("http://lms:9000", SALA, False)
 
 
 def test_the_console_is_told_where_the_page_is(probe):
@@ -425,8 +593,8 @@ def test_the_setup_loop_asks_the_backend_it_was_pointed_at(probe):
     assert probe.asked == [("musicassistant", "sekrit")]
 
 
-KEYS = ("title", "hint_lms", "hint_down", "hint_player", "save", "looking",
-        "bad", "found", "placeholder", "server", setupserver.NO_LMS,
+KEYS = ("title", "hint_lms", "hint_down", "hint_pinned", "hint_player", "save",
+        "looking", "bad", "found", "placeholder", "server", setupserver.NO_LMS,
         setupserver.LMS_DOWN, setupserver.NO_PLAYER)
 
 

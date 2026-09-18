@@ -115,11 +115,32 @@ def test_now_playing_variants_de(router, transport, phrase):
      ("stopp in einer halben Stunde", "30"),
      ("schalt in einer Stunde aus", "60"),
      ("schalt in zwei Stunden aus", "120"),
-     ("schalt in dreißig Minuten aus", "30")],
+     ("schalt in dreißig Minuten aus", "30"),
+     # «anderthalb» is not a number the hour pattern could read, so the phrase
+     # parsed as no duration at all and fell through to ``pause_explicit``,
+     # which stopped the music on the spot — the loudest possible answer to a
+     # request that it keep playing for another ninety minutes.
+     ("schalt in anderthalb Stunden aus", "90"),
+     ("in eineinhalb Stunden ausschalten", "90"),
+     ("schalt in zwei Stunden und zehn Minuten aus", "130"),
+     ("hör in 30 Minuten auf zu spielen", "30")],
 )
 def test_sleep_timer_de(router, transport, phrase, minutes):
     router.handle(phrase, lang="de")
     assert transport.last_call()[1] == ["sleep", str(int(minutes) * 60)]
+
+
+def test_a_half_read_german_duration_does_not_pause_instead(router, transport):
+    # Starts as a duration, and then does not finish as one.
+    reply = router.handle("schalt in zwei Stunden und ein Viertel aus", lang="de")
+    assert not any(c[0] in ("pause", "sleep") for c in transport.commands()), reply
+
+
+def test_a_german_room_still_pauses(router, transport):
+    # «in» introduces the delay AND the room; a tail that is no duration at
+    # all has to reach the pause step. See tests/test_router.py.
+    reply = router.handle("stopp in der Kueche", lang="de")
+    assert ["pause", "1"] in transport.commands(), reply
 
 
 def test_sleep_cancel_de(router, transport):

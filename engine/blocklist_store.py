@@ -93,6 +93,26 @@ class JsonBlocklistStore:
         except (OSError, ValueError):
             return {}
 
+    def _read_state_for_update(self) -> dict:
+        """:meth:`_read_state` for the read half of a read-modify-write, where
+        a failed read is not a default but everything the file holds.
+
+        The file this store writes is the kid-safe one: the terms are next to
+        the PIN hash and the lockout counter, and ``put`` writes the whole
+        object back. Read fail-open, a file that was there and could not be
+        read came back as ``{}`` and the write made that true — the parent's
+        PIN gone, silently, on a permission change or a truncated write.
+        Only "no file yet" is a default; anything else raises here and the
+        caller reports a save that did not happen (``localvoice/appdata.py``
+        carries the same pair, and the same reasoning at length).
+        """
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
     def get(self) -> List[str]:
         """Return the stored terms, or ``[]`` on any error (fail open)."""
         terms = self._read_state().get("terms") or []
@@ -108,7 +128,11 @@ class JsonBlocklistStore:
         """
         clean = [str(t).strip() for t in (terms or []) if str(t).strip()]
         with self.lock:
-            state = self._read_state()
+            try:
+                state = self._read_state_for_update()
+            except (OSError, ValueError) as exc:
+                raise BlocklistStoreError(
+                    f"blocklist read failed: {exc}") from exc
             state["terms"] = clean
             try:
                 _write_json_durably(self.path, state)

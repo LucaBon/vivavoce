@@ -7,7 +7,7 @@ import pytest
 
 import actions
 import playback
-from messages import msg
+from messages import msg, set_lang
 from actions import parse_song_query
 
 
@@ -367,7 +367,8 @@ def test_choose_by_name_plays_selected(lms, transport):
 
 
 def test_choose_by_name_extra_words(lms, transport):
-    assert actions.choose_by_name(lms, _LOCAL_ALBUM_CANDS, "l'album Fragile") == "Riproduco Fragile."
+    assert actions.choose_by_name(
+        lms, _LOCAL_ALBUM_CANDS, "l'album Fragile") == "Riproduco Fragile."
     assert ["playlistcontrol", "cmd:load", "album_id:9"] in transport.commands()
 
 
@@ -388,6 +389,51 @@ def test_choose_by_name_no_match_returns_none(lms, transport):
     assert transport.calls == []
 
 
+# -- an open list must not eat the next request -----------------------------
+# A list stays pickable for five minutes, and step 2 of choose_by_name accepts
+# a title that merely OCCURS inside what was said. So «quali brani dei Pink
+# Floyd» followed by «metti Money for Nothing dei Dire Straits» played the
+# «Money» that was on the list: something started, it was the wrong thing, and
+# nothing in the reply said so. What decides now is what is LEFT once the
+# title is lifted out — filler and articles, or content.
+_OPEN_LIST = [{"title": "Time", "url": "tidal://1.flc"},
+              {"title": "Money", "url": "tidal://2.flc"}]
+
+
+@pytest.mark.parametrize("phrase", [
+    "Money for Nothing dei Dire Straits",
+    "Money for Nothing",
+    "Time After Time",
+    "Money Money Money degli ABBA",
+    "Time of Your Life",
+])
+def test_a_listed_title_inside_a_longer_request_is_not_a_pick(
+        lms, transport, phrase):
+    assert actions.choose_by_name(lms, _OPEN_LIST, phrase) is None
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("phrase", [
+    "Money", "la canzone Money", "il brano Money", "Money per favore",
+    "Time", "l'album Time",
+])
+def test_filler_around_a_listed_title_is_still_a_pick(lms, transport, phrase):
+    assert actions.choose_by_name(lms, _OPEN_LIST, phrase) is not None
+    assert transport.commands()
+
+
+def test_the_filler_is_the_language_of_the_turn(lms, transport):
+    # English's articles are not Italian's, and the table each request reads
+    # is the one for the language it was said in (engine/connectors/).
+    set_lang("en")
+    try:
+        assert actions.choose_by_name(lms, _OPEN_LIST, "the song Money") is not None
+        assert actions.choose_by_name(
+            lms, _OPEN_LIST, "Money for Nothing by Dire Straits") is None
+    finally:
+        set_lang("it")
+
+
 def test_choose_by_name_empty_candidates(lms, transport):
     assert actions.choose_by_name(lms, None, "Fragile") is None
     assert actions.choose_by_name(lms, [], "Fragile") is None
@@ -402,7 +448,8 @@ def test_choose_by_name_empty_name(lms, transport):
 def test_choose_by_name_blocked_candidate(lms, transport):
     candidates = [{"title": "Brano Cattivo", "url": "tidal://1.flc"}]
     guard = actions.Guard(restricted=True, blocklist=["brano cattivo"])
-    assert actions.choose_by_name(lms, candidates, "Brano Cattivo", guard=guard) == actions.BLOCKED_SPEECH
+    assert actions.choose_by_name(lms, candidates, "Brano Cattivo",
+                                  guard=guard) == actions.BLOCKED_SPEECH
     assert transport.calls == []
 
 

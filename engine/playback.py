@@ -24,16 +24,21 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional, Tuple
 
-from lms import service_label
 from matching import ActionResult, _normalize
 from messages import msg
 from player.errors import PlayerError
+from player.protocols import service_label
 
 #: A play the music system ACCEPTED and the player never started. Its own kind
 #: of failure, like ``library.IMPORT_OFFLINE``, because the answer it deserves
 #: is not "I didn't find it": the music was found, and the plugin that owns the
 #: audio cannot fetch it.
 STREAM_OFFLINE = "stream_offline"
+
+#: ``kind`` of the reply when the PLAYER is the one not there. Its own kind and
+#: not STREAM_OFFLINE, which sends the request on to the next service: every
+#: service is equally silent on a Squeezebox that is unplugged.
+PLAYER_OFFLINE = "player_offline"
 
 #: How long a stream gets to prove it is playing, in seconds.
 #:
@@ -98,8 +103,13 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
     service it is aimed at has nothing to put in it, so it is not made to wait
     for an answer it could not use. It gets :data:`UNREAD` back and the
     confirmation reads the player itself, exactly as it always did.
+
+    The name comes off the client and not out of a table kept here: which
+    words a music system uses for its own services are its own, and a table
+    belonging to one of them names the others wrong or not at all — see
+    ``player.protocols.service_label``.
     """
-    service = service_label(getattr(getattr(lms, "service", None), "name", ""))
+    service = service_label(lms)
     if not service:
         return None, UNREAD
     time.sleep(PLAYBACK_SETTLE)
@@ -107,6 +117,12 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
         now = lms.now_playing_info()
     except PlayerError:
         return None, None
+    if player_offline(now):
+        # A player that is not there plays nothing whatever it is given. That
+        # is not the service's silence, and a day-long mark on TIDAL for an
+        # unplugged Squeezebox is how every service ended up "not connected".
+        # The caller says so instead (``player_offline_result``).
+        return None, now
     if not now or not (now.get("mode") == "stop" or _walked_away(now)):
         # Nothing wrong so far, which is not the same as audio: a player that
         # says «play» and never advances looks like this too. Leave it for the
@@ -119,6 +135,18 @@ def after_play(lms) -> Tuple[Optional[str], Any]:
     # of which service to ask is made with this in hand (``can_play``).
     lms.note_playback_failure()
     return service, now
+
+
+def player_offline(now: Any) -> bool:
+    """Whether a status reading says the player itself is not connected."""
+    return isinstance(now, dict) and now.get("connected") is False
+
+
+def player_offline_result(lms) -> ActionResult:
+    """Take back what was queued on a player that is not there, and say so."""
+    undo_play(lms)
+    return ActionResult(msg("player_not_connected"), ok=False,
+                        kind=PLAYER_OFFLINE)
 
 
 def undo_play(lms) -> None:
@@ -148,7 +176,9 @@ def started(lms, confirmation: ActionResult) -> ActionResult:
     ``blocking_service``, which knows which service each row's audio belongs
     to because the url says so.
     """
-    silent, _ = after_play(lms)
+    silent, now = after_play(lms)
+    if player_offline(now):
+        return player_offline_result(lms)
     if not silent:
         return confirmation
     undo_play(lms)

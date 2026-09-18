@@ -11,6 +11,16 @@ wake word, get asked for the command, say it") lived in that seam — the
 command arrived in a session whose transcript no longer held the wake word.
 So the fake recogniser below reproduces exactly that: cumulative result
 snapshots, and a session that closes on its own after a silent stretch.
+
+
+**About the fixed waits below.** Most of what is left of ``wait_for_timeout``
+here proves a NEGATIVE — that a phrase was *not* taken as a command, that a
+session did *not* restart, that a dying recogniser's error did *not* replace
+the status line. There is no condition to poll for "nothing ever happens", so
+a fixed wait past the window the app could still act in is the right
+instrument and not a leftover. Each one names the window it is past. The waits
+that had something to wait FOR have been asked to wait for it (see
+:func:`_wait_until_quiet`).
 """
 
 # Chrome delivers continuous results as CUMULATIVE snapshots that grow entry
@@ -102,7 +112,17 @@ def _start_browser_wake(page, srv):
 
 
 def _wait_until_quiet(page):
-    """Block until the app's own voice has finished and its echo tail run out."""
+    """Block until the app's own voice has finished and its echo tail run out.
+
+    The second half is a fixed wait and stays one. ``appIsSpeaking`` is on
+    ``window.vivavoce`` and is the same function the microphone guard calls,
+    so polling it looks like the obvious improvement — and it is not, because
+    headless Chromium has no voices: ``speechSynthesis.speaking`` never goes
+    true, no ``onend`` ever fires, and the function answers from
+    ``START_GRACE_MS`` (400 ms) instead of from the echo tail. Measured: three
+    tests in this file started failing. What is actually being waited out here
+    is the app's own ``ECHO_TAIL_MS``, which nothing on the page reports.
+    """
     page.wait_for_function(
         "() => !speechSynthesis.speaking && !speechSynthesis.pending",
         timeout=8000)

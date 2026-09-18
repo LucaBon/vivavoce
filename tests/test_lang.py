@@ -37,10 +37,24 @@ def test_pack_honors_the_contract(code):
     for key, pattern in pack.PATTERNS.items():
         if key not in templates:
             assert isinstance(pattern, re.Pattern), f"{code}.{key} not compiled"
-    # DURATIONS: compiled regex + a spec the router understands.
+    # DURATIONS: compiled regex + a spec the router understands. The two
+    # compound specs each name a second capture group's worth of arithmetic
+    # («due ore e mezza», «two hours and ten minutes»); a spec this list does
+    # not hold is read by ``_parse_minutes`` as a fixed number of minutes and
+    # would come back as the string itself.
+    specs = ("hours", "minutes", "hours_half", "hours_minutes")
     for pattern, spec in pack.DURATIONS:
         assert isinstance(pattern, re.Pattern)
-        assert spec in ("hours", "minutes") or isinstance(spec, int)
+        assert spec in specs or isinstance(spec, int)
+        if spec == "hours_minutes":
+            assert pattern.groups == 2, f"{code}: {spec} needs two groups"
+        elif spec in ("hours", "minutes", "hours_half"):
+            assert pattern.groups == 1, f"{code}: {spec} needs one group"
+    # DURATION_TAIL: alternations, not compiled patterns — ``parsing.py``
+    # merges them across every pack into one, the way it merges the word
+    # tables, and a pre-compiled one could not be joined.
+    for alt in pack.DURATION_TAIL:
+        assert isinstance(alt, str) and re.compile(alt)
 
 
 def test_compile_helper_is_case_insensitive():

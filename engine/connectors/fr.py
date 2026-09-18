@@ -35,3 +35,11 @@ NOT_AN_ARTIST = {
     "demain", "hier", "plus", "moins", "vivre", "aimer", "rever", "partir",
     "toi meme", "nouveau", "trop", "peu", "loin", "pres",
 }
+
+# See connectors/it.py. Elision is split into its own token by ``_normalize``,
+# so «l'album» arrives as "l album" and "l" has to be here on its own.
+PICK_FILLER = {
+    "le", "la", "les", "l", "un", "une", "chanson", "morceau", "titre",
+    "piste", "album", "disque", "playlist", "moi", "stp", "merci",
+    "s", "il", "te", "vous", "plait",
+}

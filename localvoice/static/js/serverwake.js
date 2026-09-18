@@ -1,6 +1,6 @@
 // Server-side wake-word streaming client: captures the microphone with the
 // Web Audio API, resamples to the 16 kHz mono 16-bit PCM the server wants
-// (see localvoice/pro/wakeword.py), and POSTs small chunks to
+// (see localvoice/pro/vosk_wake.py), and POSTs small chunks to
 // /wakeword/chunk in a loop until stopped — no beep, no Web Speech restart
 // cycle. Self-contained: no dependency on mic.js's internals, only on
 // getUserMedia + fetch.

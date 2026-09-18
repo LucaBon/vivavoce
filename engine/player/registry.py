@@ -1,9 +1,11 @@
 """Backend registry: one module per music system, discovered by itself.
 
 A backend module declares ``BACKEND``, a :class:`Backend` saying what it is
-called, what it can do, and how to build a client for it. Adding a music
-system is dropping a file in this package and writing its test suite. Nothing
-in ``engine/`` or ``localvoice/`` learns its name.
+called, what it can do, and how to build a client for it. A catalogue that
+plays nothing declares ``SPOKEN_LIBRARY`` instead (:class:`Library`), and is
+found by the same scan. Adding a music system is dropping a file in this
+package and writing its test suite. Nothing in ``engine/`` or ``localvoice/``
+learns its name.
 
 Discovery is deliberate about failure, like ``engine/catalogs`` and
 ``localvoice/lang``: a module that declares ``BACKEND`` and then gets the
@@ -23,7 +25,7 @@ import importlib
 import os
 import pkgutil
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .protocols import Capabilities
 
@@ -59,31 +61,95 @@ class Backend:
     #: is — which is a fact about the system, not a missing feature.
     discover: Optional[Callable[..., Optional[str]]] = None
 
+    def client(self, *args, **kwargs) -> Any:
+        """:attr:`build`, plus the declaration stamped onto what it built.
 
-def _load() -> Dict[str, Backend]:
-    found: Dict[str, Backend] = {}
+        The engine holds a client, not a registry entry, so this is how the
+        answer to "can this system search?" travels with the thing that would
+        be asked to do the searching (``protocols.supports``). Stamped on the
+        instance rather than declared on the class for the reason the field
+        above exists: there is one declaration, here, and a copy on the client
+        class could disagree with it.
+
+        It survives ``for_service``/``for_player``, which are shallow copies.
+        """
+        built = self.build(*args, **kwargs)
+        built.capabilities = self.capabilities
+        return built
+
+
+@dataclass(frozen=True)
+class Library:
+    """A catalogue that plays nothing, heard through a backend's speakers.
+
+    Declared as ``SPOKEN_LIBRARY`` rather than ``BACKEND``, and the difference
+    is the whole of :class:`~player.protocols.SpokenLibrary`: a backend is a music
+    system with players, so it can be what ``--backend`` points at, and it
+    owes the transport controls. A library has no player to aim, one address
+    and one token of its own, and is named by ``--library`` alongside
+    whichever backend is playing. Squeezing it into :class:`Backend` would
+    have meant a ``build`` that takes a player id it cannot use and a
+    ``probe`` that answers "which players?" with a list of bookshelves.
+    """
+
+    #: Registry key, as typed after ``--library``.
+    name: str
+    #: How it is said out loud.
+    label: str
+    #: What it can do. Always ``streamable``: a library that could not say
+    #: where its files are would have nothing to offer.
+    capabilities: Capabilities
+    #: ``(url, *, token=None, timeout=...) -> client``. Dials nothing, like a
+    #: backend's.
+    build: Callable[..., Any]
+    #: ``(url, *, token=None, timeout=...) -> [{"id", "name"}, ...]``: the
+    #: collections this catalogue would search. Raises like the client does.
+    probe: Callable[..., List[Dict[str, Any]]]
+
+
+def _load() -> Tuple[Dict[str, Backend], Dict[str, Library]]:
+    backends: Dict[str, Backend] = {}
+    libraries: Dict[str, Library] = {}
     package = __name__.rsplit(".", 1)[0]
     for info in sorted(pkgutil.iter_modules([_HERE]), key=lambda m: m.name):
         module = importlib.import_module(f"{package}.{info.name}")
-        backend = getattr(module, "BACKEND", None)
-        if backend is None:
-            continue  # protocols, errors, resilience: machinery, not backends
-        if not isinstance(backend, Backend):
-            raise ImportError(
-                f"{package}.{info.name} declares BACKEND but it is not a "
-                f"Backend (got {type(backend).__name__})")
-        if not backend.name:
-            raise ImportError(f"{package}.{info.name} declares a nameless BACKEND")
-        if backend.name in found:
-            raise ImportError(
-                f"two backends are both called {backend.name!r}: "
-                f"{package}.{info.name} and one imported before it")
-        found[backend.name] = backend
-    return found
+        where = f"{package}.{info.name}"
+        _admit(getattr(module, "BACKEND", None), Backend, backends, where)
+        _admit(getattr(module, "SPOKEN_LIBRARY", None), Library, libraries,
+               where)
+    # One namespace for both: a name that meant a music system after --backend
+    # and a bookshelf after --library would make every log line that says it
+    # ambiguous.
+    shared = sorted(set(backends) & set(libraries))
+    if shared:
+        raise ImportError(
+            f"{', '.join(shared)} is both a backend and a library")
+    return backends, libraries
 
 
-#: ``{"lms": Backend(...), ...}``, in name order.
-BACKENDS: Dict[str, Backend] = _load()
+def _admit(declared: Any, kind: type, found: Dict[str, Any],
+           where: str) -> None:
+    """File one ``BACKEND`` or ``SPOKEN_LIBRARY`` declaration, loudly if it
+    is wrong."""
+    if declared is None:
+        return  # protocols, errors, resilience: machinery, not declarations
+    label = "BACKEND" if kind is Backend else "SPOKEN_LIBRARY"
+    if not isinstance(declared, kind):
+        raise ImportError(
+            f"{where} declares {label} but it is not a {kind.__name__} "
+            f"(got {type(declared).__name__})")
+    if not declared.name:
+        raise ImportError(f"{where} declares a nameless {label}")
+    if declared.name in found:
+        raise ImportError(
+            f"two {label} declarations are both called "
+            f"{declared.name!r}: {where} and one imported before it")
+    found[declared.name] = declared
+
+
+#: ``{"lms": Backend(...), ...}`` and ``{"audiobookshelf": Library(...)}``,
+#: in name order.
+BACKENDS, LIBRARIES = _load()
 
 
 def get(name: str) -> Backend:
@@ -99,3 +165,13 @@ def get(name: str) -> Backend:
         raise ValueError(
             f"unknown backend {name!r} "
             f"(available: {', '.join(sorted(BACKENDS))})") from None
+
+
+def get_library(name: str) -> Library:
+    """The library called ``name``, or a ValueError naming those that exist."""
+    try:
+        return LIBRARIES[name]
+    except KeyError:
+        raise ValueError(
+            f"unknown library {name!r} "
+            f"(available: {', '.join(sorted(LIBRARIES))})") from None

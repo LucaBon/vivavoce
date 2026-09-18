@@ -2,10 +2,11 @@
 # Not covered by the repository's AGPL-3.0 license.
 """Server-side wake word for a phrase the household typed (Pro).
 
-The existing server engine (``pro/wakeword.py``) removed the Android beep but
-took the phrase away with it: openWakeWord hears only the English phrases it
-ships a model for, so continuous listening on the server meant "Hey Jarvis"
-whatever the box was called. This module keeps the beep fixed and gives the
+The engine this one replaced (openWakeWord, in a ``pro/wakeword.py`` that went
+with it — the history is in CHANGELOG.md) removed the Android beep but took
+the phrase away with it: it hears only the English phrases it ships a model
+for, so continuous listening on the server meant "Hey Jarvis" whatever the
+box was called. This module keeps the beep fixed and gives the
 phrase back — free recognition with Vosk (Kaldi), matching the phrase in the
 transcript.
 
@@ -50,10 +51,17 @@ from wakematch import contains_wake
 SAMPLE_RATE = 16000
 
 # A session nobody has fed for this long is gone (tab closed, phone asleep).
-# Same policy and same reason as pro/wakeword.py: /wakeword/stop is the polite
+# Same policy and same reason as the engine before it: /wakeword/stop is the polite
 # exit and usually arrives, but "usually" is not a lifecycle, and each
 # abandoned session holds a Kaldi recognizer.
 IDLE_SESSION_SECONDS = 120.0
+
+# And a ceiling on how many there can be at once, because the cutoff above is
+# a clock: within two minutes a caller that invents a client id per request
+# gets a recogniser per request. Thirty-two is more devices than a house has
+# and less memory than a laptop notices; over it, the least recently heard
+# from goes. The same shape as http_api.MAX_ROUTERS, for the same reason.
+MAX_SESSIONS = 32
 
 # fd 2 belongs to the process, not to the caller. phrase_out_of_vocabulary()
 # redirects it to read a warning only the Kaldi C++ layer can produce, and the
@@ -96,7 +104,7 @@ def resolve_model(lang: str, data_dir: str,
     and look like a broken engine. It has to be on disk, and
     :func:`ServerVoskWakeSessions.available` says so honestly rather than
     announcing a working engine that fails on every chunk — the exact bug
-    recorded in ``pro/wakeword.py``'s docstring.
+    recorded by the engine before this one.
     """
     if explicit:
         return explicit if looks_like_model(explicit) else None
@@ -202,7 +210,7 @@ class ServerVoskWakeDetector:
         # text is matched several times over — and the bench's scan(), whose
         # numbers this path has to reproduce, skips a repeat.
         self._seen = ""
-        # Reentrant for the same reason as pro/wakeword.py: process() and
+        # Reentrant for the same reason the engine before it was: process() and
         # reset() hold it for their whole call, and a client whose inference
         # is slower than its 320 ms chunk cadence can have two chunks in
         # flight on two request threads at once.
@@ -308,10 +316,31 @@ class ServerVoskWakeSessions:
             self._seen.clear()
 
     def _sweep(self) -> None:
+        """Drop the sessions nobody is using: idle first, then the oldest.
+
+        The idle cutoff alone was a clock and not a ceiling. Every distinct
+        ``client`` id gets a detector, the id comes from the request, and
+        nothing says a household has twenty of them — so a caller inventing
+        one per request filled this dict as fast as it could ask, each entry
+        holding a recogniser. The count is capped too, and what goes is
+        whatever was heard from least recently (``MAX_SESSIONS``).
+        """
         cutoff = self.now() - IDLE_SESSION_SECONDS
         for client in [c for c, seen in self._seen.items() if seen < cutoff]:
             self._sessions.pop(client, None)
             self._seen.pop(client, None)
+        self._trim()
+
+    def _trim(self) -> None:
+        """Keep at most :data:`MAX_SESSIONS`, dropping the least recently
+        heard from. Run after an insertion as well as before one: sweeping
+        first and adding second leaves the ceiling exceeded by exactly the
+        session that was just created, which is the one case that matters.
+        """
+        while len(self._seen) > MAX_SESSIONS:
+            oldest = min(self._seen, key=self._seen.get)
+            self._sessions.pop(oldest, None)
+            self._seen.pop(oldest, None)
 
     def get_or_create(self, client_id: str) -> ServerVoskWakeDetector:
         with self._lock:
@@ -321,6 +350,7 @@ class ServerVoskWakeSessions:
                 det = ServerVoskWakeDetector(self._load_model(), self.phrase)
                 self._sessions[client_id] = det
             self._seen[client_id] = self.now()
+            self._trim()
             return det
 
     def stop(self, client_id: str) -> None:

@@ -16,18 +16,23 @@ not got. So: :class:`PlayerTransport` is what a *device* does,
 :class:`MusicLibrary` is what a *catalogue* does, and a backend implements one
 or both. LMS and MusicAssistant implement both.
 
-**What is not here yet, and why.** Pairing a catalogue with somebody else's
-speakers — a DLNA renderer, a Chromecast, a bare ``media_player`` — is the
-obvious use of a split like this, and it does not work today. The engine
-starts an album with ``play_browse_item(id)`` and a library record with
+**Pairing a catalogue with somebody else's speakers.** A DLNA renderer, a
+Chromecast, a bare ``media_player``: the obvious use of a split like this, and
+the reason :attr:`Capabilities.streamable` and ``stream_urls`` exist. The
+engine starts an album with ``play_browse_item(id)`` and a library record with
 ``play_local_album(id)``, and an id is a thing only the catalogue understands:
 handed to a catalogue that is also a whole music system, it starts the music
-on *that* system's own player rather than on the speakers being aimed at. A
-composite would need a way to turn an id into playable URLs — one method, on
-:class:`MusicLibrary` — and no backend in the tree needs it, so it has not
-been invented on their behalf. Until then a household with dumb speakers is
-served by pointing Vivavoce at MusicAssistant, which drives DLNA, Chromecast,
-Sonos and AirPlay itself.
+on *that* system's own player rather than on the speakers being aimed at.
+``stream_urls`` is the way out — the one method that turns an id into
+something any transport can swallow.
+
+LMS and MusicAssistant each drive players of their own, so neither needs it
+and neither claims it; the flag costs them nothing. What claims it is a
+catalogue that plays nothing at all — :class:`SpokenLibrary`, a shelf of
+audiobooks — and :mod:`player.composite` is the pairing of such a catalogue
+with a transport that belongs to somebody else. A household with dumb
+speakers and *music* is still served by pointing Vivavoce at MusicAssistant,
+which drives DLNA, Chromecast, Sonos and AirPlay itself.
 
 Nothing inherits from these. Backends stay duck-typed exactly as they are
 today; the protocols are for the type checker and for
@@ -37,7 +42,7 @@ forgot a method gets caught.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Dict, List, Optional
 
 try:  # pragma: no cover - typing only
@@ -75,11 +80,26 @@ class Capabilities:
     #: Playback keyed by a catalogue id rather than a URL
     #: (``play_browse_item`` and the ``*_local_*`` family).
     browse_items: bool = False
+    #: Turn a catalogue id into URLs anybody can play (``stream_urls``).
+    #: The pair to :attr:`browse_items`, and the difference is *who does the
+    #: playing*: ``play_browse_item`` starts the record on the catalogue's own
+    #: system, which is the wrong system whenever the catalogue and the
+    #: speakers are not the same product. A backend declaring this one can be
+    #: handed to a transport that has never heard of it.
+    streamable: bool = False
     #: Several streaming services behind one system, switchable per request
     #: (``for_service`` / ``can_search`` / ``can_play`` /
     #: ``note_playback_failure`` / ``forget_playback_failure`` /
     #: ``note_playback_started`` / ``settle_pending`` /
-    #: ``remember_silence_in`` / ``silent_services`` / ``installed_services``).
+    #: ``remember_silence_in`` / ``silent_services`` / ``installed_services``
+    #: / ``known_services``).
+    #:
+    #: The last two answer different questions and the difference is
+    #: load-bearing: ``known_services`` is every name this system recognises,
+    #: so a name that is NOT in it is a typo; ``installed_services`` is the
+    #: ones usable today. A service switched off is in the first and not the
+    #: second, and refusing to start over one would be calling an outage a
+    #: misspelling.
     services: bool = False
     #: A sleep timer the server itself owns.
     sleep_timer: bool = False
@@ -89,6 +109,36 @@ class Capabilities:
     multi_player: bool = False
     #: Cover art reachable from the status call.
     artwork: bool = False
+
+
+#: Every capability true at once: what a client that declares nothing is
+#: taken to mean. Built from the dataclass so a field added above is covered
+#: without a second list to forget.
+EVERYTHING = Capabilities(**{f.name: True for f in fields(Capabilities)})
+
+
+def supports(client: Any, capability: str) -> bool:
+    """Whether ``client`` says it can do ``capability``.
+
+    The other half of :class:`Capabilities`, which until now was declared and
+    never read: the table said "the engine asks before it offers" and nothing
+    asked, so a backend without a catalogue answered a search with
+    ``AttributeError`` three frames down — reported as «l'impianto non
+    risponde», which is a lie about a hi-fi that is answering fine.
+
+    A client carrying no declaration is taken to do everything. The registry
+    stamps the declaration onto every client it builds
+    (:meth:`~player.registry.Backend.client`), so the ones without are the
+    ones built by hand — a test, an embedder — and refusing what they never
+    denied would turn a missing stamp into a missing feature.
+
+    An unknown ``capability`` raises: it is a typo in this repo, not a
+    property of somebody's hi-fi.
+    """
+    declared = getattr(client, "capabilities", None)
+    if not isinstance(declared, Capabilities):
+        declared = EVERYTHING
+    return bool(getattr(declared, capability))
 
 
 @runtime_checkable
@@ -120,6 +170,18 @@ class PlayerTransport(Protocol):
     def sleep(self, seconds: int) -> Any:
         """Stop playback after ``seconds``; ``0`` cancels an armed timer."""
 
+    # -- one turn's worth of patience -------------------------------------
+    def turn_deadline(self, seconds: float):
+        """A context manager bounding every call this thread makes, in total.
+
+        Declared here because ``localvoice/router.py`` opens one around every
+        spoken turn, on whatever client it was handed — so it is part of what
+        the engine needs, and a backend that did not have it would fail at the
+        first sentence rather than at a feature nobody uses.
+        ``player/resilience.py`` implements it for every backend that mixes in
+        ``Resilient``, which is all of them.
+        """
+
     # -- the queue ---------------------------------------------------------
     def clear_queue(self) -> Any: ...
 
@@ -129,15 +191,17 @@ class PlayerTransport(Protocol):
 
     # -- what is playing ---------------------------------------------------
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
-        """``{"title", "artist", "mode", "index", "elapsed"}`` for the queue
-        head, or None.
+        """``{"title", "artist", "mode", "index", "elapsed", "connected"}``
+        for the queue head, or None.
 
         ``mode`` is ``"play"``, ``"pause"`` or ``"stop"`` — a stopped player
         must not be reported as playing whatever the queue head happens to be.
         ``index`` is the queue position (0 for the track a play just started)
         and ``elapsed`` the seconds played of it; together they are how
         ``engine/playback.py`` tells a queue that is playing from one walking
-        through itself failing every track.
+        through itself failing every track. ``connected`` is False when the
+        backend knows the player itself is unreachable — a silence that is no
+        service's fault.
         """
 
     def status_info(self) -> Dict[str, Any]:
@@ -233,13 +297,100 @@ class MusicLibrary(Protocol):
     #   years          local_years, play_local_year
     #   browse_items   {play,add,insert}_browse_item and the matching
     #                  {play,add,insert}_local_{album,artist,track} family
+    #   streamable     stream_urls
     #   favorites      favorites_items, favorites_playlist_play
-    #   services       installed_services, can_search, can_play,
-    #                  note_playback_failure, forget_playback_failure,
-    #                  note_playback_started, settle_pending,
-    #                  remember_silence_in, silent_services, for_service
+    #   services       installed_services, known_services, can_search,
+    #                  can_play, note_playback_failure,
+    #                  forget_playback_failure, note_playback_started,
+    #                  settle_pending, remember_silence_in, silent_services,
+    #                  for_service
+    #
+    # ``stream_urls(item_id) -> List[str]`` is the newest of them, and the
+    # one a music system never needs: see :class:`SpokenLibrary`. It answers
+    # "what would I have to fetch to
+    # hear this?" with URLs a transport can be handed directly. A list and not
+    # a single URL because one catalogue id is routinely several files — an
+    # album, a book in chapters — and the caller queues them in order.
     #
     # Three of those families are reached through
     # ``getattr(client, f"{mode}_...")`` in ``actions`` and ``library``, so
     # their NAMES are load-bearing: a generic ``enqueue(mode=...)`` would not
     # be found.
+
+
+def service_label(client, name: Optional[str] = None) -> str:
+    """How a streaming service is spelled when a reply says it out loud:
+    'qobuz' is a config key, «Qobuz» is what the user hears.
+
+    The spelling belongs to the backend and to nobody else. Both service
+    objects carry it — ``lms.ServiceSpec.label`` and
+    ``musicassistant.MAService.label`` — and the LMS table asked about a
+    MusicAssistant provider either answers for the wrong music system or
+    answers nothing, which leaves «<servizio> non è collegato» with no
+    subject. So it is read off the client the way
+    ``matching._trusts_ranking`` reads ``trust_ranking``: ``getattr``
+    throughout, so a backend that never heard of services costs nothing.
+
+    ``name`` asks about a service other than the one the client is aimed at —
+    the one that blocked a library row, the one being offered instead — and
+    goes through ``for_service`` because that is the backend's own answer to
+    "what is this called". A name the backend does not recognise comes back
+    as it was given: this is a sentence naming something out loud, and saying
+    the word plainly beats saying nothing.
+    """
+    service = getattr(client, "service", None)
+    if name is not None and name != getattr(service, "name", None):
+        try:
+            service = getattr(client.for_service(name), "service", None)
+        except (AttributeError, ValueError):
+            return name
+    label = getattr(service, "label", "")
+    return label or name or getattr(service, "name", "") or ""
+
+
+def system_label(client) -> str:
+    """How the music system in front of the listener is spelled when a reply
+    names it: «Apri le impostazioni di Music Assistant».
+
+    Read off the client with ``getattr``, exactly as :func:`service_label`
+    reads a service's — and for the same reason, one level up. The five
+    message catalogs used to say "LMS" in the sentence that tells somebody
+    where to go and log a plugin back in. A household whose hi-fi is a
+    MusicAssistant was sent to a settings page that does not exist, in every
+    language at once, and the engine cannot know which system it is holding:
+    that is the backend's own fact (``Backend.label``, which each backend now
+    reads off its client so the two cannot drift).
+
+    Empty for a client that declares nothing, which is a client from outside
+    this repository; the sentence loses a word and keeps its meaning.
+    """
+    return getattr(client, "SYSTEM_LABEL", "") or ""
+
+
+@runtime_checkable
+class SpokenLibrary(Protocol):
+    """A catalogue of things read aloud — audiobooks — that plays nothing.
+
+    Not a :class:`MusicLibrary`, and the difference is not pedantry. That
+    protocol is albums, artists and playlists, and a shelf of books claiming
+    it would be the partial catalogue ``tests/test_player_protocol.py`` exists
+    to refuse: offered «metti Comfortably Numb», with nothing to answer it.
+    Nor is it a backend: there is no player in it, so it can never be what
+    ``--backend`` points at. It sits *beside* the music system (``--library``)
+    and is heard through that system's speakers.
+
+    Which is why ``stream_urls`` is not optional here, the way it is for a
+    music system: a catalogue that can neither play an item nor say where the
+    item is has nothing to offer anyone. Every registered library declares
+    :attr:`Capabilities.streamable`, and the protocol tests hold it to that.
+    """
+
+    def book_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
+        """Books matching ``query``, in the catalogue's own relevance order,
+        as ``{"id", "title", "author", "duration"}`` dicts (``duration`` in
+        seconds, ``0.0`` when the catalogue does not know it)."""
+
+    def stream_urls(self, item_id: str) -> List[str]:
+        """The files of one book, in listening order, as URLs a transport can
+        fetch without being told anything else — no headers, no cookies. An
+        empty list for an item with nothing to listen to (an e-book)."""

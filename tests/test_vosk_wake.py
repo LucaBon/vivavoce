@@ -125,6 +125,27 @@ def test_idle_sessions_are_swept(tmp_path):
     assert sessions.get_or_create("phone") is not first
 
 
+def test_the_number_of_sessions_has_a_ceiling_not_just_a_clock(tmp_path):
+    """The idle cutoff is a clock: inside two minutes, a caller that invents a
+    client id per request gets a Kaldi recogniser per request, and the id
+    comes straight from the request. So the count is capped too, and what
+    goes is whatever was heard from least recently.
+    """
+    clock = [1000.0]
+    sessions = ServerVoskWakeSessions(lang="it", data_dir=str(tmp_path),
+                                      phrase="vivavoce", now=lambda: clock[0])
+    sessions._model = _FakeModel()
+    for i in range(vosk_wake.MAX_SESSIONS + 10):
+        clock[0] += 0.1                      # all well inside the idle window
+        sessions.get_or_create(f"client-{i}")
+    assert len(sessions._sessions) <= vosk_wake.MAX_SESSIONS
+    assert len(sessions._seen) <= vosk_wake.MAX_SESSIONS
+    # The oldest went, the newest stayed.
+    assert "client-0" not in sessions._sessions
+    last = f"client-{vosk_wake.MAX_SESSIONS + 9}"
+    assert last in sessions._sessions
+
+
 def test_a_session_that_keeps_streaming_is_kept(tmp_path):
     # The other half: the sweep must not evict a client that is still talking.
     clock = [1000.0]

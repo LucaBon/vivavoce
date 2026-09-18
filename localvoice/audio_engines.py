@@ -13,6 +13,13 @@ The imports of ``pro.*`` live inside :func:`build`, not at module scope, for
 the same reason they do in ``server.py``: those modules are cheap to import
 but the packages behind them are not, and nothing here should cost anything
 on a box that never switches these features on.
+
+They are also *guarded*. ``licenses/README.md`` presents the AGPL core as
+separable, and a bare import made that untrue: a checkout without ``pro/``
+died at start-up with ``ModuleNotFoundError``, before the line that would
+have explained what was missing. An absent Pro module is now the same answer
+as an absent optional package — the engine is off, and the app says so out
+loud, which is this module's whole rule.
 """
 
 from __future__ import annotations
@@ -34,10 +41,16 @@ def build(args, data_dir: str, unavailable_note: str = ""):
     # volume persistente), non nell'immagine. Il default è RAM-aware: sotto
     # ~4 GB resta spento (tiny/base storpiano i titoli inglesi, small non ci
     # sta) a meno che --asr-model non lo forzi esplicitamente.
-    from pro.asr import (WhisperTranscriber, default_model, total_ram_gib)
-    asr_model = args.asr_model or default_model()
+    try:
+        from pro.asr import (WhisperTranscriber, default_model, total_ram_gib)
+    except ImportError:
+        WhisperTranscriber = None
+    asr_model = args.asr_model or (default_model() if WhisperTranscriber else None)
     transcriber = None
-    if not WhisperTranscriber().available():
+    if WhisperTranscriber is None:
+        print("Riconoscimento vocale locale non incluso in questa build: il "
+              "microfono usa il riconoscimento del browser.")
+    elif not WhisperTranscriber().available():
         print("Riconoscimento vocale locale non installato: il microfono usa "
               "il riconoscimento del browser. Per attivarlo: uv sync --group asr"
               + unavailable_note)
@@ -65,12 +78,23 @@ def build(args, data_dir: str, unavailable_note: str = ""):
     # supportata, macOS compreso (con un pin di versione — vedi pyproject.toml
     # e il commento più sotto, che spiega perché la nota sui 32 bit NON va
     # appesa a questo gruppo).
-    from pro.vosk_wake import ServerVoskWakeSessions
-    from pro.vosk_wake import available as vosk_available
-    from pro.vosk_wake import models_dir as vosk_models_dir
-    from pro.vosk_wake import resolve_model as vosk_resolve_model
+    try:
+        from pro.vosk_wake import ServerVoskWakeSessions
+        from pro.vosk_wake import available as vosk_available
+        from pro.vosk_wake import models_dir as vosk_models_dir
+        from pro.vosk_wake import resolve_model as vosk_resolve_model
+    except ImportError:
+        ServerVoskWakeSessions = None
 
     wake_phrase_store = appdata.WakePhraseStore(data_dir)
+    # The phrase store is NOT behind the guard, and deliberately: the wake
+    # phrase is household configuration that the free browser engine answers
+    # to as well (see audio_api._wake_phrase_get), so a build without pro/
+    # still has one to read and to set.
+    if ServerVoskWakeSessions is None:
+        print("Parola chiave lato server non inclusa in questa build: "
+              "l'ascolto continuo usa il riconoscimento del browser.")
+        return transcriber, None, wake_phrase_store
     # Fetched here, before the server accepts anything, and only when the
     # package is installed and the model is genuinely absent — see
     # pro/vosk_model.py for why this cannot be lazy like the Whisper one.

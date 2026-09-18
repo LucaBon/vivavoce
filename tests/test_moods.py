@@ -17,6 +17,7 @@ import os
 
 import pytest
 
+import actions
 import moods
 from lang import PACKS
 from router import Router
@@ -602,7 +603,7 @@ def test_playing_something_named_still_ends_the_mood(router, library, make_tidal
 
 
 def test_another_one_alone_means_nothing(router, library):
-    reply = router.handle("un'altra")
+    router.handle("un'altra")
     assert router._unmatched
     assert not any(cmd[0] == "genres" for cmd in library.commands())
 
@@ -830,6 +831,32 @@ def test_the_room_tag_lands_in_the_sentence_that_means_something(lms, library):
     # Not "... dimmi un'altra in Cucina.", which reads as an instruction about
     # where to stand when you say it.
     assert str(reply).startswith("Ho messo un po' di Rock in Cucina.")
+
+
+def test_both_tags_survive_each_other(lms, library):
+    # Tagged twice — source, then room — is how a pick from a room-opened list
+    # is answered (intents.py), and the mood read-back is the one message
+    # whose tag goes in a slot rather than at the end. The second call must
+    # fill that slot with BOTH suffixes, not replace the first with the
+    # second.
+    router = Router(lms)
+    res = moods.play_mood(lms, "energetic")
+    once = router._tag(res, " da Qobuz")
+    twice = router._tag(once, " in Cucina")
+    assert str(twice).startswith("Ho messo un po' di Rock da Qobuz in Cucina.")
+    assert "Se non va, dimmi un'altra." in str(twice)
+
+
+def test_a_full_stop_inside_a_title_is_not_the_end_of_the_sentence(lms):
+    # «Mr. Brightside», «Another Brick in the Wall, Pt. 2», «St. Louis Blues»:
+    # the tag used to be spliced at the first ". " in the speech, so it landed
+    # in the middle of the name and the rest of it became a second sentence —
+    # «Riproduco Mr da TIDAL. Brightside.»
+    router = Router(lms)
+    res = actions.ActionResult("Riproduco Mr. Brightside.", ok=True,
+                               terms=["Mr. Brightside"])
+    assert str(router._tag(res, " da TIDAL")) == \
+        "Riproduco Mr. Brightside da TIDAL."
 
 
 # -- the double filter, second pass: what the new vocabulary must NOT take -----

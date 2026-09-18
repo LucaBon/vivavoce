@@ -34,6 +34,7 @@ service plays a note.
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -56,6 +57,15 @@ PLAYBACK_MISS_TTL = 24 * 3600.0
 #: is never mistaken for one that will never play.
 PLAYBACK_PROOF_AFTER = 5.0
 
+#: How long after a start a reading of the player still says something about
+#: THAT start, in seconds. Past it the reading describes the evening instead:
+#: somebody skipped, paused, started something from Material, and the next
+#: request can come an hour later. A walk through a queue of silent tracks is
+#: over in well under a minute and a stuck «play» is noticed by whoever is
+#: waiting for the music, so ten minutes loses no silence anybody would sit
+#: through — at worst one more silent play, which marks it then.
+PLAYBACK_PROOF_WITHIN = 10 * 60.0
+
 
 class SilentServices:
     """What a client remembers about services that played nothing.
@@ -70,6 +80,7 @@ class SilentServices:
     #: Overridable per backend, though no backend has had a reason to.
     PLAYBACK_MISS_TTL = PLAYBACK_MISS_TTL
     PLAYBACK_PROOF_AFTER = PLAYBACK_PROOF_AFTER
+    PLAYBACK_PROOF_WITHIN = PLAYBACK_PROOF_WITHIN
 
     #: Wall clock, not ``monotonic``: these marks outlive the process.
     now = staticmethod(time.time)
@@ -78,6 +89,10 @@ class SilentServices:
         self._silent_until: Dict[str, float] = {}
         self._pending: Dict[str, Any] = {}
         self._silence_store: Optional[Any] = None
+        # Shared by the clones like the two dicts above, and for the same
+        # reason: every request thread holds a clone, and two of them settling
+        # the same start must not both read it while the other clears it.
+        self._silence_lock = threading.Lock()
 
     # -- where the marks live ---------------------------------------------
     def remember_silence_in(self, store) -> None:
@@ -96,8 +111,22 @@ class SilentServices:
              if isinstance(v, (int, float))})
 
     def _save(self) -> None:
-        if self._silence_store is not None:
-            self._silence_store.write(dict(self._silent_until))
+        """Write the marks out, or keep them in memory only.
+
+        Fail open, like the file's own reading (``servicestate.py``): a full
+        disk or a read-only volume must cost the mark its restart, not the
+        request its reply — the write happens in the middle of a play, and an
+        exception here skipped the undo that takes a silent track back off the
+        queue.
+        """
+        if self._silence_store is None:
+            return
+        with self._silence_lock:
+            marks = dict(self._silent_until)
+        try:
+            self._silence_store.write(marks)
+        except OSError:
+            pass  # saying so is the store's business: it knows what a disk is
 
     def _service_key(self) -> str:
         """Which service a mark is about. The registry name, not the CLI tag:
@@ -120,12 +149,13 @@ class SilentServices:
         settle whether any audio ever came of it (:meth:`settle_pending`)."""
         key = self._service_key()
         if key:
-            self._pending.clear()
             # The player too: multi-room means the next request can arrive
             # from another room, and an idle player in the living room is no
             # evidence about what the kitchen was asked to play.
-            self._pending.update({"service": key, "at": self.now(),
-                                  "player": self.player_id})
+            with self._silence_lock:
+                self._pending.clear()
+                self._pending.update({"service": key, "at": self.now(),
+                                      "player": self.player_id})
 
     def settle_pending(self) -> None:
         """Close the book on the last start, if enough time has passed.
@@ -148,7 +178,16 @@ class SilentServices:
         player at rest that has played nothing says nothing, because it is
         also what a track that finished and one somebody stopped look like. A
         version of this that read that as failure marked a perfectly good
-        service for a day every time a song ended.
+        service for a day every time a song ended. That includes a player at
+        rest past the first entry: skip twice and stop from the remote, and
+        the reading is stopped, index 2, elapsed zero — the same thing a
+        silent queue that walked to its end would leave, so it proves neither.
+
+        Nor is anything concluded from a player that says it is not connected
+        (a Squeezebox unplugged, a speaker Music Assistant cannot see): it
+        accepted the queue and played none of it, and no service is to blame.
+        A reading taken long after the start (:data:`PLAYBACK_PROOF_WITHIN`)
+        is not evidence either — it describes whatever the house did since.
 
         What it cannot tell apart, said plainly: somebody who started
         something else from another app in those five seconds, and whose track
@@ -157,22 +196,28 @@ class SilentServices:
         audio from that service, which is the same self-correction the hiccup
         case relies on.
         """
-        pending = self._pending
-        if not pending or self.now() - pending["at"] < self.PLAYBACK_PROOF_AFTER:
-            return
-        if pending.get("player") != self.player_id:
+        with self._silence_lock:
+            pending = dict(self._pending)
+            if not pending:
+                return
+            age = self.now() - pending["at"]
+            if age < self.PLAYBACK_PROOF_AFTER:
+                return
+            if pending.get("player") != self.player_id:
+                return
+            self._pending.clear()
+        if age > self.PLAYBACK_PROOF_WITHIN:
             return
         key = pending["service"]
-        self._pending.clear()
         try:
             now = self.now_playing_info()
         except PlayerError:
             return
-        if not now:
+        if not now or now.get("connected") is False:
             return
         if (now.get("elapsed") or 0) > 0:
             self._unmark(key)                       # it played. Nothing else is.
-        elif now.get("mode") == "play" or (now.get("index") or 0) > 0:
+        elif now.get("mode") == "play":
             self._mark(key)
         # Anything else is a player at rest with nothing played, and that is
         # not evidence: it is exactly what a track that finished, or one
@@ -210,9 +255,12 @@ class SilentServices:
     def _mark(self, key: str) -> None:
         if not key:
             return
-        self._silent_until[key] = self.now() + self.PLAYBACK_MISS_TTL
+        with self._silence_lock:
+            self._silent_until[key] = self.now() + self.PLAYBACK_MISS_TTL
         self._save()
 
     def _unmark(self, key: str) -> None:
-        if self._silent_until.pop(key, None) is not None:
+        with self._silence_lock:
+            removed = self._silent_until.pop(key, None) is not None
+        if removed:
             self._save()

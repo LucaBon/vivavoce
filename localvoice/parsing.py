@@ -12,8 +12,6 @@ import re
 
 from lang import PACKS
 import wakematch
-from lms import service_label
-from messages import msg
 
 
 # The word tables are merged across every registered language on purpose:
@@ -22,10 +20,20 @@ from messages import msg
 _NUM_WORDS = {}
 _ORDINAL_WORDS = {}
 _MINUTE_WORDS = {}
+_TAIL_ALTS = []
 for _pack in PACKS.values():
     _NUM_WORDS.update(_pack.NUM_WORDS)
     _ORDINAL_WORDS.update(_pack.ORDINAL_WORDS)
     _MINUTE_WORDS.update(_pack.MINUTE_WORDS)
+    _TAIL_ALTS.extend(_pack.DURATION_TAIL)
+
+# What may sit after a duration and leave it a duration: a separable German
+# particle the sleep pattern hands through («30 Minuten aus», «30 Minuten auf
+# zu spielen» — see numbers_de.py), politeness, and the words a speaker rounds
+# with. Merged across the packs for the reason the word tables are: the
+# recogniser's language and the phrasing do not always agree.
+_DURATION_TAIL = re.compile(
+    r"^(?:\s*(?:" + "|".join(_TAIL_ALTS) + r")\b)*\s*$", re.IGNORECASE)
 
 
 # The longest spoken command the router will look at: a generous multiple of
@@ -89,6 +97,37 @@ def _as_number(token, ordinals=False):
     return number
 
 
+def _minutes_of(token):
+    """A spoken or written number -> int, or None when it is neither."""
+    token = (token or "").strip()
+    return int(token) if token.isdigit() else _MINUTE_WORDS.get(token)
+
+
+def _starts_like_duration(tail):
+    """Whether ``tail`` BEGINS with something the duration patterns recognise,
+    whatever follows it.
+
+    The narrow question ``_parse_minutes`` cannot answer, because it folds
+    "this is not a duration" and "this is a duration with something stuck to
+    the end" into the same ``None``. The router needs them apart. Every sleep
+    phrase carries a stop verb and a preposition — and in four of the five
+    languages that preposition is the bare one that also introduces a ROOM:
+    «pause in the kitchen», «stopp in der Küche», «arrête dans la cuisine».
+    Refusing to pause on any unreadable tail therefore left the most ordinary
+    command in the app doing nothing at all, which is a worse failure than the
+    one it was written to prevent.
+
+    So only a tail that *started* as a duration suppresses the pause. «in the
+    kitchen» matches no pattern here and pauses as it always did; «tra due ore
+    e un quarto» matches the hours form, fails the whole-tail check in
+    ``_parse_minutes``, and is refused rather than answered with silence at
+    the wrong moment.
+    """
+    t = (tail or "").strip().lower()
+    return any(pattern.match(t)
+               for pack in PACKS.values() for pattern, _spec in pack.DURATIONS)
+
+
 def _parse_minutes(tail):
     """A spoken duration ('30 minuti', "mezz'ora", 'an hour') -> minutes, or
     None when the tail isn't a duration (then the phrase wasn't a sleep
@@ -98,21 +137,37 @@ def _parse_minutes(tail):
     are the same regex once ``minut`` plus a wildcard has done its work, so
     whichever pack
     comes first answers. It reads the token through the merged MINUTE_WORDS
-    table either way, so the two paths cannot disagree."""
+    table either way, so the two paths cannot disagree.
+
+    **The whole tail has to be a duration.** The patterns are anchored only at
+    the start, and for a long time that was all that was asked of them: «tra
+    un'ora e mezza» matched on «un'ora» and set a timer thirty minutes short,
+    silently. What is left over is checked against :data:`_DURATION_TAIL`,
+    which holds the words that legitimately trail one — German writes the
+    second half of its verb there and every language puts its "please" there —
+    and nothing else. A tail that is *nearly* a duration is now not one, which
+    is what sends «metti in pausa tra un'ora e mezza» to the half-hour forms
+    added beside the plain ones rather than to a wrong number.
+    """
     t = (tail or "").strip().lower()
     for pack in PACKS.values():
         for pattern, spec in pack.DURATIONS:
             m = pattern.match(t)
-            if not m:
+            if not m or not _DURATION_TAIL.match(t[m.end():]):
                 continue
             if spec == "hours":
-                token = m.group(1)
-                hours = (int(token) if token.isdigit()
-                         else _MINUTE_WORDS.get(token))
+                hours = _minutes_of(m.group(1))
                 return hours * 60 if hours else None
             if spec == "minutes":
-                token = m.group(1)
-                return int(token) if token.isdigit() else _MINUTE_WORDS.get(token)
+                return _minutes_of(m.group(1))
+            if spec == "hours_half":
+                hours = _minutes_of(m.group(1))
+                return hours * 60 + 30 if hours else None
+            if spec == "hours_minutes":
+                hours, minutes = _minutes_of(m.group(1)), _minutes_of(m.group(2))
+                if hours and minutes is not None:
+                    return hours * 60 + minutes
+                return None
             return spec
     return None
 
@@ -126,8 +181,7 @@ def _parse_minutes(tail):
 # The explicit-source phrase must match what was *heard*, so each service name
 # expands to a sound-alike pattern instead of the literal spelling.
 _SERVICE_SOUNDS = {
-    "tidal": r"(?:t(?:ai|ay|ei|ie|i|í|y)[\s\-]?d[aeoà]?l{1,2}e?"
-             r"|titles?|titel|tider|tida|vidal)",
+    "tidal": r"(?:t(?:ai|ay|ei|ie|i|í|y)[\s\-]?d[aeoà]?l{1,2}e?|tider|tida)",
     "qobuz": r"(?:[qkc](?:u?[oóa]|ue)[\s\-]?b(?:oo|[uoaúù])[\s\-]?"
              r"(?:ts|tz|zz|ss|z|s)e?)",
     # Spotify needs far less of this than the other two: it is a household
@@ -137,30 +191,50 @@ _SERVICE_SOUNDS = {
     "spotify": r"(?:spo[\s\-]?ti[\s\-]?f(?:y|ai|ay|i|ie)|spotty)",
 }
 
+# The sound-alikes that are ORDINARY WORDS, and so are only read as a service
+# name where the sentence ends on them.
+#
+# «Titel» is German for "track", "titles" is an English plural, and «Vidal» is
+# a surname. In the SUFFIX form — «metti X da Titel» — the word is the last
+# thing said and there is nothing else it could be. In the prefix form the
+# service name is followed by the request, so the same word is far more often
+# the first word of a title than a source: «play from titles of the unknown»
+# went looking for "of the unknown" on TIDAL, and the request the user made
+# was never searched for at all.
+#
+# The price is declared: «spiel auf Titel Dark Side» no longer names TIDAL and
+# is answered by the default service instead. That is a source silently
+# swapped — which the reply still says out loud (``_source_suffix``) — against
+# a title silently truncated, which nothing says at all.
+_SERVICE_SOUNDS_FINAL = {
+    "tidal": r"(?:titles?|titel|vidal)",
+}
 
-def _service_re(name: str) -> str:
-    """Regex snippet matching a service name as ASR may transcribe it."""
-    return _SERVICE_SOUNDS.get(name, re.escape(name))
+
+def _service_re(name: str, *, final: bool = False) -> str:
+    """Regex snippet matching a service name as ASR may transcribe it.
+
+    ``final`` widens it with the sound-alikes that are real words, and is for
+    the one pattern where the name ends the sentence — see
+    :data:`_SERVICE_SOUNDS_FINAL`.
+
+    Without a table entry the name matches itself, except that an underscore
+    stands for the gap a config key writes and a person speaks: a
+    MusicAssistant provider is ``apple_music`` and the household says «Apple
+    Music». Matching only the written form would mean the source somebody
+    named out loud is silently ignored and the default one answers instead.
+    """
+    sound = _SERVICE_SOUNDS.get(name)
+    if not sound:
+        return r"[\s_]+".join(re.escape(part) for part in name.split("_"))
+    words = _SERVICE_SOUNDS_FINAL.get(name) if final else None
+    return f"(?:{sound}|{words})" if words else sound
 
 
-# Display names for the source tag in play confirmations. They live on the
-# service registry (``ServiceSpec.label``), not here: the engine says the same
-# names in its own messages, and one table spelling «TIDAL» twice is one table
-# too many.
-def _service_label(name: str) -> str:
-    """How a service name is spelled when a reply says it out loud — 'qobuz'
-    is a config key, «Qobuz» is what the user hears."""
-    return service_label(name)
-
-
-def _source_suffix(name) -> str:
-    """The localized ' da TIDAL' / ' from your music' tag for a source name
-    ('local' or a service), so play replies say which source answered."""
-    if not name:
-        return ""
-    if name == "local":
-        return msg("from_local")
-    return msg("from_service", service=_service_label(name))
+# The display name of a source, and the ' da TIDAL' tag built out of it, used
+# to live here. They are in ``sources.py`` now, as methods: the spelling is
+# the backend's own (``ServiceSpec.label``, ``MAService.label``) and has to be
+# asked of the client, and this module holds nothing that knows a client.
 
 
 # Quanto corto può essere un verbo prima che una modifica sola non voglia più

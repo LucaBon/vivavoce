@@ -216,7 +216,10 @@ def test_a_failed_write_is_reported_not_swallowed(live_server):
     srv = live_server(wake_phrase_store=store)
     body = srv.json_post("/wakeword/phrase", {"phrase": "vivavoce"})
     assert body["ok"] is False
-    assert "read-only" in body["error"]
+    # A token: an OSError here carries the absolute path of the data
+    # directory, which on the HA add-on names the share and on a systemd
+    # install the service account's home. See ``audio_api._failed``.
+    assert body["error"] == "save_failed"
 
 
 # -- the lexicon check is advisory, never an obstacle ------------------------
@@ -243,7 +246,7 @@ def test_a_check_that_cannot_vouch_for_itself_says_so(live_server):
     srv = live_server(wake_phrase_store=store, wakeword_sessions=sessions)
     body = srv.json_post("/wakeword/phrase", {"phrase": "vivavoce"})
     assert body["ok"] is True
-    assert "fd 2" in body["unverified"]
+    assert body["unverified"] == "vocabulary_check_failed"
     assert store.writes == ["vivavoce"]
 
 

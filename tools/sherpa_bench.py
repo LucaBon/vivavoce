@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Measure sherpa-onnx as a wake-word / ASR engine, before adopting it.
 
-The server wake word today is openWakeWord with one of five fixed English
-phrases (see ``localvoice/pro/wakeword.py``). sherpa-onnx is the candidate
-replacement, and the interesting question is not "does it run" but *which of
-its two paths earns its place*:
+**The question this script was written to answer has been answered.** The
+server wake word is Vosk now (``localvoice/pro/vosk_wake.py``, option D
+below), on the strength of these measurements; openWakeWord, which this
+docstring described as the incumbent and which shipped one of five fixed
+English phrases, is gone along with ``localvoice/pro/wakeword.py``. What is
+left here is the bench itself, kept because the next candidate engine will
+want the same numbers from the same recordings.
+
+When it was written, the incumbent was openWakeWord and sherpa-onnx was the
+candidate replacement, and the interesting question was not "does it run" but
+*which of its paths earns its place*:
 
 **A. Keyword spotting.** Open-vocabulary — any phrase, no training — but the
 only pretrained models are English, Chinese, and Chinese+English. An Italian
@@ -312,12 +319,12 @@ def bpe_tokens(phrase: str, bpe_model: str) -> str:
         raise SystemExit(f"empty phrase after normalization: {phrase!r}")
     try:
         import sentencepiece as spm
-    except ImportError:
+    except ImportError as exc:
         raise SystemExit(
             "config A needs sentencepiece to spell the phrase in the model's "
             "own BPE tokens: uv pip install sentencepiece\n"
             "(or pass the tokens yourself with --keyword-tokens, e.g. "
-            "--keyword-tokens '▁VI V A VO CE')")
+            "--keyword-tokens '▁VI V A VO CE')") from exc
     sp = spm.SentencePieceProcessor()
     sp.load(bpe_model)
     return " ".join(sp.encode_as_pieces(text))

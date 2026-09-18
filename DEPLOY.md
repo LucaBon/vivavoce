@@ -34,7 +34,7 @@ volumes:
   vivavoce-data:
 ```
 
-Pin a version (`:0.6.0`, or `:0.6` to follow patches) instead of `:latest` if
+Pin a version (`:0.7.0`, or `:0.7` to follow patches) instead of `:latest` if
 you would rather choose when to move.
 
 > [!NOTE]
@@ -321,6 +321,40 @@ Re-issuing the server cert for new IPs reuses the CA, so devices stay trusted.
 The server offers the CA at **`/ca.pem`**; `GET /tls` says whether there is one
 to offer.
 
+**What the CA may and may not vouch for.** Installing a CA means every device
+that did it believes whoever holds `ca-key.pem` — so the certificate says, in
+itself, where that belief stops: it carries *Name Constraints* limiting it to
+private addresses (RFC 1918, loopback, link-local) and local names
+(`localhost`, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`,
+`.localdomain`). A copy of `ca-key.pem` is therefore worth impersonating the
+hi-fi at home, and nothing on the web. It is valid for ten years and issued
+fresh on first run.
+
+- **`--hosts` at first run, if you use it at all.** The CA is created once and
+  reused, so a name outside that set — a real DNS name pointed at the box —
+  has to be permitted when the CA is *created*:
+  `make_cert.py --hosts nas.example.com`. Run with a name the existing CA
+  cannot sign for and the tool says so and issues anyway: it works for anyone
+  who did not install the CA, and fails the handshake for everyone who did.
+- **Keep `ca-key.pem` out of backups.** It sits next to `ca.pem` in the same
+  directory — `/data` in the container, the repo root otherwise — which is a
+  directory backup tools copy whole. Exclude the file, or accept that the
+  backup is as sensitive as the key.
+- **Migrating a CA created before this (it has no Name Constraints).** The
+  tool reports it on every run and never replaces it by itself: the
+  fingerprint is what each phone installed, and swapping it turns a green
+  padlock into a warning on every device at once. When you are ready:
+
+  ```bash
+  rm ca.pem ca-key.pem          # or /data/ca.pem, /data/ca-key.pem
+  uv run python tools/make_cert.py
+  ```
+
+  then remove the old "Vivavoce Local CA" from each device's trusted
+  credentials and install the new `/ca.pem`. Until you do, everything keeps
+  working exactly as before — the old CA is simply trusted for more than it
+  needs to be.
+
 The **text box works everywhere**, even over HTTP.
 
 #### Or skip the warning entirely: a real certificate
@@ -511,9 +545,20 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
 - **Windows:** `tools/run_local.ps1` (starts HTTPS, generates the cert if missing) and
   `tools/install_autostart.ps1` (scheduled task at logon + firewall rule; run **as
   Administrator**). `tools/uninstall_autostart.ps1` removes it.
-- **Linux** (Raspberry Pi / mini-PC): `deploy/vivavoce.service` (systemd). Copy to
-  `/etc/systemd/system/`, adapt `WorkingDirectory`/paths, then
-  `sudo systemctl enable --now vivavoce`.
+- **Linux** (Raspberry Pi / mini-PC): `deploy/vivavoce.service` (systemd). The unit
+  runs as its own unprivileged user with the filesystem read-only except the data
+  directory, so there is one step before the usual two:
+
+  ```bash
+  sudo useradd --system --home /opt/vivavoce --shell /usr/sbin/nologin vivavoce
+  sudo chown -R vivavoce:vivavoce /opt/vivavoce
+  sudo cp deploy/vivavoce.service /etc/systemd/system/
+  sudo systemctl daemon-reload && sudo systemctl enable --now vivavoce
+  ```
+
+  Adapt `WorkingDirectory`/paths first. If you change where the data lives, change
+  `ReadWritePaths=` with it — that line is the complete list of what the service is
+  allowed to write, and everything else on the disk is read-only to it.
 
 ### Using it from a phone
 1. Same Wi-Fi as the server PC.
@@ -533,6 +578,37 @@ uv run python localvoice/server.py       # "Parola chiave lato server attiva"
    with the wake word ("vivavoce" by default) — «vivavoce metti Time».
 7. Want the reply read aloud too? Tick **"🔊 leggi la risposta ad alta voce"**; the
    **Voci & lingue** panel then lets you pick natural per-language voices.
+
+### Do not put this on the internet — and what to do if you must
+
+This server has **no accounts and no password**, by design: it is on your LAN,
+it answers whoever asks, and that is what makes it a ten-second install. The
+consequence is the obvious one, so it is worth spelling out: a port forward to
+`8730` hands the internet the whole app — the music, the kid-safe PIN (which
+an unauthenticated `POST /kidsafe` can *set* while none exists), and, through
+the in-page Material panel, the music server's own settings pages, where
+plugins are installed.
+
+So connections that do not come from a private address are **refused before
+they are served** — nothing is read, no route runs. Addresses that count as
+"home": RFC 1918 (`10/8`, `172.16/12`, `192.168/16`), loopback, link-local,
+and `100.64/10`, which is what Tailscale gives you (reaching your own hi-fi
+over a VPN keeps working, with nothing to configure).
+
+If you really do mean to expose it — behind a reverse proxy that does not
+preserve the client address, say — two flags, and use both:
+
+```bash
+--allow-public-peers        # or VIVAVOCE_ALLOW_PUBLIC_PEERS=1
+--api-token <long-random>   # or VIVAVOCE_API_TOKEN=...
+```
+
+`--api-token` is asked for on `/api/v1` and on the proxy to the music server,
+as `Authorization: Bearer <token>`, compared in constant time. It is not a
+login for the page: the page is still the page, and a token in front of the
+two machine-facing surfaces is the difference between "a scanner can play
+music" and "a scanner can install LMS plugins". A reverse proxy that requires
+its own authentication in front of everything is better than either.
 
 ### Streaming services (TIDAL / Qobuz / Spotify)
 

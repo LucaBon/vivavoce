@@ -10,17 +10,36 @@ MESSAGES = {
     "err_unreachable":
         "Je n'arrive pas à joindre le système pour le moment. "
         "Réessaie dans un instant.",
+    "err_busy":
+        "Je réponds encore à la phrase précédente. "
+        "Réessaie dans un instant.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "Ce système ne sait pas chercher de musique : je peux commander ce "
+        "qui joue.",
+    "no_local_library": "Ce système n'a pas de bibliothèque locale.",
+    "no_favorites": "Ce système ne garde pas de favoris.",
+    "no_moods": "Ce système ne sait pas parcourir par genre ou par année.",
+    "no_sleep_timer": "Ce système n'a pas de minuteur d'arrêt.",
+    "no_rooms":
+        "Ce système n'a qu'un seul lecteur, je ne peux donc pas choisir la "
+        "pièce.",
+
     "blocked":
         "Ce morceau existe, mais il est dans la liste des morceaux bloqués, "
         "donc je ne peux pas le jouer.",
     "not_owner":
         "Seul un parent peut modifier la liste des morceaux bloqués.",
     "service_offline":
-        "{service} n'est pas connect\u00e9. Ouvre les r\u00e9glages de LMS et "
-        "reconnecte-toi.",
+        "{service} n'est pas connect\u00e9. Ouvre les r\u00e9glages de {system} "
+        "et reconnecte-toi.",
     "no_service_online":
         "Aucun service de streaming n'est connect\u00e9. Ouvre les r\u00e9glages "
-        "de LMS et reconnecte-toi.",
+        "de {system} et reconnecte-toi.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a
@@ -35,6 +54,9 @@ MESSAGES = {
         "Ce que j'ai de {query} dans ta musique vient de {service}, qui n'est "
         "pas connect\u00e9.",
     "service_not_connected": "{service} n'est pas connect\u00e9.",
+    "player_not_connected":
+        "Le lecteur ne r\u00e9pond pas : il est \u00e9teint ou "
+        "d\u00e9connect\u00e9.",
     "offer_play_from": "Tu veux que je le mette depuis {service} ?",
     # The two buttons the web app puts under an offer, and the words it
     # sends when one is tapped: they have to be answers the language pack's
@@ -54,7 +76,9 @@ MESSAGES = {
     "ask_title": "Je n'ai pas saisi le titre. Tu peux répéter ?",
     "no_track_found": "Je n'ai trouvé aucun morceau pour {title}.",
     "no_track_by": "Je n'ai pas trouvé {title} de {artist}.",
-    "no_track_by_offer": "Je n'ai pas {query} de {artist}. J'ai ceux-ci : {listing}. Lequel je mets ?",
+    "no_track_by_offer":
+        "Je n'ai pas {query} de {artist}. J'ai ceux-ci : {listing}. "
+        "Lequel je mets ?",
     "playing": "Je mets {name}.",
     "playing_by": "Je mets {name} de {artist}.",
     "album_not_found": "Je n'ai pas trouvé l'album {album}.",
@@ -110,11 +134,11 @@ MESSAGES = {
 
     # -- moods (vague requests — see engine/moods.py) -------------------------
     "playing_mood_genre":
-        "J'ai mis du {genre}. Dis-m'en une autre si ça ne va pas.",
+        "J'ai mis du {genre}{tag}. Dis-m'en une autre si ça ne va pas.",
     "playing_mood_playlist":
-        "J'ai mis la playlist {name}. Dis-m'en une autre si ça ne va pas.",
+        "J'ai mis la playlist {name}{tag}. Dis-m'en une autre si ça ne va pas.",
     "playing_mood_year":
-        "J'ai mis quelque chose de {year}. Dis-m'en une autre si ça ne va pas.",
+        "J'ai mis quelque chose de {year}{tag}. Dis-m'en une autre si ça ne va pas.",
     "mood_not_found": "Je n'ai rien trouvé qui convienne dans ta musique.",
     "mood_exhausted": "Je suis à court d'idées. Essaie de nommer un genre.",
 

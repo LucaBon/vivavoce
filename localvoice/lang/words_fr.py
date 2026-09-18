@@ -219,7 +219,7 @@ _ART = rf"(?:{_L}|du\s+|de\s+la\s+)"
 _V_ON = rf"(?:{_PLAY}|allume)"
 _V_OFF = (rf"(?:coupe|{acc('éteins')}|{acc('arrête')}s?|{acc('arrêter')}"
           rf"|stoppe|stop)")
-_V_UP = rf"(?:monte|augmente|remonte)"
+_V_UP = r"(?:monte|augmente|remonte)"
 _V_DOWN = rf"(?:baisse|diminue|{acc('réduis')})"
 
 

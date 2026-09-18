@@ -36,10 +36,40 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--backend-token", default=appdata.env("BACKEND_TOKEN"),
                     help="token di accesso del backend, se ne vuole uno. "
                          "Music Assistant lo crea in Impostazioni -> Profilo.")
+    ap.add_argument("--library", default=appdata.env("LIBRARY"),
+                    help="un catalogo di audiolibri da ascoltare sull'impianto "
+                         "qui sopra: "
+                         + ", ".join(sorted(player_registry.LIBRARIES))
+                         + ". Assente: nessun audiolibro, e non cambia niente.")
+    ap.add_argument("--library-url", default=appdata.env("LIBRARY_URL"),
+                    help="indirizzo del catalogo, es. "
+                         "http://192.168.1.50:13378. Deve raggiungerlo "
+                         "l'impianto, non solo questo PC: i file li scarica "
+                         "lui, quindi niente localhost.")
+    ap.add_argument("--library-token", default=appdata.env("LIBRARY_TOKEN"),
+                    help="chiave API del catalogo (Audiobookshelf: "
+                         "Impostazioni -> API Keys). Finisce negli indirizzi "
+                         "dei file in coda sull'impianto, dove chi guarda la "
+                         "coda la vede: creala per un utente che può solo "
+                         "ascoltare.")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=int(appdata.env("PORT", "8730")))
     ap.add_argument("--cert", help="certificato TLS (per il mic da altri device)")
     ap.add_argument("--key", help="chiave TLS")
+    ap.add_argument("--allow-public-peers", action="store_true",
+                    # == "1", like every other boolean env here: bool("0") is
+                    # True, and =0 meaning "yes please" is the wrong way for
+                    # this one to be wrong.
+                    default=appdata.env("ALLOW_PUBLIC_PEERS") == "1",
+                    help="servi anche le connessioni che non arrivano da un "
+                         "indirizzo di casa. Serve solo se la porta e' esposta "
+                         "di proposito, e in quel caso usa anche --api-token: "
+                         "senza, chiunque trovi la porta comanda l'impianto.")
+    ap.add_argument("--api-token", default=appdata.env("API_TOKEN"),
+                    help="segreto condiviso richiesto su /api/v1 e sul proxy "
+                         "verso il server musicale, come "
+                         "'Authorization: Bearer ...'. Vuoto (default): non "
+                         "viene chiesto niente, che e' il progetto per una LAN.")
     ap.add_argument("--allowed-hosts", default=appdata.env("ALLOWED_HOSTS"),
                     help="nomi host extra accettati nell'header Host, separati "
                          "da virgola. Servono solo dietro un dominio pubblico: "
@@ -54,8 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "installato, punta alla UI classica (es. <lms>/).")
     ap.add_argument("--services", default=appdata.env("SERVICES", "auto"),
                     help="servizi streaming offerti nel selettore, es. "
-                         "tidal,qobuz. Default 'auto': rileva i plugin "
-                         "installati sull'LMS (fallback: tidal).")
+                         "tidal,qobuz. Default 'auto': chiede all'impianto "
+                         "quali ha (fallback: tidal). Una lista esplicita "
+                         "viene controllata contro i nomi che l'impianto "
+                         "attivo riconosce, non contro quelli di LMS.")
     ap.add_argument("--default-service",
                     default=appdata.env("DEFAULT_SERVICE", "tidal"),
                     help="servizio streaming usato in modalità automatica e "

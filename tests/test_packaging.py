@@ -177,6 +177,28 @@ def test_runner_labels_are_all_known(workflow):
     assert unknown == set(), f"unrecognised runner labels: {sorted(unknown)}"
 
 
+# -- the linter exists, and runs ----------------------------------------------
+#
+# ``engine/actions.py`` carried a file-level ruff suppression, and the project
+# memory said the lint command was ``ruff check`` — while ruff was in no
+# dependency group and in no CI job, so ``uv run ruff check`` answered
+# "command not found". A reference to a tool nobody can run is worse than no
+# tool: it reads as a checked invariant and is not one. These two are what
+# make it a fact.
+
+def test_the_linter_is_a_dependency_and_is_configured():
+    pyproject = _read("pyproject.toml")
+    assert '"ruff' in pyproject, "ruff is referenced in the repo but not installed"
+    assert "[tool.ruff]" in pyproject, "ruff would run with nothing configured"
+
+
+def test_ci_actually_runs_the_linter():
+    steps = [step for job in _ci_jobs().values()
+             for step in job.get("steps", [])]
+    assert any("ruff check" in (step.get("run") or "") for step in steps), (
+        "no CI job runs the linter, so a violation reaches main unnoticed")
+
+
 # -- the browser suite actually running ----------------------------------------
 #
 # The failure this guards is one that already happened, unnoticed, for as long
@@ -777,6 +799,46 @@ def test_the_string_options_still_reach_the_entrypoint(tmp_path):
 
 
 @_RUN_SH_NEEDS
+def test_a_token_never_travels_on_the_command_line(tmp_path):
+    """The command line of a process is readable by anyone who can run `ps` —
+    in the container, and from the host for the namespaces that allow it — and
+    it ends up in debug dumps and crash reports. ``cli.py`` reads every token
+    from the environment, which the entrypoint already has, so passing them as
+    arguments as well only published them.
+    """
+    entrypoint = _read("deploy", "docker", "entrypoint.sh")
+    for flag in ("--backend-token", "--library-token", "--api-token"):
+        assert flag not in entrypoint, f"{flag} finisce nella riga di comando"
+    # And they still arrive, by the other road.
+    env = _run_addon_script(tmp_path, {"backend_token": "b3", "library_token": "l1"})
+    assert env["VIVAVOCE_BACKEND_TOKEN"] == "b3"
+    assert env["VIVAVOCE_LIBRARY_TOKEN"] == "l1"
+
+
+@_RUN_SH_NEEDS
+def test_the_library_options_reach_the_entrypoint(tmp_path):
+    # Three options, three exports: an option the add-on UI offers and
+    # nothing forwards is a setting that silently does nothing. Two of them
+    # travel on to the server as flags; the token takes the other road, and
+    # the test below is the one that says so.
+    env = _run_addon_script(tmp_path, {
+        "library": "audiobookshelf", "library_url": "http://books.local:13378",
+        "library_token": "k3y",
+    })
+    assert env["VIVAVOCE_LIBRARY"] == "audiobookshelf"
+    assert env["VIVAVOCE_LIBRARY_URL"] == "http://books.local:13378"
+    assert env["VIVAVOCE_LIBRARY_TOKEN"] == "k3y"
+    entrypoint = _read("deploy", "docker", "entrypoint.sh")
+    for flag in ("--library", "--library-url"):
+        assert f'set -- "$@" {flag} ' in entrypoint, f"entrypoint drops {flag}"
+    yaml = pytest.importorskip("yaml")
+    schema = yaml.safe_load(_read("ha-addon", "config.yaml"))["schema"]
+    # The key is a secret: "password" keeps it out of the options panel and
+    # the Supervisor's logs, like backend_token.
+    assert schema["library_token"] == "password?"
+
+
+@_RUN_SH_NEEDS
 def test_an_empty_string_option_is_not_exported(tmp_path):
     # An option left blank in the add-on UI must not become an empty setting
     # the app then tries to use as a URL.
@@ -814,9 +876,10 @@ SIZED_SUFFIXES = (".py", ".js", ".html", ".css")
 # Files already over the line when the rule got its test, each with the split
 # that would fix it. A ratchet, not an amnesty: entries may leave this list,
 # never join it — anything not named here has to be born under the limit.
-OVERSIZED_TODAY = {
-    "engine/lms.py",           # transport, search and queue in one client
-}
+# Vuota, e il test qui sotto la tiene vuota: l'ultima voce era engine/lms.py,
+# 1317 righe di client, e ora è sei file — il client, la tabella dei servizi,
+# e un mixin per ciascuna delle quattro cose che quel client sa fare.
+OVERSIZED_TODAY = set()
 
 
 def _sized_files():
@@ -903,8 +966,8 @@ def test_the_launch_posts_promise_the_trial_and_the_refund():
 
 # -- the engine's front door ---------------------------------------------------
 #
-# engine/actions.py was 1054 lines and is now six modules, with actions.py
-# re-exporting the other five. That re-export is load-bearing: the router, the
+# engine/actions.py was 1054 lines and is now seven modules, with actions.py
+# re-exporting the other six. That re-export is load-bearing: the router, the
 # tools and a great many tests reach for actions.play_local, actions._score,
 # actions.Guard — private names included — and the split promised none of them
 # would notice. The promise is only kept while every name over there is still
@@ -912,7 +975,8 @@ def test_the_launch_posts_promise_the_trial_and_the_refund():
 # runtime. So it is checked, the same way this module checks everything else
 # the test suite cannot see.
 
-ENGINE_PARTS = ("matching", "guard", "transport", "library", "playback")
+ENGINE_PARTS = ("matching", "guard", "transport", "candidates", "library",
+                "playback")
 
 
 def _module_level_names(path):

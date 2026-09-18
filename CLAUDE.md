@@ -17,7 +17,7 @@ Home Assistant add-on build with a 404.
 | Path | What |
 |---|---|
 | `engine/` | Business logic: `actions.py`, `lms.py`, `discovery.py`, `messages.py` |
-| `engine/player/` | The player layer: `protocols.py` (what the engine needs), `registry.py`, one module per backend |
+| `engine/player/` | The player layer: `protocols.py` (what the engine needs), `registry.py`, one module per backend or spoken library, `composite.py` (a library heard through a backend) |
 | `localvoice/` | The web app: `server.py` (HTTP), `router.py` (intents), `index.html` |
 | `localvoice/lmsproxy.py` | Reverse proxy to the LMS: Material Skin framed inside the page |
 | `localvoice/pro/` | Pro features (proprietary): kid-safe, multi-room, local ASR |
@@ -39,15 +39,29 @@ Home Assistant add-on build with a 404.
   Every module carries `from __future__ import annotations`.
 - **No test may touch the network.** `LicenseManager` takes an injectable
   `http_post`; `VIVAVOCE_NO_REVALIDATE=1` disables the license re-check.
-- **`messages.set_lang()` is process-global.** An autouse fixture in
-  `conftest.py` resets it to Italian after every test; do not rely on module
-  order.
+- **`messages.set_lang()` is a `ContextVar`, not a process global.** Two
+  concurrent requests in two languages cannot mix: the HTTP server is
+  thread-per-request and a `ContextVar` is per execution context. What it
+  *does* leak across is a keep-alive connection — the thread that served an
+  English request keeps the English value until something sets it again — so
+  every entry point sets the language before it answers, and one that forgets
+  answers in the last caller's. Under pytest there is one thread and one
+  context, so a test that speaks English would leak English into every test
+  after it: an autouse fixture in `conftest.py` resets it to Italian after
+  every test, and no test may rely on module order.
 
 ## Tests
 
 ```bash
-uv run pytest        # the whole suite, ~35s
+uv run pytest        # the whole suite: 2515 tests, ~5 min
 ```
+
+About 2m of that is `tests/e2e/`, which drives a real headless browser
+(2515 in 4m47s with it, 2445 in 2m45s without — measured 2026-09-18). That
+directory **skips cleanly when the Chromium binary is missing**, so a run that
+finishes in under three minutes has tested no frontend at all and still
+reports green. `uv run playwright install chromium` enables it, and
+`VIVAVOCE_REQUIRE_BROWSER=1` turns every such skip into a failure — CI sets it.
 
 `conftest.py` owns the shared scaffolding — `live_server()` runs the real
 handler on an ephemeral port and returns a client with
@@ -58,7 +72,10 @@ hand.
 `tests/test_player_protocol.py` holds every registered backend to the
 protocols and to its own declared capabilities — a capability set to True with
 no method behind it is how a clean "this player cannot search" turns into an
-`AttributeError` reported as "the hi-fi is not answering".
+`AttributeError` reported as "the hi-fi is not answering". Catalogues that
+play nothing — `SPOKEN_LIBRARY` declarations, Audiobookshelf today — are held
+there too, to `SpokenLibrary` and to `streamable`; they are named by
+`--library` beside the backend, never by `--backend`.
 
 `tests/test_packaging.py` guards what the suite otherwise cannot see: Dockerfile
 `COPY` sources exist, the two version files agree, and the add-on installs a

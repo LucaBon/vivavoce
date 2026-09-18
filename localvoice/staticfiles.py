@@ -11,6 +11,8 @@ calls it lives in ``http_api.py``. Two serving policies on purpose:
 
 from __future__ import annotations
 
+import html
+import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -19,6 +21,40 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def index_html() -> str:
     with open(os.path.join(HERE, "index.html"), encoding="utf-8") as f:
         return f.read()
+
+
+def index_page(*, material_url: str, services, service_labels, langs,
+               version: str, browse) -> str:
+    """``index.html`` with every server-side placeholder filled in.
+
+    ``json.dumps`` for all but the Material URL, which is an href: the rest
+    land inside the page's inline config script and have to arrive as JS
+    literals — a quoted string, an array, an object — rather than as bare
+    text. A token left unfilled is a SyntaxError that kills that script and
+    takes the source selector with it, which is why
+    ``test_index_leaves_no_placeholder_behind`` exists.
+
+    Both kinds are escaped for where they land, because neither is ours: the
+    URL comes from a discovery reply or a remembered file, the labels from the
+    music server. An attribute gets ``html.escape``; a script gets JSON with
+    every ``<`` spelled ``\\u003c``, which is the same string to JavaScript and
+    cannot close the ``<script>`` it sits in.
+    """
+    page = index_html()
+    for token, value in (
+            ("__MATERIAL_URL__", html.escape(material_url, quote=True)),
+            ("__SERVICES__", _script_json(list(services))),
+            ("__SERVICE_LABELS__", _script_json(service_labels)),
+            ("__LANGS__", _script_json(langs)),
+            ("__VERSION__", _script_json(version)),
+            ("__BROWSE__", _script_json(browse))):
+        page = page.replace(token, value)
+    return page
+
+
+def _script_json(value) -> str:
+    """``value`` as a JS literal that is safe inside an inline ``<script>``."""
+    return json.dumps(value).replace("<", "\\u003c")
 
 
 def _read_bytes(name: str) -> bytes:

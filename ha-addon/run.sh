@@ -55,6 +55,18 @@ BACKEND_TOKEN="$(opt backend_token)"
 if [ -n "$BACKEND_TOKEN" ]; then
     export VIVAVOCE_BACKEND_TOKEN="$BACKEND_TOKEN"
 fi
+LIBRARY="$(opt library)"
+if [ -n "$LIBRARY" ]; then
+    export VIVAVOCE_LIBRARY="$LIBRARY"
+fi
+LIBRARY_URL="$(opt library_url)"
+if [ -n "$LIBRARY_URL" ]; then
+    export VIVAVOCE_LIBRARY_URL="$LIBRARY_URL"
+fi
+LIBRARY_TOKEN="$(opt library_token)"
+if [ -n "$LIBRARY_TOKEN" ]; then
+    export VIVAVOCE_LIBRARY_TOKEN="$LIBRARY_TOKEN"
+fi
 MATERIAL="$(opt material_url)"
 if [ -n "$MATERIAL" ]; then
     export VIVAVOCE_MATERIAL_URL="$MATERIAL"

@@ -1,8 +1,475 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — September 2026
+
+### New
+
+- **Audiobookshelf si collega accanto all'impianto — ancora senza frasi.**
+  Tre opzioni nuove, `--library audiobookshelf`, `--library-url` e
+  `--library-token` (con i gemelli `VIVAVOCE_LIBRARY*` e le tre voci
+  nell'app Home Assistant), collegano un catalogo di audiolibri che si
+  ascolta **attraverso** LMS o Music Assistant: i libri da lì, gli
+  altoparlanti da qui. All'avvio l'app dice quante librerie di libri vede, o
+  perché non le vede.
+
+  Per ora è solo il collegamento: nessuna frase raggiunge ancora un libro, e
+  quelle arrivano nei prossimi passi. Senza `--library` non cambia niente —
+  non si costruisce, non si interroga e non si stampa nulla.
+
+  Due cose da sapere già adesso. I file li scarica l'impianto, non questo PC,
+  quindi l'indirizzo dev'essere l'IP di rete e non `localhost` (l'app avvisa).
+  E la chiave API finisce negli indirizzi in coda sull'impianto, perché un
+  hi-fi non sa mandare un'intestazione: va creata per un utente di
+  Audiobookshelf che può solo ascoltare. Un Audiobookshelf spento all'avvio
+  non ferma l'app: la musica non c'entra.
+
+
+- **Vivavoce può sapere da che stanza gli hai parlato.** Finora la stanza
+  esisteva in un modo solo: dirla. «metti Time in cucina» funziona dal
+  2026-08-26 ed era la risposta giusta a metà, perché nella stanza in cui sei
+  già non hai voglia di nominarla — e un satellite vocale in cucina sa
+  benissimo dov'è, semplicemente non aveva modo di dirlo. Ora ce l'ha: il
+  contratto `POST /api/v1/command` accetta un campo `room`, e il blueprint di
+  Home Assistant può riempirlo con l'**area** del dispositivo che ha sentito
+  la frase.
+
+  Sono due cose diverse e la precedenza lo dice: un `player` esplicito (che è
+  un id, non un nome) batte tutto; una stanza **detta nella frase** batte
+  quella d'origine, perché chiedere il salotto stando in cucina è
+  un'intenzione e non un errore; l'origine vale quando non c'è nient'altro. La
+  risoluzione nome→lettore non è nuova: è la stessa di `pro/multiroom.py` che
+  la frase parlata usa da sempre, così la soglia è una e la regola sui lettori
+  scollegati è una.
+
+  **Se il nome non corrisponde a nessun lettore collegato, Vivavoce lo dice e
+  non fa niente.** Non ripiega sul lettore di default, ed è la parte da capire
+  prima di accendere l'opzione: far partire la musica in salotto perché la
+  cucina non si è risolta è un fatto fisico in casa di qualcuno, che qualcuno
+  deve alzarsi e disfare — mentre un rifiuto costa una ripetizione. È la
+  stessa asimmetria già scelta per la stanza detta a voce. Il rovescio onesto
+  della medaglia: un'area scritta male fallisce *ogni* comando da quel
+  satellite finché non la si sistema, ed è esattamente per questo che nel
+  blueprint l'opzione **«Play in the room that was spoken to» è spenta di
+  default** — si accende quando i nomi delle aree e quelli dei lettori
+  combaciano.
+
+  Il campo richiede Pro (multi-room). Senza, viene **ignorato e non
+  rifiutato**: chi lo manda non ha chiesto Pro, ha detto dov'era, e
+  un'installazione free ha un lettore solo. Il contratto v1 permette di
+  aggiungere campi e non di toglierne: `docs/api.md` ora porta sia il campo
+  sia la sezione che spiegava perché in v1 non c'era — due dei suoi tre
+  argomenti reggono ancora, e il terzo (progettare senza un client vero) è
+  scaduto il giorno in cui il blueprint è stato provato su un Home Assistant
+  vero.
 
 ### Fixed
+
+- **Un Audiobookshelf che risponde a sproposito non impedisce più l'avvio.**
+  Il client trasformava in errore di dominio un corpo che non è JSON, e
+  lasciava passare un corpo che **è** JSON valido ma non è l'oggetto che l'API
+  documenta: la pagina di errore di un reverse proxy, un captive portal, uno
+  schema che si è mosso. Tre frame più su diventava
+  `AttributeError: 'list' object has no attribute 'get'` — che non è un
+  `PlayerError`, quindi nessuno lo prendeva, e usciva da `server.main()`:
+  l'assistente vocale si rifiutava di partire per colpa di uno scaffale di
+  libri. La musica non c'entra niente con i libri, ed è la promessa che questo
+  modulo fa dal primo giorno.
+
+  Ora il controllo di forma sta al confine del client, dov'è già la regola
+  «ogni guasto è un errore di Audiobookshelf», e vale riga per riga e non solo
+  sulla busta: una libreria scritta male non si porta via quelle accanto. Una
+  durata scritta a parole vale zero invece di far sparire il libro.
+
+- **Un elenco aperto non si mangia più la richiesta dopo.** «Quali brani dei
+  Pink Floyd», poi «metti Money for Nothing dei Dire Straits»: partiva
+  «Money», quello dell'elenco. La scelta per nome accettava un titolo che
+  *comparisse* dentro la frase, e l'elenco resta scegliibile per cinque
+  minuti — quindi per cinque minuti ogni richiesta che conteneva una di quelle
+  parole veniva risposta dall'elenco, in silenzio e con la canzone sbagliata.
+  Lo stesso succedeva con «Time After Time» su un «Time» in elenco.
+
+  Adesso conta quello che **resta** tolto il titolo: se sono solo articoli e
+  parole di riempimento («metti l'album Fragile», «Money per favore») la
+  scelta vale; se resta del contenuto — un nome di band, il resto di un
+  titolo — non era una scelta, e la frase va alla ricerca come sarebbe andata
+  prima che l'elenco si aprisse. Le parole di riempimento sono per lingua,
+  accanto agli altri connettori (`engine/connectors/`).
+
+- **«Tra un'ora e mezza» sono novanta minuti, non sessanta.** Le durate
+  venivano lette solo dall'inizio: «un'ora e mezza» agganciava «un'ora» e il
+  timer partiva mezz'ora corto — senza dirlo, e alla fine non c'è nessuno
+  sveglio a sentire la differenza. Ora la coda dev'essere **tutta** una
+  durata, e le forme che servono ci sono in tutte e cinque le lingue: «un'ora
+  e mezza», «due ore e mezza», «un'ora e venti minuti», "an hour and a half",
+  «anderthalb/eineinhalb Stunden», «une heure et demie», «dos horas y media».
+
+  Il tedesco era il caso peggiore: «in anderthalb Stunden» non era una durata
+  per nessun motivo leggibile, e la frase ricadeva sul passo della pausa —
+  che metteva in pausa **subito**, cioè la risposta più rumorosa possibile a
+  «lasciala suonare ancora un'ora e mezza». Adesso una durata letta **a
+  metà** non diventa più una pausa.
+
+  A metà, non «illeggibile», e la differenza è tutto il punto: in quattro
+  lingue su cinque la preposizione che introduce il ritardo è la stessa che
+  introduce una **stanza** — «pause in the kitchen», «stopp in der Küche»,
+  «arrête dans la cuisine» — e la stanza viene tolta prima solo se il
+  multi-stanza è installato **e** il nome corrisponde a un lettore vero. Su
+  una build free, o con una stanza che non esiste, rifiutare qualunque coda
+  illeggibile avrebbe lasciato il comando più ordinario dell'app senza fare
+  niente. Quindi: una cucina mette in pausa, «due ore e un quarto» no.
+
+- **Gli ordinali con l'accento, detti da soli, sono di nuovo una scelta.**
+  «Troisième», «fünfte», «séptima»: con un elenco aperto il passo che legge
+  una parola sola accettava solo `a-z0-9`, quindi la parola veniva rifiutata
+  prima ancora di chiedere alla tabella che conosceva la risposta, e il turno
+  moriva come «non ho capito».
+
+- **I sosia di «tidal» che sono parole vere valgono solo a fine frase.** I
+  riconoscitori scrivono «Titel», «titles» e «Vidal» per TIDAL, e davanti alla
+  richiesta quelle parole si mangiavano l'inizio del titolo: «play from titles
+  of the unknown» cercava «of the unknown» su TIDAL, e quello che era stato
+  chiesto non veniva cercato mai. Alla fine della frase («metti X da Titel»)
+  non c'è altro che possano essere, e lì continuano a valere. Aggiunto anche
+  un confine di parola davanti alla preposizione, che senza di esso veniva
+  trovata **dentro** la parola prima («Anaconda titles»).
+
+- **«Apri le impostazioni di LMS» solo se l'impianto è un LMS.** Le due frasi
+  che mandano a riconnettere un plugin nominavano LMS in tutte e cinque le
+  lingue, anche su Music Assistant: una pagina di impostazioni che lì non
+  esiste. Ora il nome dell'impianto lo dice l'impianto, come già fa per i
+  servizi.
+
+- **`--services` è validato anche quando la risposta è «nessuno».** «Non sono
+  riuscito a chiedere» e «ho chiesto, e non ne ha» finivano nello stesso ramo,
+  così su un Music Assistant senza provider configurati un `--services tidal`
+  passava senza controllo: il selettore offriva TIDAL e ogni richiesta
+  rispondeva «TIDAL non è collegato» — la stessa lista inventata che il ramo
+  `auto` qui sotto ha smesso di stampare. Un impianto che non ha proprio il
+  concetto di servizi continua a prendere la lista com'è scritta: è il varco
+  d'emergenza, e un varco che ha bisogno della rilevazione non è un varco.
+
+- **Nessun servizio rilevato non vuol dire TIDAL.** Con `--services auto` e
+  una rilevazione vuota l'app assumeva `["tidal"]` e lo stampava come un
+  fatto: il selettore della sorgente offriva un plugin che quella casa non ha
+  mai avuto, e ogni richiesta finiva su «TIDAL non è collegato». Ora lo dice
+  com'è — restano la libreria locale e i comandi di riproduzione — e non
+  inventa niente.
+
+- **Un titolo col punto dentro non viene più spezzato in due.** «Riproduco
+  Mr. Brightside» diventava «Riproduco Mr da TIDAL. Brightside.», e lo stesso
+  per ogni «Pt. 2» e «Vol. 1» in libreria: l'etichetta della sorgente veniva
+  infilata al primo punto della frase. Ora il posto dell'etichetta lo dice il
+  messaggio, non un punto trovato nel testo.
+
+- **Una lettura fallita non cancella più il PIN.** Il file del kid-safe viene
+  letto intero, cambiato di una chiave e riscritto intero. La lettura
+  ripiegava su «vuoto» per *qualunque* errore — un file troncato da una
+  mancanza di corrente, un permesso cambiato sotto l'app — e la scrittura
+  subito dopo rendeva vero quel vuoto: PIN e contatore dei tentativi spariti,
+  in silenzio. Ora solo «il file non c'è ancora» è un vuoto; tutto il resto
+  fallisce il salvataggio e lascia il file com'era.
+
+- **Un campo dell'API con il tipo sbagliato riceve una risposta.** `text` era
+  già protetto; `lang` e `conversation_id` no, ed erano i due peggiori: un
+  `lang` che arrivava come lista faceva cadere la connessione **senza
+  risposta**, e un `conversation_id` come lista tornava come «errore interno».
+  Un tipo sbagliato adesso vale come «campo non inviato» — la richiesta viene
+  risposta, nella lingua predefinita.
+
+- **Gli errori dei motori audio restano sul server.** `/transcribe` e
+  `/wakeword/*` rimandavano al client il testo dell'eccezione, che contiene i
+  percorsi delle cartelle dei modelli e dei dati — e questi endpoint
+  rispondono a chiunque sulla LAN. Ora il dettaglio va nel log del server, dove
+  lo legge chi può farci qualcosa, e la risposta porta una parola sola. Anche
+  l'errore interno di `/api/v1/command` finisce finalmente nel log: prima non
+  ce n'era traccia da nessuna parte.
+
+- **Il modello della parola chiave viene verificato prima di essere usato.**
+  Di un download da ~50 MB si controllava solo che lo zip si aprisse e
+  contenesse una cartella col nome giusto: qualunque archivio che rispondesse
+  sì diventava il modello con cui la casa ascolta. Ora di ogni modello sono
+  fissate dimensione e impronta SHA-256 (calcolate una volta e verificate
+  contro l'MD5 e la dimensione che upstream pubblica), il download si ferma
+  se supera il previsto invece di riempire il disco, e un archivio che
+  dichiara di scompattarsi in più di 1 GB viene rifiutato prima di scrivere
+  un byte. Anche il modello di riconoscimento vocale è fissato a una
+  revisione precisa invece di «quello che c'è oggi».
+
+- **I token non passano più dalla riga di comando** del processo, che è
+  leggibile da chiunque possa fare `ps` e finisce nei dump di debug. Arrivano
+  dall'ambiente, dove già stavano.
+
+- **L'unità systemd gira con un utente suo e il disco in sola lettura.**
+  `NoNewPrivileges`, `ProtectSystem=strict` e un elenco esplicito di ciò che
+  il servizio può scrivere. **Chi installa o reinstalla l'unità deve creare
+  l'utente prima** — i due comandi sono in DEPLOY.md; un'installazione già in
+  funzione continua a girare con la sua unità attuale finché non la sostituisce.
+
+- **La catena di costruzione è fissata.** L'immagine Docker parte da un digest
+  e non da un'etichetta che si muove, installa versioni esatte invece di
+  «l'ultima di oggi», e le action della CI sono fissate al commit con il tag
+  nel commento accanto. Nessun job ha più il permesso di scrivere nel
+  repository, tranne quello che pubblica l'immagine.
+
+- **Una porta esposta su internet non consegna più l'impianto a chi la
+  trova.** L'app non ha account né password, per progetto: è sulla rete di
+  casa e risponde a chi chiede. Ma tutte le difese che aveva guardavano *da
+  quale pagina* arrivava la richiesta, e nessuna sa distinguere il telefono
+  sul divano da uno scanner che ha trovato una porta aperta sul router — con
+  un port forward il `Host` è quello che manda il router, e un client che non
+  è un browser non manda né `Origin` né `Sec-Fetch-Site`. Ora una connessione
+  che non arriva da un indirizzo di casa viene rifiutata prima di essere
+  servita: niente musica, niente PIN di kid-safe, e niente pannello di
+  Material — da cui si installano i plugin dell'LMS. Contano come casa gli
+  indirizzi privati, loopback, link-local e `100.64/10`, che è quello che usa
+  Tailscale: raggiungere il proprio impianto da fuori con una VPN continua a
+  funzionare senza configurare niente. Chi espone la porta di proposito lo
+  dice con `--allow-public-peers`, e allora ha `--api-token` da mettere
+  davanti a `/api/v1` e al proxy. DEPLOY.md spiega perché usarli insieme.
+
+- **Le sessioni della parola chiave lato server hanno un tetto.** La pulizia
+  delle sessioni inattive era un orologio, non un limite: entro i due minuti
+  di attesa, un chiamante che invent(av)a un identificativo per richiesta
+  otteneva un riconoscitore per richiesta, e l'identificativo arriva dalla
+  richiesta stessa. Ora sono al massimo 32 e la più vecchia lascia il posto.
+
+- **La CA locale non può più firmare per qualunque sito.** Installare
+  `ca.pem` su un telefono significa che quel telefono crede a chi possiede
+  `ca-key.pem` — e quella chiave sta accanto a `ca.pem`, cioè dentro `/data`,
+  cioè in ogni backup. Finora poteva firmare un certificato per *qualsiasi*
+  dominio, quindi una copia della chiave bastava a mettersi in mezzo fra i
+  dispositivi di casa e il resto del web. Ora il certificato dichiara dove si
+  ferma: solo indirizzi privati e nomi locali (`.local`, `.lan`,
+  `.home.arpa`…), e vale dieci anni invece che fino al 2044. Una CA creata
+  dalle versioni precedenti viene segnalata a ogni avvio e **non** sostituita
+  da sola — l'impronta è quella che ogni telefono ha installato; in DEPLOY.md
+  ci sono i tre comandi per cambiarla quando fa comodo, e fino ad allora
+  tutto continua a funzionare come prima.
+
+- **Un indirizzo scritto nella pagina di configurazione non presta più
+  l'indirizzo dell'app.** Quella casella non risponde solo a chi guarda la
+  pagina: risponde a qualunque dispositivo della rete di casa. Finché
+  l'impianto non risponde, un indirizzo mandato lì veniva adottato — e
+  diventava anche il bersaglio del proxy che apre il pannello di Material
+  dentro la pagina, cioè quell'indirizzo poteva servire pagine e codice
+  *sotto l'indirizzo dell'app*, con tutto quello che la pagina è autorizzata
+  a fare. Ora un indirizzo che arriva da lì è il server musicale e nient'
+  altro: il pannello dentro la pagina non si apre per lui — il link in fondo
+  alla pagina sì, in una scheda sua, come ha sempre fatto — e da dove viene
+  l'indirizzo si ricorda insieme all'indirizzo, così al riavvio quello
+  scritto a mano non torna a sembrare quello trovato sulla rete.
+
+- **Una chiave scaduta di Audiobookshelf non spegne più la libreria.** Il
+  cliente della libreria parlata ereditava il breaker e il retry senza saper
+  distinguere un silenzio da un rifiuto: tre risposte «chiave non valida»
+  (401) e per quindici secondi non veniva più contattato, quindi anche una
+  ricerca che avrebbe funzionato rispondeva che la libreria non risponde. Ora
+  un rifiuto conta come prova che il server c'è, ed è invece una richiesta
+  persa a essere rifatta — la libreria si legge e non si comanda, quindi
+  chiederle due volte la stessa cosa non fa niente due volte.
+
+- **Due frasi dette insieme non si mescolano più.** Tutte le richieste di una
+  stessa conversazione condividono un router — due schede del browser con lo
+  stesso identificativo, oppure ogni comando di Home Assistant che non nomina
+  un dispositivo — e ognuna ci scriveva lo stato del proprio turno mentre
+  aspettava il server musicale. Una frase poteva tornare con i dati dell'altra:
+  il pulsante «segnala questa frase» offerto a chi era stato capito benissimo,
+  o un elenco sparito a metà scelta. Ora i turni di una conversazione vanno in
+  fila, e la fila ha un limite: chi non riesce ad avere la conversazione entro
+  i dieci secondi concessi a una frase risponde «sto ancora rispondendo alla
+  frase precedente» invece di restare in attesa. Restare in attesa senza
+  limite occupa un thread del server, e i thread sono 128: bastava
+  un'automazione che ripete lo stesso comando per non far più rispondere
+  nessuno. Le più letture che il riconoscitore dà della stessa frase, poi,
+  contano come un turno solo anche per il tempo — dieci secondi in tutto, non
+  dieci per lettura.
+
+- **«Sì» suona dove è stata fatta la domanda.** «Metti Time da TIDAL in
+  cucina», con TIDAL scollegato, chiede «Vuoi che la metta da Qobuz?» — e il
+  «sì» faceva partire la musica sul player predefinito, non in cucina.
+
+- **Un'alternativa mal trascritta non chiude più l'elenco aperto.** Il
+  riconoscitore dà più letture della stessa frase e il router le prova in
+  ordine: una lettura che non apriva nessun elenco cancellava quello aperto,
+  così la lettura giusta subito dopo rispondeva «non c'è nessun elenco aperto».
+
+- **Una risposta non parla più la lingua della richiesta precedente.** Sulla
+  stessa connessione riutilizzata, una richiesta in inglese lasciava la lingua
+  impostata per quella dopo: il pannello kid-safe rispondeva in inglese a chi
+  stava usando l'app in italiano. Dietro un proxy che riusa le connessioni —
+  l'ingress di Home Assistant — la richiesta precedente può essere di un altro.
+
+- **Un server che dice «no» non è un server spento.** Dopo tre errori di fila
+  il client smette per 15 secondi di contattare il server musicale, così un
+  impianto spento non costa un timeout a ogni frase. Ma contava come «spento»
+  qualunque errore: un token di Music Assistant scaduto, oppure tre ricerche
+  lente dentro il tempo concesso a una frase, e per 15 secondi anche «pausa»
+  rispondeva «Non riesco a contattare l'impianto» con il server perfettamente
+  acceso. Ora contano solo i silenzi veri: un rifiuto (401, 403, una risposta
+  che non ha senso) dimostra che il server c'è, e un timeout accorciato perché
+  la frase aveva già speso il suo tempo dice che la frase era lenta.
+
+- **Un comando non viene più eseguito due volte.** Se la risposta si perdeva
+  dopo che il server aveva già eseguito il comando, il client lo ritentava:
+  «alza il volume» saliva di due scatti, «prossima» saltava due brani, un album
+  finiva in coda due volte. Ora si ritenta sempre solo ciò che non è mai
+  partito (connessione rifiutata) e, se la richiesta potrebbe essere arrivata,
+  solo i comandi che ripetuti non cambiano niente.
+
+- **Una risposta malformata di Music Assistant non è più un «Errore interno».**
+  Un JSON della forma sbagliata — una lista dove serviva un oggetto — sfuggiva
+  a ogni controllo e arrivava all'utente come «Errore interno: 'str' object has
+  no attribute 'get'». Ora è un rifiuto come gli altri, e una riga strana in un
+  elenco viene scartata senza perdere le altre.
+
+- **Music Assistant suona i brani della tua libreria.** Con la sorgente «auto»
+  la libreria locale viene interrogata per prima, e un brano trovato lì
+  rispondeva «Errore interno: 'id'»: il motore suona un candidato locale per
+  id, e la riga del brano su Music Assistant non ne aveva uno. Succedeva con
+  ogni titolo che la libreria conteneva.
+
+- **Scegliere da un elenco di Spotify suona il brano scelto.** Con TIDAL come
+  servizio predefinito, «quali brani dei Pink Floyd» su Spotify e poi «metti la
+  2» chiedevano l'indirizzo del brano a TIDAL, che non lo conosce: all'impianto
+  arrivava `playlist play None`, e la risposta diceva comunque «Riproduco».
+  Ora la scelta va al servizio da cui è venuto l'elenco, e se un brano non si
+  risolve in niente non si manda nulla e lo si dice.
+
+- **Kid-safe riconosce l'artista di un album.** «Metti l'album The Marshall
+  Mathers LP» con Eminem bloccato suonava: su Spotify il nome «… by Eminem»
+  veniva ripulito del suo artista, e su Music Assistant l'artista non veniva
+  proprio letto. Ora l'album porta con sé il suo artista, e il blocco lo vede.
+
+- **Un brano da un album di Spotify suona quel brano.** «Metti Time dall'album
+  The Dark Side of the Moon» suonava l'album intero: le tracce di un album
+  Spotify non hanno un indirizzo diretto e venivano scartate, esattamente come
+  capitava alle tracce di un artista prima che si imparasse a risolverle.
+
+- **La pagina non si fida più di ciò che non ha scritto lei.** Quattro strade
+  per cui testo arrivato dalla rete finiva nella pagina come codice, o
+  l'impianto si ritrovava con più di quanto gli era stato chiesto:
+
+  - la porta annunciata da una risposta UDP della discovery — a cui può
+    rispondere qualunque dispositivo della rete — finiva così com'era
+    nell'indirizzo ricordato e nel link a Material. Ora una porta che non è
+    un numero tra 1 e 65535 non viene creduta, l'indirizzo ricordato ripassa
+    dalla stessa verifica di uno scritto a mano, e il link viene sempre
+    codificato per l'attributo in cui finisce;
+  - i nomi dei servizi arrivano dal server musicale: nello script della
+    pagina un `</script>` dentro un nome ne usciva, e il menu delle sorgenti
+    li inseriva come HTML. Ora lo script li riceve con ogni `<` codificato e
+    il menu li scrive come testo;
+  - la copertina di una radio o di un plugin veniva letta per intero prima di
+    guardarne il tipo, e un flusso annunciato come copertina finiva tutto in
+    memoria a ogni aggiornamento del «in riproduzione». Ora il tipo si
+    controlla prima di leggere, e più di 5 MB non si legge;
+  - attraverso il pannello di Material, uno script servito dal server
+    musicale poteva registrarsi come service worker davanti all'intera app.
+    Il proxy non lo inoltra più (Material non ne usa), non concede il
+    microfono a ciò che serve, e non trasforma un redirect in un indirizzo
+    che porta su un altro host.
+
+  La pagina dell'app e quella di configurazione non si lasciano più
+  incorniciare da un altro sito (`frame-ancestors 'self'`): i clic dati da
+  dentro una cornice arrivano come richieste della pagina stessa e passavano
+  il controllo cross-site. Il pannello di Material, che è sulla stessa
+  origine, resta com'è.
+
+- **Fermare la musica non fa più sparire TIDAL per un giorno.** Il controllo
+  che, alla richiesta successiva, decide se l'ultimo brano avviato ha davvero
+  suonato leggeva un player fermo oltre il primo brano come «coda che scorre
+  senza suonare». Bastava saltare due brani e fermare dal telecomando o da
+  Material: un'ora dopo «metti…» rispondeva «TIDAL non è collegato», e il
+  marchio restava 24 ore, salvato su disco. Ora si marca solo un player che
+  dice «play» e non avanza, e solo se lo si legge entro dieci minuti
+  dall'avvio: più tardi la lettura racconta la serata, non quell'avvio.
+
+- **Un player scollegato non è un servizio scollegato.** Uno Squeezebox
+  staccato dalla presa accetta la coda e resta fermo, e questo veniva letto
+  come silenzio del servizio: «TIDAL non è collegato», poi lo stesso su Qobuz
+  al secondo tentativo, e un giorno di esclusione per tutti e due. Ora il
+  client riporta se il player è collegato (`player_connected` su LMS,
+  `available` su Music Assistant), e la risposta è «Il lettore non risponde:
+  è spento o scollegato», senza marchi e senza ritentare altrove.
+
+- **Un disco pieno non rompe più una richiesta.** Se `services.json` non si
+  poteva scrivere, l'eccezione arrivava fino alla risposta («Errore interno»)
+  e saltava il passaggio che toglie dalla coda il brano muto. Ora
+  l'impossibilità di salvare si scrive nel log, e quello che l'app ha imparato
+  vale fino al riavvio.
+
+- **La pagina di configurazione non cambia più un server che non è suo da
+  cambiare.** La casella «prova questo indirizzo» non chiede credenziali, e
+  quindi non l'ha a disposizione solo chi guarda la pagina: qualunque
+  dispositivo della rete può scriverci. Finché la pagina restava aperta — dopo
+  un blackout, o con l'add-on partito prima di Music Assistant — un indirizzo
+  mandato lì sostituiva anche quello fissato con `--backend-url`, e la prova di
+  quell'indirizzo portava con sé il token di Music Assistant, consegnandolo a
+  chi rispondeva.
+
+  Ora un indirizzo di configurazione non si sostituisce dalla pagina (403),
+  che infatti non mostra più la casella e dice che l'indirizzo viene dalla
+  configurazione. Anche un server che ha già risposto resta quello (409): in
+  quello stato la casella era già nascosta. Resta correggibile, come prima,
+  l'indirizzo ricordato che ha smesso di rispondere.
+
+- **Un player scollegato non basta a finire la configurazione.** LMS elenca
+  anche i player che non sente da tempo, con `connected: 0`; se uno di questi
+  era in cima alla lista, l'app partiva puntata su un apparecchio che nessuno
+  può sentire, e la pagina «accendi un player» non compariva mai. Ora contano
+  solo i player collegati, sia per finire la configurazione sia per scegliere
+  quello predefinito.
+
+- **Anche il menu a tendina scrive i servizi come li dice la voce.** Restava
+  una tabella, `SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" }`, dentro il
+  JavaScript della pagina: una tabella che per costruzione poteva conoscere
+  solo i servizi di LMS. Su Music Assistant il selettore della sorgente
+  scriveva `apple_music` mentre la risposta parlata aveva già imparato a dire
+  «Apple Music» — la stessa cosa chiamata in due modi nella stessa schermata.
+
+  Ora le etichette gliele manda il server, che le chiede al client come le
+  chiede per parlare, e nella pagina non c'è più nessuna tabella di nomi.
+  Con LMS non cambia niente: «TIDAL» e «Qobuz» erano e restano quelli.
+
+- **Il nome di un servizio lo dice l'impianto che ce l'ha.** Le frasi che
+  nominano un servizio a voce — «TIDAL non è collegato», «da Qobuz», «la
+  libreria ce l'ha ma il plugin è scollegato» — risolvevano quel nome contro
+  la tabella dei servizi di LMS anche quando l'impianto era un Music
+  Assistant. Un provider di MA in quella tabella non c'è, e la tabella
+  ripiegava sul nome grezzo: usciva «apple_music non è collegato», cioè la
+  chiave di configurazione letta ad alta voce al posto del nome. Ora
+  l'etichetta si legge dall'oggetto servizio del client — `ServiceSpec.label`
+  su LMS, `MAService.label` su Music Assistant — e si sente «Apple Music non
+  è collegato».
+
+  Con backend LMS non cambia una parola: lì la tabella era già quella giusta.
+
+- **`--services` è misurato sull'impianto che hai, non su LMS.** Con
+  `--backend musicassistant`, un provider legittimo di quel server veniva
+  rifiutato all'avvio come «non valido», e l'elenco di alternative stampato
+  sotto era quello di LMS: due liste sbagliate nella stessa riga, prima ancora
+  che l'app fosse partita una volta. Ora la domanda va al backend attivo — la
+  tabella fissa su LMS, i provider configurati su Music Assistant, **accesi o
+  no**: un servizio spento non è un nome scritto male, e rifiutare di avviare
+  l'assistente vocale mentre si ri-autentica TIDAL sarebbe raccontare un
+  disservizio come un refuso.
+
+  **È un cambio di comportamento.** Su MA un nome che prima passava perché per
+  caso stava nella tabella di LMS ora viene rifiutato se quel server non ce
+  l'ha, e un nome che quel server ha viene accettato. E se il server alla
+  domanda non risponde, `--services` non valida niente invece di rifiutare
+  tutto: quella riga esiste proprio per scavalcare un rilevamento che fa i
+  capricci, e uno scavalco che ha bisogno del rilevamento non serve a nulla.
+  Quando la domanda non si può proprio fare, l'avvio lo dice invece di tacere:
+  da qui un token sbagliato e un server occupato si assomigliano.
+
+- **Un servizio col trattino basso nel nome si può dire a voce.** Conseguenza
+  della riga qui sopra: ora che `--services` accetta i provider di Music
+  Assistant, «metti Time da Apple Music» deve arrivare dove uno se lo aspetta.
+  Il nome scritto è `apple_music` e quello detto è «apple music», e finché si
+  cercava solo la forma scritta la frase non veniva riconosciuta come una
+  richiesta di sorgente affatto: rispondeva la libreria locale, senza dire che
+  la sorgente nominata era stata ignorata.
 
 - **Il prezzo della riparazione del verbo, scritto invece che scoperto.** La
   riparazione del primo verbo mal sentito («Matti» → «metti») ha un costo noto:
@@ -206,45 +673,68 @@
   una sola modifica confonde lo spagnolo «pon» con «con», «son», «por», e la
   tolleranza costerebbe più di quanto rende.
 
-### New
+### Internal
 
-- **Vivavoce può sapere da che stanza gli hai parlato.** Finora la stanza
-  esisteva in un modo solo: dirla. «metti Time in cucina» funziona dal
-  2026-08-26 ed era la risposta giusta a metà, perché nella stanza in cui sei
-  già non hai voglia di nominarla — e un satellite vocale in cucina sa
-  benissimo dov'è, semplicemente non aveva modo di dirlo. Ora ce l'ha: il
-  contratto `POST /api/v1/command` accetta un campo `room`, e il blueprint di
-  Home Assistant può riempirlo con l'**area** del dispositivo che ha sentito
-  la frase.
+- **Il motore chiede all'impianto cosa sa fare, prima di offrirlo.** La
+  tabella delle capacità la dichiarava ogni backend e non la leggeva nessuno:
+  un impianto con gli altoparlanti e nessun catalogo avrebbe risposto a
+  «metti Time» con un errore interno, che all'ascoltatore arriva come «non
+  riesco a contattare l'impianto» — una bugia su un impianto che risponde
+  benissimo. Ora ogni ramo che offre qualcosa chiede prima, e quello che
+  l'impianto non sa fare lo dice in tutte e cinque le lingue: cercare, la
+  libreria locale, i preferiti, i generi e gli anni, il timer, le stanze. Con
+  LMS e Music Assistant non cambia nulla — sanno fare tutto — ed è il
+  presupposto per aggiungerne uno che sa fare meno.
 
-  Sono due cose diverse e la precedenza lo dice: un `player` esplicito (che è
-  un id, non un nome) batte tutto; una stanza **detta nella frase** batte
-  quella d'origine, perché chiedere il salotto stando in cucina è
-  un'intenzione e non un errore; l'origine vale quando non c'è nient'altro. La
-  risoluzione nome→lettore non è nuova: è la stessa di `pro/multiroom.py` che
-  la frase parlata usa da sempre, così la soglia è una e la regola sui lettori
-  scollegati è una.
+- **`engine/lms.py` non è più un file da 1317 righe.** Era l'unico esentato
+  dalla regola che questo repo dà a se stesso — 400 righe per file — e
+  l'esenzione era lì da quando la regola è nata. Ora il client LMS è sei file:
+  il client (il filo, i cloni per servizio e per stanza, l'elenco dei player),
+  la tabella dei servizi, e un mixin per ciascuna delle quattro cose che quel
+  client sa fare — camminare il feed di un plugin, chiedergli un catalogo,
+  leggere il disco locale, comandare la riproduzione. Nessun comportamento
+  cambia: `LMSClient` ha esattamente gli stessi metodi con le stesse firme, e
+  ogni nome che si importava da `lms` si importa ancora. La lista delle
+  esenzioni è vuota, e un test la tiene vuota.
 
-  **Se il nome non corrisponde a nessun lettore collegato, Vivavoce lo dice e
-  non fa niente.** Non ripiega sul lettore di default, ed è la parte da capire
-  prima di accendere l'opzione: far partire la musica in salotto perché la
-  cucina non si è risolta è un fatto fisico in casa di qualcuno, che qualcuno
-  deve alzarsi e disfare — mentre un rifiuto costa una ripetizione. È la
-  stessa asimmetria già scelta per la stanza detta a voce. Il rovescio onesto
-  della medaglia: un'area scritta male fallisce *ogni* comando da quel
-  satellite finché non la si sistema, ed è esattamente per questo che nel
-  blueprint l'opzione **«Play in the room that was spoken to» è spenta di
-  default** — si accende quando i nomi delle aree e quelli dei lettori
-  combaciano.
 
-  Il campo richiede Pro (multi-room). Senza, viene **ignorato e non
-  rifiutato**: chi lo manda non ha chiesto Pro, ha detto dov'era, e
-  un'installazione free ha un lettore solo. Il contratto v1 permette di
-  aggiungere campi e non di toglierne: `docs/api.md` ora porta sia il campo
-  sia la sezione che spiegava perché in v1 non c'era — due dei suoi tre
-  argomenti reggono ancora, e il terzo (progettare senza un client vero) è
-  scaduto il giorno in cui il blueprint è stato provato su un Home Assistant
-  vero.
+- **Il cuore AGPL parte davvero senza `pro/`.** `licenses/README.md` presenta
+  questo repository come open-core — tutto AGPL-3.0 tranne `localvoice/pro/`,
+  e la metà libera dovrebbe essere un programma che funziona da solo. Non lo
+  era: quattro import di `pro.*` erano nudi, e un checkout della sola metà
+  libera moriva all'avvio con `ModuleNotFoundError`, prima della riga che
+  avrebbe spiegato cosa mancava. Ora ogni import è protetto (kid-safe e
+  multi-stanza in `localvoice/pro_features.py`, i motori audio in
+  `audio_engines.py`), la funzione assente vale `None` — che è esattamente
+  come si comporta da sempre un'installazione senza licenza — e l'app lo dice
+  all'avvio. `tests/test_core_without_pro.py` nasconde il pacchetto e verifica
+  che l'app importi, risponda e serva la pagina.
+
+- **C'è un linter, ed è verde.** `engine/actions.py` portava un
+  `# ruff: noqa` da prima che ruff esistesse nel progetto: il riferimento
+  c'era, lo strumento no, e `uv run ruff check` rispondeva «comando non
+  trovato». Ora ruff è nel gruppo `dev`, configurato in `pyproject.toml`
+  (`E`, `W`, `F`, `B` — difetti, non gusti; riga a 100 colonne, che è la
+  larghezza che questo repo scrive davvero) e girato in CI accanto ai test di
+  packaging. `tests/test_packaging.py` verifica entrambe le metà, perché un
+  riferimento a uno strumento che nessuno può eseguire si legge come un
+  invariante e non lo è.
+
+- **Il prefisso `SQUEEZESAY_` ha una data.** «Per un rilascio», diceva il
+  commento, ed è rimasto per quattro. Esce con la **1.1.0**, il primo rilascio
+  dopo il lancio pubblico, e l'avviso di deprecazione adesso lo dice.
+
+- **Il test degli endpoint della licenza usa `live_server()`**, come tutti
+  gli altri, invece di montare a mano un `ThreadingHTTPServer` che non è la
+  classe con cui l'app gira (e che perdeva un thread se un'asserzione
+  falliva prima del `finally`).
+
+- **`PRIVACY.md` elenca il download del modello Vosk.** Due punti del
+  documento dicevano già «elencato sotto»; sotto c'era solo Whisper.
+
+- **`CLAUDE.md` non dice più che `set_lang` è globale di processo.** È una
+  `ContextVar`: due richieste concorrenti in due lingue non si mescolano, e
+  quello che davvero attraversa è una connessione keep-alive.
 
 ## 0.6.0 — September 2026
 

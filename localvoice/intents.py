@@ -22,7 +22,7 @@ import moods
 from conversation import MOOD_TTL
 from messages import msg
 from parsing import (_as_number, _parse_minutes, _service_re,
-                     _source_suffix, repair_play_verb)
+                     _starts_like_duration, repair_play_verb)
 
 
 class IntentTable:
@@ -78,7 +78,9 @@ class IntentTable:
         # Favorites & radio — LMS core feature, source-independent (not a
         # streaming service, so the source selector doesn't apply).
         if P["favorites"].search(t):
-            return actions.play_favorites(self.lms, guard=self._guard)
+            # «unless it cannot, do it» — see ConversationState._unable.
+            return (self._unable("favorites", say="no_favorites")
+                    or actions.play_favorites(self.lms, guard=self._guard))
         m = P["radio"].search(t)
         if m:
             return actions.play_radio(self.lms, m.group(1).strip(), guard=self._guard)
@@ -109,12 +111,16 @@ class IntentTable:
         # today, and lifting it means letting the prefix run first.
         if self.mood is not None and P["mood_another"].search(t):
             self._mood_turn = True
-            return self._play_mood(source)
+            return (self._unable("genres", "years", say="no_moods")
+                    or self._play_mood(source))
         m = P["mood"].search(t)
         if m:
             tail = m.group(1).strip()
             key = moods.match_mood(tail, self._mood_words)
             if key:
+                refused = self._unable("genres", "years", say="no_moods")
+                if refused is not None:
+                    return refused
                 self.mood = {"key": key, "used": []}
                 self.mood_until = self.now() + MOOD_TTL
                 self._mood_turn = True
@@ -140,13 +146,36 @@ class IntentTable:
         # verb, and used to reach pause_explicit and pause the music at once.
         # The duration requirement is the guard a title needs.
         if not is_play and P["sleep_cancel"].search(t):
-            return actions.cancel_sleep(self.lms)
+            return (self._unable("sleep_timer", say="no_sleep_timer")
+                    or actions.cancel_sleep(self.lms))
         m = P["sleep"].search(t)
         if m:
             minutes = _parse_minutes(m.group(1))
             if minutes:
-                return actions.set_sleep(self.lms, minutes)
-        if P["pause_explicit"].search(t) or (not is_play and P["pause"].search(t)):
+                return (self._unable("sleep_timer", say="no_sleep_timer")
+                        or actions.set_sleep(self.lms, minutes))
+        # A HALF-READ duration is not a pause. Every sleep pattern carries a
+        # stop verb and the word that introduces a delay, and every one of
+        # those verbs is also what ``pause_explicit`` looks for — so a delay
+        # that parsed to nothing fell straight through to it and stopped the
+        # music on the spot. «Metti in pausa tra un'ora e mezza» paused at
+        # once, and so did «in anderthalb Stunden»: the loudest possible
+        # answer to a request that the house be left alone for ninety minutes.
+        #
+        # ``_starts_like_duration`` and not merely "the sleep pattern matched",
+        # and the difference is the whole of the fix. In four of the five
+        # languages the preposition that introduces the delay is the bare one
+        # that also introduces a ROOM — «pause in the kitchen», «stopp in der
+        # Küche», «arrête dans la cuisine» — and the room is only stripped
+        # earlier when multi-room is installed AND the name resolves to a real
+        # player. On a free build, or with a room nobody has, suppressing the
+        # pause on any unreadable tail left the most ordinary command in the
+        # app doing nothing whatsoever. So the tail has to have STARTED as a
+        # duration: a kitchen pauses, «due ore e un quarto» does not.
+        half_read_duration = m is not None and _starts_like_duration(m.group(1))
+        if not half_read_duration and (
+                P["pause_explicit"].search(t)
+                or (not is_play and P["pause"].search(t))):
             return actions.pause(self.lms)
         # Bare "play" is a resume even though "play" is also a play verb.
         if P["resume_explicit"].match(t) or (not is_play and P["resume"].search(t)):
@@ -170,25 +199,32 @@ class IntentTable:
         # ASR gives words, not digits. The explicit forms answer even with no
         # open list (helpful hint); a bare numeral only counts as a pick while a
         # list is open, so it can't swallow an unrelated one-word command.
+        #
+        # ``[^\W_]`` and not ``[a-z0-9]``: four of the five languages say a
+        # position with an accent on it, and ORDINAL_WORDS holds them in the
+        # spelling the recogniser writes. An ASCII class refused the word
+        # before the table was ever asked, so a bare «troisième», «fünfte» or
+        # «séptima» — the whole of a very ordinary answer to a read-out list —
+        # fell through to the generic branches and came back "non ho capito".
+        # The three packs that widened their OWN classes (de.py, fr.py, es.py)
+        # were each fixing half of this; ``\W`` is Unicode-aware and fixes it
+        # for every language at once, including the next one.
         m = P["choose_number"].match(t) or P["choose_article"].match(t)
         number = _as_number(m.group(1), ordinals=bool(self.candidates)) if m else None
         if number is None and self.candidates:
-            bare = re.match(r"([a-z0-9]+)\s*$", t, re.I)
+            bare = re.match(r"([^\W_]+)\s*$", t, re.I)
             number = _as_number(bare.group(1), ordinals=True) if bare else None
         if number is not None:
             # A pick from a room-opened list keeps playing in that room (unless
             # this very turn names another one — then self.lms already points
             # there and tagging is the caller's job).
-            pick_lms, room_suffix = self.lms, ""
-            if self.cand_player and not self._room_turn:
-                pick_lms = self.lms.for_player(self.cand_player[0])
-                room_suffix = msg("in_room", room=self.cand_player[1])
+            pick_lms, room_suffix = self._pick_client()
             picked = actions.choose_from(pick_lms, self.candidates, number,
                                          mode=self.cand_mode, guard=self._guard)
             if getattr(picked, "ok", False):
                 self._used_list()
             return self._tag(
-                self._tag(picked, _source_suffix(self.cand_source)),
+                self._tag(picked, self._source_suffix(self.cand_source)),
                 room_suffix)
 
         # 2c) the answer to a yes/no question this router asked last turn (see
@@ -227,26 +263,31 @@ class IntentTable:
         if m:
             return self._local_play(m.group(1).strip(), P)
         for service in self.services:
-            sound = _service_re(service)
-            # Both word orders: «da Qobuz metti X» and «metti X da Qobuz».
-            m = (re.search(P["service"].format(s=sound), t, re.I)
-                 or re.search(P["service_suffix"].format(s=sound), t, re.I))
+            # Both word orders: «da Qobuz metti X» and «metti X da Qobuz». The
+            # second one ends on the service name, which is the only place a
+            # sound-alike that is also a real word can be read as one — see
+            # ``parsing._SERVICE_SOUNDS_FINAL``.
+            m = (re.search(P["service"].format(s=_service_re(service)), t, re.I)
+                 or re.search(
+                     P["service_suffix"].format(s=_service_re(service, final=True)),
+                     t, re.I))
             if m:
                 return self._service_play(m.group(1).strip(), service, P)
 
         # 4) lists that open a numbered choice
         m = P["albums_list"].search(t)
         if m:  # "quali album ho di X" / "which albums do I have by X" -> local
-            return self._remember(
-                actions.local_albums_list(self.lms, m.group(1).strip(),
-                                          guard=self._guard), "local")
+            return (self._unable("local_library", say="no_local_library")
+                    or self._remember(
+                        actions.local_albums_list(self.lms, m.group(1).strip(),
+                                                  guard=self._guard), "local"))
         m = P["toptracks"].search(t)
         if m:  # top tracks -> streaming (selected or default service)
             stream, name, offline = self._streaming(source)
             res = actions.top_tracks_list(stream, m.group(1).strip(),
                                           guard=self._guard)
             if offline:
-                return self._if_searched(res, msg("no_service_online"))
+                return self._if_searched(res, msg("no_service_online", system=self._system_label()))
             return self._remember(res, name)
 
         # 4b) name-based choice from the last read-out list (only while a list is
@@ -257,10 +298,7 @@ class IntentTable:
         if self.candidates:
             m = P["name_pick"].match(t)
             if m:
-                pick_lms, room_suffix = self.lms, ""
-                if self.cand_player and not self._room_turn:
-                    pick_lms = self.lms.for_player(self.cand_player[0])
-                    room_suffix = msg("in_room", room=self.cand_player[1])
+                pick_lms, room_suffix = self._pick_client()
                 chosen = actions.choose_by_name(
                     pick_lms, self.candidates, m.group(1).strip(),
                     mode=self.cand_mode, guard=self._guard
@@ -269,7 +307,7 @@ class IntentTable:
                     if getattr(chosen, "ok", False):
                         self._used_list()
                     return self._tag(
-                        self._tag(chosen, _source_suffix(self.cand_source)),
+                        self._tag(chosen, self._source_suffix(self.cand_source)),
                         room_suffix)
 
         # 5) album — streaming or local per selector
@@ -284,7 +322,7 @@ class IntentTable:
             stream, name, offline = self._streaming(source)
             res = actions.play_playlist(stream, arg, guard=self._guard)
             if offline:
-                return self._if_searched(res, msg("no_service_online"))
+                return self._if_searched(res, msg("no_service_online", system=self._system_label()))
             # Like album, artist and song: a service that took the playlist
             # and played none of it is a reason to ask the next one, not a
             # reason to stop. (This branch builds its own answer instead of
@@ -293,7 +331,7 @@ class IntentTable:
             res, name = self._retry_elsewhere(
                 res, name, lambda alt: actions.play_playlist(alt, arg,
                                                              guard=self._guard))
-            return self._tag(res, _source_suffix(name))
+            return self._tag(res, self._source_suffix(name))
 
         # 7) artist — streaming or local per selector. The local half is NOT
         # play_local: a request that named a category must not be answered from

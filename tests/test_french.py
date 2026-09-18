@@ -264,6 +264,12 @@ def test_naming_what_it_is_gets_past_the_resume_shortcut(
     # pattern stops at the first hyphen, and _parse_minutes tries them first.
     ("arrête dans quatre-vingt-dix minutes", 90),
     ("arrête dans quatre vingt dix minutes", 90),
+    # Read on its first two words alone, «une heure et demie» armed a timer
+    # thirty minutes short and said so in the confirmation.
+    ("arrête dans une heure et demie", 90),
+    ("arrête dans deux heures et demie", 150),
+    ("arrête dans une heure et dix minutes", 70),
+    ("arrête dans 30 minutes merci", 30),
 ])
 def test_sleep_timer_fr(router, transport, phrase, minutes):
     speech = router.handle(phrase, lang="fr")

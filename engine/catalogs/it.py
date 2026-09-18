@@ -12,6 +12,24 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.",
+    "err_busy":
+        "Sto ancora rispondendo alla frase precedente. Riprova tra poco.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "Questo impianto non sa cercare la musica: posso comandare quello "
+        "che sta suonando.",
+    "no_local_library": "Questo impianto non ha una libreria locale.",
+    "no_favorites": "Questo impianto non tiene preferiti.",
+    "no_moods": "Questo impianto non sa sfogliare per genere o per anno.",
+    "no_sleep_timer": "Questo impianto non ha un timer di spegnimento.",
+    "no_rooms":
+        "Questo impianto ha un solo lettore, quindi non posso scegliere la "
+        "stanza.",
+
     "blocked":
         "Questa canzone c'è, ma è nella lista dei brani bloccati, quindi non "
         "posso metterla.",
@@ -21,11 +39,11 @@ MESSAGES = {
     # trovato nessun brano" here is a lie about the music library — nobody
     # was asked. Both name the fix, because it is one the user can act on.
     "service_offline":
-        "{service} non \u00e8 collegato. Apri le impostazioni di LMS e "
+        "{service} non \u00e8 collegato. Apri le impostazioni di {system} e "
         "rifai l'accesso.",
     "no_service_online":
         "Nessun servizio di streaming \u00e8 collegato. Apri le impostazioni "
-        "di LMS e rifai l'accesso.",
+        "di {system} e rifai l'accesso.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a
@@ -40,6 +58,7 @@ MESSAGES = {
         "Quello che ho di {query} nella tua musica arriva da {service}, che "
         "non \u00e8 collegato.",
     "service_not_connected": "{service} non \u00e8 collegato.",
+    "player_not_connected": "Il lettore non risponde: \u00e8 spento o scollegato.",
     "offer_play_from": "Vuoi che la metta da {service}?",
     # The two buttons the web app puts under an offer, and the words it
     # sends when one is tapped: they have to be answers the language pack's
@@ -117,13 +136,13 @@ MESSAGES = {
     # carries its own preposition: "per cena" in a frame ending in "per"
     # reads «Ho finito le idee per per cena». There is no frame that survives
     # every tail, and echoing adds nothing they did not just say.
-    "playing_mood_genre": "Ho messo un po' di {genre}. Se non va, dimmi un'altra.",
+    "playing_mood_genre": "Ho messo un po' di {genre}{tag}. Se non va, dimmi un'altra.",
     "playing_mood_playlist":
-        "Ho messo la playlist {name}. Se non va, dimmi un'altra.",
+        "Ho messo la playlist {name}{tag}. Se non va, dimmi un'altra.",
     # A decade resolves to ONE year, not to the decade: that is what actually
     # started, so that is what gets said (see engine/moods.py).
     "playing_mood_year":
-        "Ho messo qualcosa del {year}. Se non va, dimmi un'altra.",
+        "Ho messo qualcosa del {year}{tag}. Se non va, dimmi un'altra.",
     "mood_not_found": "Non ho trovato niente che vada bene nella tua musica.",
     "mood_exhausted": "Ho finito le idee. Prova a dirmi un genere.",
 

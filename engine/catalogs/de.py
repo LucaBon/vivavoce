@@ -13,16 +13,34 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Ich erreiche die Anlage gerade nicht. Bitte versuch es gleich noch mal.",
+    "err_busy":
+        "Ich antworte noch auf den Satz davor. Bitte versuch es gleich noch mal.",
+    # -- what this system cannot do ----------------------------------------
+    # Declared by the backend and asked before anything is offered (see
+    # player/protocols.py). A sentence somebody can act on, instead of the
+    # AttributeError three frames down that used to come out as «non riesco
+    # a contattare l'impianto» — a lie about a hi-fi that is answering.
+    "no_search":
+        "Diese Anlage kann nicht nach Musik suchen: steuern kann ich, was "
+        "l\u00e4uft.",
+    "no_local_library": "Diese Anlage hat keine lokale Bibliothek.",
+    "no_favorites": "Diese Anlage f\u00fchrt keine Favoriten.",
+    "no_moods": "Diese Anlage kann nicht nach Genre oder Jahr bl\u00e4ttern.",
+    "no_sleep_timer": "Diese Anlage hat keinen Einschlaftimer.",
+    "no_rooms":
+        "Diese Anlage hat nur einen Player, also kann ich kein Zimmer "
+        "w\u00e4hlen.",
+
     "blocked":
         "Das Lied gibt es, aber es steht auf der Sperrliste, also kann ich es "
         "nicht abspielen.",
     "not_owner": "Nur die Eltern d\u00fcrfen die Sperrliste \u00e4ndern.",
     "service_offline":
-        "{service} ist nicht verbunden. \u00d6ffne die LMS-Einstellungen und "
-        "melde dich neu an.",
+        "{service} ist nicht verbunden. \u00d6ffne die Einstellungen von "
+        "{system} und melde dich neu an.",
     "no_service_online":
-        "Es ist kein Streaming-Dienst verbunden. \u00d6ffne die "
-        "LMS-Einstellungen und melde dich neu an.",
+        "Es ist kein Streaming-Dienst verbunden. \u00d6ffne die Einstellungen "
+        "von {system} und melde dich neu an.",
 
     # A row the library HAS and cannot play. A streaming plugin imports its
     # favourites INTO the LMS library: the row answers a local search, carries a
@@ -37,6 +55,9 @@ MESSAGES = {
         "Was ich von {query} in deiner Musik habe, kommt von {service}, und "
         "der ist nicht verbunden.",
     "service_not_connected": "{service} ist nicht verbunden.",
+    "player_not_connected":
+        "Der Player antwortet nicht: Er ist ausgeschaltet oder nicht "
+        "verbunden.",
     "offer_play_from": "Soll ich es von {service} abspielen?",
     # The two buttons the web app puts under an offer, and the words it
     # sends when one is tapped: they have to be answers the language pack's
@@ -55,7 +76,9 @@ MESSAGES = {
     "ask_title": "Ich habe den Titel nicht verstanden. Kannst du das wiederholen?",
     "no_track_found": "Ich habe keinen Titel f\u00fcr {title} gefunden.",
     "no_track_by": "Ich habe {title} von {artist} nicht gefunden.",
-    "no_track_by_offer": "Ich habe {query} von {artist} nicht. Ich habe diese: {listing}. Welches soll ich spielen?",
+    "no_track_by_offer":
+        "Ich habe {query} von {artist} nicht. Ich habe diese: {listing}. "
+        "Welches soll ich spielen?",
     "playing": "Ich spiele {name}.",
     "playing_by": "Ich spiele {name} von {artist}.",
     "album_not_found": "Ich habe das Album {album} nicht gefunden.",
@@ -114,13 +137,13 @@ MESSAGES = {
     # the choice \u2014 but the choice has to be said out loud, and taken back if
     # it misses. Neither miss quotes the request back, for the same reason.
     "playing_mood_genre":
-        "Ich habe etwas {genre} aufgelegt. Sag was anderes, wenn es nicht passt.",
+        "Ich habe etwas {genre} aufgelegt{tag}. Sag was anderes, wenn es nicht passt.",
     "playing_mood_playlist":
-        "Ich habe die Playlist {name} aufgelegt. Sag was anderes, wenn es nicht passt.",
+        "Ich habe die Playlist {name} aufgelegt{tag}. Sag was anderes, wenn es nicht passt.",
     # A decade resolves to ONE year, not to the decade: that is what actually
     # started, so that is what gets said (see engine/moods.py).
     "playing_mood_year":
-        "Ich habe etwas aus {year} aufgelegt. Sag was anderes, wenn es nicht passt.",
+        "Ich habe etwas aus {year} aufgelegt{tag}. Sag was anderes, wenn es nicht passt.",
     "mood_not_found": "Ich habe in deiner Musik nichts Passendes gefunden.",
     "mood_exhausted": "Mir gehen die Ideen aus. Nenn mir am besten ein Genre.",
 

@@ -25,16 +25,27 @@ export function syncWakeLabel() {
 }
 
 // --- music source selector (auto / local / streaming services) ---
-// The server substitutes __SERVICES__ with the streaming services actually
-// available on the LMS, so e.g. Qobuz only shows up when its plugin is there.
+// The server substitutes __SERVICES__ with the streaming services this music
+// system actually has, so e.g. Qobuz only shows up when it is there, and
+// __SERVICE_LABELS__ with how each one is spelled out loud. No table here:
+// the spelling belongs to the backend — LMS says «TIDAL», MusicAssistant
+// writes a provider `apple_music` and says «Apple Music» — and a table in the
+// page could only ever know the services LMS has. The fallback to the key
+// itself is for a server too old to send the map.
 const SERVICES = (window.VIVAVOCE_CFG || {}).services || [];
-const SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" };
+const SERVICE_LABELS = (window.VIVAVOCE_CFG || {}).serviceLabels || {};
 export function buildSourceOptions() {
   const sel = $("source");
   const cur = sel.value || localStorage.getItem("source") || "auto";
   const opts = [["auto", ui("src_auto")], ["local", ui("src_local")]]
-    .concat(SERVICES.map(s => [s, ui("src_only") + (SERVICE_NAMES[s] || s)]));
-  sel.innerHTML = opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+    .concat(SERVICES.map(s => [s, ui("src_only") + (SERVICE_LABELS[s] || s)]));
+  // Built as nodes, not markup: the labels come from the music server.
+  sel.replaceChildren(...opts.map(([v, n]) => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = n;
+    return o;
+  }));
   // A saved service that is no longer offered falls back to auto.
   sel.value = opts.some(([v]) => v === cur) ? cur : "auto";
   sel.onchange = () => localStorage.setItem("source", sel.value);
@@ -135,8 +146,17 @@ async function savePhrase(phrase) {
     // success over one (appdata.set_wake_phrase raises rather than swallow
     // it), and clearing the box here threw that care away at the last step:
     // a read-only data directory looked exactly like a save.
+    //
+    // What arrives here is a token, not the server's exception text: the
+    // detail named the data directory and this endpoint answers anything on
+    // the LAN (see audio_api._failed, which logs it instead). "save_failed"
+    // is the one worth a sentence of its own — it is the case a household can
+    // act on.
     if (d.error && d.error !== "unavailable") {
-      showPhraseMessage(ui("wake_phrase_failed")(d.error), true);
+      showPhraseMessage(
+        d.error === "save_failed" ? ui("wake_phrase_save_failed")
+                                  : ui("wake_phrase_failed")(d.error),
+        true);
       return;
     }
     showPhraseMessage("", false);

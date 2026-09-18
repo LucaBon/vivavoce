@@ -201,10 +201,13 @@ def qobuz(transport):
 
 
 # -- language isolation --------------------------------------------------------
-# ``messages.set_lang()`` mutates process-global state, so a test that speaks
-# English would otherwise leak English replies into every test that runs after
-# it — an order-dependent failure that only shows up when the suite is
-# reordered. Reset once, centrally, instead of per-module.
+# ``messages.set_lang()`` writes a ContextVar, which is per execution context
+# and not per process — that is what keeps two concurrent requests in two
+# languages from mixing. Under pytest there is one thread and one context, so
+# it behaves exactly like a global here: a test that speaks English would leak
+# English replies into every test that runs after it, an order-dependent
+# failure that only shows up when the suite is reordered. Reset once,
+# centrally, instead of per-module.
 
 @pytest.fixture(autouse=True)
 def reset_lang():
