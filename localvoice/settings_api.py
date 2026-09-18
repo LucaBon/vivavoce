@@ -21,6 +21,16 @@ nothing, and the routes answer ``unavailable`` instead of failing.
 from __future__ import annotations
 
 import json
+import traceback
+
+# ``_text`` rather than a local ``or ""``: its docstring in ``api_v1`` records
+# the bug this route would otherwise reintroduce — a ``lang`` that arrives as
+# a list reaches ``set_lang``, where ``lang in CATALOGS`` raises
+# ``TypeError: unhashable type`` from outside any handler's try, and the
+# connection is dropped with no reply at all. Shared rather than copied so
+# that lesson has one home.
+from api_v1 import _text
+from messages import msg, set_lang
 
 
 def settings_routes(kidsafe=None, license_mgr=None):
@@ -53,30 +63,63 @@ def settings_routes(kidsafe=None, license_mgr=None):
                     {"ok": False, "error": "unavailable"}))
                 return
             payload = self._read_json_object()
+            # Before any branch, not inside the one that speaks today: this
+            # route phrases its own answers (the blocklist ones come back as
+            # ``speech``), and ``httpbase`` has just reset the language to the
+            # default for this request. Without this the panel answered every
+            # language in Italian while the page's own comment said otherwise.
+            # ``GET /kidsafe`` needs none of it — its payload carries no
+            # sentence for anyone to read.
+            set_lang(_text(payload.get("lang")))
             client_id = payload.get("client") or "default"
             action = payload.get("action") or ""
             pin = payload.get("pin") or ""
             term = payload.get("term") or ""
-            if action == "unlock":
-                if kidsafe.unlock(client_id, pin):
+            # Everything from here writes to disk, and the whole of it is
+            # inside the guard for that reason. ``add``/``remove`` already
+            # answer a store that cannot be written (engine/guard.py turns
+            # BlocklistStoreError into a sentence); ``enable``, ``disable``
+            # and ``unlock`` — which writes the lockout counter even when the
+            # PIN is wrong — go straight to appdata.atomic_write_json, and an
+            # OSError from a full disk or a read-only data dir escaped all the
+            # way past do_POST, dropping the connection with no reply. So does
+            # the state merge below, which reads the file again.
+            #
+            # ``except Exception`` and not ``except OSError``: the promise on
+            # this side of the app is that a route always answers (see
+            # api_v1.py and audio_api.py, which do the same). That promise is
+            # not kept by a narrower catch. The engine keeps the opposite
+            # rule, and keeps it: nothing here is inside engine/.
+            try:
+                if action == "unlock":
+                    if kidsafe.unlock(client_id, pin):
+                        result = {"ok": True}
+                    else:
+                        wait = kidsafe.locked_out_for()
+                        result = ({"ok": False, "error": "locked_out",
+                                   "retry_in": int(wait) + 1} if wait > 0
+                                  else {"ok": False, "error": "wrong_pin"})
+                elif action == "lock":
+                    kidsafe.lock(client_id)
                     result = {"ok": True}
+                elif action == "enable":
+                    result = kidsafe.enable(pin, client_id)
+                elif action == "disable":
+                    result = kidsafe.disable(client_id)
+                elif action in ("add", "remove"):
+                    result = kidsafe.edit_terms(action, term, client_id)
                 else:
-                    wait = kidsafe.locked_out_for()
-                    result = ({"ok": False, "error": "locked_out",
-                               "retry_in": int(wait) + 1} if wait > 0
-                              else {"ok": False, "error": "wrong_pin"})
-            elif action == "lock":
-                kidsafe.lock(client_id)
-                result = {"ok": True}
-            elif action == "enable":
-                result = kidsafe.enable(pin, client_id)
-            elif action == "disable":
-                result = kidsafe.disable(client_id)
-            elif action in ("add", "remove"):
-                result = kidsafe.edit_terms(action, term, client_id)
-            else:
-                result = {"ok": False, "error": "unknown_action"}
-            result.update(self._kidsafe_state(client_id))
+                    result = {"ok": False, "error": "unknown_action"}
+                result.update(self._kidsafe_state(client_id))
+            except Exception:
+                # The reason is for the log, never for the page: it carries
+                # the path of the data directory.
+                traceback.print_exc()
+                # Both already exist and are already rendered: the page shows
+                # ``save_failed`` with its ``speech`` as text, and every
+                # catalogue has the sentence. Nothing new to translate.
+                result = {"ok": False, "error": "save_failed",
+                          "speech": msg("blocklist_save_error")}
             self._send(200, json.dumps(result, ensure_ascii=False))
 
         def _activate_license(self):
@@ -87,9 +130,22 @@ def settings_routes(kidsafe=None, license_mgr=None):
                     {"ok": False, "error": "unavailable"}))
                 return
             key = self._read_json_object().get("key", "")
-            result = license_mgr.activate(key)
-            if result.get("ok"):
-                result.update(license_mgr.status())
+            # activate() already answers its own failures — a server that did
+            # not reply, a key the server refused — but it ends by writing the
+            # activation to disk, and that write has nobody above it. A full
+            # disk here used to drop the connection on the one request a
+            # customer makes after paying.
+            try:
+                result = license_mgr.activate(key)
+                if result.get("ok"):
+                    result.update(license_mgr.status())
+            except Exception as exc:
+                traceback.print_exc()
+                # Its own token, not "invalid": the key may well have been
+                # good, and telling somebody who just paid that their key is
+                # not valid is the worst available answer.
+                result = {"ok": False, "error": "save_failed",
+                          "detail": type(exc).__name__}
             self._send(200, json.dumps(result))
 
     return SettingsRoutes

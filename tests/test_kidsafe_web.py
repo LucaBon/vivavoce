@@ -663,3 +663,144 @@ def test_a_reply_does_not_inherit_the_previous_requests_language(
         assert refused["speech"] == "Non ho capito cosa bloccare. Puoi ripetere?"
     finally:
         conn.close()
+
+
+def test_the_panel_answers_in_the_language_the_request_asks_for(
+        live_server, tmp_path, clock):
+    # The other half of the test above. Resetting the language on every request stops
+    # one caller's language reaching the next, but it left this route with no
+    # way to say which language it wanted: every household, in every language,
+    # got its blocklist refusals in Italian — while the page's own comment
+    # claimed the server had already phrased them in the user's language.
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
+    srv = live_server(kidsafe=ks)
+    srv.json_post("/kidsafe", {"client": "parent", "action": "enable",
+                               "pin": "123456"})
+
+    def refuse(**extra):
+        payload = {"client": "parent", "action": "add", "term": ""}
+        payload.update(extra)
+        return srv.json_post("/kidsafe", payload)
+
+    assert refuse(lang="en")["speech"] == "I didn't catch what to block. Can you repeat?"
+    assert refuse(lang="de")["speech"].startswith("Ich habe nicht verstanden")
+    # No lang at all stays Italian: that is the documented default, and the
+    # page that has always sent nothing must not change behaviour.
+    assert refuse()["speech"] == "Non ho capito cosa bloccare. Puoi ripetere?"
+    # An unknown code falls back rather than raising, like everywhere else.
+    assert refuse(lang="nl")["speech"] == "Non ho capito cosa bloccare. Puoi ripetere?"
+
+
+def test_a_lang_of_the_wrong_type_is_answered_not_dropped(
+        live_server, tmp_path, clock):
+    # ``lang`` as a list reaches ``set_lang``, where ``lang in CATALOGS``
+    # raises TypeError: unhashable type — from outside the handler, so the
+    # connection was dropped with no reply at all. api_v1 already coerces for
+    # this exact reason (see ``_text`` there); this route now shares it.
+    ks = KidSafe(str(tmp_path), FakeLicense(pro=True), now=clock)
+    srv = live_server(kidsafe=ks)
+    srv.json_post("/kidsafe", {"client": "parent", "action": "enable",
+                               "pin": "123456"})
+    reply = srv.json_post("/kidsafe", {"client": "parent", "action": "add",
+                                       "term": "", "lang": ["en"]})
+    assert reply["ok"] is False
+    assert reply["speech"] == "Non ho capito cosa bloccare. Puoi ripetere?"
+
+
+# -- a full disk answers, it does not drop the connection ------------------------
+#
+# Found in review. Everything the kid-safe panel does on a POST ends in
+# appdata.atomic_write_json, and nothing stood above it: on a read-only data
+# directory or a full SD card — a Raspberry Pi's ordinary old age — the OSError
+# walked past do_POST and the request got no reply at all. The panel is also
+# the one surface where that is worst, because the answer to "did my PIN save?"
+# must never be silence.
+
+class _FullDisk:
+    """A KidSafe whose every write fails, and which says so the hard way."""
+
+    def __init__(self):
+        self.reads = 0
+
+    def pro_ok(self):
+        return True
+
+    def enabled(self):
+        self.reads += 1
+        return False
+
+    def has_pin(self):
+        return False
+
+    def is_unlocked(self, client_id):
+        return True
+
+    def terms(self):
+        return []
+
+    def enable(self, pin, client_id):
+        raise OSError(28, "No space left on device")
+
+    def disable(self, client_id):
+        raise OSError(28, "No space left on device")
+
+    def unlock(self, client_id, pin):
+        raise OSError(30, "Read-only file system")
+
+
+@pytest.mark.parametrize("action", ["enable", "disable", "unlock"])
+def test_a_write_that_cannot_happen_is_answered_not_dropped(
+        live_server, action):
+    srv = live_server(kidsafe=_FullDisk())
+    reply = srv.json_post("/kidsafe", {"client": "parent", "action": action,
+                                       "pin": "123456"})
+    assert reply["ok"] is False
+    assert reply["error"] == "save_failed"
+    # A sentence, not a token: the page prints this one as text.
+    assert reply["speech"]
+
+
+def test_the_connection_survives_a_write_that_cannot_happen(live_server,
+                                                            tmp_path, clock):
+    # The real damage was never the failed request: it was the next one. With
+    # keep-alive the same connection carries both, and a handler that dies
+    # mid-reply leaves the stream with no answer and no length.
+    import http.client
+    import urllib.parse
+
+    srv = live_server(kidsafe=_FullDisk())
+    parts = urllib.parse.urlsplit(srv.url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=5)
+    headers = {"Content-Type": "application/json",
+               "Host": f"{parts.hostname}:{parts.port}"}
+    try:
+        for _ in range(2):
+            conn.request("POST", "/kidsafe",
+                         json.dumps({"client": "parent", "action": "enable",
+                                     "pin": "123456"}), headers)
+            resp = conn.getresponse()
+            assert resp.status == 200
+            assert json.loads(resp.read().decode("utf-8"))["error"] == "save_failed"
+    finally:
+        conn.close()
+
+
+def test_an_activation_that_cannot_be_saved_does_not_say_the_key_is_invalid(
+        live_server):
+    # The one request a customer makes after paying. "Not valid" would be the
+    # worst available answer to a disk that is full.
+    class _Unwritable:
+        def activate(self, key):
+            raise OSError(28, "No space left on device")
+
+        def status(self):
+            return {"pro": False}
+
+        def is_pro(self):
+            return False
+
+    reply = live_server(license_mgr=_Unwritable()).json_post(
+        "/license", {"key": "VV-TEST"})
+    assert reply["ok"] is False
+    assert reply["error"] == "save_failed"
+    assert "invalid" not in json.dumps(reply)
