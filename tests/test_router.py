@@ -479,22 +479,65 @@ def test_qobuz_misheard_by_asr_still_routes(router, transport, make_feed, heard)
     assert ["playlist", "play", "qobuz://9.flac"] in transport.commands()
 
 
-@pytest.mark.parametrize("heard", [
-    "taidal", "tidol",                          # it-IT
-    "title",                                    # en-US
-    "Vidal", "tídal",                           # es-ES
-    "Titel", "Taidel", "Tiedal",                # de-DE
-    "tidale", "tidalle",                        # fr-FR
-])
-def test_tidal_misheard_by_asr_still_routes(router, transport, make_feed, heard):
+@pytest.fixture
+def tidal_has_time(transport, make_feed):
     transport.responses["tidal"] = make_feed(
         categories={"Songs": "S"},
         items={"S": [{"isaudio": 1, "url": "tidal://9.flc", "name": "Time"}]},
     )
+    return transport
+
+
+@pytest.mark.parametrize("heard", [
+    "taidal", "tidol",                          # it-IT
+    "Taidel", "Tiedal",                         # de-DE
+    "tídal",                                    # es-ES
+    "tidale", "tidalle",                        # fr-FR
+])
+def test_tidal_misheard_by_asr_still_routes(router, tidal_has_time, heard):
     assert router.handle(f"da {heard} metti Time", source="local") == (
         "Riproduco Time da TIDAL."
     )
-    assert ["playlist", "play", "tidal://9.flc"] in transport.commands()
+    assert ["playlist", "play", "tidal://9.flc"] in tidal_has_time.commands()
+
+
+# The sound-alikes that are ordinary words, and where they may be read as a
+# service name. At the END of the sentence there is nothing else they could
+# be. In front of the request they are followed by what was asked for, and
+# reading them as a source truncates a title instead: «da title metti Time»
+# is fourteen characters that a recogniser also writes for «Titoli» or «Titel»
+# said as part of what somebody wants to hear. See
+# ``parsing._SERVICE_SOUNDS_FINAL``.
+@pytest.mark.parametrize("heard", ["title", "titles", "Titel", "Vidal"])
+def test_a_sound_alike_that_is_a_real_word_names_the_service_at_the_end(
+        router, tidal_has_time, heard):
+    assert router.handle(f"metti Time da {heard}", source="local") == (
+        "Riproduco Time da TIDAL."
+    )
+    assert ["playlist", "play", "tidal://9.flc"] in tidal_has_time.commands()
+
+
+def test_a_sound_alike_that_is_a_real_word_is_not_a_source_in_front(
+        router, tidal_has_time):
+    # In front, the word is followed by the request — so reading it as a
+    # source eats the first words of what was asked for. «da Titel Dark Side»
+    # searched TIDAL for "Dark Side" when what was said was a title beginning
+    # with the word «Titel», and nothing in the reply said which had happened.
+    # The declared price: somebody who really did name TIDAL this way is
+    # answered by the default service instead, and the reply says so.
+    reply = router.handle("metti da Titel Dark Side", source="local")
+    assert "da TIDAL" not in str(reply)
+    assert ["playlist", "play", "tidal://9.flc"] not in tidal_has_time.commands()
+
+
+def test_the_preposition_is_not_found_inside_the_word_before_it(
+        router, tidal_has_time):
+    # ``re.search`` with no word boundary found the «da» at the end of
+    # «Anaconda», so a title that merely ENDED in a preposition handed its
+    # tail to a service as the request.
+    reply = router.handle("metti Anaconda tidale", source="local")
+    assert "da TIDAL" not in str(reply)
+    assert ["playlist", "play", "tidal://9.flc"] not in tidal_has_time.commands()
 
 
 def test_explicit_tidal_wins_over_qobuz_source(router, transport, make_feed):
@@ -562,6 +605,28 @@ def test_choose_ordinal_it(router, transport, phrase):
     _open_local_list(router, transport)
     assert router.handle(phrase) == "Riproduco Love dalla tua musica."
     assert ["playlistcontrol", "cmd:load", "track_id:2"] in transport.commands()
+
+
+# An accent is how four of the five languages spell a position, and a bare
+# ordinal — «troisième», «fünfte», «séptima» — is the whole of a very ordinary
+# answer to a read-out list. The bare-numeral branch matched ``[a-z0-9]+``, so
+# the word was refused before ORDINAL_WORDS was ever asked and the turn died
+# as "non ho capito" while the table that knew the answer sat right there.
+@pytest.mark.parametrize("lang, word", [
+    ("fr", "deuxième"), ("fr", "troisième"), ("fr", "deuxieme"),
+    ("de", "fünfte"), ("de", "zweite"),
+    ("es", "séptima"), ("es", "segunda"),
+    ("it", "seconda"),
+])
+def test_a_bare_accented_ordinal_is_a_pick(lms, transport, lang, word):
+    from router import Router
+    r = Router(lms)
+    r.candidates = [{"title": f"T{i}", "url": f"tidal://{i}.flc"}
+                    for i in range(1, 11)]
+    r.cand_until = r.now() + 300
+    r.cand_source = "tidal"
+    reply = r.handle(word, lang=lang)
+    assert any(c[:2] == ["playlist", "play"] for c in transport.commands()), reply
 
 
 def test_ordinal_without_list_is_not_a_pick_it(router, transport, make_feed):
@@ -674,6 +739,63 @@ def test_an_absurd_sleep_is_refused(router, transport):
 
 def test_one_minute_is_singular(router, transport):
     assert router.handle("spegni tra 1 minuto") == "Va bene, spengo tra un minuto."
+
+
+# The half hour nobody could hear. The duration patterns are anchored at the
+# start and nowhere else, so «un'ora e mezza» matched on «un'ora» and armed a
+# timer thirty minutes short — silently, and the confirmation said "60" to
+# somebody who had said "an hour and a half" and would not be there to hear
+# the music stop. Reading the whole tail is what closes it, and the forms
+# below are what reading the whole tail needs.
+@pytest.mark.parametrize("phrase, minutes", [
+    ("metti in pausa tra un'ora e mezza", 90),
+    ("spegni tra un ora e mezza", 90),
+    ("spegni tra 1 ora e mezza", 90),
+    ("spegni tra due ore e mezza", 150),
+    ("spegni tra un'ora e venti minuti", 80),
+    ("spegni tra due ore e 30 minuti", 150),
+    ("spegni tra mezz'ora", 30),
+    ("spegni tra 30 minuti per favore", 30),
+])
+def test_a_duration_is_read_whole(router, transport, phrase, minutes):
+    assert router.handle(phrase) == f"Va bene, spengo tra {minutes} minuti."
+    assert ["sleep", str(minutes * 60)] in transport.commands()
+
+
+@pytest.mark.parametrize("phrase", [
+    "spegni tra due ore e un quarto",
+    "metti in pausa tra tre ore e mezzo minuto",
+])
+def test_a_half_read_duration_does_not_pause_instead(router, transport, phrase):
+    # Every sleep phrase carries a stop verb, and that verb is also what the
+    # pause step looks for — so a delay the duration patterns could only read
+    # HALF of used to fall through and stop the music on the spot. The loudest
+    # possible answer to "leave it playing for a while". Not understanding is
+    # the cheaper mistake: it costs a repeat.
+    reply = router.handle(phrase)
+    assert not any(c[0] in ("pause", "sleep") for c in transport.commands()), reply
+
+
+# ...and the other half of that rule, which is the expensive one to get wrong.
+# In four of the five languages the preposition that introduces the delay is
+# the bare one that also introduces a ROOM, and the room is only stripped
+# before this step when multi-room is installed AND the name resolves. On a
+# free build «pause in the kitchen» reaches the timer step, parses as no
+# duration at all, and has to pause — refusing it left the most ordinary
+# command in the app doing nothing whatsoever.
+@pytest.mark.parametrize("lang, phrase", [
+    ("en", "pause in the kitchen"),
+    ("en", "stop in the living room"),
+    ("en", "pause in a bit"),
+    ("it", "ferma tra poco"),
+    ("it", "metti in pausa tra un attimo"),
+    ("de", "stopp in der Kueche"),
+    ("fr", "arrete dans la cuisine"),
+])
+def test_a_tail_that_is_no_duration_at_all_still_pauses(lms, transport,
+                                                        lang, phrase):
+    reply = Router(lms).handle(phrase, lang=lang)
+    assert ["pause", "1"] in transport.commands(), reply
 
 
 # -- «metti canzoni di X» on the local library --------------------------------

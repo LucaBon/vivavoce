@@ -34,10 +34,30 @@ MINUTE_WORDS.update({
     "cinquanta": 50, "sessanta": 60, "novanta": 90,
 })
 
-# The tail of a sleep command ("spegni tra <tail>"), most specific first.
+# A spoken number as one token.
+_NUMTOK = r"(?:\d+|[a-zà-ù]+)"
+
+# The tail of a sleep command ("spegni tra <tail>"), most specific first — and
+# "most specific" is not decoration: read in the other order, `^(?:un|1)\W?ora`
+# matches the first two words of «un'ora e mezza» and silently drops the half.
+# ``_parse_minutes`` requires the WHOLE tail to parse (see DURATION_TAIL), so a
+# half nobody could read is now a phrase that does not set a timer at all
+# rather than a timer half an hour short.
 DURATIONS = (
     (c(r"^mezz\W?ora\b"), 30),
+    (c(r"^(?:un\W?\s*|1\s*)?ora\s+e\s+mezza\b"), 90),
+    (c(rf"^({_NUMTOK})\s*ore\s+e\s+mezz[ao]\b"), "hours_half"),
+    # ``\W?`` and ``or[ae]``: Italian elides the article onto the noun, so
+    # «un'ora e venti minuti» is one hour written without a space after it.
+    (c(rf"^({_NUMTOK})\W?\s*or[ae]\s+e\s+({_NUMTOK})\s*(?:minut\w*|min\b)"),
+     "hours_minutes"),
     (c(r"^(?:un|1)\W?\s*ora\b"), 60),
-    (c(r"^(\d+|[a-zà-ù]+)\s*ore\b"), "hours"),
-    (c(r"^(\d+|[a-zà-ù]+)\s*(?:minut\w*|min\b)"), "minutes"),
+    (c(rf"^({_NUMTOK})\s*ore\b"), "hours"),
+    (c(rf"^({_NUMTOK})\s*(?:minut\w*|min\b)"), "minutes"),
 )
+
+# What may follow a duration and still leave it a duration: politeness, and
+# the words a speaker rounds with. Merged across every pack by ``parsing.py``,
+# like the word tables — see DURATION_TAIL in numbers_de.py, which is the
+# reason this table is not simply empty everywhere.
+DURATION_TAIL = (r"per\s+favore", r"grazie", r"dai", r"esatt[eiao]", r"circa")

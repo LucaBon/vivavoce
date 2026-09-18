@@ -21,7 +21,8 @@ import actions
 import moods
 from conversation import MOOD_TTL
 from messages import msg
-from parsing import _as_number, _parse_minutes, _service_re, repair_play_verb
+from parsing import (_as_number, _parse_minutes, _service_re,
+                     _starts_like_duration, repair_play_verb)
 
 
 class IntentTable:
@@ -145,7 +146,28 @@ class IntentTable:
             minutes = _parse_minutes(m.group(1))
             if minutes:
                 return actions.set_sleep(self.lms, minutes)
-        if P["pause_explicit"].search(t) or (not is_play and P["pause"].search(t)):
+        # A HALF-READ duration is not a pause. Every sleep pattern carries a
+        # stop verb and the word that introduces a delay, and every one of
+        # those verbs is also what ``pause_explicit`` looks for — so a delay
+        # that parsed to nothing fell straight through to it and stopped the
+        # music on the spot. «Metti in pausa tra un'ora e mezza» paused at
+        # once, and so did «in anderthalb Stunden»: the loudest possible
+        # answer to a request that the house be left alone for ninety minutes.
+        #
+        # ``_starts_like_duration`` and not merely "the sleep pattern matched",
+        # and the difference is the whole of the fix. In four of the five
+        # languages the preposition that introduces the delay is the bare one
+        # that also introduces a ROOM — «pause in the kitchen», «stopp in der
+        # Küche», «arrête dans la cuisine» — and the room is only stripped
+        # earlier when multi-room is installed AND the name resolves to a real
+        # player. On a free build, or with a room nobody has, suppressing the
+        # pause on any unreadable tail left the most ordinary command in the
+        # app doing nothing whatsoever. So the tail has to have STARTED as a
+        # duration: a kitchen pauses, «due ore e un quarto» does not.
+        half_read_duration = m is not None and _starts_like_duration(m.group(1))
+        if not half_read_duration and (
+                P["pause_explicit"].search(t)
+                or (not is_play and P["pause"].search(t))):
             return actions.pause(self.lms)
         # Bare "play" is a resume even though "play" is also a play verb.
         if P["resume_explicit"].match(t) or (not is_play and P["resume"].search(t)):
@@ -169,10 +191,20 @@ class IntentTable:
         # ASR gives words, not digits. The explicit forms answer even with no
         # open list (helpful hint); a bare numeral only counts as a pick while a
         # list is open, so it can't swallow an unrelated one-word command.
+        #
+        # ``[^\W_]`` and not ``[a-z0-9]``: four of the five languages say a
+        # position with an accent on it, and ORDINAL_WORDS holds them in the
+        # spelling the recogniser writes. An ASCII class refused the word
+        # before the table was ever asked, so a bare «troisième», «fünfte» or
+        # «séptima» — the whole of a very ordinary answer to a read-out list —
+        # fell through to the generic branches and came back "non ho capito".
+        # The three packs that widened their OWN classes (de.py, fr.py, es.py)
+        # were each fixing half of this; ``\W`` is Unicode-aware and fixes it
+        # for every language at once, including the next one.
         m = P["choose_number"].match(t) or P["choose_article"].match(t)
         number = _as_number(m.group(1), ordinals=bool(self.candidates)) if m else None
         if number is None and self.candidates:
-            bare = re.match(r"([a-z0-9]+)\s*$", t, re.I)
+            bare = re.match(r"([^\W_]+)\s*$", t, re.I)
             number = _as_number(bare.group(1), ordinals=True) if bare else None
         if number is not None:
             # A pick from a room-opened list keeps playing in that room (unless
@@ -226,10 +258,14 @@ class IntentTable:
         if m:
             return self._local_play(m.group(1).strip(), P)
         for service in self.services:
-            sound = _service_re(service)
-            # Both word orders: «da Qobuz metti X» and «metti X da Qobuz».
-            m = (re.search(P["service"].format(s=sound), t, re.I)
-                 or re.search(P["service_suffix"].format(s=sound), t, re.I))
+            # Both word orders: «da Qobuz metti X» and «metti X da Qobuz». The
+            # second one ends on the service name, which is the only place a
+            # sound-alike that is also a real word can be read as one — see
+            # ``parsing._SERVICE_SOUNDS_FINAL``.
+            m = (re.search(P["service"].format(s=_service_re(service)), t, re.I)
+                 or re.search(
+                     P["service_suffix"].format(s=_service_re(service, final=True)),
+                     t, re.I))
             if m:
                 return self._service_play(m.group(1).strip(), service, P)
 

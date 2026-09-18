@@ -10,7 +10,7 @@ from .base import c
 from .moods_it import MOOD_WORDS  # noqa: F401
 # Spoken numbers and durations, same reasoning — see numbers_it.py.
 from .numbers_it import (  # noqa: F401
-    DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
+    DURATION_TAIL, DURATIONS, MINUTE_WORDS, NUM_WORDS, ORDINAL_WORDS)
 
 CODE = "it"
 # The closed word lists these patterns are built from.
@@ -110,7 +110,12 @@ PATTERNS = {
     # Pink Floyd» and «da qobuz metti …» reach the generic song search alone.
     "local_prefix": c(rf"{_LOCAL}\s+(.+)$"),
     "local_suffix": c(rf"((?:metti|riproduci|suona)\s+.+?)\s+{_LOCAL}\s*$"),
-    "service": r"(?:da {s}|su {s}|con {s})\s+(.+)$",
+    # ``\b`` in front, and it is not decoration: without it ``re.search``
+    # found the preposition inside the word before it, so «metti Anaconda
+    # Titoli» carried a "da " a listener never said and the rest of the title
+    # went to TIDAL as the request. Every pack has the same shape and the same
+    # fix.
+    "service": r"\b(?:da {s}|su {s}|con {s})\s+(.+)$",
     # The same override said the other way round — «metti X da Qobuz» — which
     # is where the naming goes when the sentence is spoken rather than typed,
     # and the only shape the prefix form cannot read. Without it the phrase
@@ -122,7 +127,8 @@ PATTERNS = {
     "service_suffix": r"((?:metti|riproduci|suona)\s+.+?)\s+(?:da|su|con) {s}\s*$",
     "albums_list": c(r"(?:quali|che).{0,12}album.{0,4}di\s+(.+)$"),
     "toptracks": c(r"(?:quali.{0,10}brani|top tracks|brani.{0,15}ascoltati).*?di\s+(.+)$"),
-    "name_pick": c(r"(?:(?:voglio\s+ascoltare|fai\s+partire|metti|scegli|riproduci|suona|voglio)\s+)?(.+)$"),
+    "name_pick": c(r"(?:(?:voglio\s+ascoltare|fai\s+partire|metti|scegli"
+                   r"|riproduci|suona|voglio)\s+)?(.+)$"),
     "album": c(r"(?:metti|riproduci|fai partire)\s+l['’]?\s*album\s+(.+)$"),
     "playlist": c(r"(?:metti|riproduci|fai partire)\s+la\s+playlist\s+(.+)$"),
     # Plural only ("canzoni/brani"): "metti la canzone del sole" is a song

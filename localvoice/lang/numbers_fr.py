@@ -54,10 +54,20 @@ MINUTE_WORDS.update({
 # that follows it in each pattern is what bounds it rather than the class.
 _NUMTOK = r"[a-zà-öø-ÿœæ]+(?:[\s\-][a-zà-öø-ÿœæ]+)*?"
 
-# The tail of a sleep command («arrête dans <tail>»), most specific first.
+# The tail of a sleep command («arrête dans <tail>»), most specific first —
+# see numbers_it.py for why the order carries the half-hour forms.
 DURATIONS = (
     (c(r"^une\s+demi[\s\-]?heure\b"), 30),
+    (c(r"^(?:une|un|1)\s*heures?\s+et\s+demie?\b"), 90),
+    (c(rf"^(\d+|{_NUMTOK})\s*heures?\s+et\s+demie?\b"), "hours_half"),
+    (c(rf"^(\d+|{_NUMTOK})\s*heures?\s+et\s+(\d+|{_NUMTOK})"
+       rf"\s*(?:minut\w*|min\b)"), "hours_minutes"),
     (c(r"^(?:une|un|1)\W?\s*heure\b"), 60),
     (c(rf"^(\d+|{_NUMTOK})\s*heures\b"), "hours"),
     (c(rf"^(\d+|{_NUMTOK})\s*(?:minut\w*|min\b)"), "minutes"),
 )
+
+# See DURATION_TAIL in numbers_it.py.
+DURATION_TAIL = (r"s['\u2019]?il\s+te\s+pla[iî]t",
+                 r"s['\u2019]?il\s+vous\s+pla[iî]t",
+                 r"stp", r"merci", r"exactement", r"environ")

@@ -18,9 +18,11 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional
 
+from connectors import for_lang
 from guard import Guard, is_blocked_item
-from matching import GATE, LIST_LIMIT, ActionResult, _MODE_KEY, _normalize
-from messages import msg
+from matching import (GATE, LIST_LIMIT, ActionResult, _MODE_KEY, _normalize,
+                      _normalize_apart)
+from messages import get_lang, msg
 from player.errors import PlayerError
 
 
@@ -123,6 +125,36 @@ def choose_from(
     )
 
 
+def _is_the_whole_request(title: str, query: str, filler) -> bool:
+    """Whether ``title`` occurs in ``query`` and is the whole of what it asks.
+
+    This is what keeps an open list from eating the next request. Step 2 of
+    :func:`choose_by_name` accepts a title that merely OCCURS inside what was
+    said, and a list stays pickable for five minutes: «quali brani dei Pink
+    Floyd», then «metti Money for Nothing dei Dire Straits», and the «Money»
+    on the list won a sentence that was never about it. The same trap catches
+    «Time After Time» against a listed «Time», and it is silent — something
+    plays, and it is the wrong thing.
+
+    An article or a noun the request could have done without is not content —
+    «metti l'album Fragile» is still a pick of "Fragile" — so the surrounding
+    words are checked against the language's ``PICK_FILLER``. Anything else,
+    a band name most of all, and this was a new request: the caller gets
+    ``None`` and routes it to a fresh search, which is where it was going
+    before the list ever opened.
+
+    Both arguments arrive normalized, and the caller asks twice — once with
+    the apostrophe deleted and once with it separating — because «l'album»
+    folds to "lalbum" in the first form, which is no word any table can hold.
+    See :func:`matching._normalize_apart`, which exists for this.
+    """
+    found = re.search(rf"\b{re.escape(title)}\b", query) if title else None
+    if not found:
+        return False
+    rest = query[:found.start()] + " " + query[found.end():]
+    return all(word in filler for word in rest.split())
+
+
 def choose_by_name(
     lms,
     candidates: Optional[List[Dict]],
@@ -147,14 +179,19 @@ def choose_by_name(
             chosen = cand
             break
     if chosen is None:  # 2) whole-word match either direction
+        filler = for_lang(get_lang()).pick_filler
+        apart = _normalize_apart(name)
         for cand in candidates:
             title = _normalize(cand.get("title"))
             if not title:
                 continue
-            if re.search(rf"\b{re.escape(title)}\b", query) or re.search(
-                rf"\b{re.escape(query)}\b", title
-            ):
-                chosen = cand
+            if re.search(rf"\b{re.escape(query)}\b", title):
+                chosen = cand      # the request is part of this title
+                break
+            if (_is_the_whole_request(title, query, filler)
+                    or _is_the_whole_request(
+                        _normalize_apart(cand.get("title")), apart, filler)):
+                chosen = cand      # this title is the whole of the request
                 break
     if chosen is None:
         return None

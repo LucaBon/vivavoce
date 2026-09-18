@@ -341,7 +341,8 @@ def play_radio(lms, name: Optional[str], *, guard: Optional[Guard] = None) -> Ac
 #
 # This module was 1054 lines and is now the streaming play family alone: the
 # scoring, the blocklist, the transport controls, the numbered list, the local
-# library and the after-the-play check live next door. It goes on re-exporting every one of their names, and not out of
+# library and the after-the-play check live next door. It goes on re-exporting
+# every one of their names, and not out of
 # politeness — the router, the tools and a great many tests reach for
 # ``actions.play_local``, ``actions._score``, ``actions.Guard``, private names
 # included, and a split whose whole claim is that nothing behaves differently
@@ -362,7 +363,7 @@ from transport import (VOLUME_STEP, pause, resume, next_track, previous_track,
                        change_volume, MAX_SLEEP_MINUTES, set_sleep,
                        cancel_sleep, now_playing, clear_queue, queue_list)
 from candidates import (top_tracks_list, _LOCAL_KIND, _dispatch_play,
-                        choose_from, choose_by_name)
+                        choose_from, choose_by_name, _is_the_whole_request)
 from library import (_LOCAL_KIND_RANK, _local_group, library_candidates,
                      best_match_score, play_local, play_local_artist,
                      local_albums_list, IMPORT_OFFLINE, _import_offline)

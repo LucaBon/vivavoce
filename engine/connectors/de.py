@@ -26,3 +26,12 @@ NOT_AN_ARTIST = {
     "sich", "hier", "dort", "jetzt", "allen", "alle", "einem", "einer",
     "keinem", "niemandem", "damals", "heute",
 }
+
+# See connectors/it.py. Written folded as well as spelled, because
+# ``_normalize`` folds the umlaut before the lookup sees it: «Stück» arrives
+# as "stuck".
+PICK_FILLER = {
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen",
+    "einem", "einer", "lied", "song", "stuck", "titel", "album", "platte",
+    "playlist", "bitte", "danke", "mal", "mir",
+}
