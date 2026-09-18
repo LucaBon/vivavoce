@@ -23,6 +23,19 @@
   Audiobookshelf che può solo ascoltare. Un Audiobookshelf spento all'avvio
   non ferma l'app: la musica non c'entra.
 
+### Internal
+
+- **`engine/lms.py` non è più un file da 1317 righe.** Era l'unico esentato
+  dalla regola che questo repo dà a se stesso — 400 righe per file — e
+  l'esenzione era lì da quando la regola è nata. Ora il client LMS è sei file:
+  il client (il filo, i cloni per servizio e per stanza, l'elenco dei player),
+  la tabella dei servizi, e un mixin per ciascuna delle quattro cose che quel
+  client sa fare — camminare il feed di un plugin, chiedergli un catalogo,
+  leggere il disco locale, comandare la riproduzione. Nessun comportamento
+  cambia: `LMSClient` ha esattamente gli stessi metodi con le stesse firme, e
+  ogni nome che si importava da `lms` si importa ancora. La lista delle
+  esenzioni è vuota, e un test la tiene vuota.
+
 ### Fixed
 
 - **Il modello della parola chiave viene verificato prima di essere usato.**

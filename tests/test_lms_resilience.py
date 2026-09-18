@@ -12,9 +12,10 @@ turn, and a breaker so that "the hi-fi is off" is learned once rather than
 re-timed-out all evening.
 """
 
+import time as _time
+
 import pytest
 
-import lms as lms_module
 from lms import BREAKER_COOLDOWN, BREAKER_THRESHOLD, LMSClient, LMSError, _Breaker
 
 
@@ -179,7 +180,7 @@ def test_the_retry_is_skipped_once_the_budget_is_gone(monkeypatch):
     # The retry is a kindness, not a promise: it must not be the reason a
     # sentence takes twice as long as the household was told it could.
     clock = Clock()
-    monkeypatch.setattr(lms_module.time, "monotonic", clock)
+    monkeypatch.setattr(_time, "monotonic", clock)
     transport = CountingTransport(fail=99)
     c = client(transport)
 
@@ -243,7 +244,7 @@ def test_a_missing_search_node_is_barely_cached_at_all(monkeypatch):
     assert LMSClient.SEARCH_NODE_MISS_TTL < LMSClient.SEARCH_NODE_TTL / 5
 
     clock = Clock()
-    monkeypatch.setattr(lms_module.time, "monotonic", clock)
+    monkeypatch.setattr(_time, "monotonic", clock)
     logged_in = []
 
     def transport(params):
@@ -262,7 +263,7 @@ def test_a_search_that_answers_with_nothing_at_all_forgets_the_node(monkeypatch)
     # found" instead of "not connected" — the one distinction can_search
     # exists to make.
     clock = Clock()
-    monkeypatch.setattr(lms_module.time, "monotonic", clock)
+    monkeypatch.setattr(_time, "monotonic", clock)
     state = {"logged_in": True}
 
     def transport(params):

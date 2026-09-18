@@ -854,9 +854,10 @@ SIZED_SUFFIXES = (".py", ".js", ".html", ".css")
 # Files already over the line when the rule got its test, each with the split
 # that would fix it. A ratchet, not an amnesty: entries may leave this list,
 # never join it — anything not named here has to be born under the limit.
-OVERSIZED_TODAY = {
-    "engine/lms.py",           # transport, search and queue in one client
-}
+# Vuota, e il test qui sotto la tiene vuota: l'ultima voce era engine/lms.py,
+# 1317 righe di client, e ora è sei file — il client, la tabella dei servizi,
+# e un mixin per ciascuna delle quattro cose che quel client sa fare.
+OVERSIZED_TODAY = set()
 
 
 def _sized_files():
