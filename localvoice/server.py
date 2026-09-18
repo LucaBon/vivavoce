@@ -285,7 +285,7 @@ def main() -> int:
 
     # The engine talks to whatever this hands back, and has no idea which of
     # them it got (see engine/player/protocols.py).
-    client = backend.build(lms_url, player, token=args.backend_token)
+    client = backend.client(lms_url, player, token=args.backend_token)
     # What the app learned about which services actually play, kept next to
     # the licence so no household buys the same silent play twice
     # (engine/player/silence.py). Behind the capability, like every other

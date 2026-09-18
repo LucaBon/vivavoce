@@ -61,6 +61,22 @@ class Backend:
     #: is — which is a fact about the system, not a missing feature.
     discover: Optional[Callable[..., Optional[str]]] = None
 
+    def client(self, *args, **kwargs) -> Any:
+        """:attr:`build`, plus the declaration stamped onto what it built.
+
+        The engine holds a client, not a registry entry, so this is how the
+        answer to "can this system search?" travels with the thing that would
+        be asked to do the searching (``protocols.supports``). Stamped on the
+        instance rather than declared on the class for the reason the field
+        above exists: there is one declaration, here, and a copy on the client
+        class could disagree with it.
+
+        It survives ``for_service``/``for_player``, which are shallow copies.
+        """
+        built = self.build(*args, **kwargs)
+        built.capabilities = self.capabilities
+        return built
+
 
 @dataclass(frozen=True)
 class Library:
