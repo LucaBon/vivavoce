@@ -177,7 +177,29 @@ def test_lms_cache_roundtrip(tmp_path):
     appdata.remember_lms(data_dir, "http://192.168.123.72:9000")
     assert appdata.remembered_lms(data_dir) == "http://192.168.123.72:9000"
     raw = json.loads((tmp_path / "discovery_cache.json").read_text())
-    assert raw == {"lms": "http://192.168.123.72:9000"}
+    assert raw == {"lms": "http://192.168.123.72:9000", "from_page": False}
+
+
+def test_where_the_remembered_address_came_from_outlives_the_restart(tmp_path):
+    # Without this the box on the setup page laundered an address through a
+    # reboot: typed once, an ordinary remembered address the next start, and
+    # the reverse proxy pointed at it after all (lmsproxy.browse_path).
+    data_dir = str(tmp_path)
+    assert appdata.remembered_from_page(data_dir) is False   # no file at all
+    appdata.remember_lms(data_dir, "http://192.168.1.50:9000", from_page=True)
+    assert appdata.remembered_lms(data_dir) == "http://192.168.1.50:9000"
+    assert appdata.remembered_from_page(data_dir) is True
+    # Discovery finding it again is provenance of its own, and clears it.
+    appdata.remember_lms(data_dir, "http://192.168.1.50:9000")
+    assert appdata.remembered_from_page(data_dir) is False
+
+
+def test_a_file_written_before_provenance_existed_is_not_read_as_typed(tmp_path):
+    # An upgrade must not switch the in-page panel off on a household that
+    # has been running on a discovered address all along.
+    (tmp_path / "discovery_cache.json").write_text(
+        json.dumps({"lms": "http://192.168.1.50:9000"}))
+    assert appdata.remembered_from_page(str(tmp_path)) is False
 
 
 def test_lms_cache_tolerates_corruption(tmp_path):

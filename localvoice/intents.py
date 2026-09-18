@@ -77,7 +77,9 @@ class IntentTable:
         # Favorites & radio — LMS core feature, source-independent (not a
         # streaming service, so the source selector doesn't apply).
         if P["favorites"].search(t):
-            return actions.play_favorites(self.lms, guard=self._guard)
+            # «unless it cannot, do it» — see ConversationState._unable.
+            return (self._unable("favorites", say="no_favorites")
+                    or actions.play_favorites(self.lms, guard=self._guard))
         m = P["radio"].search(t)
         if m:
             return actions.play_radio(self.lms, m.group(1).strip(), guard=self._guard)
@@ -108,12 +110,16 @@ class IntentTable:
         # today, and lifting it means letting the prefix run first.
         if self.mood is not None and P["mood_another"].search(t):
             self._mood_turn = True
-            return self._play_mood(source)
+            return (self._unable("genres", "years", say="no_moods")
+                    or self._play_mood(source))
         m = P["mood"].search(t)
         if m:
             tail = m.group(1).strip()
             key = moods.match_mood(tail, self._mood_words)
             if key:
+                refused = self._unable("genres", "years", say="no_moods")
+                if refused is not None:
+                    return refused
                 self.mood = {"key": key, "used": []}
                 self.mood_until = self.now() + MOOD_TTL
                 self._mood_turn = True
@@ -139,12 +145,14 @@ class IntentTable:
         # verb, and used to reach pause_explicit and pause the music at once.
         # The duration requirement is the guard a title needs.
         if not is_play and P["sleep_cancel"].search(t):
-            return actions.cancel_sleep(self.lms)
+            return (self._unable("sleep_timer", say="no_sleep_timer")
+                    or actions.cancel_sleep(self.lms))
         m = P["sleep"].search(t)
         if m:
             minutes = _parse_minutes(m.group(1))
             if minutes:
-                return actions.set_sleep(self.lms, minutes)
+                return (self._unable("sleep_timer", say="no_sleep_timer")
+                        or actions.set_sleep(self.lms, minutes))
         if P["pause_explicit"].search(t) or (not is_play and P["pause"].search(t)):
             return actions.pause(self.lms)
         # Bare "play" is a resume even though "play" is also a play verb.
@@ -233,9 +241,10 @@ class IntentTable:
         # 4) lists that open a numbered choice
         m = P["albums_list"].search(t)
         if m:  # "quali album ho di X" / "which albums do I have by X" -> local
-            return self._remember(
-                actions.local_albums_list(self.lms, m.group(1).strip(),
-                                          guard=self._guard), "local")
+            return (self._unable("local_library", say="no_local_library")
+                    or self._remember(
+                        actions.local_albums_list(self.lms, m.group(1).strip(),
+                                                  guard=self._guard), "local"))
         m = P["toptracks"].search(t)
         if m:  # top tracks -> streaming (selected or default service)
             stream, name, offline = self._streaming(source)

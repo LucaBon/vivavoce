@@ -777,10 +777,28 @@ def test_the_string_options_still_reach_the_entrypoint(tmp_path):
 
 
 @_RUN_SH_NEEDS
+def test_a_token_never_travels_on_the_command_line(tmp_path):
+    """The command line of a process is readable by anyone who can run `ps` —
+    in the container, and from the host for the namespaces that allow it — and
+    it ends up in debug dumps and crash reports. ``cli.py`` reads every token
+    from the environment, which the entrypoint already has, so passing them as
+    arguments as well only published them.
+    """
+    entrypoint = _read("deploy", "docker", "entrypoint.sh")
+    for flag in ("--backend-token", "--library-token", "--api-token"):
+        assert flag not in entrypoint, f"{flag} finisce nella riga di comando"
+    # And they still arrive, by the other road.
+    env = _run_addon_script(tmp_path, {"backend_token": "b3", "library_token": "l1"})
+    assert env["VIVAVOCE_BACKEND_TOKEN"] == "b3"
+    assert env["VIVAVOCE_LIBRARY_TOKEN"] == "l1"
+
+
+@_RUN_SH_NEEDS
 def test_the_library_options_reach_the_entrypoint(tmp_path):
-    # Three options, three exports, and the same three flags in the shared
-    # entrypoint: an option the add-on UI offers and nothing forwards is a
-    # setting that silently does nothing.
+    # Three options, three exports: an option the add-on UI offers and
+    # nothing forwards is a setting that silently does nothing. Two of them
+    # travel on to the server as flags; the token takes the other road, and
+    # the test below is the one that says so.
     env = _run_addon_script(tmp_path, {
         "library": "audiobookshelf", "library_url": "http://books.local:13378",
         "library_token": "k3y",
@@ -789,7 +807,7 @@ def test_the_library_options_reach_the_entrypoint(tmp_path):
     assert env["VIVAVOCE_LIBRARY_URL"] == "http://books.local:13378"
     assert env["VIVAVOCE_LIBRARY_TOKEN"] == "k3y"
     entrypoint = _read("deploy", "docker", "entrypoint.sh")
-    for flag in ("--library", "--library-url", "--library-token"):
+    for flag in ("--library", "--library-url"):
         assert f'set -- "$@" {flag} ' in entrypoint, f"entrypoint drops {flag}"
     yaml = pytest.importorskip("yaml")
     schema = yaml.safe_load(_read("ha-addon", "config.yaml"))["schema"]
@@ -836,9 +854,10 @@ SIZED_SUFFIXES = (".py", ".js", ".html", ".css")
 # Files already over the line when the rule got its test, each with the split
 # that would fix it. A ratchet, not an amnesty: entries may leave this list,
 # never join it — anything not named here has to be born under the limit.
-OVERSIZED_TODAY = {
-    "engine/lms.py",           # transport, search and queue in one client
-}
+# Vuota, e il test qui sotto la tiene vuota: l'ultima voce era engine/lms.py,
+# 1317 righe di client, e ora è sei file — il client, la tabella dei servizi,
+# e un mixin per ciascuna delle quattro cose che quel client sa fare.
+OVERSIZED_TODAY = set()
 
 
 def _sized_files():

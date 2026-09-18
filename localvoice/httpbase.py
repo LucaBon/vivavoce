@@ -16,6 +16,7 @@ supplies the ``host_policy`` class attribute when it builds the handler.
 from __future__ import annotations
 
 import json
+import secrets
 import socket
 import ssl
 import threading
@@ -147,6 +148,23 @@ class RequestBase:
     # "enable" with a PIN of its own choosing — locking the parent out of
     # the feature meant to protect their child. Three cheap checks close
     # it; see webguard.py for what each one is for.
+    #: Optional shared secret, from ``--api-token`` / ``VIVAVOCE_API_TOKEN``.
+    #: Empty — the default — asks for nothing, which is the LAN-only design.
+    #: Set, it is demanded on the two surfaces a program rather than a person
+    #: uses: ``/api/v1`` and the proxy. It is what an operator who deliberately
+    #: exposes this server has instead of the peer check below.
+    api_token = ""
+
+    def _drain(self) -> None:
+        """Read and discard the body. A refusal that leaves it unread
+        desynchronises the next request on a keep-alive connection."""
+        declared = self.content_length()
+        while declared > 0:
+            chunk = self.rfile.read(min(declared, 65536))
+            if not chunk:
+                break
+            declared -= len(chunk)
+
     def _reject_cross_site(self) -> bool:
         """True (and a 403 already sent) when this request must not act."""
         reason = webguard.cross_site_reason(
@@ -154,15 +172,27 @@ class RequestBase:
             require_json=self.path.split("?", 1)[0] in webguard.JSON_ROUTES)
         if reason is None:
             return False
-        # Drain first: a refusal that leaves the body unread desynchronises
-        # a keep-alive connection.
-        declared = self.content_length()
-        while declared > 0:
-            chunk = self.rfile.read(min(declared, 65536))
-            if not chunk:
-                break
-            declared -= len(chunk)
+        self._drain()
         self._send(403, json.dumps({"ok": False, "error": reason}))
+        return True
+
+    def _reject_untokened(self) -> bool:
+        """True (and a 401 already sent) when a token is asked for and wrong.
+
+        ``Authorization: Bearer <token>``, compared in constant time. No
+        token configured means no question asked — the server is then exactly
+        as open as it has always been on a LAN.
+        """
+        if not self.api_token:
+            return False
+        sent = self.headers.get("Authorization") or ""
+        prefix = "Bearer "
+        given = sent[len(prefix):] if sent.startswith(prefix) else ""
+        if secrets.compare_digest(given.encode("utf-8", "replace"),
+                                  self.api_token.encode("utf-8")):
+            return False
+        self._drain()
+        self._send(401, json.dumps({"ok": False, "error": "unauthorized"}))
         return True
 
     def _reject_bad_host(self) -> bool:
@@ -208,9 +238,38 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 
     max_workers = MAX_CONCURRENT_REQUESTS
 
+    #: Whether a connection from outside the household is served at all.
+    #: False — the default — refuses it before a byte is read: every check in
+    #: ``webguard`` asks which *page* sent the request, and a forwarded port
+    #: makes a scanner look exactly like the phone on the sofa. An operator
+    #: who means to expose this says so (``--allow-public-peers``), and then
+    #: has ``--api-token`` to put in front of it.
+    allow_public_peers = False
+
     def __init__(self, *args, **kwargs):
         self._slots = threading.BoundedSemaphore(self.max_workers)
+        self._said_refused = False
         super().__init__(*args, **kwargs)
+
+    def verify_request(self, request, client_address) -> bool:
+        """Refuse a connection from outside the house before it is served.
+
+        Here rather than in a route because it is true of every route — the
+        static files and the reverse proxy included — and because a
+        connection is the thing that has an address: asking per request would
+        be asking the same question of the same socket over and over.
+        """
+        if not super().verify_request(request, client_address):
+            return False
+        if self.allow_public_peers or webguard.peer_is_local(client_address[0]):
+            return True
+        if not self._said_refused:
+            self._said_refused = True   # once: a scanner is not a log source
+            print(f"Rifiutata una connessione da {client_address[0]}, che non "
+                  "e' un indirizzo di questa casa. Se la porta e' esposta di "
+                  "proposito serve --allow-public-peers, e allora anche "
+                  "--api-token: vedi DEPLOY.md.")
+        return False
 
     def process_request(self, request, client_address):
         # Acquire before the thread is spawned, release when its body ends

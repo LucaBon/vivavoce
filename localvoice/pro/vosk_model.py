@@ -24,6 +24,7 @@ that cannot install itself is a degraded install, not a crash.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import tempfile
@@ -58,6 +59,52 @@ MODEL_URLS = {lang: f"{BASE_URL}/{name}.zip"
 TIMEOUT_SECONDS = 120
 DEADLINE_SECONDS = 600
 
+# What each archive has to be, byte for byte. Until now the only thing checked
+# was that the zip opened and contained a directory of the right name: an
+# archive served in place of upstream's — a DNS answer, a proxy, a mirror
+# somebody configured — became the model this house listens with, and Kaldi
+# loads what it is given.
+#
+# The SHA-256 values were computed by streaming each URL once, and each
+# download was cross-checked against the MD5 and the byte size upstream
+# publishes for it in https://alphacephei.com/vosk/models/model-list.json —
+# so the pin below is checked against a digest this repo did not compute.
+# Upstream publishes no SHA-256 of its own, which is why the check is here.
+#
+# Bumping a model means bumping its entry: MODEL_DIRNAMES names the version,
+# and a new version is a new file with a new digest. A model with no entry
+# still downloads (nothing here may stop the server) and says what its digest
+# was, which is how the next line of this table gets written.
+MODEL_DIGESTS = {
+    "vosk-model-small-it-0.22": (
+        49665141,
+        "9ec65e75861d1c6c2e457cccd932705340dcdf233f5b239f00733b4de0bf3267"),
+    "vosk-model-small-en-us-0.15": (
+        41205931,
+        "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498"),
+    "vosk-model-small-fr-0.22": (
+        42233323,
+        "cabf6180e177eb9b3a9a9d43a437bd5e549f3a7d09525e5d69a3fed787be12ad"),
+    "vosk-model-small-de-0.15": (
+        46499967,
+        "b7e53c90b1f0a38456f4cd62b366ecd58803cd97cd42b06438e2c131713d5e43"),
+    "vosk-model-small-es-0.42": (
+        39817833,
+        "09b239888f633ef2f0b4e09736e3d9936acfd810bc65d53fad45261762c6511f"),
+}
+
+# For a model with no pinned size: how many bytes are read before giving up.
+# The "small" line is ~50 MB and the deadline above is wall-clock, so a fast
+# server could deliver gigabytes inside it and fill /data. 300 MiB leaves room
+# for a bigger model somebody adds and still stops a stream that never ends.
+MAX_ARCHIVE_BYTES = 300 << 20
+
+# And how much the archive may claim to unpack to. A zip of a few MB can
+# declare terabytes; the sum is read from the central directory *before*
+# anything is written, which is the only moment it costs nothing. The small
+# models unpack to ~130 MB.
+MAX_UNPACKED_BYTES = 1 << 30
+
 
 def ensure_model(lang: str, data_dir: str,
                  log: Callable[[str], None] = print,
@@ -81,11 +128,12 @@ def ensure_model(lang: str, data_dir: str,
         return target
 
     url = MODEL_URLS[lang]
+    expected = MODEL_DIGESTS.get(target_name)
     log(f"Scarico il modello Vosk per «{lang}» (~50 MB, una volta sola). "
         f"L'ascolto continuo parte quando ha finito.")
     try:
         os.makedirs(parent, exist_ok=True)
-        return _fetch_into(url, parent, target, log, opener)
+        return _fetch_into(url, parent, target, log, opener, expected)
     except (OSError, urllib.error.URLError, zipfile.BadZipFile,
             ValueError) as exc:
         log(f"Modello Vosk non scaricato ({exc}). La parola chiave libera "
@@ -94,7 +142,8 @@ def ensure_model(lang: str, data_dir: str,
         return None
 
 
-def _fetch_into(url: str, parent: str, target: str, log, opener) -> Optional[str]:
+def _fetch_into(url: str, parent: str, target: str, log, opener,
+                expected=None) -> Optional[str]:
     """Download and unpack, leaving either nothing or a complete model.
 
     Everything happens inside a scratch directory that is thrown away on the
@@ -107,10 +156,11 @@ def _fetch_into(url: str, parent: str, target: str, log, opener) -> Optional[str
     scratch = tempfile.mkdtemp(prefix=".vosk-", dir=parent)
     try:
         archive = os.path.join(scratch, "model.zip")
-        _download(url, archive, log, opener)
+        _download(url, archive, log, opener, expected)
         with zipfile.ZipFile(archive) as zf:
-            names = zf.namelist()
-            _refuse_escaping_members(names, scratch)
+            members = zf.infolist()
+            _refuse_escaping_members([m.filename for m in members], scratch)
+            _refuse_a_bomb(members)
             zf.extractall(scratch)
         unpacked = os.path.join(scratch, os.path.basename(target))
         if not looks_like_model(unpacked):
@@ -143,8 +193,32 @@ def _refuse_escaping_members(names, dest: str) -> None:
             raise ValueError(f"archivio sospetto: {name!r} uscirebbe da {dest}")
 
 
-def _download(url: str, dest: str, log, opener) -> None:
+def _refuse_a_bomb(members) -> None:
+    """Refuse an archive that declares more than :data:`MAX_UNPACKED_BYTES`.
+
+    Read from the central directory before a byte is extracted: a zip of a few
+    megabytes can declare terabytes, and ``extractall`` would find that out by
+    filling the disk.
+    """
+    declared = sum(m.file_size for m in members)
+    if declared > MAX_UNPACKED_BYTES:
+        raise ValueError(f"archivio sospetto: dichiara {declared >> 20} MiB "
+                         f"da scompattare, il tetto è "
+                         f"{MAX_UNPACKED_BYTES >> 20}")
+
+
+def _download(url: str, dest: str, log, opener, expected=None) -> None:
+    """Fetch ``url`` into ``dest``, bounded, and check it is what we wanted.
+
+    ``expected`` is ``(size, sha256)`` from :data:`MODEL_DIGESTS`, or None for
+    a model nobody has pinned yet — then the ceiling is
+    :data:`MAX_ARCHIVE_BYTES` and the digest is printed rather than compared,
+    because a number nobody has written down cannot be enforced and can at
+    least be reported.
+    """
     started = time.monotonic()
+    limit = expected[0] if expected else MAX_ARCHIVE_BYTES
+    digest = hashlib.sha256()
     with opener(url, timeout=TIMEOUT_SECONDS) as resp, open(dest, "wb") as out:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0
@@ -154,7 +228,12 @@ def _download(url: str, dest: str, log, opener) -> None:
             if not block:
                 break
             out.write(block)
+            digest.update(block)
             done += len(block)
+            if done > limit:
+                raise ValueError(
+                    f"il download ha superato {limit >> 20} MiB: mi fermo "
+                    f"invece di riempire il disco")
             if time.monotonic() - started > DEADLINE_SECONDS:
                 raise ValueError(
                     f"scaricati solo {done >> 20} MiB in "
@@ -168,3 +247,13 @@ def _download(url: str, dest: str, log, opener) -> None:
                 step = done >> 20
                 log(f"  {step} MiB"
                     + (f" di {total >> 20}" if total else "") + "…")
+    got = digest.hexdigest()
+    if expected is None:
+        log(f"  modello senza impronta fissata: sha256 {got}, {done} byte. "
+            f"Se è quello giusto, aggiungilo a MODEL_DIGESTS.")
+        return
+    size, want = expected
+    if done != size or got != want:
+        raise ValueError(
+            f"il modello scaricato non è quello atteso ({done} byte, sha256 "
+            f"{got[:16]}…; attesi {size} byte, {want[:16]}…)")

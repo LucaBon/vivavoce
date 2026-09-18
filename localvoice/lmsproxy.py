@@ -94,7 +94,8 @@ RESPONSE_HEADERS = frozenset({
 NO_BODY = (204, 304)
 
 
-def browse_path(material_url: str, lms_base_url: str) -> str:
+def browse_path(material_url: str, lms_base_url: str,
+                from_page: bool = False) -> str:
     """The path to open in the page, or ``""`` when it cannot be opened there.
 
     Embedding is possible exactly when the UI we would open lives on the
@@ -106,7 +107,22 @@ def browse_path(material_url: str, lms_base_url: str) -> str:
 
     That is the whole escape hatch, and it costs ``server.py`` — sitting
     exactly on the repo's 400-line ceiling — not one line.
+
+    ``from_page`` is the one case where embedding is possible and refused
+    anyway: an address somebody typed into the setup page, which nothing
+    authenticates — anything on the LAN can post to that box while the
+    household is not controllable (``setupserver.typed_address_refused``
+    says what it may still fill in). Forwarding what this app does not own
+    is lending this origin to whoever answers at that address, and what
+    comes back is HTML and JavaScript same-origin with the page: able to
+    call ``/command``, to read what the page stored, to be believed. This
+    proxy exists to get a configured hi-fi around a mixed-content block,
+    not to extend this origin to an address that arrived over the network.
+    The link at the bottom of the page still opens it — in its own origin,
+    in another tab, which is the whole difference.
     """
+    if from_page:
+        return ""
     material, lms = urlsplit(material_url), urlsplit(lms_base_url)
     if material.netloc != lms.netloc:
         return ""
@@ -181,6 +197,10 @@ def proxy_routes(target_base: str, enabled, opener=None):
                 # An absolute-form request line ("GET http://elsewhere/") is
                 # what a client asks a *forward* proxy; this is not one.
                 return False
+            if self._reject_untokened():
+                # The music server's own interface, reachable through us: if
+                # anything here is worth a credential, this is.
+                return True
             if self.command == "GET" and self._reject_cross_site():
                 # do_POST runs this ahead of every route; do_GET deliberately
                 # does not, because for the routes this server owns a GET is

@@ -23,7 +23,106 @@
   Audiobookshelf che può solo ascoltare. Un Audiobookshelf spento all'avvio
   non ferma l'app: la musica non c'entra.
 
+### Internal
+
+- **Il motore chiede all'impianto cosa sa fare, prima di offrirlo.** La
+  tabella delle capacità la dichiarava ogni backend e non la leggeva nessuno:
+  un impianto con gli altoparlanti e nessun catalogo avrebbe risposto a
+  «metti Time» con un errore interno, che all'ascoltatore arriva come «non
+  riesco a contattare l'impianto» — una bugia su un impianto che risponde
+  benissimo. Ora ogni ramo che offre qualcosa chiede prima, e quello che
+  l'impianto non sa fare lo dice in tutte e cinque le lingue: cercare, la
+  libreria locale, i preferiti, i generi e gli anni, il timer, le stanze. Con
+  LMS e Music Assistant non cambia nulla — sanno fare tutto — ed è il
+  presupposto per aggiungerne uno che sa fare meno.
+
+- **`engine/lms.py` non è più un file da 1317 righe.** Era l'unico esentato
+  dalla regola che questo repo dà a se stesso — 400 righe per file — e
+  l'esenzione era lì da quando la regola è nata. Ora il client LMS è sei file:
+  il client (il filo, i cloni per servizio e per stanza, l'elenco dei player),
+  la tabella dei servizi, e un mixin per ciascuna delle quattro cose che quel
+  client sa fare — camminare il feed di un plugin, chiedergli un catalogo,
+  leggere il disco locale, comandare la riproduzione. Nessun comportamento
+  cambia: `LMSClient` ha esattamente gli stessi metodi con le stesse firme, e
+  ogni nome che si importava da `lms` si importa ancora. La lista delle
+  esenzioni è vuota, e un test la tiene vuota.
+
 ### Fixed
+
+- **Il modello della parola chiave viene verificato prima di essere usato.**
+  Di un download da ~50 MB si controllava solo che lo zip si aprisse e
+  contenesse una cartella col nome giusto: qualunque archivio che rispondesse
+  sì diventava il modello con cui la casa ascolta. Ora di ogni modello sono
+  fissate dimensione e impronta SHA-256 (calcolate una volta e verificate
+  contro l'MD5 e la dimensione che upstream pubblica), il download si ferma
+  se supera il previsto invece di riempire il disco, e un archivio che
+  dichiara di scompattarsi in più di 1 GB viene rifiutato prima di scrivere
+  un byte. Anche il modello di riconoscimento vocale è fissato a una
+  revisione precisa invece di «quello che c'è oggi».
+
+- **I token non passano più dalla riga di comando** del processo, che è
+  leggibile da chiunque possa fare `ps` e finisce nei dump di debug. Arrivano
+  dall'ambiente, dove già stavano.
+
+- **L'unità systemd gira con un utente suo e il disco in sola lettura.**
+  `NoNewPrivileges`, `ProtectSystem=strict` e un elenco esplicito di ciò che
+  il servizio può scrivere. **Chi installa o reinstalla l'unità deve creare
+  l'utente prima** — i due comandi sono in DEPLOY.md; un'installazione già in
+  funzione continua a girare con la sua unità attuale finché non la sostituisce.
+
+- **La catena di costruzione è fissata.** L'immagine Docker parte da un digest
+  e non da un'etichetta che si muove, installa versioni esatte invece di
+  «l'ultima di oggi», e le action della CI sono fissate al commit con il tag
+  nel commento accanto. Nessun job ha più il permesso di scrivere nel
+  repository, tranne quello che pubblica l'immagine.
+
+- **Una porta esposta su internet non consegna più l'impianto a chi la
+  trova.** L'app non ha account né password, per progetto: è sulla rete di
+  casa e risponde a chi chiede. Ma tutte le difese che aveva guardavano *da
+  quale pagina* arrivava la richiesta, e nessuna sa distinguere il telefono
+  sul divano da uno scanner che ha trovato una porta aperta sul router — con
+  un port forward il `Host` è quello che manda il router, e un client che non
+  è un browser non manda né `Origin` né `Sec-Fetch-Site`. Ora una connessione
+  che non arriva da un indirizzo di casa viene rifiutata prima di essere
+  servita: niente musica, niente PIN di kid-safe, e niente pannello di
+  Material — da cui si installano i plugin dell'LMS. Contano come casa gli
+  indirizzi privati, loopback, link-local e `100.64/10`, che è quello che usa
+  Tailscale: raggiungere il proprio impianto da fuori con una VPN continua a
+  funzionare senza configurare niente. Chi espone la porta di proposito lo
+  dice con `--allow-public-peers`, e allora ha `--api-token` da mettere
+  davanti a `/api/v1` e al proxy. DEPLOY.md spiega perché usarli insieme.
+
+- **Le sessioni della parola chiave lato server hanno un tetto.** La pulizia
+  delle sessioni inattive era un orologio, non un limite: entro i due minuti
+  di attesa, un chiamante che invent(av)a un identificativo per richiesta
+  otteneva un riconoscitore per richiesta, e l'identificativo arriva dalla
+  richiesta stessa. Ora sono al massimo 32 e la più vecchia lascia il posto.
+
+- **La CA locale non può più firmare per qualunque sito.** Installare
+  `ca.pem` su un telefono significa che quel telefono crede a chi possiede
+  `ca-key.pem` — e quella chiave sta accanto a `ca.pem`, cioè dentro `/data`,
+  cioè in ogni backup. Finora poteva firmare un certificato per *qualsiasi*
+  dominio, quindi una copia della chiave bastava a mettersi in mezzo fra i
+  dispositivi di casa e il resto del web. Ora il certificato dichiara dove si
+  ferma: solo indirizzi privati e nomi locali (`.local`, `.lan`,
+  `.home.arpa`…), e vale dieci anni invece che fino al 2044. Una CA creata
+  dalle versioni precedenti viene segnalata a ogni avvio e **non** sostituita
+  da sola — l'impronta è quella che ogni telefono ha installato; in DEPLOY.md
+  ci sono i tre comandi per cambiarla quando fa comodo, e fino ad allora
+  tutto continua a funzionare come prima.
+
+- **Un indirizzo scritto nella pagina di configurazione non presta più
+  l'indirizzo dell'app.** Quella casella non risponde solo a chi guarda la
+  pagina: risponde a qualunque dispositivo della rete di casa. Finché
+  l'impianto non risponde, un indirizzo mandato lì veniva adottato — e
+  diventava anche il bersaglio del proxy che apre il pannello di Material
+  dentro la pagina, cioè quell'indirizzo poteva servire pagine e codice
+  *sotto l'indirizzo dell'app*, con tutto quello che la pagina è autorizzata
+  a fare. Ora un indirizzo che arriva da lì è il server musicale e nient'
+  altro: il pannello dentro la pagina non si apre per lui — il link in fondo
+  alla pagina sì, in una scheda sua, come ha sempre fatto — e da dove viene
+  l'indirizzo si ricorda insieme all'indirizzo, così al riavvio quello
+  scritto a mano non torna a sembrare quello trovato sulla rete.
 
 - **Una chiave scaduta di Audiobookshelf non spegne più la libreria.** Il
   cliente della libreria parlata ereditava il breaker e il retry senza saper

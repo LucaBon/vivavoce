@@ -55,6 +55,13 @@ SAMPLE_RATE = 16000
 # abandoned session holds a Kaldi recognizer.
 IDLE_SESSION_SECONDS = 120.0
 
+# And a ceiling on how many there can be at once, because the cutoff above is
+# a clock: within two minutes a caller that invents a client id per request
+# gets a recogniser per request. Thirty-two is more devices than a house has
+# and less memory than a laptop notices; over it, the least recently heard
+# from goes. The same shape as http_api.MAX_ROUTERS, for the same reason.
+MAX_SESSIONS = 32
+
 # fd 2 belongs to the process, not to the caller. phrase_out_of_vocabulary()
 # redirects it to read a warning only the Kaldi C++ layer can produce, and the
 # HTTP server is threaded: two devices in the house saving a phrase at the
@@ -308,10 +315,31 @@ class ServerVoskWakeSessions:
             self._seen.clear()
 
     def _sweep(self) -> None:
+        """Drop the sessions nobody is using: idle first, then the oldest.
+
+        The idle cutoff alone was a clock and not a ceiling. Every distinct
+        ``client`` id gets a detector, the id comes from the request, and
+        nothing says a household has twenty of them — so a caller inventing
+        one per request filled this dict as fast as it could ask, each entry
+        holding a recogniser. The count is capped too, and what goes is
+        whatever was heard from least recently (``MAX_SESSIONS``).
+        """
         cutoff = self.now() - IDLE_SESSION_SECONDS
         for client in [c for c, seen in self._seen.items() if seen < cutoff]:
             self._sessions.pop(client, None)
             self._seen.pop(client, None)
+        self._trim()
+
+    def _trim(self) -> None:
+        """Keep at most :data:`MAX_SESSIONS`, dropping the least recently
+        heard from. Run after an insertion as well as before one: sweeping
+        first and adding second leaves the ceiling exceeded by exactly the
+        session that was just created, which is the one case that matters.
+        """
+        while len(self._seen) > MAX_SESSIONS:
+            oldest = min(self._seen, key=self._seen.get)
+            self._sessions.pop(oldest, None)
+            self._seen.pop(oldest, None)
 
     def get_or_create(self, client_id: str) -> ServerVoskWakeDetector:
         with self._lock:
@@ -321,6 +349,7 @@ class ServerVoskWakeSessions:
                 det = ServerVoskWakeDetector(self._load_model(), self.phrase)
                 self._sessions[client_id] = det
             self._seen[client_id] = self.now()
+            self._trim()
             return det
 
     def stop(self, client_id: str) -> None:

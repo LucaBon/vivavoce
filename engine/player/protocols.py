@@ -42,7 +42,7 @@ forgot a method gets caught.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Dict, List, Optional
 
 try:  # pragma: no cover - typing only
@@ -111,6 +111,36 @@ class Capabilities:
     artwork: bool = False
 
 
+#: Every capability true at once: what a client that declares nothing is
+#: taken to mean. Built from the dataclass so a field added above is covered
+#: without a second list to forget.
+EVERYTHING = Capabilities(**{f.name: True for f in fields(Capabilities)})
+
+
+def supports(client: Any, capability: str) -> bool:
+    """Whether ``client`` says it can do ``capability``.
+
+    The other half of :class:`Capabilities`, which until now was declared and
+    never read: the table said "the engine asks before it offers" and nothing
+    asked, so a backend without a catalogue answered a search with
+    ``AttributeError`` three frames down — reported as «l'impianto non
+    risponde», which is a lie about a hi-fi that is answering fine.
+
+    A client carrying no declaration is taken to do everything. The registry
+    stamps the declaration onto every client it builds
+    (:meth:`~player.registry.Backend.client`), so the ones without are the
+    ones built by hand — a test, an embedder — and refusing what they never
+    denied would turn a missing stamp into a missing feature.
+
+    An unknown ``capability`` raises: it is a typo in this repo, not a
+    property of somebody's hi-fi.
+    """
+    declared = getattr(client, "capabilities", None)
+    if not isinstance(declared, Capabilities):
+        declared = EVERYTHING
+    return bool(getattr(declared, capability))
+
+
 @runtime_checkable
 class PlayerTransport(Protocol):
     """A thing that makes noise: the controls that resolve nothing.
@@ -139,6 +169,18 @@ class PlayerTransport(Protocol):
 
     def sleep(self, seconds: int) -> Any:
         """Stop playback after ``seconds``; ``0`` cancels an armed timer."""
+
+    # -- one turn's worth of patience -------------------------------------
+    def turn_deadline(self, seconds: float):
+        """A context manager bounding every call this thread makes, in total.
+
+        Declared here because ``localvoice/router.py`` opens one around every
+        spoken turn, on whatever client it was handed — so it is part of what
+        the engine needs, and a backend that did not have it would fail at the
+        first sentence rather than at a feature nobody uses.
+        ``player/resilience.py`` implements it for every backend that mixes in
+        ``Resilient``, which is all of them.
+        """
 
     # -- the queue ---------------------------------------------------------
     def clear_queue(self) -> Any: ...

@@ -205,10 +205,31 @@ def remembered_lms(data_dir: str) -> str:
     return (cached.get("lms") or "") if isinstance(cached, dict) else ""
 
 
-def remember_lms(data_dir: str, url: str) -> None:
-    """Remember ``url`` for the next start. Best-effort by design."""
+def remembered_from_page(data_dir: str) -> bool:
+    """Whether the remembered address is one somebody typed into the page.
+
+    The provenance is written down because it has to outlive the restart.
+    Without it, an address the box on the setup page accepted became an
+    ordinary remembered address at the next start, and everything the app
+    refuses to build on a typed address — the reverse proxy, and with it the
+    in-page Material panel (``lmsproxy.browse_path``) — got built on it
+    anyway one reboot later. A file written before this existed says nothing
+    and is read as not typed: it holds what discovery found on a household
+    that has been running all along.
+    """
+    cached = read_json(_lms_cache_path(data_dir), {})
+    return bool(cached.get("from_page")) if isinstance(cached, dict) else False
+
+
+def remember_lms(data_dir: str, url: str, *, from_page: bool = False) -> None:
+    """Remember ``url`` for the next start, and where it came from.
+
+    Best-effort by design. ``from_page`` travels with it: see
+    :func:`remembered_from_page` for why it is not enough to know it once.
+    """
     try:
-        atomic_write_json(_lms_cache_path(data_dir), {"lms": url})
+        atomic_write_json(_lms_cache_path(data_dir),
+                          {"lms": url, "from_page": from_page})
     except OSError:
         pass  # read-only directory: it just gets discovered again next time
 
