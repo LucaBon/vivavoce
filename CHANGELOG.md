@@ -25,6 +25,110 @@
 
 ### Fixed
 
+- **Un elenco aperto non si mangia più la richiesta dopo.** «Quali brani dei
+  Pink Floyd», poi «metti Money for Nothing dei Dire Straits»: partiva
+  «Money», quello dell'elenco. La scelta per nome accettava un titolo che
+  *comparisse* dentro la frase, e l'elenco resta scegliibile per cinque
+  minuti — quindi per cinque minuti ogni richiesta che conteneva una di quelle
+  parole veniva risposta dall'elenco, in silenzio e con la canzone sbagliata.
+  Lo stesso succedeva con «Time After Time» su un «Time» in elenco.
+
+  Adesso conta quello che **resta** tolto il titolo: se sono solo articoli e
+  parole di riempimento («metti l'album Fragile», «Money per favore») la
+  scelta vale; se resta del contenuto — un nome di band, il resto di un
+  titolo — non era una scelta, e la frase va alla ricerca come sarebbe andata
+  prima che l'elenco si aprisse. Le parole di riempimento sono per lingua,
+  accanto agli altri connettori (`engine/connectors/`).
+
+- **«Tra un'ora e mezza» sono novanta minuti, non sessanta.** Le durate
+  venivano lette solo dall'inizio: «un'ora e mezza» agganciava «un'ora» e il
+  timer partiva mezz'ora corto — senza dirlo, e alla fine non c'è nessuno
+  sveglio a sentire la differenza. Ora la coda dev'essere **tutta** una
+  durata, e le forme che servono ci sono in tutte e cinque le lingue: «un'ora
+  e mezza», «due ore e mezza», «un'ora e venti minuti», "an hour and a half",
+  «anderthalb/eineinhalb Stunden», «une heure et demie», «dos horas y media».
+
+  Il tedesco era il caso peggiore: «in anderthalb Stunden» non era una durata
+  per nessun motivo leggibile, e la frase ricadeva sul passo della pausa —
+  che metteva in pausa **subito**, cioè la risposta più rumorosa possibile a
+  «lasciala suonare ancora un'ora e mezza». Adesso una durata letta **a
+  metà** non diventa più una pausa.
+
+  A metà, non «illeggibile», e la differenza è tutto il punto: in quattro
+  lingue su cinque la preposizione che introduce il ritardo è la stessa che
+  introduce una **stanza** — «pause in the kitchen», «stopp in der Küche»,
+  «arrête dans la cuisine» — e la stanza viene tolta prima solo se il
+  multi-stanza è installato **e** il nome corrisponde a un lettore vero. Su
+  una build free, o con una stanza che non esiste, rifiutare qualunque coda
+  illeggibile avrebbe lasciato il comando più ordinario dell'app senza fare
+  niente. Quindi: una cucina mette in pausa, «due ore e un quarto» no.
+
+- **Gli ordinali con l'accento, detti da soli, sono di nuovo una scelta.**
+  «Troisième», «fünfte», «séptima»: con un elenco aperto il passo che legge
+  una parola sola accettava solo `a-z0-9`, quindi la parola veniva rifiutata
+  prima ancora di chiedere alla tabella che conosceva la risposta, e il turno
+  moriva come «non ho capito».
+
+- **I sosia di «tidal» che sono parole vere valgono solo a fine frase.** I
+  riconoscitori scrivono «Titel», «titles» e «Vidal» per TIDAL, e davanti alla
+  richiesta quelle parole si mangiavano l'inizio del titolo: «play from titles
+  of the unknown» cercava «of the unknown» su TIDAL, e quello che era stato
+  chiesto non veniva cercato mai. Alla fine della frase («metti X da Titel»)
+  non c'è altro che possano essere, e lì continuano a valere. Aggiunto anche
+  un confine di parola davanti alla preposizione, che senza di esso veniva
+  trovata **dentro** la parola prima («Anaconda titles»).
+
+- **«Apri le impostazioni di LMS» solo se l'impianto è un LMS.** Le due frasi
+  che mandano a riconnettere un plugin nominavano LMS in tutte e cinque le
+  lingue, anche su Music Assistant: una pagina di impostazioni che lì non
+  esiste. Ora il nome dell'impianto lo dice l'impianto, come già fa per i
+  servizi.
+
+- **`--services` è validato anche quando la risposta è «nessuno».** «Non sono
+  riuscito a chiedere» e «ho chiesto, e non ne ha» finivano nello stesso ramo,
+  così su un Music Assistant senza provider configurati un `--services tidal`
+  passava senza controllo: il selettore offriva TIDAL e ogni richiesta
+  rispondeva «TIDAL non è collegato» — la stessa lista inventata che il ramo
+  `auto` qui sotto ha smesso di stampare. Un impianto che non ha proprio il
+  concetto di servizi continua a prendere la lista com'è scritta: è il varco
+  d'emergenza, e un varco che ha bisogno della rilevazione non è un varco.
+
+- **Nessun servizio rilevato non vuol dire TIDAL.** Con `--services auto` e
+  una rilevazione vuota l'app assumeva `["tidal"]` e lo stampava come un
+  fatto: il selettore della sorgente offriva un plugin che quella casa non ha
+  mai avuto, e ogni richiesta finiva su «TIDAL non è collegato». Ora lo dice
+  com'è — restano la libreria locale e i comandi di riproduzione — e non
+  inventa niente.
+
+- **Un titolo col punto dentro non viene più spezzato in due.** «Riproduco
+  Mr. Brightside» diventava «Riproduco Mr da TIDAL. Brightside.», e lo stesso
+  per ogni «Pt. 2» e «Vol. 1» in libreria: l'etichetta della sorgente veniva
+  infilata al primo punto della frase. Ora il posto dell'etichetta lo dice il
+  messaggio, non un punto trovato nel testo.
+
+- **Una lettura fallita non cancella più il PIN.** Il file del kid-safe viene
+  letto intero, cambiato di una chiave e riscritto intero. La lettura
+  ripiegava su «vuoto» per *qualunque* errore — un file troncato da una
+  mancanza di corrente, un permesso cambiato sotto l'app — e la scrittura
+  subito dopo rendeva vero quel vuoto: PIN e contatore dei tentativi spariti,
+  in silenzio. Ora solo «il file non c'è ancora» è un vuoto; tutto il resto
+  fallisce il salvataggio e lascia il file com'era.
+
+- **Un campo dell'API con il tipo sbagliato riceve una risposta.** `text` era
+  già protetto; `lang` e `conversation_id` no, ed erano i due peggiori: un
+  `lang` che arrivava come lista faceva cadere la connessione **senza
+  risposta**, e un `conversation_id` come lista tornava come «errore interno».
+  Un tipo sbagliato adesso vale come «campo non inviato» — la richiesta viene
+  risposta, nella lingua predefinita.
+
+- **Gli errori dei motori audio restano sul server.** `/transcribe` e
+  `/wakeword/*` rimandavano al client il testo dell'eccezione, che contiene i
+  percorsi delle cartelle dei modelli e dei dati — e questi endpoint
+  rispondono a chiunque sulla LAN. Ora il dettaglio va nel log del server, dove
+  lo legge chi può farci qualcosa, e la risposta porta una parola sola. Anche
+  l'errore interno di `/api/v1/command` finisce finalmente nel log: prima non
+  ce n'era traccia da nessuna parte.
+
 - **Anche il menu a tendina scrive i servizi come li dice la voce.** Restava
   una tabella, `SERVICE_NAMES = { tidal: "TIDAL", qobuz: "Qobuz" }`, dentro il
   JavaScript della pagina: una tabella che per costruzione poteva conoscere
@@ -317,6 +421,46 @@
   argomenti reggono ancora, e il terzo (progettare senza un client vero) è
   scaduto il giorno in cui il blueprint è stato provato su un Home Assistant
   vero.
+
+### Internal
+
+- **Il cuore AGPL parte davvero senza `pro/`.** `licenses/README.md` presenta
+  questo repository come open-core — tutto AGPL-3.0 tranne `localvoice/pro/`,
+  e la metà libera dovrebbe essere un programma che funziona da solo. Non lo
+  era: quattro import di `pro.*` erano nudi, e un checkout della sola metà
+  libera moriva all'avvio con `ModuleNotFoundError`, prima della riga che
+  avrebbe spiegato cosa mancava. Ora ogni import è protetto (kid-safe e
+  multi-stanza in `localvoice/pro_features.py`, i motori audio in
+  `audio_engines.py`), la funzione assente vale `None` — che è esattamente
+  come si comporta da sempre un'installazione senza licenza — e l'app lo dice
+  all'avvio. `tests/test_core_without_pro.py` nasconde il pacchetto e verifica
+  che l'app importi, risponda e serva la pagina.
+
+- **C'è un linter, ed è verde.** `engine/actions.py` portava un
+  `# ruff: noqa` da prima che ruff esistesse nel progetto: il riferimento
+  c'era, lo strumento no, e `uv run ruff check` rispondeva «comando non
+  trovato». Ora ruff è nel gruppo `dev`, configurato in `pyproject.toml`
+  (`E`, `W`, `F`, `B` — difetti, non gusti; riga a 100 colonne, che è la
+  larghezza che questo repo scrive davvero) e girato in CI accanto ai test di
+  packaging. `tests/test_packaging.py` verifica entrambe le metà, perché un
+  riferimento a uno strumento che nessuno può eseguire si legge come un
+  invariante e non lo è.
+
+- **Il prefisso `SQUEEZESAY_` ha una data.** «Per un rilascio», diceva il
+  commento, ed è rimasto per quattro. Esce con la **1.1.0**, il primo rilascio
+  dopo il lancio pubblico, e l'avviso di deprecazione adesso lo dice.
+
+- **Il test degli endpoint della licenza usa `live_server()`**, come tutti
+  gli altri, invece di montare a mano un `ThreadingHTTPServer` che non è la
+  classe con cui l'app gira (e che perdeva un thread se un'asserzione
+  falliva prima del `finally`).
+
+- **`PRIVACY.md` elenca il download del modello Vosk.** Due punti del
+  documento dicevano già «elencato sotto»; sotto c'era solo Whisper.
+
+- **`CLAUDE.md` non dice più che `set_lang` è globale di processo.** È una
+  `ContextVar`: due richieste concorrenti in due lingue non si mescolano, e
+  quello che davvero attraversa è una connessione keep-alive.
 
 ## 0.6.0 — September 2026
 

@@ -22,6 +22,27 @@ Stdlib only, like the rest of the HTTP surface.
 from __future__ import annotations
 
 import json
+import traceback
+
+
+def _failed(exc: Exception, where: str) -> str:
+    """Log ``exc`` where an administrator can read it, and answer with a word.
+
+    ``str(exc)`` used to go back to the client. It is written for whoever is
+    running the server, not for whoever is holding the phone: a
+    ``faster-whisper`` failure carries the filesystem path of the model cache,
+    a ``vosk`` one the directory it looked in, and an ``OSError`` on the
+    phrase store the absolute path of the data directory — which on the HA
+    add-on names the share, and on a systemd install the home directory of the
+    account the service runs as. None of that helps the page, and the page is
+    reachable by anything on the LAN (``docs/api.md``: no authentication, by
+    design).
+
+    So the detail goes to the server's log, where the person who can act on it
+    already looks, and the reply carries a stable token the page can render.
+    """
+    traceback.print_exc()
+    return where
 
 
 def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
@@ -84,7 +105,7 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
         def _wakeword_status(self):
             # Come /asr: l'interruttore «parola chiave lato server» compare
             # solo se il motore c'è davvero (gruppo opzionale SEPARATO
-            # "wakeword" — vedi pro/wakeword.py per il perché non è "asr").
+            # "wakeword" — vedi pro/vosk_wake.py per il perché non è "asr").
             # Il gate Pro è sull'azione (POST /wakeword/chunk), non qui —
             # stessa scelta di /asr rispetto a /transcribe.
             ok = wakeword_sessions is not None and wakeword_sessions.available()
@@ -111,7 +132,8 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
             try:
                 result = transcriber.transcribe(audio, lang)
             except Exception as exc:
-                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
+                self._send(200, json.dumps(
+                    {"ok": False, "error": _failed(exc, "transcribe_failed")}))
                 return
             text = (result.get("text") or "").strip()
             alternatives = [a for a in (result.get("alternatives") or [])
@@ -141,7 +163,8 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
                 if triggered:
                     detector.reset()  # ready to fire again right away
             except Exception as exc:
-                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
+                self._send(200, json.dumps(
+                    {"ok": False, "error": _failed(exc, "wakeword_failed")}))
                 return
             self._send(200, json.dumps({"ok": True, "triggered": triggered}))
 
@@ -198,7 +221,8 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
                 # failure from being invisible, which was the whole point.
                 wake_phrase_store.set(phrase)
                 self._send(200, json.dumps(
-                    {"ok": True, "phrase": phrase, "unverified": str(exc)},
+                    {"ok": True, "phrase": phrase,
+                     "unverified": _failed(exc, "vocabulary_check_failed")},
                     ensure_ascii=False))
                 return
             if missing:
@@ -214,7 +238,8 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
             try:
                 wake_phrase_store.set(phrase)
             except OSError as exc:
-                self._send(200, json.dumps({"ok": False, "error": str(exc)}))
+                self._send(200, json.dumps(
+                    {"ok": False, "error": _failed(exc, "save_failed")}))
                 return
             # Every open session carries the old phrase; the engine drops them
             # so the house answers to the new one without a reload per device.

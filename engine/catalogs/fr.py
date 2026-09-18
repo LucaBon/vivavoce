@@ -112,11 +112,11 @@ MESSAGES = {
 
     # -- moods (vague requests — see engine/moods.py) -------------------------
     "playing_mood_genre":
-        "J'ai mis du {genre}. Dis-m'en une autre si ça ne va pas.",
+        "J'ai mis du {genre}{tag}. Dis-m'en une autre si ça ne va pas.",
     "playing_mood_playlist":
-        "J'ai mis la playlist {name}. Dis-m'en une autre si ça ne va pas.",
+        "J'ai mis la playlist {name}{tag}. Dis-m'en une autre si ça ne va pas.",
     "playing_mood_year":
-        "J'ai mis quelque chose de {year}. Dis-m'en une autre si ça ne va pas.",
+        "J'ai mis quelque chose de {year}{tag}. Dis-m'en une autre si ça ne va pas.",
     "mood_not_found": "Je n'ai rien trouvé qui convienne dans ta musique.",
     "mood_exhausted": "Je suis à court d'idées. Essaie de nommer un genre.",
 

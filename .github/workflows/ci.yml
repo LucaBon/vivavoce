@@ -361,6 +361,12 @@ jobs:
       - name: Check the release descriptors
         run: uv run --python 3.12 pytest tests/test_packaging.py
 
+      # Il linter (vedi [tool.ruff] in pyproject.toml). Qui e non nella
+      # matrice: è una proprietà del sorgente, non della versione di Python
+      # che lo esegue, e ruff legge `requires-python` da solo.
+      - name: Lint
+        run: uv run ruff check .
+
   docker:
     name: docker build (${{ matrix.name }})
     runs-on: ubuntu-latest

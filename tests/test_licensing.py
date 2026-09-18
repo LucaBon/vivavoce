@@ -7,7 +7,6 @@ never touches the network.
 """
 
 import json
-import urllib.request
 
 import pytest
 
@@ -177,35 +176,21 @@ def test_revalidate_opt_out(tmp_path, post):
 
 # -- HTTP endpoints --------------------------------------------------------------
 
-def test_license_endpoints(tmp_path, post, lms):
-    import threading
-    from http.server import ThreadingHTTPServer
-
-    import server as srv
-
+def test_license_endpoints(tmp_path, post, live_server):
+    # Through ``live_server``, which runs the class the app actually runs
+    # (``BoundedThreadingHTTPServer``) and shuts it down at teardown. Standing
+    # a plain ``ThreadingHTTPServer`` up by hand — which this test did —
+    # exercises a stack the product does not have, and leaks a thread when an
+    # assertion fires before the ``finally``.
     post.outcome = (200, {"activated": True, "instance": {"id": "i"}})
-    m = mgr(tmp_path, post)
-    handler = srv.make_handler(lms, "http://lms.local:9000/material/",
-                               ["tidal"], "tidal", license_mgr=m)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{httpd.server_address[1]}"
-    try:
-        with urllib.request.urlopen(base + "/license", timeout=5) as r:
-            assert json.loads(r.read())["pro"] is False
-        req = urllib.request.Request(
-            base + "/license",
-            data=json.dumps({"key": "KEY-1234-ABCD"}).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            body = json.loads(r.read())
-        assert body["ok"] is True
-        assert body["pro"] is True
-        assert body["key"] == "****ABCD"
-        with urllib.request.urlopen(base + "/license", timeout=5) as r:
-            assert json.loads(r.read())["pro"] is True
-    finally:
-        httpd.shutdown()
+    srv = live_server(license_mgr=mgr(tmp_path, post))
+
+    assert srv.json_get("/license")["pro"] is False
+    body = srv.json_post("/license", {"key": "KEY-1234-ABCD"})
+    assert body["ok"] is True
+    assert body["pro"] is True
+    assert body["key"] == "****ABCD"
+    assert srv.json_get("/license")["pro"] is True
 
 
 # -- the first-install trial window ----------------------------------------------

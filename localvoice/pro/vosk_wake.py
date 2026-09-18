@@ -2,10 +2,11 @@
 # Not covered by the repository's AGPL-3.0 license.
 """Server-side wake word for a phrase the household typed (Pro).
 
-The existing server engine (``pro/wakeword.py``) removed the Android beep but
-took the phrase away with it: openWakeWord hears only the English phrases it
-ships a model for, so continuous listening on the server meant "Hey Jarvis"
-whatever the box was called. This module keeps the beep fixed and gives the
+The engine this one replaced (openWakeWord, in a ``pro/wakeword.py`` that went
+with it — the history is in CHANGELOG.md) removed the Android beep but took
+the phrase away with it: it hears only the English phrases it ships a model
+for, so continuous listening on the server meant "Hey Jarvis" whatever the
+box was called. This module keeps the beep fixed and gives the
 phrase back — free recognition with Vosk (Kaldi), matching the phrase in the
 transcript.
 
@@ -50,7 +51,7 @@ from wakematch import contains_wake
 SAMPLE_RATE = 16000
 
 # A session nobody has fed for this long is gone (tab closed, phone asleep).
-# Same policy and same reason as pro/wakeword.py: /wakeword/stop is the polite
+# Same policy and same reason as the engine before it: /wakeword/stop is the polite
 # exit and usually arrives, but "usually" is not a lifecycle, and each
 # abandoned session holds a Kaldi recognizer.
 IDLE_SESSION_SECONDS = 120.0
@@ -96,7 +97,7 @@ def resolve_model(lang: str, data_dir: str,
     and look like a broken engine. It has to be on disk, and
     :func:`ServerVoskWakeSessions.available` says so honestly rather than
     announcing a working engine that fails on every chunk — the exact bug
-    recorded in ``pro/wakeword.py``'s docstring.
+    recorded by the engine before this one.
     """
     if explicit:
         return explicit if looks_like_model(explicit) else None
@@ -202,7 +203,7 @@ class ServerVoskWakeDetector:
         # text is matched several times over — and the bench's scan(), whose
         # numbers this path has to reproduce, skips a repeat.
         self._seen = ""
-        # Reentrant for the same reason as pro/wakeword.py: process() and
+        # Reentrant for the same reason the engine before it was: process() and
         # reset() hold it for their whole call, and a client whose inference
         # is slower than its 320 ms chunk cadence can have two chunks in
         # flight on two request threads at once.

@@ -106,11 +106,11 @@ MESSAGES = {
 
     # -- moods (vague requests — see engine/moods.py) -------------------------
     "playing_mood_genre":
-        "I've put on some {genre}. Say another one if it doesn't fit.",
+        "I've put on some {genre}{tag}. Say another one if it doesn't fit.",
     "playing_mood_playlist":
-        "I've put on the {name} playlist. Say another one if it doesn't fit.",
+        "I've put on the {name} playlist{tag}. Say another one if it doesn't fit.",
     "playing_mood_year":
-        "I've put on something from {year}. Say another one if it doesn't fit.",
+        "I've put on something from {year}{tag}. Say another one if it doesn't fit.",
     "mood_not_found": "I couldn't find anything that fits in your music.",
     "mood_exhausted": "I'm out of ideas. Try naming a genre.",
 

@@ -194,16 +194,36 @@ class SourceChoice:
         It goes into the FIRST sentence, which is the same thing as the last
         one for every confirmation that has only one — all of them until the
         mood read-back, which ends by inviting «un'altra» and turned
-        «… in cucina» into an instruction about where to say it."""
+        «… in cucina» into an instruction about where to say it.
+
+        Where that first sentence ENDS is the catalog's business, not this
+        method's. It used to be found by splitting on ". ", and a great many
+        titles carry one: «Mr. Brightside» came back as «Riproduco Mr da
+        TIDAL. Brightside.», and so did every "Pt. 2", "Vol. 1" and "St.
+        Louis" in the library. The three messages with a second sentence carry
+        a ``{tag}`` slot and hand back a ``retag`` that fills it (see
+        ``moods._mood_result``); every other message has nothing after the
+        full stop, so the tag goes in front of the last one.
+
+        Tagged twice — source, then room — is ordinary: the second call finds
+        the ``retag`` this one leaves behind and re-renders with both suffixes
+        at once, rather than filling the slot with the second and losing the
+        first."""
         if not suffix or not getattr(res, "ok", False) or getattr(res, "kind", None):
             return res
-        head, sep, rest = str(res).partition(". ")
-        if head.endswith("."):
-            head = head[:-1]
-        speech = head + suffix + "." + ((" " + rest) if sep else "")
+        retag = getattr(res, "retag", None)
+        if retag is not None:
+            speech = retag(suffix)
+            again = lambda more, r=retag, s=suffix: r(s + more)  # noqa: E731
+        else:
+            body = str(res)
+            head = body[:-1] if body.endswith(".") else body
+            speech = head + suffix + "."
+            again = None
         return actions.ActionResult(speech, ok=True, candidates=res.candidates,
                                     kind=res.kind, terms=res.terms,
-                                    label=getattr(res, "label", None))
+                                    label=getattr(res, "label", None),
+                                    retag=again)
 
     #: Play branch (see ``Router._PLAY_BRANCHES``) -> the streaming action that
     #: serves it. A phrase that named a source explicitly is routed through

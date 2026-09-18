@@ -148,6 +148,27 @@ def _pick_year(years: Sequence[int], span: Sequence[int],
     return None, seen
 
 
+def _mood_result(key: str, *, terms=None, label=None, **fields) -> ActionResult:
+    """A mood read-back, which is the only spoken answer in the engine with a
+    second sentence after the first.
+
+    All three end by inviting «un'altra», and that invitation is why they
+    carry a ``retag``. The web layer splices the source and room tags into the
+    FIRST sentence of a confirmation (``sources.SourceChoice._tag``), and it
+    used to find the end of that sentence by splitting on ". " — which is also
+    what sits inside "Mr. Brightside" and "Another Brick in the Wall, Pt. 2",
+    so the tag landed mid-title and the rest of the name became a sentence of
+    its own: «Riproduco Mr da TIDAL. Brightside.»
+
+    The catalogs carry a ``{tag}`` slot instead, right where the tag belongs,
+    and this hands back a way of filling it. A message with one sentence needs
+    none: the tag goes before the full stop at the end, wherever that is.
+    """
+    return ActionResult(
+        msg(key, tag="", **fields), ok=True, terms=terms, label=label,
+        retag=lambda suffix: msg(key, tag=suffix, **fields))
+
+
 def play_mood(lms, key: str, *, stream=None, exclude=(),
               guard: Optional[Guard] = None) -> ActionResult:
     """Start something that fits ``key``, and say what it was.
@@ -209,8 +230,8 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
             # detectLang() finds nothing to go on in "1985" and falls through
             # to the foreign default, so the Italian frame broke into three
             # utterances around an English voice reading nineteen eighty-five.
-            return ActionResult(msg("playing_mood_year", year=year), ok=True,
-                                label=str(year))
+            return _mood_result("playing_mood_year", label=str(year),
+                                year=year)
     else:
         try:
             genres = lms.local_genres(GENRE_LIMIT)
@@ -226,8 +247,8 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
             except PlayerError:
                 return ActionResult(msg("err_unreachable"), ok=False)
             name = chosen.get("title") or ""
-            return ActionResult(msg("playing_mood_genre", genre=name), ok=True,
-                                terms=[name])
+            return _mood_result("playing_mood_genre", terms=[name],
+                                genre=name)
 
     # 2) the service's curated playlists.
     if callable(stream):  # a deferred choice of service — see the docstring
@@ -252,8 +273,8 @@ def play_mood(lms, key: str, *, stream=None, exclude=(),
                 except PlayerError:
                     return ActionResult(msg("err_unreachable"), ok=False)
                 name = cand.get("title") or query
-                return ActionResult(msg("playing_mood_playlist", name=name),
-                                    ok=True, terms=[name])
+                return _mood_result("playing_mood_playlist", terms=[name],
+                                    name=name)
 
     # 3) nothing — and the two ways of having nothing are not the same answer.
     # "Out of ideas" ends the thread: something was offered and refused. But

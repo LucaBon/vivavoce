@@ -85,7 +85,9 @@ def test_local_prefixes_skips_loopback_and_link_local(monkeypatch):
     monkeypatch.setattr(discovery.socket, "gethostbyname_ex",
                         lambda _h: ("host", [], ["127.0.1.1", "169.254.3.4",
                                                 "192.168.50.7"]))
-    probe_fail = lambda *a, **k: (_ for _ in ()).throw(OSError())
+    def probe_fail(*a, **k):
+        raise OSError()
+
     monkeypatch.setattr(discovery.socket.socket, "connect", probe_fail)
     assert discovery._local_prefixes() == ["192.168.50"]
 

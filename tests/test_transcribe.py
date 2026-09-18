@@ -136,7 +136,7 @@ def test_transcribe_oversized_body_is_refused(live_server):
     assert fake.calls == []
 
 
-def test_transcribe_garbage_audio_answers_200(live_server):
+def test_transcribe_garbage_audio_answers_200(live_server, capsys):
     # Whatever blows up inside the engine (corrupt container, decode error)
     # must come back as ok:false, never as a 5xx.
     fake = FakeTranscriber(error=RuntimeError("cannot decode"))
@@ -145,7 +145,12 @@ def test_transcribe_garbage_audio_answers_200(live_server):
     status, data = resp.status, resp.json()
     assert status == 200
     assert data["ok"] is False
-    assert "cannot decode" in data["error"]
+    # A token, not the engine's own words. ``str(exc)`` from faster-whisper
+    # carries the filesystem path of the model cache, and this endpoint
+    # answers anything on the LAN (docs/api.md: no authentication, by design).
+    # The detail goes to the server log, where somebody can act on it.
+    assert data["error"] == "transcribe_failed"
+    assert "cannot decode" in capsys.readouterr().err
 
 
 def test_transcribe_alternatives_fall_back_to_text(live_server):

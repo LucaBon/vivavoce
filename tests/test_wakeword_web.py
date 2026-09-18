@@ -30,7 +30,7 @@ class FakeDetector:
 
 
 class FakeSessions:
-    """Stands in for ``pro.wakeword.ServerWakeWordSessions``."""
+    """Stands in for ``pro.vosk_wake.ServerVoskWakeSessions``."""
 
     model = "vosk-it"
 
@@ -144,14 +144,17 @@ def test_wakeword_chunk_too_large_is_refused(live_server):
     assert sessions.detectors == {}
 
 
-def test_wakeword_chunk_engine_failure_answers_200(live_server):
+def test_wakeword_chunk_engine_failure_answers_200(live_server, capsys):
     sessions = FakeSessions(error=RuntimeError("onnx blew up"))
     srv = live_server(wakeword_sessions=sessions)
     resp = srv.post("/wakeword/chunk?client=phone", PCM_CHUNK)
     assert resp.status == 200
     data = resp.json()
     assert data["ok"] is False
-    assert "onnx blew up" in data["error"]
+    # The engine's own words name the model directory; see
+    # ``audio_api._failed``. They go to the log, not down the wire.
+    assert data["error"] == "wakeword_failed"
+    assert "onnx blew up" in capsys.readouterr().err
 
 
 def test_wakeword_chunk_defaults_client_id(live_server):

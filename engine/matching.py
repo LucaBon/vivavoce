@@ -91,7 +91,7 @@ class ActionResult(str):
     """
 
     def __new__(cls, speech, *, ok=True, candidates=None, kind=None, terms=None,
-                label=None):
+                label=None, retag=None):
         obj = super().__new__(cls, speech)
         obj.ok = ok
         obj.candidates = list(candidates or [])
@@ -108,6 +108,16 @@ class ActionResult(str):
         # web client hand "1985" to a foreign voice mid-sentence.
         obj.label = label if label is not None else (
             obj.terms[0] if obj.terms else None)
+        # How to say this again with a source or room tag spliced in:
+        # ``(suffix) -> speech``, or None to let the caller put the tag at the
+        # end. Only a message with something AFTER the first sentence needs
+        # one, and only three have: the mood read-backs, which end by inviting
+        # «un'altra». ``Router._tag`` used to find that boundary by splitting
+        # on ". ", which is also what sits inside "Mr. Brightside" — so a tag
+        # landed in the middle of a title and the rest of it became a second
+        # sentence. The sentence knows where its own tag goes; nothing else
+        # can be made to.
+        obj.retag = retag
         return obj
 
 

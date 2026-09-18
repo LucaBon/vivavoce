@@ -62,6 +62,15 @@ installs for separate parts of the pipeline.
 4. **Whisper model download** — only if you enable local speech recognition:
    the first transcription downloads the chosen model once from Hugging Face
    into the data directory. After that it loads from disk, fully offline.
+5. **Vosk model download** — only if you install the server-side wake word
+   (`uv sync --group wakeword-vosk`): at the **first start** after that, the
+   model for your wake-word language is downloaded once from
+   `alphacephei.com/vosk/models` into the data directory, and unpacked there.
+   It carries nothing about you — a language code is the whole request — and
+   it happens at start-up rather than lazily because the engine cannot be
+   loaded without it. Skip it with `--wakeword-no-download`, or point
+   `--wakeword-vosk-model` at a directory you populated yourself. After that
+   it loads from disk, fully offline, and no audio ever leaves the machine.
 
 ## Payments
 

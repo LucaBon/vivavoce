@@ -177,6 +177,28 @@ def test_runner_labels_are_all_known(workflow):
     assert unknown == set(), f"unrecognised runner labels: {sorted(unknown)}"
 
 
+# -- the linter exists, and runs ----------------------------------------------
+#
+# ``engine/actions.py`` carried a file-level ruff suppression, and the project
+# memory said the lint command was ``ruff check`` — while ruff was in no
+# dependency group and in no CI job, so ``uv run ruff check`` answered
+# "command not found". A reference to a tool nobody can run is worse than no
+# tool: it reads as a checked invariant and is not one. These two are what
+# make it a fact.
+
+def test_the_linter_is_a_dependency_and_is_configured():
+    pyproject = _read("pyproject.toml")
+    assert '"ruff' in pyproject, "ruff is referenced in the repo but not installed"
+    assert "[tool.ruff]" in pyproject, "ruff would run with nothing configured"
+
+
+def test_ci_actually_runs_the_linter():
+    steps = [step for job in _ci_jobs().values()
+             for step in job.get("steps", [])]
+    assert any("ruff check" in (step.get("run") or "") for step in steps), (
+        "no CI job runs the linter, so a violation reaches main unnoticed")
+
+
 # -- the browser suite actually running ----------------------------------------
 #
 # The failure this guards is one that already happened, unnoticed, for as long

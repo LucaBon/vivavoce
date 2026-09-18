@@ -273,6 +273,27 @@ def test_a_wrongly_typed_text_is_answered_not_blamed(live_server, bad):
     assert body["ok"] is False
 
 
+@pytest.mark.parametrize("field", ["lang", "conversation_id", "client",
+                                   "player", "source", "room"])
+@pytest.mark.parametrize("bad", [123, ["a", "b"], {"k": 1}, True])
+def test_every_other_field_survives_the_wrong_type_too(live_server, transport,
+                                                       field, bad):
+    """``text`` was coerced and the five fields beside it were not.
+
+    Two of those were worse than a wrong answer. ``lang`` reached
+    ``set_lang``, where ``lang in CATALOGS`` raised ``TypeError: unhashable
+    type: 'list'`` from OUTSIDE the handler's try — no reply, connection
+    dropped, and the Home Assistant end waiting for a timeout.
+    ``conversation_id`` did the same one line later, keying the router
+    registry, and came back as «Errore interno». A wrong type is now read as
+    "not sent", which answers the request in the default language and the
+    default conversation."""
+    body = live_server().json_post(
+        "/api/v1/command", {"text": "pausa", field: bad})
+    assert body["ok"] is True
+    assert ["pause", "1"] in transport.commands()
+
+
 def test_alternatives_given_as_a_string_are_not_read_letter_by_letter(
         live_server, transport):
     """The one that was a silent wrong answer, not a visible error.

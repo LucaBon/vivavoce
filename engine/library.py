@@ -148,9 +148,12 @@ def play_local(lms, query: Optional[str], *, mode: str = "play",
         blocked = set()
         groups = [
             g for g in (
-                _local_group(lms, lms.local_album_candidates(query), query, "album", "play_album_id", guard, blocked),
-                _local_group(lms, lms.local_artist_candidates(query), query, "artist", "play_artist_id", guard, blocked),
-                _local_group(lms, lms.local_track_candidates(query), query, "track", "play_track_id", guard, blocked),
+                _local_group(lms, lms.local_album_candidates(query), query,
+                             "album", "play_album_id", guard, blocked),
+                _local_group(lms, lms.local_artist_candidates(query), query,
+                             "artist", "play_artist_id", guard, blocked),
+                _local_group(lms, lms.local_track_candidates(query), query,
+                             "track", "play_track_id", guard, blocked),
             ) if g
         ]
         if not groups:

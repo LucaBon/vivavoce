@@ -40,9 +40,33 @@ nothing that already calls it has to move. Stdlib only, like the rest.
 from __future__ import annotations
 
 import json
+import traceback
 
 from messages import msg, set_lang
 from player.errors import PlayerError
+
+
+def _text(value) -> str:
+    """One JSON field, as the string this route documents it to be.
+
+    Every text field here is coerced through this, and none of them is
+    "defensive coding" for its own sake: the first client of this contract is
+    a Home Assistant blueprint, YAML templates render loosely, and a field
+    that arrived as the wrong type did not fail politely. ``text`` as a number
+    reached ``.strip()`` and came back «Errore interno: 'int' object has no
+    attribute 'strip'» — an internal error for what is a bad request.
+    ``lang`` as a list reached ``set_lang``, where ``lang in CATALOGS`` raised
+    ``TypeError: unhashable type`` from *outside* the handler's try, so the
+    connection was dropped with no reply at all. ``conversation_id`` as a list
+    did the same thing one line further on, keying the router registry.
+
+    A wrong type is read as "this field was not sent", which is the closest
+    true thing: the request is answered, in the default language, with the
+    default conversation. Numbers are NOT rendered as text — an ``id`` of 3
+    and an ``id`` of "3" would then be the same session by accident, and a
+    caller sending numbers has a bug this would hide.
+    """
+    return value if isinstance(value, str) else ""
 
 
 def _room_player(multiroom, room: str):
@@ -95,24 +119,22 @@ def api_v1_routes(router_for, multiroom=None):
             # «Errore interno: 'int' object has no attribute 'strip'», which
             # is an internal error message for what is really just a bad
             # request. ``used`` is documented as a string, so it has to be one.
-            text = payload.get("text") or ""
-            if not isinstance(text, str):
-                text = ""
+            text = _text(payload.get("text"))
             # The conversation session key. ``conversation_id`` is the v1
             # name (it is what a Home Assistant agent has to hand); ``client``
             # is the original one and still works. Same string either way:
             # it selects the Router that holds the open numbered list, so two
             # phones — or two HA conversations — never pick from each other's.
-            conversation_id = (payload.get("conversation_id")
-                               or payload.get("client") or "default")
+            conversation_id = (_text(payload.get("conversation_id"))
+                               or _text(payload.get("client")) or "default")
             # The UI player selector: commands go to that player's router.
             # An id, not a name, so it needs no resolving and outranks
             # everything below.
-            player_id = payload.get("player") or ""
+            player_id = _text(payload.get("player"))
             # Auto source (default): the router tries the local library first,
             # then TIDAL. Explicit phrases ("dalla mia musica", "da tidal") and
             # an explicit source still override.
-            source = payload.get("source") or "auto"
+            source = _text(payload.get("source")) or "auto"
             # The language the user is speaking (the page's mic-language
             # selector): commands are parsed and answered in that language.
             # Set it here rather than leaving it to ``handle_many``, which also
@@ -120,7 +142,7 @@ def api_v1_routes(router_for, multiroom=None):
             # reached, and it has to answer in the caller's language. set_lang
             # is also what makes an unsupported code fall back to Italian
             # instead of raising a KeyError out of ``msg``.
-            lang = payload.get("lang") or "it"
+            lang = _text(payload.get("lang")) or "it"
             set_lang(lang)
             # The room the command arrived FROM — a Home Assistant satellite
             # in the kitchen — which is a different thing from the room said
@@ -130,10 +152,7 @@ def api_v1_routes(router_for, multiroom=None):
             # ``Router._handle``, which re-aims the turn on top of whatever
             # this chose. So saying a room while standing in another one still
             # wins, and it should — that is an intention, not a mistake.
-            room = payload.get("room") or ""
-            if not isinstance(room, str):
-                room = ""
-            room = room.strip()
+            room = _text(payload.get("room")).strip()
             if room and not player_id:
                 try:
                     target = _room_player(multiroom, room)
@@ -197,9 +216,25 @@ def api_v1_routes(router_for, multiroom=None):
                 result = router_for(conversation_id, player_id).handle_many(
                     alternatives, source, lang)
             except Exception as exc:  # never 500 the client
+                # Logged where an administrator can read it. Until this line
+                # the traceback was swallowed whole: the page said «Errore
+                # interno: 'id'» and the server said nothing at all, so the
+                # only way to find out WHERE it came from was to reproduce it
+                # under a debugger. The frames are what makes a report like
+                # that actionable, and they stay on the server.
+                traceback.print_exc()
                 # Same keys as the success branch, plus ``error``. A contract
                 # whose shape narrows on failure makes the caller's failure
                 # path the one it never got to test.
+                #
+                # ``str(exc)`` is still in both, and that is a decision rather
+                # than an oversight: these are the engine's own exceptions —
+                # a KeyError naming a field, an AttributeError naming a method
+                # — and saying which one out loud is how the household reports
+                # a bug that is otherwise "it just doesn't work". The audio
+                # routes went the other way (``audio_api._failed``) because
+                # THEIR exceptions carry filesystem paths from the model
+                # caches, which is a different thing to hand to a LAN.
                 result = {"speech": msg("internal_error", error=exc),
                           "used": text, "ok": False, "error": str(exc),
                           "terms": [], "choices": [], "needs_choice": False,

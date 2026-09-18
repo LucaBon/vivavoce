@@ -117,13 +117,13 @@ MESSAGES = {
     # carries its own preposition: "per cena" in a frame ending in "per"
     # reads «Ho finito le idee per per cena». There is no frame that survives
     # every tail, and echoing adds nothing they did not just say.
-    "playing_mood_genre": "Ho messo un po' di {genre}. Se non va, dimmi un'altra.",
+    "playing_mood_genre": "Ho messo un po' di {genre}{tag}. Se non va, dimmi un'altra.",
     "playing_mood_playlist":
-        "Ho messo la playlist {name}. Se non va, dimmi un'altra.",
+        "Ho messo la playlist {name}{tag}. Se non va, dimmi un'altra.",
     # A decade resolves to ONE year, not to the decade: that is what actually
     # started, so that is what gets said (see engine/moods.py).
     "playing_mood_year":
-        "Ho messo qualcosa del {year}. Se non va, dimmi un'altra.",
+        "Ho messo qualcosa del {year}{tag}. Se non va, dimmi un'altra.",
     "mood_not_found": "Non ho trovato niente che vada bene nella tua musica.",
     "mood_exhausted": "Ho finito le idee. Prova a dirmi un genere.",
 

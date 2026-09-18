@@ -119,13 +119,13 @@ MESSAGES = {
     # back: the spoken tail carries its own preposition half the time, and
     # «para cenar» inside a frame ending in "para" reads twice.
     "playing_mood_genre":
-        "He puesto un poco de {genre}. Si no te va, dime otra.",
+        "He puesto un poco de {genre}{tag}. Si no te va, dime otra.",
     "playing_mood_playlist":
-        "He puesto la lista {name}. Si no te va, dime otra.",
+        "He puesto la lista {name}{tag}. Si no te va, dime otra.",
     # A decade resolves to ONE year, not to the decade: that is what actually
     # started, so that is what gets said (see engine/moods.py).
     "playing_mood_year":
-        "He puesto algo de {year}. Si no te va, dime otra.",
+        "He puesto algo de {year}{tag}. Si no te va, dime otra.",
     "mood_not_found": "No he encontrado nada que encaje en tu música.",
     "mood_exhausted": "Se me han acabado las ideas. Prueba a decirme un género.",
 

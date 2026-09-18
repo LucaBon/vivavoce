@@ -116,13 +116,13 @@ MESSAGES = {
     # the choice \u2014 but the choice has to be said out loud, and taken back if
     # it misses. Neither miss quotes the request back, for the same reason.
     "playing_mood_genre":
-        "Ich habe etwas {genre} aufgelegt. Sag was anderes, wenn es nicht passt.",
+        "Ich habe etwas {genre} aufgelegt{tag}. Sag was anderes, wenn es nicht passt.",
     "playing_mood_playlist":
-        "Ich habe die Playlist {name} aufgelegt. Sag was anderes, wenn es nicht passt.",
+        "Ich habe die Playlist {name} aufgelegt{tag}. Sag was anderes, wenn es nicht passt.",
     # A decade resolves to ONE year, not to the decade: that is what actually
     # started, so that is what gets said (see engine/moods.py).
     "playing_mood_year":
-        "Ich habe etwas aus {year} aufgelegt. Sag was anderes, wenn es nicht passt.",
+        "Ich habe etwas aus {year} aufgelegt{tag}. Sag was anderes, wenn es nicht passt.",
     "mood_not_found": "Ich habe in deiner Musik nichts Passendes gefunden.",
     "mood_exhausted": "Mir gehen die Ideen aus. Nenn mir am besten ein Genre.",
 

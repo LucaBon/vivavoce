@@ -140,8 +140,17 @@ async function savePhrase(phrase) {
     // success over one (appdata.set_wake_phrase raises rather than swallow
     // it), and clearing the box here threw that care away at the last step:
     // a read-only data directory looked exactly like a save.
+    //
+    // What arrives here is a token, not the server's exception text: the
+    // detail named the data directory and this endpoint answers anything on
+    // the LAN (see audio_api._failed, which logs it instead). "save_failed"
+    // is the one worth a sentence of its own — it is the case a household can
+    // act on.
     if (d.error && d.error !== "unavailable") {
-      showPhraseMessage(ui("wake_phrase_failed")(d.error), true);
+      showPhraseMessage(
+        d.error === "save_failed" ? ui("wake_phrase_save_failed")
+                                  : ui("wake_phrase_failed")(d.error),
+        true);
       return;
     }
     showPhraseMessage("", false);

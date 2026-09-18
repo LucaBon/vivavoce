@@ -39,20 +39,27 @@ Home Assistant add-on build with a 404.
   Every module carries `from __future__ import annotations`.
 - **No test may touch the network.** `LicenseManager` takes an injectable
   `http_post`; `VIVAVOCE_NO_REVALIDATE=1` disables the license re-check.
-- **`messages.set_lang()` is process-global.** An autouse fixture in
-  `conftest.py` resets it to Italian after every test; do not rely on module
-  order.
+- **`messages.set_lang()` is a `ContextVar`, not a process global.** Two
+  concurrent requests in two languages cannot mix: the HTTP server is
+  thread-per-request and a `ContextVar` is per execution context. What it
+  *does* leak across is a keep-alive connection — the thread that served an
+  English request keeps the English value until something sets it again — so
+  every entry point sets the language before it answers, and one that forgets
+  answers in the last caller's. Under pytest there is one thread and one
+  context, so a test that speaks English would leak English into every test
+  after it: an autouse fixture in `conftest.py` resets it to Italian after
+  every test, and no test may rely on module order.
 
 ## Tests
 
 ```bash
-uv run pytest        # the whole suite: 2417 tests, ~4 min
+uv run pytest        # the whole suite: 2515 tests, ~5 min
 ```
 
-About 1m48s of that is `tests/e2e/`, which drives a real headless browser
-(2362 in 4m10s with it, 2292 in 2m22s without — measured 2026-09-17). That
+About 2m of that is `tests/e2e/`, which drives a real headless browser
+(2515 in 4m47s with it, 2445 in 2m45s without — measured 2026-09-18). That
 directory **skips cleanly when the Chromium binary is missing**, so a run that
-finishes in a little over two minutes has tested no frontend at all and still
+finishes in under three minutes has tested no frontend at all and still
 reports green. `uv run playwright install chromium` enables it, and
 `VIVAVOCE_REQUIRE_BROWSER=1` turns every such skip into a failure — CI sets it.
 

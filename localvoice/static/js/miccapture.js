@@ -3,7 +3,7 @@
 // Split out of mic.js, which had grown past the 400-line ceiling the repo
 // sets itself (see tests/test_packaging.py). The seam is ownership of the
 // input device: this module runs the server-side wake word (the beep-free
-// engine, see localvoice/pro/wakeword.py) and therefore owns the two facts
+// engine, see localvoice/pro/vosk_wake.py) and therefore owns the two facts
 // every other engine has to ask about —
 //
 // * is a continuous stream holding the device right now, and
