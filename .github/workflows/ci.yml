@@ -52,6 +52,7 @@ jobs:
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -90,6 +91,7 @@ jobs:
   e2e:
     name: e2e (chromium)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -148,6 +150,7 @@ jobs:
   wakeword-vosk:
     name: free-phrase wake word (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -226,6 +229,7 @@ jobs:
   wakeword-vosk-macos:
     name: free-phrase wake word (macOS)
     runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -306,6 +310,7 @@ jobs:
   asr:
     name: local speech recognition (py3.12, ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -357,6 +362,7 @@ jobs:
   sanity:
     name: sanity checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -383,6 +389,7 @@ jobs:
   docker:
     name: docker build (${{ matrix.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -423,6 +430,7 @@ jobs:
   addon-matrix:
     name: add-on architectures
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       legs: ${{ steps.legs.outputs.legs }}
     steps:
@@ -443,6 +451,7 @@ jobs:
     name: HA add-on image (${{ matrix.arch }})
     needs: addon-matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

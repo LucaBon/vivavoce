@@ -1221,3 +1221,59 @@ def test_the_blueprint_only_names_streaming_services_the_engine_has():
     assert named <= known, (
         f"the blueprint offers {named - known}, which engine/lms.py has no "
         f"ServiceSpec for")
+
+
+# -- what the documents promise, against what the code does --------------------
+#
+# Found in review, twice over, and both times the same shape: a capability the
+# code had, that no page a stranger reads knew about. The add-on offered three
+# `library*` options that run.sh and entrypoint.sh both carry (the tests above
+# prove the plumbing end to end) and that DOCS.md never named; docs/api.md —
+# the one document an outside client author reads — listed four languages when
+# engine/catalogs/ has had five since Spanish landed. Neither is the kind of
+# drift a person catches by re-reading, so neither is left to a person.
+
+def test_every_addon_option_is_documented():
+    yaml = pytest.importorskip("yaml")
+    schema = yaml.safe_load(_read("ha-addon", "config.yaml"))["schema"]
+    docs = _read("ha-addon", "DOCS.md")
+    # The options table spells each key in backticks in the first column.
+    documented = set(re.findall(r"^\| `([a-z_]+)` \|", docs, re.M))
+    missing = set(schema) - documented
+    assert not missing, (
+        f"ha-addon/config.yaml offers {sorted(missing)}, which the page the "
+        f"add-on's users read never mentions — document it in DOCS.md's "
+        f"options table or drop it from the schema")
+
+
+def test_the_api_contract_names_every_language_the_engine_answers_in():
+    sys.path.insert(0, os.path.join(ROOT, "engine"))
+    from messages import CATALOGS
+
+    row = [line for line in _read("docs", "api.md").splitlines()
+           if line.startswith("| `lang` |")]
+    assert len(row) == 1, "docs/api.md has no single `lang` row to check"
+    named = set(re.findall(r"`([a-z]{2})`", row[0]))
+    missing = set(CATALOGS) - named
+    assert not missing, (
+        f"engine/catalogs/ answers in {sorted(missing)} and docs/api.md does "
+        f"not say so — a client author reads that row, not the README")
+
+
+def test_every_ci_job_has_a_timeout():
+    # Found in review: not one job in either workflow declared a tetto, so a
+    # deadlock — the plausible failure in code that runs semaphores, an RLock
+    # and a thread pool — would have burned GitHub's 360-minute default before
+    # failing. On a matrix this wide that is an afternoon of runners for
+    # something visible in twenty minutes. The numbers come from real run
+    # durations (pytest 213s, e2e 138s, docker 56s) with room for a cold cache.
+    yaml = pytest.importorskip("yaml")
+    for name in ("ci.yml", "release.yml"):
+        jobs = yaml.safe_load(_read(".github", "workflows", name))["jobs"]
+        for job, spec in jobs.items():
+            assert "timeout-minutes" in spec, (
+                f"{name}: job '{job}' has no timeout-minutes, so a hang costs "
+                f"GitHub's 360-minute default")
+            assert spec["timeout-minutes"] <= 30, (
+                f"{name}: job '{job}' allows {spec['timeout-minutes']} minutes; "
+                f"nothing here legitimately takes that long")

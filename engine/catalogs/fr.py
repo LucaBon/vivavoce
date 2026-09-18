@@ -188,6 +188,9 @@ MESSAGES = {
     "blocklist_save_error":
         "Je n'arrive pas à enregistrer la liste pour le moment. "
         "Réessaie dans un instant.",
+    "settings_save_error":
+        "Je n'arrive pas à enregistrer les réglages pour le moment. "
+        "Réessaie dans un instant.",
     "block_added": "Ok, j'ai bloqué {term}.",
     "ask_unblock": "Je n'ai pas saisi quoi débloquer. Tu peux répéter ?",
     "not_in_blocklist": "{term} n'est pas dans la liste des morceaux bloqués.",

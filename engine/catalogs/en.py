@@ -174,6 +174,8 @@ MESSAGES = {
     "already_blocked": "{term} is already in the blocked-songs list.",
     "blocklist_save_error":
         "I can't save the list right now. Please try again in a moment.",
+    "settings_save_error":
+        "I can't save the settings right now. Please try again in a moment.",
     "block_added": "Ok, I blocked {term}.",
     "ask_unblock": "I didn't catch what to unblock. Can you repeat?",
     "not_in_blocklist": "{term} is not in the blocked-songs list.",
