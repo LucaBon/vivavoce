@@ -126,10 +126,68 @@ def test_a_suggestion_is_a_phrase_in_the_chosen_language(demo_page):
     boot(page)
     page.select_option("#lang", "en")
     chip = page.locator(".chip").first
-    assert chip.inner_text() == "play Time by Pink Floyd"
+    assert chip.inner_text() == "play Time by Hans Zimmer"
     chip.click()
     page.wait_for_function("document.querySelectorAll('#log .app').length > 0")
-    assert "Playing Time by Pink Floyd" in page.locator("#log .app").last.inner_text()
+    assert "Playing Time by Hans Zimmer" in page.locator("#log .app").last.inner_text()
+
+
+def test_the_first_search_hit_is_shown_beside_the_right_record(demo_page):
+    """The point of the page: the typical assistant's column plays Pink
+    Floyd's «Time», is marked wrong, and the hi-fi plays Zimmer's."""
+    page = demo_page
+    boot(page)
+    say(page, "metti Time di Hans Zimmer")
+    wrong = page.locator("#log .exchange").last.locator(".col.typical.wrong")
+    assert wrong.count() == 1
+    assert "Time — Pink Floyd" in wrong.inner_text()
+    assert "Hans Zimmer" in page.inner_text("#now")
+    assert page.inner_text("#avoided") == "1"
+
+    say(page, "metti Time dei Pink Floyd")
+    last = page.locator("#log .exchange").last
+    assert last.locator(".col.typical").count() == 0
+    assert last.locator(".agree").count() == 1
+    assert page.inner_text("#avoided") == "1"
+
+
+def test_a_lucky_first_hit_is_said_and_not_counted(demo_page):
+    page = demo_page
+    boot(page)
+    say(page, "metti Bohemian Rapsody")
+    last = page.locator("#log .exchange").last
+    assert "Bohemian Rhapsody — Queen" in last.locator(".col.typical").inner_text()
+    assert last.locator(".col.typical.wrong").count() == 0
+    assert last.locator(".lucky").count() == 1
+    assert page.inner_text("#avoided") == "0"
+
+
+def test_the_reply_is_said_aloud_and_can_be_silenced(demo_page):
+    page = demo_page
+    # Headless Chromium has no voices; what matters is what the page asks for.
+    page.add_init_script("""
+        window.__spoken = [];
+        window.speechSynthesis.speak = (u) => window.__spoken.push([u.text, u.lang]);
+        window.speechSynthesis.cancel = () => {};
+    """)
+    boot(page)
+    say(page, "metti Wish You Were Here")
+    spoken = page.evaluate("window.__spoken")
+    assert spoken[-1][1] == "it-IT"
+    assert "Wish You Were Here" in spoken[-1][0]
+
+    page.click("#voice")
+    assert page.get_attribute("#voice", "aria-pressed") == "false"
+    say(page, "pausa")
+    assert page.evaluate("window.__spoken.length") == len(spoken)
+
+
+def test_an_album_shows_what_comes_next(demo_page):
+    page = demo_page
+    boot(page)
+    say(page, "metti l'album The Dark Side of the Moon")
+    assert page.locator("#queue li").all_inner_texts() == [
+        "Money — Pink Floyd", "Breathe — Pink Floyd"]
 
 
 def test_a_cdn_that_does_not_answer_is_said_on_the_page(page):

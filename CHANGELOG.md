@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed
+
+- **La demo mette Vivavoce accanto a un assistente qualunque.** Ogni frase
+  che chiede musica ora mostra due colonne: che cosa avrebbe messo un
+  assistente che fa della frase parole chiave e suona il primo risultato, e
+  che cosa ha fatto Vivavoce. «metti Time di Hans Zimmer» lì diventa il
+  «Time» dei Pink Floyd, e «Wish You Were Here» diventa «Here Comes the Sun»,
+  segnati in rosso; dove i due fanno la stessa cosa la pagina lo dice. La
+  regola dell'altro assistente è scritta in pagina ed è onesta di proposito
+  (stesse frasi, stesso scaffale, parole corte ignorate: niente pagliaccio),
+  e quando Vivavoce non trova qualcosa che il primo risultato indovina —
+  «Bohemian Rapsody» — la pagina lo ammette invece di contarlo.
+  In cima c'è il conto dei brani sbagliati evitati, la risposta si sente
+  (la voce del browser, disattivabile con 🔊), e l'impianto finto ha una
+  copertina disegnata, la barra di avanzamento e la coda; i comandi mandati
+  all'impianto sono ancora lì, dentro un riquadro chiuso.
+
 ### Internal
 
 - **La CI non fallisce più per aver trovato quello che cercava.** Il

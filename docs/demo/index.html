@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Try Vivavoce in your browser</title>
-<meta name="description" content="Type or say a song and see what Vivavoce answers: the real matching engine, running in your browser on a pretend hi-fi with six tracks. Nothing to install.">
+<meta name="description" content="Say a song and see, side by side, what a typical voice assistant would play and what Vivavoce does: the real engine, in your browser. Nothing to install.">
 <link rel="canonical" href="https://lucabon.github.io/vivavoce/demo/">
 <link rel="icon" href="../assets/icon.png" type="image/png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Try Vivavoce in your browser">
-<meta property="og:description" content="The real matching engine on a pretend hi-fi: say a song, get that song or an honest answer.">
+<meta property="og:description" content="Side by side: the first search hit, and the song you asked for — or an honest answer.">
 <meta property="og:image" content="https://lucabon.github.io/vivavoce/assets/og.png">
 <style>
 :root{
@@ -47,20 +47,46 @@ main{display:grid;gap:16px;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);p
 @media (max-width:760px){ main{grid-template-columns:minmax(0,1fr)} }
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
 
-#log{min-height:180px;max-height:52vh;overflow-y:auto;font-family:var(--mono);
-  font-size:.9rem;line-height:1.7;margin-bottom:12px;overflow-wrap:anywhere}
-#log:empty::before{content:"Pick a suggestion below, or type your own.";color:var(--muted)}
-.turn .t{color:var(--muted)}
-.you{color:var(--amber)}
-.app{color:var(--green)}
+/* The scoreboard: the one number the page exists to move. */
+#score{display:inline-flex;align-items:baseline;gap:8px;margin:14px 0 0;padding:6px 14px;
+  border:1px solid var(--line);border-radius:999px;background:var(--card);font-size:.92rem}
+#avoided{font-weight:800;font-size:1.25rem;color:var(--green);font-variant-numeric:tabular-nums}
+#score.bump{animation:bump .5s ease}
+@keyframes bump{40%{transform:scale(1.08);border-color:var(--green)}}
+
+#log{min-height:180px;max-height:62vh;overflow-y:auto;margin-bottom:12px;overflow-wrap:anywhere;
+  display:grid;gap:12px;align-content:start}
+#log:empty::before{content:"Tap one of the suggestions below: the first three are where a typical assistant goes wrong.";
+  color:var(--muted)}
+.exchange{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--bg2);
+  animation:rise .25s ease}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}}
+.asked{font-size:.95rem;margin-bottom:10px}
+.asked .t,.who{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}
+.asked q{color:var(--amber);font-weight:600;quotes:"«" "»"}
+.versus{display:grid;gap:10px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+@media (max-width:520px){ .versus{grid-template-columns:minmax(0,1fr)} }
+.col{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card)}
+.col.typical{color:var(--muted)}
+.col.typical.wrong{border-color:var(--red);color:var(--fg)}
+.col.viva{border-color:var(--green-deep)}
+.col.viva.solo{grid-column:1/-1}
+.who small{text-transform:none;letter-spacing:0;font-size:.78rem}
+.what{margin-top:4px;font-weight:600}
+.mark{margin-top:4px;font-size:.85rem;color:var(--red);font-weight:600}
+.lucky{margin-top:4px;font-size:.85rem;color:var(--green);font-weight:600}
+.agree{margin-top:8px;font-size:.85rem;color:var(--muted)}
+.agree::before{content:"✓ ";color:var(--green)}
+.app{color:var(--green);margin-top:4px;font-weight:600}
 .app.no{color:var(--fg)}
 .app.err{color:var(--red)}
 .small{font-size:.85rem;margin:12px 0 0}
-.choices{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+.choices{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
 button{font:inherit;cursor:pointer}
 .choice,.chip{border:1px solid var(--line);background:var(--bg2);color:var(--fg);
   border-radius:999px;padding:5px 12px;font-size:.88rem}
 .choice:hover,.chip:hover{border-color:var(--green)}
+.chip.hot{border-color:var(--amber)}
 #ask{display:flex;gap:8px}
 #say{flex:1;min-width:0;padding:11px 13px;border-radius:11px;border:1px solid var(--line);
   background:var(--bg);color:var(--fg);font:inherit}
@@ -68,7 +94,7 @@ button{font:inherit;cursor:pointer}
 .btn{padding:10px 16px;border-radius:11px;font-weight:600;border:1px solid var(--green-deep);
   background:var(--green-deep);color:#fff}
 .btn:disabled{opacity:.5;cursor:default}
-#mic{background:var(--bg2);color:var(--fg);border-color:var(--line)}
+#mic,#voice{background:var(--bg2);color:var(--fg);border-color:var(--line)}
 #mic.on{border-color:var(--red);color:var(--red)}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px}
 #chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -76,8 +102,27 @@ select{font:inherit;padding:6px 8px;border-radius:9px;border:1px solid var(--lin
   background:var(--bg);color:var(--fg)}
 
 aside{display:grid;gap:16px;align-content:start}
-.np-title{font-weight:700;font-size:1.05rem}
-#told{margin:0;padding-left:18px;font-family:var(--mono);font-size:.85rem;overflow-wrap:anywhere}
+/* The pretend hi-fi's screen. The cover is drawn, not fetched: the page
+   reaches for no host but its own and jsDelivr. */
+.player{display:grid;gap:12px}
+.cover{aspect-ratio:1/1;width:100%;max-width:260px;justify-self:center;border-radius:12px;
+  display:flex;align-items:flex-end;padding:14px;color:#fff;font-weight:800;font-size:1.5rem;
+  line-height:1.1;text-shadow:0 1px 8px rgba(0,0,0,.45);box-shadow:0 10px 30px rgba(0,0,0,.35);
+  background:var(--bg2)}
+.cover.idle{color:var(--muted);text-shadow:none;box-shadow:none;border:1px dashed var(--line);
+  align-items:center;justify-content:center;font-size:2.4rem}
+.np-title{font-weight:700;font-size:1.15rem}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar > i{display:block;height:100%;background:var(--green);width:0}
+.times{display:flex;justify-content:space-between;font-size:.82rem;color:var(--muted);
+  font-variant-numeric:tabular-nums;margin-top:4px}
+.vol{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--muted)}
+.vol .bar{flex:1}
+#queue{margin:0;padding-left:18px;font-size:.9rem}
+#queue:empty{display:none}
+.upnext{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0}
+details summary{cursor:pointer;color:var(--muted);font-size:.9rem}
+#told{margin:8px 0 0;padding-left:18px;font-family:var(--mono);font-size:.85rem;overflow-wrap:anywhere}
 #told li[data-empty]{list-style:none;margin-left:-18px}
 #shelf{margin:0;padding-left:18px;font-size:.92rem}
 #shelf .album{color:var(--muted)}
@@ -88,12 +133,14 @@ footer{border-top:1px solid var(--line);padding:22px 0 40px;color:var(--muted);f
 <header>
   <div class="wrap">
     <a class="back" href="../">← Vivavoce</a>
-    <h1>Say a song. Get that song, or an honest answer.</h1>
-    <p class="lede">This is Vivavoce's real engine (the same Python the app runs), loaded
-      into this tab. It is connected to a <b>pretend hi-fi</b> with six tracks, so nothing
-      makes any sound. Ask for something it has, something it hasn't got, or a famous
-      song with a title on the shelf inside it, and watch what it tells the hi-fi to do.</p>
+    <h1>Ask for a song. See what a typical assistant would play, and what Vivavoce does.</h1>
+    <p class="lede">Both get the same sentence and the same shelf of records. The
+      <b>typical assistant</b> does what most voice assistants do: turns the sentence into
+      keywords and plays the catalogue's first hit. <b>Vivavoce</b> is the real engine (the
+      same Python the app runs), loaded into this tab and connected to a pretend hi-fi, so
+      nothing makes any sound except its voice.</p>
     <p id="status" data-state="loading" role="status" aria-live="polite">Loading…</p>
+    <p id="score" aria-live="polite"><span id="avoided">0</span> wrong songs avoided</p>
   </div>
 </header>
 
@@ -103,8 +150,10 @@ footer{border-top:1px solid var(--line);padding:22px 0 40px;color:var(--muted);f
       <div id="log" aria-live="polite"></div>
       <form id="ask">
         <input id="say" type="text" autocomplete="off" disabled
-               placeholder="metti Time dei Pink Floyd" aria-label="Your phrase">
+               placeholder="metti Time di Hans Zimmer" aria-label="Your phrase">
         <button id="mic" class="btn" type="button" hidden aria-label="Speak">🎤</button>
+        <button id="voice" class="btn" type="button" hidden aria-pressed="true"
+                aria-label="Spoken replies" title="Spoken replies">🔊</button>
         <button id="send" class="btn" type="submit" disabled>Send</button>
       </form>
       <div class="row">
@@ -124,13 +173,17 @@ footer{border-top:1px solid var(--line);padding:22px 0 40px;color:var(--muted);f
     </section>
 
     <aside>
-      <section class="card" aria-label="Now playing">
-        <h2>Now playing</h2>
-        <div id="now"><span class="muted">Nothing playing.</span></div>
-      </section>
-      <section class="card" aria-label="What the hi-fi was told">
-        <h2>Sent to the hi-fi</h2>
-        <ul id="told"><li class="muted" data-empty>Nothing yet.</li></ul>
+      <section class="card player" aria-label="Now playing">
+        <div id="now"><div class="cover idle" aria-hidden="true">♪</div>
+          <p class="muted">Nothing playing.</p></div>
+        <div>
+          <div class="upnext" id="upnext" hidden>Up next</div>
+          <ol id="queue"></ol>
+        </div>
+        <details>
+          <summary>What the hi-fi received</summary>
+          <ul id="told"><li class="muted" data-empty>Nothing yet.</li></ul>
+        </details>
       </section>
       <section class="card" aria-label="The pretend hi-fi's catalogue">
         <h2>On the shelf</h2>
