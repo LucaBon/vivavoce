@@ -11,8 +11,8 @@
         "expect": "plays"
       },
       {
-        "say": "metti Money dei Beatles",
-        "expect": "refuses"
+        "say": "metti l'album Inception",
+        "expect": "plays"
       },
       {
         "say": "metti Wish You Were Here",
@@ -45,8 +45,8 @@
         "expect": "plays"
       },
       {
-        "say": "play Money by the Beatles",
-        "expect": "refuses"
+        "say": "play the album Inception",
+        "expect": "plays"
       },
       {
         "say": "play Wish You Were Here",
@@ -79,8 +79,8 @@
         "expect": "plays"
       },
       {
-        "say": "spiele Money von den Beatles",
-        "expect": "refuses"
+        "say": "spiele das Album Inception",
+        "expect": "plays"
       },
       {
         "say": "spiele Wish You Were Here",
@@ -113,8 +113,8 @@
         "expect": "plays"
       },
       {
-        "say": "mets Money des Beatles",
-        "expect": "refuses"
+        "say": "mets l'album Inception",
+        "expect": "plays"
       },
       {
         "say": "mets Wish You Were Here",
@@ -147,8 +147,8 @@
         "expect": "plays"
       },
       {
-        "say": "pon Money de los Beatles",
-        "expect": "refuses"
+        "say": "pon el álbum Inception",
+        "expect": "plays"
       },
       {
         "say": "pon Wish You Were Here",

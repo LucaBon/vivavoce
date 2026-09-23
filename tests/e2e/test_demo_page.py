@@ -11,13 +11,14 @@ request is answered by ``page.route`` from disk:
 * ``lucabon.github.io/vivavoce/`` — from ``docs/``, which is what Pages serves;
 * ``cdn.jsdelivr.net/pyodide/…`` — from ``.cache/pyodide/<version>/``, which
   ``tools/fetch_pyodide.py`` fills once, like ``playwright install``;
-* ``cdn.jsdelivr.net/gh/LucaBon/vivavoce@main/…`` — from this working tree, so
-  the page runs the code under test and not whatever ``main`` holds today.
+* ``cdn.jsdelivr.net/gh/LucaBon/vivavoce@<tag>/…`` — from this working tree,
+  so the page runs the code under test and not whatever the tag holds.
 
 Anything else is aborted and fails the test: a page that quietly reached for a
 third host would work here and break the day that host changes.
 """
 
+import json
 import mimetypes
 import os
 import sys
@@ -33,7 +34,8 @@ import fetch_pyodide  # noqa: E402
 
 SITE = "https://lucabon.github.io/vivavoce/"
 PYODIDE = f"https://cdn.jsdelivr.net/pyodide/v{fetch_pyodide.version()}/full/"
-CORE = "https://cdn.jsdelivr.net/gh/LucaBon/vivavoce@main/"
+with open(os.path.join(ROOT, "docs", "demo", "core-files.json"), encoding="utf-8") as _f:
+    CORE = f"https://cdn.jsdelivr.net/gh/LucaBon/vivavoce@{json.load(_f)['ref']}/"
 BOOT_TIMEOUT = 60_000
 
 
@@ -138,3 +140,16 @@ def test_a_cdn_that_does_not_answer_is_said_on_the_page(page):
     page.goto(SITE + "demo/")
     page.wait_for_selector("#status[data-state=error]", timeout=BOOT_TIMEOUT)
     assert page.locator("#say").is_disabled()
+
+
+@pytest.mark.parametrize("trick", [
+    "%5C%5Cevil.example/", "/%5Cevil.example/", "%20//evil.example/",
+    "/%09/evil.example/", "https://evil.example/", "//evil.example/",
+])
+def test_a_link_cannot_point_the_page_at_another_servers_python(demo_page, trick):
+    """``?core=`` is for trying a working tree on this site. Every spelling
+    that a browser resolves to another host must be ignored — the page then
+    loads its own engine, and ``demo_page`` fails if anything reached out."""
+    page = demo_page
+    page.goto(SITE + "demo/?core=" + trick)
+    page.wait_for_selector("#status[data-state=ready]", timeout=BOOT_TIMEOUT)

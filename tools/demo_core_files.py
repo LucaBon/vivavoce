@@ -12,17 +12,27 @@ language, and reports each module file that came from the core.
     uv run python tools/demo_core_files.py           # rewrite the list
     uv run python tools/demo_core_files.py --check   # exit 1 if it is stale
 
+The list also names the **ref** the page downloads them at: ``vX.Y.Z`` from
+``pyproject.toml``, the tag ``RELEASING.md`` puts on the very ``main`` commit
+Pages publishes. A tag, not ``@main``: jsDelivr keeps a branch cached for
+hours after it moves, and a page from the new ``main`` running engine files
+from the old one fails in ways no test here can see. A tag never moves. So a
+version bump makes this list stale too — rerun the tool with the bump.
+
 ``tests/test_demo.py`` runs the check, so a new module the Router starts
-importing fails the suite by name instead of failing the page in a browser.
+importing, or a bump without a rerun, fails the suite by name instead of
+failing the page in a browser.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
-from typing import List
+import tempfile
+from typing import Any, Dict, List
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMO = os.path.join(ROOT, "docs", "demo")
@@ -53,28 +63,50 @@ print(json.dumps(sorted(seen)))
 
 
 def imported_by_demo(root: str = ROOT, demo: str = DEMO) -> List[str]:
-    """Repo-relative paths of every core file the demo imports."""
-    out = subprocess.run([sys.executable, "-c", _PROBE, root, demo],
-                         capture_output=True, text=True, check=True)
+    """Repo-relative paths of every core file the demo imports.
+
+    Run from an empty directory: ``python -c`` puts the working directory on
+    ``sys.path``, and in the repo root that would let a package-style import
+    resolve here that has nothing to resolve against in Pyodide.
+    """
+    with tempfile.TemporaryDirectory() as elsewhere:
+        out = subprocess.run([sys.executable, "-c", _PROBE, root, demo],
+                             capture_output=True, text=True, cwd=elsewhere)
+    if out.returncode:
+        raise RuntimeError(f"the demo did not run:\n{out.stderr}")
     return json.loads(out.stdout)
 
 
-def listed() -> List[str]:
+def release_ref(root: str = ROOT) -> str:
+    """``vX.Y.Z``, from the version ``pyproject.toml`` declares."""
+    with open(os.path.join(root, "pyproject.toml"), encoding="utf-8") as f:
+        found = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.M)
+    if not found:
+        raise SystemExit("no version in pyproject.toml")
+    return "v" + found.group(1)
+
+
+def expected() -> Dict[str, Any]:
+    return {"ref": release_ref(), "files": imported_by_demo()}
+
+
+def listed() -> Dict[str, Any]:
     with open(LIST, encoding="utf-8") as f:
         return json.load(f)
 
 
 def main(argv: List[str]) -> int:
-    files = imported_by_demo()
+    want = expected()
     if "--check" in argv:
-        stale = files != listed()
+        stale = want != listed()
         if stale:
             print(f"{os.path.relpath(LIST, ROOT)} is stale: "
                   f"run tools/demo_core_files.py", file=sys.stderr)
         return int(stale)
     with open(LIST, "w", encoding="utf-8") as f:
-        f.write(json.dumps(files, indent=1) + "\n")
-    print(f"{len(files)} files -> {os.path.relpath(LIST, ROOT)}")
+        f.write(json.dumps(want, indent=1) + "\n")
+    print(f"{len(want['files'])} files at {want['ref']} "
+          f"-> {os.path.relpath(LIST, ROOT)}")
     return 0
 
 

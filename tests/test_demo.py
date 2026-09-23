@@ -63,6 +63,37 @@ def test_a_search_for_nothing_it_has_answers_nothing(hifi):
     # The ranking is trusted only when an empty answer is possible: a search
     # that always returns something would make the engine play tracks[0].
     assert hifi.search_tracks("Wish You Were Here") == []
+    assert hifi.search_tracks("Money for Nothing") == []
+    assert hifi.search_tracks("") == []
+
+
+def test_a_record_ends_and_the_next_one_starts():
+    clock = [1000.0]
+    hifi = DemoHifi(now=lambda: clock[0])
+    hifi.play_browse_item(hifi.url_of("Breathe", "Pink Floyd").replace(
+        "track/3", "2/The Dark Side of the Moon"))
+    assert hifi.now_playing_info()["title"] == "Time"
+    clock[0] += 413 + 5
+    now = hifi.now_playing_info()
+    assert (now["title"], now["index"]) == ("Money", 1)
+    assert now["elapsed"] == pytest.approx(5.0)
+    clock[0] += 382 + 163
+    assert hifi.now_playing_info()["mode"] == "stop"
+
+
+def test_next_on_the_last_record_stops_like_a_real_player(hifi):
+    hifi.play_url(hifi.url_of("Money", "Pink Floyd"))
+    hifi.next_track()
+    assert hifi.status_info()["mode"] == "stop"
+
+
+def test_nothing_to_play_leaves_it_stopped(hifi):
+    hifi.play_browse_item("demo://2/No Such Album")
+    assert hifi.status_info()["mode"] == "stop"
+    hifi.add_url(hifi.url_of("Money", "Pink Floyd"))
+    assert hifi.status_info()["mode"] == "stop"
+    hifi.resume()
+    assert hifi.status_info()["mode"] == "play"
 
 
 def test_the_right_time_not_the_first_one(demo, hifi):
@@ -79,10 +110,19 @@ def test_a_song_it_has_not_got_is_said_and_not_played(demo, hifi):
     assert "Wish You Were Here" in out["speech"]
 
 
-def test_the_right_song_by_the_wrong_artist_is_offered_not_played(demo, hifi):
-    out = demo.turn("metti Money dei Beatles", "it")
-    assert not out["ok"]
-    assert played(hifi) == []
+@pytest.mark.parametrize("phrase", [
+    "metti Money dei Beatles", "metti Money for Nothing", "metti Time after Time",
+    "metti Time to say goodbye", "metti Money Money Money", "metti Breathe Me",
+    "metti Breathe dei Prodigy",
+])
+def test_a_title_it_nearly_has_starts_nothing(phrase):
+    """What a visitor types to catch it out: a famous song that *contains* a
+    title on the shelf. A real catalogue has «Money for Nothing» and plays it;
+    this one has not got it, and must say so rather than play «Money»."""
+    hifi = DemoHifi(now=lambda: 1000.0)
+    out = boot.Demo(hifi).turn(phrase, "it")
+    assert not out["ok"], out["speech"]
+    assert hifi.calls == []
 
 
 def test_a_bare_title_plays_the_catalogues_first_and_says_whose(demo, hifi):
@@ -228,9 +268,19 @@ def _tool():
 
 def test_the_list_of_core_files_is_what_the_demo_imports():
     tool = _tool()
-    assert tool.listed() == tool.imported_by_demo(), (
+    assert tool.listed() == tool.expected(), (
         "docs/demo/core-files.json is stale: "
         "uv run python tools/demo_core_files.py")
+
+
+def test_the_core_comes_from_the_tag_of_the_version_being_released():
+    # Not @main: a branch moves, and jsDelivr serves a moved branch from its
+    # cache for hours. The tag RELEASING.md puts on the main merge commit is
+    # exactly the tree Pages publishes, and it never moves.
+    with open(os.path.join(REPO, "pyproject.toml"), encoding="utf-8") as f:
+        version = next(line.split('"')[1] for line in f
+                       if line.startswith("version"))
+    assert _tool().listed()["ref"] == "v" + version
 
 
 def test_the_list_is_enough_on_its_own(tmp_path):
@@ -244,25 +294,30 @@ def test_the_list_is_enough_on_its_own(tmp_path):
     import subprocess
 
     tool = _tool()
-    for rel in tool.listed():
-        dest = tmp_path / rel
+    core = tmp_path / "core"
+    for rel in tool.listed()["files"]:
+        dest = core / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(os.path.join(REPO, rel), dest)
     demo = tmp_path / "demo"
     demo.mkdir()
+    elsewhere = tmp_path / "cwd"
+    elsewhere.mkdir()
     for name in ("boot.py", "hifi.py"):
         shutil.copy(os.path.join(DEMO_DIR, name), demo / name)
     probe = ("import sys; sys.path.insert(0, sys.argv[2]); import boot; "
              "boot.install(sys.argv[1]); "
              "print(boot.Demo().turn_json('metti Time dei Pink Floyd', 'it'))")
-    out = subprocess.run([sys.executable, "-c", probe, str(tmp_path), str(demo)],
-                         capture_output=True, text=True, cwd=str(tmp_path))
+    # From a third, empty directory: `-c` puts the cwd on sys.path, and the
+    # core root there would hide an import that Pyodide cannot resolve.
+    out = subprocess.run([sys.executable, "-c", probe, str(core), str(demo)],
+                         capture_output=True, text=True, cwd=str(elsewhere))
     assert out.returncode == 0, out.stderr
     assert '"ok": true' in out.stdout, out.stdout
 
 
 def test_the_page_downloads_nothing_it_has_no_use_for():
-    files = _tool().listed()
+    files = _tool().listed()["files"]
     assert files and all(os.path.isfile(os.path.join(REPO, f)) for f in files)
     for rel in files:
         assert rel.startswith(("engine/", "localvoice/")), rel

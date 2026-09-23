@@ -1,7 +1,8 @@
 // The public demo: the real Vivavoce Router, in the browser, on a pretend hi-fi.
 //
 // This file decides nothing. It loads Pyodide, writes the core files listed in
-// core-files.json (fetched from jsDelivr at the commit Pages serves, `main`)
+// core-files.json (fetched from jsDelivr at the release tag it names — the tag
+// RELEASING.md puts on the main commit Pages serves)
 // and the demo's own two (boot.py, hifi.py, from this site), then hands every
 // phrase to boot.Demo.turn_json and draws what comes back. What the demo does
 // lives in boot.py, where tests/test_demo.py can see it without a browser.
@@ -11,20 +12,23 @@
 // from here, so the browser tests always run the version the page loads.
 const PYODIDE_VERSION = "0.29.5";
 const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
-const CORE_URL = "https://cdn.jsdelivr.net/gh/LucaBon/vivavoce@main/";
+const CORE_REPO = "https://cdn.jsdelivr.net/gh/LucaBon/vivavoce@";
 const ROOT = "/home/pyodide/vivavoce";
 const DEMO = "/home/pyodide/demo";
 
-// `?core=../../` loads the core from a relative path instead: serve the repo
-// root with any static server and open /docs/demo/?core=../../ to try the
-// page against a working tree. Relative paths only — a link must not be able
-// to point this page at somebody else's Python.
-function coreUrl() {
+// `?core=../../` loads the core from this site instead: serve the repo root
+// with any static server and open /docs/demo/?core=../../ to try the page
+// against a working tree. Checked on the URL as the browser resolves it, not
+// on the string: `\\host/`, a leading tab, `/\host` all read as relative to a
+// pattern and resolve to somebody else's server — which would then be running
+// its Python, and through it JavaScript, on this origin.
+function coreUrl(ref) {
   const asked = new URLSearchParams(location.search).get("core");
-  if (asked && !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(asked)) {
-    return new URL(asked.endsWith("/") ? asked : asked + "/", location.href).href;
+  if (asked) {
+    const url = new URL(asked.endsWith("/") ? asked : asked + "/", location.href);
+    if (url.origin === location.origin) return url.href;
   }
-  return CORE_URL;
+  return CORE_REPO + ref + "/";
 }
 
 const $ = (sel) => document.querySelector(sel);
@@ -62,13 +66,14 @@ async function boot() {
   const t0 = performance.now();
   try {
     setStatus("loading", "Loading Python in your browser (about 5 MB, once)…");
-    const [, files, phraseText] = await Promise.all([
+    const [, listing, phraseText] = await Promise.all([
       loadScript(PYODIDE_URL + "pyodide.js"),
       fetchText("core-files.json").then(JSON.parse),
       fetchText("phrases.json"),
     ]);
     phrases = JSON.parse(phraseText);
-    const core = coreUrl();
+    const files = listing.files;
+    const core = coreUrl(listing.ref);
     const [py, sources, own] = await Promise.all([
       loadPyodide({ indexURL: PYODIDE_URL }),
       Promise.all(files.map((f) => fetchText(core + f))),
@@ -91,7 +96,7 @@ demo = boot.Demo()
     $("#say").disabled = false;
     $("#send").disabled = false;
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
-    setStatus("ready", `Ready in ${secs} s. Everything runs in this tab.`);
+    setStatus("ready", `Ready in ${secs} s. The engine runs in this tab.`);
     $("#say").focus();
   } catch (err) {
     setStatus("error", "The demo could not load: " + err.message +
@@ -146,19 +151,44 @@ function fmt(secs) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// The pretend record plays on between two phrases; the clock on the page
+// follows it locally instead of asking Python every second.
+let shown = null;
+let shownAt = 0;
+
 function renderNow(now) {
+  shown = now;
+  shownAt = performance.now();
+  drawNow();
+}
+
+function drawNow() {
+  const now = shown;
   const box = $("#now");
   if (!now || !now.title) {
     box.replaceChildren(el("span", "muted", "Nothing playing."));
     return;
   }
   const state = { play: "▶", pause: "❚❚", stop: "■" }[now.mode] || "";
+  const ran = now.mode === "play" ? (performance.now() - shownAt) / 1000 : 0;
+  const at = Math.min((now.elapsed || 0) + ran, now.duration || 0);
   box.replaceChildren(
     el("div", "np-title", `${state} ${now.title}`),
     el("div", "muted", `${now.artist} · ${now.album}`),
-    el("div", "muted", `${fmt(now.elapsed)} / ${fmt(now.duration)} · volume ${now.volume}`),
+    el("div", "muted", `${fmt(at)} / ${fmt(now.duration)} · volume ${now.volume}`),
   );
 }
+
+// When a record would have ended, ask Python what the hi-fi did next.
+setInterval(() => {
+  if (!shown || shown.mode !== "play" || !demo) return;
+  const ran = (performance.now() - shownAt) / 1000;
+  if ((shown.elapsed || 0) + ran >= (shown.duration || 0)) {
+    renderNow(JSON.parse(demo.status_json()));
+  } else {
+    drawNow();
+  }
+}, 1000);
 
 function renderTold(told) {
   const list = $("#told");
@@ -179,7 +209,19 @@ function send(text) {
   const you = el("div", "turn");
   you.append(el("span", "t", "You "), el("span", "you", `«${text}»`));
   log.appendChild(you);
-  const out = JSON.parse(demo.turn_json(text, lang()));
+  let out;
+  try {
+    out = JSON.parse(demo.turn_json(text, lang()));
+  } catch (err) {
+    // A Python exception is a bug in the demo or the engine, not an answer;
+    // it is shown as one, never dressed up as something the app said.
+    console.error(err);
+    const oops = el("div", "turn");
+    oops.append(el("span", "t", "App "), el("span", "app err",
+      "(the demo hit an error — please report it on GitHub)"));
+    log.appendChild(oops);
+    return;
+  }
   const app = el("div", "turn");
   app.append(el("span", "t", "App "), el("span", "app" + (out.ok ? "" : " no"), `«${out.speech}»`));
   log.appendChild(app);
@@ -199,15 +241,24 @@ function setupMic() {
   const mic = $("#mic");
   if (!Rec) return;
   mic.hidden = false;
+  $("#mic-note").hidden = false;
+  let rec = null;
   mic.onclick = () => {
     if (!demo) return;
-    const rec = new Rec();
+    if (rec) { rec.stop(); return; }
+    rec = new Rec();
     rec.lang = LOCALES[lang()];
     rec.interimResults = false;
     rec.onresult = (e) => send(e.results[0][0].transcript);
-    rec.onend = () => mic.classList.remove("on");
+    rec.onerror = (e) => { $("#mic-note").textContent = "Microphone: " + e.error + "."; };
+    rec.onend = () => { rec = null; mic.classList.remove("on"); };
     mic.classList.add("on");
-    rec.start();
+    try {
+      rec.start();
+    } catch (err) {
+      rec = null;
+      mic.classList.remove("on");
+    }
   };
 }
 

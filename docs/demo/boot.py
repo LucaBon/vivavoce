@@ -69,6 +69,11 @@ class Demo:
                 "choices": list(out.get("choices") or []),
                 "told": told, "now_playing": self.hifi.status_info()}
 
+    def status_json(self) -> str:
+        """What the hi-fi is doing now, between phrases: a record ends and
+        the next one starts without anybody asking."""
+        return json.dumps(self.hifi.status_info(), ensure_ascii=False)
+
     def turn_json(self, text: str, lang: str = "it") -> str:
         """:meth:`turn` for the page: one string crosses into JavaScript,
         rather than a Python dict proxy the page would have to free."""

@@ -9,14 +9,16 @@ nothing else, so a branch of the engine that forgot to ask fails here the way
 it would on a real partial backend.
 
 The catalogue is chosen for the cases the demo exists to show. Two records are
-called «Time»; «Money» is here only by Pink Floyd; «Wish You Were Here» is not
-here at all. «metti Time di Hans Zimmer» must start Zimmer's, «metti Money dei
-Beatles» must not start Pink Floyd's, and a song it has not got must be *said*,
-not replaced by the first hit.
+called «Time»; «Wish You Were Here» is not here at all. «metti Time di Hans
+Zimmer» must start Zimmer's, and a song it has not got must be *said*, not
+replaced by the first hit.
 
 That last one rests on the search: :meth:`DemoHifi.search_tracks` answers
 nothing when nothing matches, like TIDAL and Qobuz do — which is what lets
 ``actions._resolve_song`` read "the catalogue put it first" as evidence at all.
+It is strict on purpose: every word asked must be on the record. A looser one
+answered «Money for Nothing» with «Money», which a real catalogue never would
+— it has the Dire Straits record — and this shelf of six cannot.
 Stdlib only, and no ``service`` attribute: this system has no streaming
 services to name, and naming one would put «da TIDAL» in its replies.
 """
@@ -26,6 +28,7 @@ from __future__ import annotations
 import contextlib
 import time
 import unicodedata
+from collections import Counter
 from typing import Any, Callable, Dict, List, Optional
 
 from player.protocols import Capabilities
@@ -57,23 +60,12 @@ def _track(n: int) -> Dict[str, Any]:
 
 
 def _matches(query: str, *fields: str) -> bool:
-    """Every word of the query is somewhere in the fields — and a query with
+    """Every word of the query is somewhere in the fields, as many times as it
+    was said («Money Money Money» is ABBA, not Pink Floyd) — and a query with
     no words matches nothing, rather than everything."""
-    wanted = _words(query)
-    have = set(_words(" ".join(fields)))
-    return bool(wanted) and all(w in have for w in wanted)
-
-
-def _title_in(query: str, title: str) -> bool:
-    """The whole title is in the query: «Money Beatles» finds «Money».
-
-    A real catalogue answers «Money Beatles» with every «Money» it has, and
-    leaves the artist to whoever asked. Without this the demo would say it has
-    no «Money» at all — true of the search, false of the catalogue, and the
-    wrong half of the promise to show.
-    """
-    have = set(_words(query))
-    return all(w in have for w in _words(title))
+    wanted = Counter(_words(query))
+    have = Counter(_words(" ".join(fields)))
+    return bool(wanted) and all(have[w] >= n for w, n in wanted.items())
 
 
 class DemoHifi:
@@ -110,12 +102,33 @@ class DemoHifi:
 
     # -- the clock -------------------------------------------------------------
     def _position(self) -> float:
+        self._play_on()
         if self._mode == "play" and self._since is not None:
             return self._elapsed + (self._now() - self._since)
         return self._elapsed
 
+    def _play_on(self) -> None:
+        """What a real player does between two questions: finish a record
+        and start the next, or stop at the end of the queue."""
+        while self._mode == "play" and self._since is not None:
+            track = self._queue[self._index]
+            over = self._elapsed + (self._now() - self._since) - track["duration"]
+            if over < 0:
+                return
+            if self._index + 1 >= len(self._queue):
+                self._stop(at=float(track["duration"]))
+                return
+            self._index += 1
+            self._elapsed, self._since = 0.0, self._now() - over
+
     def _start(self, at: float = 0.0) -> None:
+        if self._current() is None:
+            self._stop()
+            return
         self._elapsed, self._since, self._mode = at, self._now(), "play"
+
+    def _stop(self, at: float = 0.0) -> None:
+        self._elapsed, self._since, self._mode = at, None, "stop"
 
     def _current(self) -> Optional[Dict[str, Any]]:
         if 0 <= self._index < len(self._queue):
@@ -124,22 +137,30 @@ class DemoHifi:
 
     # -- the transport ---------------------------------------------------------
     def pause(self):
+        at = self._position()
         if self._mode == "play":
-            self._elapsed, self._mode = self._position(), "pause"
+            self._elapsed, self._mode = at, "pause"
         return self._say("pause")
 
     def resume(self):
+        self._play_on()
         if self._mode == "pause" and self._current():
             self._start(self._elapsed)
+        elif self._mode == "stop" and self._current():
+            self._start()
         return self._say("resume")
 
     def next_track(self):
+        self._play_on()
         if self._index + 1 < len(self._queue):
             self._index += 1
             self._start()
+        else:
+            self._stop()
         return self._say("next_track")
 
     def previous_track(self):
+        self._play_on()
         if self._index > 0:
             self._index -= 1
         if self._current():
@@ -155,20 +176,24 @@ class DemoHifi:
         return self._say("volume_set", value)
 
     def seek(self, seconds):
+        self._play_on()
         if self._current():
             self._elapsed = float(seconds)
             self._since = self._now()
         return self._say("seek", seconds)
 
     def clear_queue(self):
-        self._queue, self._index, self._mode = [], 0, "stop"
+        self._queue, self._index = [], 0
+        self._stop()
         return self._say("clear_queue")
 
     def queue_upcoming(self, limit: int = 5) -> List[Dict[str, Any]]:
+        self._play_on()
         return [{"title": t["title"], "artist": t["artist"]}
                 for t in self._queue[self._index + 1:self._index + 1 + limit]]
 
     def now_playing_info(self) -> Optional[Dict[str, Any]]:
+        self._play_on()
         track = self._current()
         if not track:
             return None
@@ -177,6 +202,7 @@ class DemoHifi:
                 "elapsed": self._position(), "connected": True}
 
     def status_info(self) -> Dict[str, Any]:
+        self._play_on()
         track = self._current()
         if not track:
             return {"mode": "stop", "volume": self._volume}
@@ -204,6 +230,7 @@ class DemoHifi:
         return self._say("add_url", url)
 
     def insert_url(self, url):
+        self._play_on()
         self._queue.insert(self._index + 1, self._by_url(url))
         return self._say("insert_url", url)
 
@@ -230,8 +257,7 @@ class DemoHifi:
 
     def play_browse_item(self, item_id):
         self._queue, self._index = self._tracks_for(item_id), 0
-        if self._queue:
-            self._start()
+        self._start()
         return self._say("play_browse_item", item_id)
 
     def add_browse_item(self, item_id):
@@ -239,6 +265,7 @@ class DemoHifi:
         return self._say("add_browse_item", item_id)
 
     def insert_browse_item(self, item_id):
+        self._play_on()
         at = self._index + 1
         self._queue[at:at] = self._tracks_for(item_id)
         return self._say("insert_browse_item", item_id)
@@ -251,7 +278,7 @@ class DemoHifi:
     # -- the catalogue ---------------------------------------------------------
     def search_tracks(self, query: str, count: int = 20) -> List[Dict[str, Any]]:
         found = [_track(n) for n, (title, artist, album, _) in enumerate(CATALOGUE)
-                 if _matches(query, title, artist, album) or _title_in(query, title)]
+                 if _matches(query, title, artist, album)]
         return found[:count]
 
     def track_url(self, item_id: str) -> Optional[str]:

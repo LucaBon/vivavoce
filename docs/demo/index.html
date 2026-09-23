@@ -54,6 +54,8 @@ main{display:grid;gap:16px;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);p
 .you{color:var(--amber)}
 .app{color:var(--green)}
 .app.no{color:var(--fg)}
+.app.err{color:var(--red)}
+.small{font-size:.85rem;margin:12px 0 0}
 .choices{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
 button{font:inherit;cursor:pointer}
 .choice,.chip{border:1px solid var(--line);background:var(--bg2);color:var(--fg);
@@ -89,8 +91,8 @@ footer{border-top:1px solid var(--line);padding:22px 0 40px;color:var(--muted);f
     <h1>Say a song. Get that song, or an honest answer.</h1>
     <p class="lede">This is Vivavoce's real engine (the same Python the app runs), loaded
       into this tab. It is connected to a <b>pretend hi-fi</b> with six tracks, so nothing
-      makes any sound. Ask for something it has, something it hasn't got, or the right
-      song by the wrong artist, and watch what it tells the hi-fi to do.</p>
+      makes any sound. Ask for something it has, something it hasn't got, or a famous
+      song with a title on the shelf inside it, and watch what it tells the hi-fi to do.</p>
     <p id="status" data-state="loading" role="status" aria-live="polite">Loading…</p>
   </div>
 </header>
@@ -116,6 +118,9 @@ footer{border-top:1px solid var(--line);padding:22px 0 40px;color:var(--muted);f
         </select>
       </div>
       <div id="chips" aria-label="Suggestions"></div>
+      <p id="mic-note" class="muted small" hidden>The 🎤 uses your browser's own speech
+        recognition, which may send the audio to its maker. The installed app can
+        recognise speech on your own network instead.</p>
     </section>
 
     <aside>
