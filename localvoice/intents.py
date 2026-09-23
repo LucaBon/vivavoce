@@ -139,6 +139,13 @@ class IntentTable:
         # stays an explicit pause even with a play verb ("metti in pausa").
         is_play = bool(P["is_play"].search(t))
 
+        # 0d) spoken media — a jump within the track, a book by name. Ahead of
+        # step 1 because «avanti»/«indietro» are next/prev there. See
+        # intents_spoken.py.
+        res = self._route_spoken(t, P, is_play)
+        if res is not None:
+            return res
+
         # 1) transport & info (source-independent). The sleep timer goes first:
         # «spegni/stop tra 30 minuti» contains transport words, but only counts
         # when its tail really parses as a duration — which is also why it is

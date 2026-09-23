@@ -117,6 +117,58 @@ def now_playing(lms) -> ActionResult:
     return ActionResult(msg(prefix, title=title), ok=True, terms=[title])
 
 
+# A jump beyond half a day is a misheard number, like MAX_SLEEP_MINUTES: no
+# chapter is that long, and «avanti di 100000 secondi» is not a request.
+MAX_SEEK_SECONDS = 12 * 60 * 60
+
+
+def _span(seconds: int) -> str:
+    """How far a jump went, said the way it was asked: minutes when it is a
+    whole number of them, seconds otherwise."""
+    if seconds == 60:
+        return msg("span_one_minute")
+    if seconds >= 60 and seconds % 60 == 0:
+        return msg("span_minutes", n=seconds // 60)
+    return msg("span_seconds", n=seconds)
+
+
+def _seconds(value) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def seek_relative(lms, delta: int) -> ActionResult:
+    """Jump ``delta`` seconds forward (positive) or back (negative) within
+    what is playing — «vai avanti di 30 secondi», the command that tells a
+    book from a song.
+
+    Every system has only an *absolute* seek, so this reads where the track
+    is and adds. Clamped to the start, and to one second short of the end
+    when the track says how long it is: landing past the end would be a
+    silent skip to the next chapter, which is not what «avanti» asked for.
+    A backend that reports no duration (Music Assistant can say ``None``) is
+    clamped at the start only and trusted with the rest.
+    """
+    delta = int(delta)
+    if not delta or abs(delta) > MAX_SEEK_SECONDS:
+        return ActionResult(msg("ask_seek"), ok=False)
+    try:
+        info = lms.status_info() or {}
+        if info.get("mode") == "stop" or not info.get("title"):
+            return ActionResult(msg("nothing_playing"), ok=True)
+        target = _seconds(info.get("elapsed")) + delta
+        duration = _seconds(info.get("duration"))
+        if duration:
+            target = min(target, max(0.0, duration - 1))
+        lms.seek(max(0.0, target))
+    except PlayerError:
+        return unreachable()
+    key = "seek_forward" if delta > 0 else "seek_back"
+    return ActionResult(msg(key, span=_span(abs(delta))), ok=True)
+
+
 # -- queue (playlist) management -------------------------------------------
 def clear_queue(lms) -> ActionResult:
     try:

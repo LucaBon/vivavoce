@@ -370,7 +370,8 @@ from guard import (BLOCKED_SPEECH, NOT_OWNER_SPEECH, parse_blocklist,
                    list_blocks, editing)
 from transport import (VOLUME_STEP, pause, resume, next_track, previous_track,
                        change_volume, MAX_SLEEP_MINUTES, set_sleep,
-                       cancel_sleep, now_playing, clear_queue, queue_list)
+                       cancel_sleep, now_playing, clear_queue, queue_list,
+                       MAX_SEEK_SECONDS, _span, _seconds, seek_relative)
 from candidates import (top_tracks_list, _LOCAL_KIND, _dispatch_play,
                         choose_from, choose_by_name, _is_the_whole_request)
 from library import (_LOCAL_KIND_RANK, _local_group, library_candidates,

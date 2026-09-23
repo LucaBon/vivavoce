@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **Gli audiolibri si chiedono a voce.** Con `--library audiobookshelf`
+  collegato, «metti l'audiolibro Lo Hobbit» — o «leggimi il libro …», "play
+  the audiobook …", «spiel das Hörbuch …», «mets le livre audio …», «pon el
+  audiolibro …» — cerca il libro su Audiobookshelf e ne mette in coda i
+  capitoli, in ordine, sull'impianto che già suona. Se il primo risultato
+  somiglia poco a quello che hai detto, prima chiede «Intendi l'audiolibro
+  …?»: un libro dura ore, e partire col libro sbagliato in silenzio è
+  proprio l'errore che l'app promette di non fare. Un libro bloccato dal
+  kid-safe non viene trovato né nominato.
+
+  La parola che conta è «audiolibro» (o «leggimi il libro»): «metti il libro
+  della giungla» resta una canzone e lo scaffale non viene interrogato.
+  Senza `--library` non cambia niente, nemmeno per queste frasi.
+
+- **«Vai avanti di 30 secondi», «torna indietro di un minuto».** Il salto
+  dentro il brano, nelle cinque lingue: secondi o minuti, a cifre o a parole,
+  «mezzo minuto» compreso. Finora «avanti» e «indietro» volevano dire solo
+  brano successivo e precedente — e lo vogliono dire ancora quando nella
+  frase non c'è un'unità di tempo. Il salto si ferma all'inizio del brano e
+  un secondo prima della fine, invece di scivolare nel capitolo dopo. Un
+  impianto che non sa spostarsi lo dice.
+
+  Non ancora: capitoli, velocità di lettura e «riprendi il libro da dove ero
+  rimasto». Arrivano nei prossimi passi.
+
 ## 0.7.0 — September 2026
 
 ### New
