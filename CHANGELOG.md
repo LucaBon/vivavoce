@@ -4,6 +4,22 @@
 
 ### New
 
+- **Una demo nel browser, senza installare niente.** Sul sito c'è una
+  pagina nuova, [`demo/`](https://lucabon.github.io/vivavoce/demo/), dove si
+  scrive o si dice una frase — «metti Time dei Pink Floyd», «vai avanti di 30
+  secondi», «quali sono i brani di Pink Floyd» e poi «metti la 2» — e si vede
+  che cosa risponde Vivavoce e che cosa manderebbe all'impianto. Il motore è
+  quello vero: lo stesso Python dell'app, caricato nella scheda con Pyodide
+  (circa 5 MB la prima volta, 2–4 secondi). L'impianto invece è finto, con sei
+  brani e nessun suono, scelti apposta per mettere alla prova la promessa:
+  due brani si chiamano «Time», «Money» c'è solo dei Pink Floyd, «Wish You
+  Were Here» non c'è. Chiedi la cosa giusta e parte quella; chiedi quella che
+  non c'è e te lo dice, senza far partire altro. Cinque lingue, microfono
+  dove il browser lo offre.
+
+  L'app installata non cambia di una riga: la pagina scarica i file del
+  motore da jsDelivr, alla stessa versione che il sito pubblica.
+
 - **Gli audiolibri si chiedono a voce.** Con `--library audiobookshelf`
   collegato, «metti l'audiolibro Lo Hobbit» — o «leggimi il libro …», "play
   the audiobook …", «spiel das Hörbuch …», «mets le livre audio …», «pon el

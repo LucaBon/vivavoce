@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try Vivavoce in your browser</title>
+<meta name="description" content="Type or say a song and see what Vivavoce answers: the real matching engine, running in your browser on a pretend hi-fi with six tracks. Nothing to install.">
+<link rel="canonical" href="https://lucabon.github.io/vivavoce/demo/">
+<link rel="icon" href="../assets/icon.png" type="image/png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Try Vivavoce in your browser">
+<meta property="og:description" content="The real matching engine on a pretend hi-fi: say a song, get that song or an honest answer.">
+<meta property="og:image" content="https://lucabon.github.io/vivavoce/assets/og.png">
+<style>
+:root{
+  --bg:#0e1311; --bg2:#131a17; --card:#161e1a; --line:#26332c;
+  --fg:#ecf0ed; --muted:#9aa9a1; --green:#3fa45f; --green-deep:#2d7d46; --amber:#e8a33d;
+  --red:#e0685c; --radius:14px; --maxw:1080px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f6f8f7; --bg2:#eef2f0; --card:#ffffff; --line:#dfe6e2;
+         --fg:#14201a; --muted:#5b6b63; --green:#2d7d46; --green-deep:#24663a;
+         --amber:#a8660f; --red:#b3382c; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--green);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 16px}
+header{padding:28px 0 20px;background:linear-gradient(180deg,var(--bg2),var(--bg))}
+.back{font-size:.92rem}
+h1{font-size:clamp(1.7rem,5vw,2.4rem);line-height:1.2;margin:12px 0 8px;letter-spacing:-.01em}
+h2{font-size:1rem;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.lede{color:var(--muted);max-width:70ch;margin:0}
+.muted{color:var(--muted)}
+#status{margin:14px 0 0;font-size:.92rem;color:var(--muted)}
+#status[data-state=loading]::before{content:"";display:inline-block;width:.8em;height:.8em;
+  margin-right:8px;border-radius:50%;border:2px solid var(--green);border-right-color:transparent;
+  animation:spin 1s linear infinite;vertical-align:-1px}
+#status[data-state=error]{color:var(--red)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+main{display:grid;gap:16px;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);padding:8px 0 40px}
+@media (max-width:760px){ main{grid-template-columns:minmax(0,1fr)} }
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+
+#log{min-height:180px;max-height:52vh;overflow-y:auto;font-family:var(--mono);
+  font-size:.9rem;line-height:1.7;margin-bottom:12px;overflow-wrap:anywhere}
+#log:empty::before{content:"Pick a suggestion below, or type your own.";color:var(--muted)}
+.turn .t{color:var(--muted)}
+.you{color:var(--amber)}
+.app{color:var(--green)}
+.app.no{color:var(--fg)}
+.choices{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+button{font:inherit;cursor:pointer}
+.choice,.chip{border:1px solid var(--line);background:var(--bg2);color:var(--fg);
+  border-radius:999px;padding:5px 12px;font-size:.88rem}
+.choice:hover,.chip:hover{border-color:var(--green)}
+#ask{display:flex;gap:8px}
+#say{flex:1;min-width:0;padding:11px 13px;border-radius:11px;border:1px solid var(--line);
+  background:var(--bg);color:var(--fg);font:inherit}
+#say:focus{outline:2px solid var(--green);outline-offset:1px}
+.btn{padding:10px 16px;border-radius:11px;font-weight:600;border:1px solid var(--green-deep);
+  background:var(--green-deep);color:#fff}
+.btn:disabled{opacity:.5;cursor:default}
+#mic{background:var(--bg2);color:var(--fg);border-color:var(--line)}
+#mic.on{border-color:var(--red);color:var(--red)}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px}
+#chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+select{font:inherit;padding:6px 8px;border-radius:9px;border:1px solid var(--line);
+  background:var(--bg);color:var(--fg)}
+
+aside{display:grid;gap:16px;align-content:start}
+.np-title{font-weight:700;font-size:1.05rem}
+#told{margin:0;padding-left:18px;font-family:var(--mono);font-size:.85rem;overflow-wrap:anywhere}
+#told li[data-empty]{list-style:none;margin-left:-18px}
+#shelf{margin:0;padding-left:18px;font-size:.92rem}
+#shelf .album{color:var(--muted)}
+footer{border-top:1px solid var(--line);padding:22px 0 40px;color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="back" href="../">← Vivavoce</a>
+    <h1>Say a song. Get that song, or an honest answer.</h1>
+    <p class="lede">This is Vivavoce's real engine (the same Python the app runs), loaded
+      into this tab. It is connected to a <b>pretend hi-fi</b> with six tracks, so nothing
+      makes any sound. Ask for something it has, something it hasn't got, or the right
+      song by the wrong artist, and watch what it tells the hi-fi to do.</p>
+    <p id="status" data-state="loading" role="status" aria-live="polite">Loading…</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <main>
+    <section class="card" aria-label="Conversation">
+      <div id="log" aria-live="polite"></div>
+      <form id="ask">
+        <input id="say" type="text" autocomplete="off" disabled
+               placeholder="metti Time dei Pink Floyd" aria-label="Your phrase">
+        <button id="mic" class="btn" type="button" hidden aria-label="Speak">🎤</button>
+        <button id="send" class="btn" type="submit" disabled>Send</button>
+      </form>
+      <div class="row">
+        <label for="lang" class="muted">Language</label>
+        <select id="lang">
+          <option value="it">Italiano</option>
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+        </select>
+      </div>
+      <div id="chips" aria-label="Suggestions"></div>
+    </section>
+
+    <aside>
+      <section class="card" aria-label="Now playing">
+        <h2>Now playing</h2>
+        <div id="now"><span class="muted">Nothing playing.</span></div>
+      </section>
+      <section class="card" aria-label="What the hi-fi was told">
+        <h2>Sent to the hi-fi</h2>
+        <ul id="told"><li class="muted" data-empty>Nothing yet.</li></ul>
+      </section>
+      <section class="card" aria-label="The pretend hi-fi's catalogue">
+        <h2>On the shelf</h2>
+        <ul id="shelf"><li class="muted">…</li></ul>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    The real app does this on your own Lyrion Music Server or Daphile hi-fi, with your
+    library, TIDAL, Qobuz and Spotify, and never leaves your home network.
+    <a href="../#quick-start">Install it</a> ·
+    <a href="https://github.com/LucaBon/vivavoce">Source on GitHub</a>
+  </div>
+</footer>
+<script src="demo.js"></script>
+</body>
+</html>
