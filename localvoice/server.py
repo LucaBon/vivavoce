@@ -151,8 +151,8 @@ def main() -> int:
         return 1
     # Audiobooks (--library) sit beside the music system, never in its place:
     # without the option nothing is built. Checked before the setup page can
-    # block, so a typo is reported at once. Nothing asks the catalogue
-    # anything yet — the sentences that reach a book are a step of their own.
+    # block, so a typo is reported at once. Every router is handed it, and
+    # the sentences that reach a book are in intents_spoken.py.
     books, complaint = spoken_library.open_library(args)
     if complaint:
         print(complaint)
@@ -329,7 +329,8 @@ def main() -> int:
                      multiroom=multiroom, app_version=appdata.app_version(),
                      wakeword_sessions=wakeword_sessions,
                      wake_phrase_store=wake_phrase_store,
-                     allowed_hosts=webguard.parse_hosts(args.allowed_hosts)),
+                     allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
+                     books=books),
     )
 
     if scheme == "https":

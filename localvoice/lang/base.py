@@ -65,6 +65,11 @@ the growth is — the size guard in ``tests/test_packaging.py`` is what said so,
 twice, when German went over the line on the strength of its vocabulary alone.
 A module without ``CODE`` is invisible to the registry, so all six sit here
 without being mistaken for packs — the same way this file does.
+
+``spoken_xx.py`` is the seventh, and the one exception to "the pack holds the
+grammar": the phrases for books and for jumping within a track
+(``seek_fwd``, ``seek_back``, ``audiobook``), which ``__init__.py`` folds into
+the pack's ``PATTERNS`` at import. Every language owes one.
 """
 
 from __future__ import annotations

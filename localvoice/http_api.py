@@ -61,7 +61,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                  kidsafe=None, transcriber=None, multiroom=None,
                  app_version: str = "", wakeword_sessions=None,
                  wake_phrase_store=None, api_token="",
-                 allowed_hosts=None, proxy_open=None, lms_from_page=False):
+                 allowed_hosts=None, proxy_open=None, lms_from_page=False,
+                 books=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -99,7 +100,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 r = Router(client_for(key[1]), default_service=default_service,
                            services=tuple(services),
                            kidsafe=kidsafe, client_id=client_id,
-                           multiroom=multiroom)
+                           multiroom=multiroom, books=books)
                 routers[key] = r
                 while len(routers) > MAX_ROUTERS:
                     routers.popitem(last=False)  # drop the least recently used
