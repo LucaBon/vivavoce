@@ -139,6 +139,13 @@ jobs:
               b.close()
           "
 
+      # La demo pubblica (docs/demo/) gira in Pyodide: il suo test serve i
+      # file del runtime da .cache/ invece che dalla CDN, perché nessun test
+      # tocca la rete. Scaricarli è setup, come il browser qui sopra; senza,
+      # con VIVAVOCE_REQUIRE_BROWSER=1 il test fallisce invece di saltare.
+      - name: Fetch the Pyodide runtime for the demo page
+        run: uv run python tools/fetch_pyodide.py
+
       # VIVAVOCE_REQUIRE_BROWSER=1: qui uno skip è un errore. Vedi la
       # docstring di tests/e2e/conftest.py — un test che non gira in silenzio
       # è peggio di uno che fallisce.
