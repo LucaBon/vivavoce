@@ -447,11 +447,17 @@ def test_the_addon_action_checks_the_image_carries_the_version_asked_for():
         "nothing reads the version back out of the built add-on image")
 
 
+#: The newest version tag that exists, looked up without a pipe (see
+#: test_no_step_pipes_into_a_reader_that_stops_early).
+NEWEST_TAG = re.compile(r"git for-each-ref --count=1 --sort=-v:refname"
+                        r"[\s\S]*?'refs/tags/v\[0-9\]")
+
+
 def test_ci_builds_the_addon_from_a_tag_that_exists_not_the_declared_one():
     # Deliberate, and easy to "fix" into a job that is red on develop for most
     # of every release cycle: the Dockerfile 404s on an untagged version, and
     # an untagged version is the normal state of develop between releases.
-    assert "git tag" in _addon_job_script("ci.yml"), (
+    assert NEWEST_TAG.search(_addon_job_script("ci.yml")), (
         "the ci.yml addon job no longer derives BUILD_VERSION from an existing "
         "tag; building the declared version fails on develop by design")
 
@@ -471,7 +477,7 @@ def test_the_release_builds_the_addon_from_the_tag_being_released():
         "so it cannot be building the version being released")
     assert "GITHUB_REF#refs/tags/v" in script, (
         "the release addon job does not take BUILD_VERSION from the tag")
-    assert "git tag" in script, (
+    assert NEWEST_TAG.search(script), (
         "no fallback for workflow_dispatch, where there is no tag: the note at "
         "the top of release.yml promises a manual run exercises the workflow")
 
@@ -1277,3 +1283,45 @@ def test_every_ci_job_has_a_timeout():
             assert spec["timeout-minutes"] <= 30, (
                 f"{name}: job '{job}' allows {spec['timeout-minutes']} minutes; "
                 f"nothing here legitimately takes that long")
+
+
+# -- a pipe into a reader that stops early ------------------------------------
+#
+# Every step here runs under `pipefail` (GitHub's bash default, and `set -euo
+# pipefail` besides). Under it `producer | grep -q x` fails whenever grep finds
+# `x` and exits while the producer is still writing: the producer dies of
+# SIGPIPE, the pipeline returns 141, and the step goes red having found exactly
+# what it was looking for. It depends on how much output follows the match, so
+# it passes for weeks and then fails a release — the add-on start-up check did,
+# on `docker logs addon | grep -q "Pronto"`, the day 0.8.0 was tagged.
+# `grep -m` and `head` stop early the same way. Read the output first, then
+# search it: `grep -q x <<<"$(producer)"`.
+
+#: A single `|` (not `||`, which is "or") into `grep -q`/`-m` or `head`.
+EARLY_EXIT_READER = re.compile(
+    r"(?<!\|)\|(?!\|)\s*(?:grep\s+(?:-\w*[qm]\w*\b)|head\b)")
+
+
+def _run_scripts(path):
+    yaml = pytest.importorskip("yaml")
+    doc = yaml.safe_load(_read(*path))
+    steps = []
+    for job in (doc.get("jobs") or {}).values():
+        steps += job.get("steps") or []
+    steps += (doc.get("runs") or {}).get("steps") or []
+    return [str(step.get("run", "")) for step in steps]
+
+
+@pytest.mark.parametrize("path", [
+    (".github", "workflows", "ci.yml"),
+    (".github", "workflows", "release.yml"),
+    ADDON_ACTION,
+], ids=lambda p: p[-1])
+def test_no_step_pipes_into_a_reader_that_stops_early(path):
+    offending = [line.strip() for script in _run_scripts(path)
+                 for line in script.splitlines()
+                 if not line.strip().startswith("#")
+                 and EARLY_EXIT_READER.search(line)]
+    assert offending == [], (
+        "under pipefail these fail with 141 when the reader exits first — "
+        f"read the output, then search it: {offending}")
