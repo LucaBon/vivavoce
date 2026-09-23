@@ -1,16 +1,24 @@
 # Lyrion forum launch post — draft
 
 > Post to: forums.lyrion.org → 3rd party software. Title suggestion:
-> **[ANNOUNCE] Vivavoce — say a song, the exact song plays (local web app, IT+EN, TIDAL/Qobuz)**
+> **[ANNOUNCE] Vivavoce — say a song, the exact song plays (local web app, 5 languages, TIDAL/Qobuz)**
 >
 > **Before posting, two things only Luca can fill:**
 > 1. the Lemon Squeezy checkout link (marked `<<LEMON SQUEEZY LINK>>` below —
 >    the same URL also has to replace `PRO_STORE_URL` in
 >    `localvoice/static/js/pro.js`, which still points at a placeholder);
-> 2. 2–3 screenshots (`tools/shots/`) and ideally a 20-second GIF of
->    "metti Comfortably Numb dei Pink Floyd" → playing.
+> 2. a 20-second GIF of "metti Comfortably Numb dei Pink Floyd" → playing.
+>    The screenshots are ready: 18 PNGs in `tools/shots/`, nine scenes in
+>    light and dark — pick 2–3.
 >
-> The repo link is filled in. Everything else here matches what ships.
+> The repo link is filled in. Facts re-checked against the repo on
+> 2026-09-23 (languages, and what has already shipped).
+>
+> **Still to do before this is postable:** the post predates the Music
+> Assistant backend, the Home Assistant add-on and Assist blueprint, the
+> setup page and the Audiobookshelf link. None of that is wrong here — it is
+> simply absent, and absent is what makes an announcement read as older than
+> the product.
 
 ---
 
@@ -36,15 +44,17 @@ phone/tablet on your LAN, tap the mic (or type), and say:
   *"play my favourites"*, *"play the radio X"*;
 - *"play X in the kitchen"*, *"turn off in 30 minutes"*;
 - when several songs genuinely match, it **asks** instead of silently playing
-  the wrong one. Matching is deterministic (rules + scoring, ~735 tests, no
-  LLM, no cloud in the loop) — audio keeps flowing LMS → player, bit-perfect.
+  the wrong one. Matching is deterministic (rules + scoring, more test code
+  than app code, no LLM, no cloud in the loop) — audio keeps flowing
+  LMS → player, bit-perfect.
 
-It speaks **Italian and English** (parsing and replies follow the language you
-pick). There's a now-playing card with artwork, and for browsing it opens
-**Material Skin inside the page** rather than reinventing it — your own
-installed plugin, framed under the app's address so the microphone stays on
-screen while you browse. Nothing of Material Skin is redistributed, and if
-yours lives elsewhere the app falls back to a plain link to it.
+It speaks **Italian, English, German, French and Spanish** (parsing and
+replies both follow the language you pick). There's a now-playing card with
+artwork, and for browsing it opens **Material Skin inside the page** rather
+than reinventing it — your own installed plugin, framed under the app's
+address so the microphone stays on screen while you browse. Nothing of
+Material Skin is redistributed, and if yours lives elsewhere the app falls
+back to a plain link to it.
 
 **The honest bits**, because you'd find them anyway:
 
@@ -98,7 +108,8 @@ that same spirit.
 
 I'd genuinely love your first impressions — especially misheard phrases (the
 matching is deterministic, so one phrase is usually enough to reproduce and
-fix). What I'm weighing next: a **Home Assistant Assist integration** so you
-can use it from HA's own voice pipeline, **German** as a third language, and
-better handling of vague requests ("play something relaxing"). Which of those
-would actually matter to you?
+fix). What I'm weighing next: **audiobooks and podcasts** — an Audiobookshelf
+library heard through the speakers you already own; **foreign names said with
+a local accent**, which is the one place the matching still drops phrases;
+and cheap **ESP32 satellites** for hands-free in rooms without a tablet.
+Which of those would actually matter to you?
