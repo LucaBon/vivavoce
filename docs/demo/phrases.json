@@ -1,174 +1,239 @@
 {
-  "_comment": "Suggested phrases, in order: the page shows them as chips and tests/test_demo.py plays every language through the real Router and holds it to 'expect'. plays = a track started; lists = a numbered list and nothing started; refuses = an honest sentence and nothing started; controls = a transport command. pick = what tapping a numbered button sends, the same words localvoice/static/js/chat.js PICK_PHRASE sends.",
+  "_comment": "Suggested phrases, in order: the page shows them as chips and tests/test_demo.py plays every language through the real Router and holds it to 'expect'. plays = a track started; lists = a numbered list and nothing started; refuses = an honest sentence and nothing started; controls = a transport command. naive = what the page's typical-assistant column must say beside it (naive.py): differs, same, or n/a when the phrase plays nothing new; the differences come first, they are the point of the page. pick = what tapping a numbered button sends, the same words localvoice/static/js/chat.js PICK_PHRASE sends.",
   "langs": {
     "it": [
       {
-        "say": "metti Time dei Pink Floyd",
-        "expect": "plays"
-      },
-      {
         "say": "metti Time di Hans Zimmer",
-        "expect": "plays"
-      },
-      {
-        "say": "metti l'album Inception",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "differs"
       },
       {
         "say": "metti Wish You Were Here",
-        "expect": "refuses"
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "metti Money for Nothing",
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "metti Time dei Pink Floyd",
+        "expect": "plays",
+        "naive": "same"
+      },
+      {
+        "say": "metti l'album Inception",
+        "expect": "plays",
+        "naive": "same"
       },
       {
         "say": "quali sono i brani di Pink Floyd",
-        "expect": "lists"
+        "expect": "lists",
+        "naive": "n/a"
       },
       {
         "say": "metti la 2",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "n/a"
       },
       {
         "say": "vai avanti di 30 secondi",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       },
       {
         "say": "pausa",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       }
     ],
     "en": [
       {
-        "say": "play Time by Pink Floyd",
-        "expect": "plays"
-      },
-      {
         "say": "play Time by Hans Zimmer",
-        "expect": "plays"
-      },
-      {
-        "say": "play the album Inception",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "differs"
       },
       {
         "say": "play Wish You Were Here",
-        "expect": "refuses"
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "play Money for Nothing",
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "play Time by Pink Floyd",
+        "expect": "plays",
+        "naive": "same"
+      },
+      {
+        "say": "play the album Inception",
+        "expect": "plays",
+        "naive": "same"
       },
       {
         "say": "top tracks by Pink Floyd",
-        "expect": "lists"
+        "expect": "lists",
+        "naive": "n/a"
       },
       {
         "say": "play number 2",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "n/a"
       },
       {
         "say": "skip forward 30 seconds",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       },
       {
         "say": "pause",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       }
     ],
     "de": [
       {
-        "say": "spiele Time von Pink Floyd",
-        "expect": "plays"
-      },
-      {
         "say": "spiele Time von Hans Zimmer",
-        "expect": "plays"
-      },
-      {
-        "say": "spiele das Album Inception",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "differs"
       },
       {
         "say": "spiele Wish You Were Here",
-        "expect": "refuses"
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "spiele Money for Nothing",
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "spiele Time von Pink Floyd",
+        "expect": "plays",
+        "naive": "same"
+      },
+      {
+        "say": "spiele das Album Inception",
+        "expect": "plays",
+        "naive": "same"
       },
       {
         "say": "die besten Lieder von Pink Floyd",
-        "expect": "lists"
+        "expect": "lists",
+        "naive": "n/a"
       },
       {
         "say": "nimm die 2",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "n/a"
       },
       {
         "say": "spule 30 Sekunden vor",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       },
       {
         "say": "pause",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       }
     ],
     "fr": [
       {
-        "say": "mets Time de Pink Floyd",
-        "expect": "plays"
-      },
-      {
         "say": "mets Time de Hans Zimmer",
-        "expect": "plays"
-      },
-      {
-        "say": "mets l'album Inception",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "differs"
       },
       {
         "say": "mets Wish You Were Here",
-        "expect": "refuses"
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "mets Money for Nothing",
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "mets Time de Pink Floyd",
+        "expect": "plays",
+        "naive": "same"
+      },
+      {
+        "say": "mets l'album Inception",
+        "expect": "plays",
+        "naive": "same"
       },
       {
         "say": "meilleurs titres de Pink Floyd",
-        "expect": "lists"
+        "expect": "lists",
+        "naive": "n/a"
       },
       {
         "say": "mets le 2",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "n/a"
       },
       {
         "say": "avance de 30 secondes",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       },
       {
         "say": "pause",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       }
     ],
     "es": [
       {
-        "say": "pon Time de Pink Floyd",
-        "expect": "plays"
-      },
-      {
         "say": "pon Time de Hans Zimmer",
-        "expect": "plays"
-      },
-      {
-        "say": "pon el álbum Inception",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "differs"
       },
       {
         "say": "pon Wish You Were Here",
-        "expect": "refuses"
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "pon Money for Nothing",
+        "expect": "refuses",
+        "naive": "differs"
+      },
+      {
+        "say": "pon Time de Pink Floyd",
+        "expect": "plays",
+        "naive": "same"
+      },
+      {
+        "say": "pon el álbum Inception",
+        "expect": "plays",
+        "naive": "same"
       },
       {
         "say": "mejores canciones de Pink Floyd",
-        "expect": "lists"
+        "expect": "lists",
+        "naive": "n/a"
       },
       {
         "say": "pon la 2",
-        "expect": "plays"
+        "expect": "plays",
+        "naive": "n/a"
       },
       {
         "say": "adelanta 30 segundos",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       },
       {
         "say": "pausa",
-        "expect": "controls"
+        "expect": "controls",
+        "naive": "n/a"
       }
     ]
   },
