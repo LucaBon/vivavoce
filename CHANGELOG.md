@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+- **La CI non fallisce più per aver trovato quello che cercava.** Il
+  controllo d'avvio dell'add-on faceva `docker logs addon | grep -q
+  "Pronto"`: sotto `pipefail`, quando `grep` trova la riga ed esce mentre
+  `docker` sta ancora scrivendo, la pipe finisce con 141 e il passo diventa
+  rosso. È successo sul push della 0.8.0. Ora il log si legge prima e si
+  cerca dopo, e la scelta del tag più recente usa `git for-each-ref
+  --count=1` invece di `| head -1`, che è la stessa gara. Un test in
+  `tests/test_packaging.py` rifiuta d'ora in poi ogni `| grep -q`, `| grep
+  -m` o `| head` nei passi dei workflow.
+
 ## 0.8.0 — September 2026
 
 ### New

@@ -104,8 +104,12 @@ runs:
         docker exec addon test -s /data/cert.pem
         docker exec addon test -s /data/key.pem
 
-        # And the server got as far as printing the address to open.
-        docker logs addon 2>&1 | grep -q "Pronto"
+        # And the server got as far as printing the address to open. The log
+        # is read first and searched after: `docker logs | grep -q` fails the
+        # step with 141 whenever grep finds the line and exits while docker is
+        # still writing — it did, on the push that released 0.8.0.
+        logs=$(docker logs addon 2>&1)
+        grep -q "Pronto" <<<"$logs"
 
         echo "$machine: starts, generates the certificate and answers"
 
