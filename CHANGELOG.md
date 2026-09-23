@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.8.0 — September 2026
+
+### New
+
+- **Una demo nel browser, senza installare niente.** Sul sito c'è una
+  pagina nuova, [`demo/`](https://lucabon.github.io/vivavoce/demo/), dove si
+  scrive o si dice una frase — «metti Time dei Pink Floyd», «vai avanti di 30
+  secondi», «quali sono i brani di Pink Floyd» e poi «metti la 2» — e si vede
+  che cosa risponde Vivavoce e che cosa manderebbe all'impianto. Il motore è
+  quello vero: lo stesso Python dell'app, caricato nella scheda con Pyodide
+  (circa 5 MB la prima volta, 2–4 secondi). L'impianto invece è finto, con sei
+  brani e nessun suono, scelti apposta per mettere alla prova la promessa:
+  due brani si chiamano «Time», «Money» c'è solo dei Pink Floyd, «Wish You
+  Were Here» non c'è. Chiedi la cosa giusta e parte quella; chiedi quella che
+  non c'è e te lo dice, senza far partire altro. Cinque lingue, microfono
+  dove il browser lo offre.
+
+  L'app installata non cambia di una riga: la pagina scarica i file del
+  motore da jsDelivr, alla stessa versione che il sito pubblica.
+
+- **Gli audiolibri si chiedono a voce.** Con `--library audiobookshelf`
+  collegato, «metti l'audiolibro Lo Hobbit» — o «leggimi il libro …», "play
+  the audiobook …", «spiel das Hörbuch …», «mets le livre audio …», «pon el
+  audiolibro …» — cerca il libro su Audiobookshelf e ne mette in coda i
+  capitoli, in ordine, sull'impianto che già suona. Se il primo risultato
+  somiglia poco a quello che hai detto, prima chiede «Intendi l'audiolibro
+  …?»: un libro dura ore, e partire col libro sbagliato in silenzio è
+  proprio l'errore che l'app promette di non fare. Un libro bloccato dal
+  kid-safe non viene trovato né nominato.
+
+  La parola che conta è «audiolibro» (o «leggimi il libro»): «metti il libro
+  della giungla» resta una canzone e lo scaffale non viene interrogato.
+  Senza `--library` non cambia niente, nemmeno per queste frasi.
+
+- **«Vai avanti di 30 secondi», «torna indietro di un minuto».** Il salto
+  dentro il brano, nelle cinque lingue: secondi o minuti, a cifre o a parole,
+  «mezzo minuto» compreso. Finora «avanti» e «indietro» volevano dire solo
+  brano successivo e precedente — e lo vogliono dire ancora quando nella
+  frase non c'è un'unità di tempo. Il salto si ferma all'inizio del brano e
+  un secondo prima della fine, invece di scivolare nel capitolo dopo. Un
+  impianto che non sa spostarsi lo dice.
+
+  Non ancora: capitoli, velocità di lettura e «riprendi il libro da dove ero
+  rimasto». Arrivano nei prossimi passi.
+
 ## 0.7.0 — September 2026
 
 ### New

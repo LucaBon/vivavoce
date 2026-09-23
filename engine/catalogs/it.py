@@ -159,6 +159,20 @@ MESSAGES = {
     "sleep_too_long": "\u00c8 troppo: posso spegnere al massimo tra {max} minuti.",
     "sleep_cancelled": "Timer di spegnimento annullato.",
     "nothing_playing": "Al momento non sta suonando niente.",
+    # Spoken media (T5.4/T5.6): the relative seek and the audiobooks.
+    "seek_forward": "Avanti di {span}.",
+    "seek_back": "Indietro di {span}.",
+    "span_seconds": "{n} secondi",
+    "span_minutes": "{n} minuti",
+    "span_one_minute": "un minuto",
+    "ask_seek": "Non ho capito di quanto spostarmi. Puoi ripetere?",
+    "no_seek": "Questo impianto non sa spostarsi dentro un brano.",
+    "book_playing": "Metto l'audiolibro {title}.",
+    "book_playing_by": "Metto l'audiolibro {title} di {author}.",
+    "book_did_you_mean": "Intendi l'audiolibro {title}?",
+    "book_did_you_mean_by": "Intendi l'audiolibro {title} di {author}?",
+    "no_book_found": "Non ho trovato nessun audiolibro per {title}.",
+    "book_no_audio": "{title} non ha niente da ascoltare: forse è solo un e-book.",
     "now_playing": "Sta suonando {title}.",
     "now_playing_by": "Sta suonando {title} di {artist}.",
     "paused_on": "\u00c8 in pausa su {title}.",
@@ -186,6 +200,9 @@ MESSAGES = {
     "already_blocked": "{term} è già nella lista dei brani bloccati.",
     "blocklist_save_error":
         "Non riesco a salvare la lista in questo momento. Riprova tra poco.",
+    "settings_save_error":
+        "Non riesco a salvare le impostazioni in questo momento. "
+        "Riprova tra poco.",
     "block_added": "Ok, ho bloccato {term}.",
     "ask_unblock": "Non ho capito cosa sbloccare. Puoi ripetere?",
     "not_in_blocklist": "{term} non è nella lista dei brani bloccati.",

@@ -162,6 +162,21 @@ MESSAGES = {
                       "ausschalten.",
     "sleep_cancelled": "Schlaftimer abgebrochen.",
     "nothing_playing": "Gerade l\u00e4uft nichts.",
+    # Spoken media (T5.4/T5.6): the relative seek and the audiobooks.
+    "seek_forward": "{span} vor.",
+    "seek_back": "{span} zur\u00fcck.",
+    "span_seconds": "{n} Sekunden",
+    "span_minutes": "{n} Minuten",
+    "span_one_minute": "Eine Minute",
+    "ask_seek": "Ich habe nicht verstanden, wie weit ich springen soll. "
+                "Kannst du das wiederholen?",
+    "no_seek": "Diese Anlage kann innerhalb eines Titels nicht springen.",
+    "book_playing": "Ich spiele das H\u00f6rbuch {title}.",
+    "book_playing_by": "Ich spiele das H\u00f6rbuch {title} von {author}.",
+    "book_did_you_mean": "Meinst du das H\u00f6rbuch {title}?",
+    "book_did_you_mean_by": "Meinst du das H\u00f6rbuch {title} von {author}?",
+    "no_book_found": "Ich habe kein H\u00f6rbuch f\u00fcr {title} gefunden.",
+    "book_no_audio": "{title} hat nichts zum Anh\u00f6ren: vielleicht nur ein E-Book.",
     "now_playing": "Gerade l\u00e4uft {title}.",
     "now_playing_by": "Gerade l\u00e4uft {title} von {artist}.",
     "paused_on": "Pausiert bei {title}.",
@@ -193,6 +208,9 @@ MESSAGES = {
     "already_blocked": "{term} steht schon auf der Sperrliste.",
     "blocklist_save_error":
         "Ich kann die Liste gerade nicht speichern. Bitte versuch es gleich noch mal.",
+    "settings_save_error":
+        "Ich kann die Einstellungen gerade nicht speichern. "
+        "Bitte versuch es gleich noch mal.",
     "block_added": "Ok, ich habe {term} gesperrt.",
     "ask_unblock": "Ich habe nicht verstanden, was ich freigeben soll. Kannst du "
                    "das wiederholen?",

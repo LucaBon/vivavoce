@@ -151,6 +151,12 @@ export const UI_EN = {
     "Enter a valid key to re-activate.",
   pro_err_network: "Couldn't reach the license server. Check the connection and try again.",
   pro_err_invalid: "Key not valid (or activation limit reached): ",
+  // The key may have been fine: what failed was writing the activation to
+  // disk. Saying "not valid" to somebody who just paid is the worst answer.
+  // Not "try again": activate() registers the instance with the licence
+  // server BEFORE writing to disk, so each retry spends another seat and
+  // walks the customer into the activation limit.
+  pro_err_save: "Activated \u2014 but it could not be saved on this machine. Free some disk space and reload the page; the key is already registered, so do not enter it again.",
   pro_only: " — Pro feature",
   pro_trial: (n) => "<b>Pro trial — " + (n === 1 ? "last day" : n + " days left") +
     ".</b> Everything is on, microphone included. When it ends, typed commands " +
@@ -300,6 +306,7 @@ export const UI_IT = {
     "sono spente. Inserisci una chiave valida per riattivarle.",
   pro_err_network: "Non raggiungo il server delle licenze. Controlla la connessione e riprova.",
   pro_err_invalid: "Chiave non valida (o limite attivazioni raggiunto): ",
+  pro_err_save: "Attivata \u2014 ma non sono riuscito a salvarla su questa macchina. Libera spazio sul disco e ricarica la pagina: la chiave \u00e8 gi\u00e0 registrata, non reinserirla.",
   pro_only: " — funzione Pro",
   pro_trial: (n) => "<b>Prova Pro — " + (n === 1 ? "ultimo giorno" : "restano " + n + " giorni") +
     ".</b> È tutto attivo, microfono compreso. Alla scadenza i comandi scritti " +

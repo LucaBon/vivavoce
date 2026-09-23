@@ -7,7 +7,7 @@
 
 import { $, clientId } from "./util.js";
 import { applyBrowse } from "./browse.js";
-import { ui } from "./i18n.js";
+import { replyLang, ui } from "./i18n.js";
 import { syncVoicePanel } from "./tts.js";
 import { syncWakePhrase } from "./miccapture.js";
 import { renderPlayers } from "./settings.js";
@@ -156,10 +156,22 @@ async function ksAction(action, extra) {
     const r = await fetch("/kidsafe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(Object.assign({ client: clientId(), action }, extra || {}))
+      // lang: this route phrases its own answers (a blocklist refusal comes
+      // back as `speech`), and the server starts every request at the
+      // default language. replyLang() and not recLang(): it is the language
+      // the SERVER has a catalog for, which is what a reply can be written
+      // in — the mic may be set to one that has none.
+      body: JSON.stringify(Object.assign(
+        { client: clientId(), action, lang: replyLang() }, extra || {}))
     });
     const d = await r.json();
-    KS = d;
+    // Only when the reply actually carries the state. renderKidsafe() decides
+    // from `enabled`/`locked` whether the Material Skin browser is reachable,
+    // so a reply missing them would read as "kid-safe is off" and un-hide it
+    // on a locked device. The server sends the state even when a write fails
+    // (settings_api.py says why); this is the belt for the case where some
+    // future reply does not.
+    if ("enabled" in d) { KS = d; }
     renderKidsafe();
     if (!d.ok) {
       const st = $("ksstatus");
@@ -172,8 +184,9 @@ async function ksAction(action, extra) {
       } else if (d.error === "pin_too_short") {
         st.innerHTML += ' <span class="warn">' + ui("ks_pin_short") + "</span>";
       } else if (d.error === "save_failed" && d.speech) {
-        // The server already phrased this one, in the user's language, and it
-        // carries the term they typed — so it goes in as text, never markup.
+        // The server phrased this one, in the language this request asked
+        // for (see `lang` above), and it carries the term they typed — so
+        // it goes in as text, never markup.
         const warn = document.createElement("span");
         warn.className = "warn";
         warn.textContent = " " + d.speech;
@@ -208,8 +221,10 @@ export function initPro() {
       if (d.ok) { $("prokey").value = ""; setPro(d); }
       else {
         st.classList.add("warn");
-        st.textContent = d.error === "network"
-          ? ui("pro_err_network") : ui("pro_err_invalid") + (d.detail || "");
+        st.textContent =
+          d.error === "network" ? ui("pro_err_network")
+          : d.error === "save_failed" ? ui("pro_err_save")
+          : ui("pro_err_invalid") + (d.detail || "");
       }
     } catch (e) {
       st.classList.add("warn");

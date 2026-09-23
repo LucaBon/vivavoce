@@ -53,15 +53,22 @@ Home Assistant add-on build with a 404.
 ## Tests
 
 ```bash
-uv run pytest        # the whole suite: 2515 tests, ~5 min
+uv run pytest        # the whole suite: minutes, not seconds — allow 10
 ```
 
-About 2m of that is `tests/e2e/`, which drives a real headless browser
-(2515 in 4m47s with it, 2445 in 2m45s without — measured 2026-09-18). That
-directory **skips cleanly when the Chromium binary is missing**, so a run that
-finishes in under three minutes has tested no frontend at all and still
-reports green. `uv run playwright install chromium` enables it, and
-`VIVAVOCE_REQUIRE_BROWSER=1` turns every such skip into a failure — CI sets it.
+**No test count lives on this page, on purpose.** It moves with almost every
+commit, so a number written here is wrong the week after — this line has
+already said "~35s", and then a count that was stale before anyone read it.
+`uv run pytest --collect-only` prints the real one in well under a second.
+
+A good part of the run is `tests/e2e/`, which drives a real headless browser.
+That directory **skips cleanly when the Chromium binary is missing**, so a
+run without a browser still reports green having tested no frontend at all.
+**The wall-clock does not tell the two apart** — the rest of the suite is by
+itself slow enough to pass for a full run. The tell is the summary line: with
+no browser every `tests/e2e/` test becomes a skip. `uv run playwright install
+chromium` enables it, and `VIVAVOCE_REQUIRE_BROWSER=1` turns every such skip
+into a failure — CI sets it.
 
 `conftest.py` owns the shared scaffolding — `live_server()` runs the real
 handler on an ephemeral port and returns a client with

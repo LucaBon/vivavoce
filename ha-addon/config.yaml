@@ -10,9 +10,9 @@
 # il Supervisor questa è un'app NUOVA — chi aveva la vecchia deve
 # disinstallarla e installare questa (vedi CHANGELOG.md qui accanto).
 name: Vivavoce
-version: "0.7.0"
+version: "0.8.0"
 slug: vivavoce
-description: Controllo vocale in italiano/inglese/francese/tedesco per LMS/Squeezebox/Daphile, TIDAL e Qobuz inclusi
+description: Controllo vocale in italiano/inglese/spagnolo/francese/tedesco per LMS/Squeezebox/Daphile, TIDAL e Qobuz inclusi
 url: https://github.com/LucaBon/vivavoce
 # Solo 64 bit. Home Assistant ha tolto le architetture a 32 bit con la
 # 2025.12: da allora la base armv7 non viene più ricostruita — è ferma al

@@ -6,7 +6,13 @@
 >
 > **Before posting:** replace `<<LEMON SQUEEZY LINK>>` (the same URL also has
 > to replace `PRO_STORE_URL` in `localvoice/static/js/pro.js`) and attach the
-> screenshots. The repo link is filled in.
+> screenshots — they are ready, 18 PNGs in `tools/shots/`. The repo link is
+> filled in. Facts re-checked against the repo on 2026-09-23.
+>
+> **Still to do before this is postable:** the post predates the Music
+> Assistant backend, the Home Assistant add-on and Assist blueprint, the
+> setup page and the Audiobookshelf link — absent, not wrong, and absence is
+> what makes an announcement read as older than the product.
 
 ---
 
@@ -32,13 +38,14 @@ tap the mic or type:
   favourites" / "play the radio X" / "play X in the kitchen" / "turn off in
   30 minutes";
 - ambiguous match → it asks you, never silently plays the wrong thing.
-  Deterministic matching (no LLM), ~735 tests, commands only — your
-  bit-perfect chain is untouched.
+  Deterministic matching (no LLM), more test code than app code, commands
+  only — your bit-perfect chain is untouched.
 
-Works in English and Italian. Now-playing card with artwork; browsing stays
-Material Skin's job — your own installed copy, opened *inside* the page so the
-mic never leaves the screen. Not a clone and not a fork: the app just serves it
-from its own address, because a HTTPS page can't frame a plain-HTTP one.
+Works in English, Italian, German, French and Spanish. Now-playing card with
+artwork; browsing stays Material Skin's job — your own installed copy, opened
+*inside* the page so the mic never leaves the screen. Not a clone and not a
+fork: the app just serves it from its own address, because a HTTPS page can't
+frame a plain-HTTP one.
 
 **Honesty corner:** by default the mic uses the browser's speech engine
 (Chrome → Google, iOS → Apple, transcription only). If that bothers you,
@@ -68,5 +75,6 @@ nothing breaks — typed commands keep working. And Lemon Squeezy refunds within
 Repo: **https://github.com/LucaBon/vivavoce** · Pro: **<<LEMON SQUEEZY LINK>>**
 
 Feedback very welcome — especially phrases it mishears. Next up, and genuinely
-undecided: a Home Assistant Assist integration, German as a third language, or
-smarter handling of vague requests ("play something relaxing"). Opinions?
+undecided: audiobooks and podcasts through the speakers you already own,
+better matching of foreign names said with a local accent, or cheap ESP32
+satellites for rooms without a tablet. Opinions?

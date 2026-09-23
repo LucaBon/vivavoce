@@ -26,3 +26,6 @@ tools/shots/
 .sherpa-models/
 # Voci Piper scaricate da tools/make_wake_corpus.py (dev, non runtime).
 .piper-voices/
+
+# Pyodide per il test della demo (tools/fetch_pyodide.py)
+.cache/

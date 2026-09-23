@@ -1,0 +1,182 @@
+{
+  "_comment": "Suggested phrases, in order: the page shows them as chips and tests/test_demo.py plays every language through the real Router and holds it to 'expect'. plays = a track started; lists = a numbered list and nothing started; refuses = an honest sentence and nothing started; controls = a transport command. pick = what tapping a numbered button sends, the same words localvoice/static/js/chat.js PICK_PHRASE sends.",
+  "langs": {
+    "it": [
+      {
+        "say": "metti Time dei Pink Floyd",
+        "expect": "plays"
+      },
+      {
+        "say": "metti Time di Hans Zimmer",
+        "expect": "plays"
+      },
+      {
+        "say": "metti l'album Inception",
+        "expect": "plays"
+      },
+      {
+        "say": "metti Wish You Were Here",
+        "expect": "refuses"
+      },
+      {
+        "say": "quali sono i brani di Pink Floyd",
+        "expect": "lists"
+      },
+      {
+        "say": "metti la 2",
+        "expect": "plays"
+      },
+      {
+        "say": "vai avanti di 30 secondi",
+        "expect": "controls"
+      },
+      {
+        "say": "pausa",
+        "expect": "controls"
+      }
+    ],
+    "en": [
+      {
+        "say": "play Time by Pink Floyd",
+        "expect": "plays"
+      },
+      {
+        "say": "play Time by Hans Zimmer",
+        "expect": "plays"
+      },
+      {
+        "say": "play the album Inception",
+        "expect": "plays"
+      },
+      {
+        "say": "play Wish You Were Here",
+        "expect": "refuses"
+      },
+      {
+        "say": "top tracks by Pink Floyd",
+        "expect": "lists"
+      },
+      {
+        "say": "play number 2",
+        "expect": "plays"
+      },
+      {
+        "say": "skip forward 30 seconds",
+        "expect": "controls"
+      },
+      {
+        "say": "pause",
+        "expect": "controls"
+      }
+    ],
+    "de": [
+      {
+        "say": "spiele Time von Pink Floyd",
+        "expect": "plays"
+      },
+      {
+        "say": "spiele Time von Hans Zimmer",
+        "expect": "plays"
+      },
+      {
+        "say": "spiele das Album Inception",
+        "expect": "plays"
+      },
+      {
+        "say": "spiele Wish You Were Here",
+        "expect": "refuses"
+      },
+      {
+        "say": "die besten Lieder von Pink Floyd",
+        "expect": "lists"
+      },
+      {
+        "say": "nimm die 2",
+        "expect": "plays"
+      },
+      {
+        "say": "spule 30 Sekunden vor",
+        "expect": "controls"
+      },
+      {
+        "say": "pause",
+        "expect": "controls"
+      }
+    ],
+    "fr": [
+      {
+        "say": "mets Time de Pink Floyd",
+        "expect": "plays"
+      },
+      {
+        "say": "mets Time de Hans Zimmer",
+        "expect": "plays"
+      },
+      {
+        "say": "mets l'album Inception",
+        "expect": "plays"
+      },
+      {
+        "say": "mets Wish You Were Here",
+        "expect": "refuses"
+      },
+      {
+        "say": "meilleurs titres de Pink Floyd",
+        "expect": "lists"
+      },
+      {
+        "say": "mets le 2",
+        "expect": "plays"
+      },
+      {
+        "say": "avance de 30 secondes",
+        "expect": "controls"
+      },
+      {
+        "say": "pause",
+        "expect": "controls"
+      }
+    ],
+    "es": [
+      {
+        "say": "pon Time de Pink Floyd",
+        "expect": "plays"
+      },
+      {
+        "say": "pon Time de Hans Zimmer",
+        "expect": "plays"
+      },
+      {
+        "say": "pon el álbum Inception",
+        "expect": "plays"
+      },
+      {
+        "say": "pon Wish You Were Here",
+        "expect": "refuses"
+      },
+      {
+        "say": "mejores canciones de Pink Floyd",
+        "expect": "lists"
+      },
+      {
+        "say": "pon la 2",
+        "expect": "plays"
+      },
+      {
+        "say": "adelanta 30 segundos",
+        "expect": "controls"
+      },
+      {
+        "say": "pausa",
+        "expect": "controls"
+      }
+    ]
+  },
+  "pick": {
+    "it": "metti la {n}",
+    "en": "play number {n}",
+    "de": "spiel Nummer {n}",
+    "fr": "mets le numéro {n}",
+    "es": "pon el número {n}"
+  }
+}

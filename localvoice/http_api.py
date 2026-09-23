@@ -14,7 +14,10 @@ Two families of routes live next door rather than here, both mixed into
 * ``POST /api/v1/command``, from ``api_v1.py``: the one route with a
   *versioned promise* attached to it (see ``docs/api.md``). Everything else
   in this module is the web app talking to itself and may change with the
-  page it serves.
+  page it serves;
+* the settings panel — ``/kidsafe`` and ``/license`` — from
+  ``settings_api.py``: the Pro-gated surface, and the only routes that write
+  to disk on a POST.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ from lmsproxy import browse_path, proxy_routes
 from messages import CATALOGS
 from player.protocols import service_label
 from router import Router
+from settings_api import settings_routes
 
 # The languages the router can answer in, for the page's read-back: the voice
 # that speaks the reply frame has to be the voice of the language the frame is
@@ -57,7 +61,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                  kidsafe=None, transcriber=None, multiroom=None,
                  app_version: str = "", wakeword_sessions=None,
                  wake_phrase_store=None, api_token="",
-                 allowed_hosts=None, proxy_open=None, lms_from_page=False):
+                 allowed_hosts=None, proxy_open=None, lms_from_page=False,
+                 books=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -95,7 +100,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 r = Router(client_for(key[1]), default_service=default_service,
                            services=tuple(services),
                            kidsafe=kidsafe, client_id=client_id,
-                           multiroom=multiroom)
+                           multiroom=multiroom, books=books)
                 routers[key] = r
                 while len(routers) > MAX_ROUTERS:
                     routers.popitem(last=False)  # drop the least recently used
@@ -113,6 +118,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                   audio_routes(license_mgr, transcriber, wakeword_sessions,
                                wake_phrase_store),
                   proxy_routes(lms.base_url, browse, proxy_open),
+                  settings_routes(kidsafe, license_mgr),
                   httpbase.RequestBase, BaseHTTPRequestHandler):
         host_policy = webguard.HostPolicy(allowed_hosts)
         api_token = token
@@ -177,71 +183,6 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._wakeword_status()
             elif not self._proxy():
                 self._send(404, "not found", "text/plain")
-
-        def _kidsafe_state(self, client_id: str) -> dict:
-            state = {
-                "pro": kidsafe.pro_ok(),
-                "enabled": kidsafe.enabled(),
-                "haspin": kidsafe.has_pin(),
-                "locked": not kidsafe.is_unlocked(client_id),
-            }
-            if not state["locked"]:
-                # I termini si vedono solo da sbloccati: un bambino non deve
-                # poter leggere la lista per aggirarla.
-                state["terms"] = kidsafe.terms()
-            return state
-
-        def _kidsafe_status(self):
-            if not kidsafe:
-                self._send(200, json.dumps({"pro": False, "enabled": False}))
-                return
-            client_id = (self._query_params().get("client") or ["default"])[0]
-            self._send(200, json.dumps(self._kidsafe_state(client_id)))
-
-        def _kidsafe_action(self):
-            if not kidsafe:
-                self._send(200, json.dumps(
-                    {"ok": False, "error": "unavailable"}))
-                return
-            payload = self._read_json_object()
-            client_id = payload.get("client") or "default"
-            action = payload.get("action") or ""
-            pin = payload.get("pin") or ""
-            term = payload.get("term") or ""
-            if action == "unlock":
-                if kidsafe.unlock(client_id, pin):
-                    result = {"ok": True}
-                else:
-                    wait = kidsafe.locked_out_for()
-                    result = ({"ok": False, "error": "locked_out",
-                               "retry_in": int(wait) + 1} if wait > 0
-                              else {"ok": False, "error": "wrong_pin"})
-            elif action == "lock":
-                kidsafe.lock(client_id)
-                result = {"ok": True}
-            elif action == "enable":
-                result = kidsafe.enable(pin, client_id)
-            elif action == "disable":
-                result = kidsafe.disable(client_id)
-            elif action in ("add", "remove"):
-                result = kidsafe.edit_terms(action, term, client_id)
-            else:
-                result = {"ok": False, "error": "unknown_action"}
-            result.update(self._kidsafe_state(client_id))
-            self._send(200, json.dumps(result, ensure_ascii=False))
-
-        def _activate_license(self):
-            # Attivazione una tantum dalla UI impostazioni. Server solo LAN:
-            # nessuna auth extra, come per /command.
-            if not license_mgr:
-                self._send(200, json.dumps(
-                    {"ok": False, "error": "unavailable"}))
-                return
-            key = self._read_json_object().get("key", "")
-            result = license_mgr.activate(key)
-            if result.get("ok"):
-                result.update(license_mgr.status())
-            self._send(200, json.dumps(result))
 
         def _query_player(self) -> str:
             """The optional ``player`` query param (the UI player selector)."""

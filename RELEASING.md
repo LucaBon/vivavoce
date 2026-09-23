@@ -35,6 +35,21 @@ following the install guide to the letter.
 `test_docs_quote_the_declared_version` now fails if a doc quotes a tag that is
 not the declared version, so update `DEPLOY.md` in the same edit.
 
+And a **fourth**, generated rather than typed: the public demo
+(`docs/demo/`) downloads the engine from jsDelivr **at the release tag**, and
+`docs/demo/core-files.json` names it. Regenerate it with the bump:
+
+```bash
+uv run python tools/demo_core_files.py
+```
+
+`tests/test_demo.py` fails until you do. The tag, not `@main`, because Pages
+publishes `main` within minutes while jsDelivr serves a moved branch from its
+cache for hours — and the tag is the `main` merge commit (step 4), so the page
+and the engine it runs are the same tree. Between the push to `main` and the
+tag, the demo page 404s on its engine files: another reason step 4 is "same
+breath".
+
 ### 2. Write the CHANGELOG entries — both of them
 
 Add `## X.Y.Z — <Month Year>` at the top of `CHANGELOG.md`, dated when it

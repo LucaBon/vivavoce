@@ -33,3 +33,17 @@ for _info in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
         raise ImportError(
             f"language pack {__name__}.{_info.name} is missing {_missing}")
     PACKS[_mod.CODE] = _mod
+
+# Spoken media (``spoken_xx.py``): three more patterns per language, kept in a
+# module of their own — see ``spoken_it.py`` for why — and folded into the
+# pack's table here, so the router reads one ``PATTERNS`` and the key-parity
+# test holds them like the rest. Required, for the reason the contract is: a
+# language that forgot them would answer «vai avanti di 30 secondi» by
+# skipping the track, which is what the step exists to stop.
+for _code, _mod in PACKS.items():
+    try:
+        _spoken = importlib.import_module(f"{__name__}.spoken_{_code}")
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            f"language pack {_mod.__name__} has no spoken_{_code}.py") from exc
+    _mod.PATTERNS.update(_spoken.PATTERNS)

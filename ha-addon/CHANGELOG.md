@@ -11,6 +11,29 @@ versioni [SemVer](https://semver.org/lang/it/). La versione dell'app coincide
 sempre con quella del progetto: l'immagine viene compilata dal tag
 `v<versione>`, non da un branch.
 
+## [0.8.0] - 2026-09-23
+
+### Aggiunto
+
+- **Gli audiolibri si chiedono a voce.** Con un Audiobookshelf collegato
+  (`library`), «metti l'audiolibro Lo Hobbit» — o «leggimi il libro …», e le
+  stesse frasi in inglese, tedesco, francese e spagnolo — cerca il libro e ne
+  mette in coda i capitoli, in ordine, sull'impianto che già suona. Se il
+  primo risultato somiglia poco a quello che hai detto, prima chiede «Intendi
+  l'audiolibro …?»: un libro dura ore, e partire col libro sbagliato in
+  silenzio è proprio l'errore che l'app promette di non fare. Un libro
+  bloccato dal kid-safe non viene trovato né nominato. «Metti il libro della
+  giungla», senza «audiolibro», resta una canzone.
+
+- **«Vai avanti di 30 secondi», «torna indietro di un minuto».** Il salto
+  dentro il brano, nelle cinque lingue: secondi o minuti, a cifre o a parole.
+  Senza un'unità di tempo «avanti» e «indietro» restano brano successivo e
+  precedente. Il salto si ferma all'inizio del brano e un secondo prima della
+  fine.
+
+  Non ancora: capitoli, velocità di lettura e «riprendi il libro da dove ero
+  rimasto».
+
 ## [0.7.0] - 2026-09-18
 
 ### Aggiunto

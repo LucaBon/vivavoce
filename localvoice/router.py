@@ -35,6 +35,7 @@ from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
                           OFFER_TTL, Busy, ConversationState, busy)
 from alternatives import AlternativeSweep
 from intents import IntentTable
+from intents_spoken import SpokenIntents
 from lang import PACKS
 from messages import msg, set_lang
 from parsing import clean_command
@@ -64,11 +65,11 @@ MOOD_WORDS = {code: pack.MOOD_WORDS for code, pack in PACKS.items()}
 
 
 
-class Router(ConversationState, IntentTable, SourceChoice,
+class Router(ConversationState, IntentTable, SpokenIntents, SourceChoice,
              AlternativeSweep):
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
                  kidsafe=None, client_id="default", multiroom=None,
-                 now=time.monotonic):
+                 now=time.monotonic, books=None):
         # ``lms`` is a property on ConversationState: a room turn aims it per
         # thread, because this Router is shared by every request on the
         # conversation. See _aimed_at there.
@@ -92,6 +93,9 @@ class Router(ConversationState, IntentTable, SourceChoice,
         # kid-safe, None (the default) disables the feature entirely; the
         # AGPL router only calls the contract, it owns no room logic.
         self.multiroom = multiroom
+        # Audiobooks (--library, player/composite.py): None when the household
+        # has none, and then no sentence ever looks for one.
+        self.books = books
         # Streaming sources this router accepts as a ``source`` value; anything
         # else streams from ``default_service`` (also the "auto" fallback).
         self.default_service = default_service
