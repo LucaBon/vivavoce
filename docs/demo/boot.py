@@ -46,17 +46,31 @@ def started(told: List[Dict[str, Any]]) -> bool:
     return any(c["name"].startswith("play_") for c in told)
 
 
-def verdict(naive: Any, told: List[Dict[str, Any]], now: Dict[str, Any]) -> str:
-    """``same``, ``differs`` or ``n/a``: what the page says about the typical
-    assistant's column. Differs when it would have started a record
-    Vivavoce did not — another one, or one where Vivavoce started nothing
-    and said why."""
-    from naive import NOT_A_PLAY
+def queued(told: List[Dict[str, Any]]) -> bool:
+    """Did this turn put something in the queue rather than play it?"""
+    return any(c["name"].startswith(("add_", "insert_")) for c in told)
 
-    if naive == NOT_A_PLAY:
+
+def verdict(text: str, lang: str, naive: Any, told: List[Dict[str, Any]],
+            now: Dict[str, Any]) -> str:
+    """What the page says about the typical assistant's column:
+
+    * ``n/a`` — nothing to compare: not a request to play, or one to queue
+      («metti Money in coda» is not «metti Money», and its first hit would
+      be marked wrong for being the very record that was queued);
+    * ``same`` — the same record, or nothing on both sides;
+    * ``lucky`` — Vivavoce started nothing, and the first hit looks like
+      what was asked for (:func:`naive.resembles`): said, not scored;
+    * ``differs`` — it would have started a record Vivavoce did not.
+    """
+    from naive import NOT_A_PLAY, resembles
+
+    if naive == NOT_A_PLAY or queued(told):
         return NOT_A_PLAY
     if not started(told):
-        return "same" if naive is None else "differs"
+        if naive is None:
+            return "same"
+        return "lucky" if resembles(text, lang, naive) else "differs"
     if naive is None:
         return "differs"
     same = (naive["title"], naive["artist"]) == (now.get("title"), now.get("artist"))
@@ -96,7 +110,7 @@ class Demo:
                 "needs_choice": bool(out.get("needs_choice")),
                 "choices": list(out.get("choices") or []),
                 "told": told, "now_playing": now,
-                "naive": naive, "verdict": verdict(naive, told, now)}
+                "naive": naive, "verdict": verdict(text, lang, naive, told, now)}
 
     def status(self) -> Dict[str, Any]:
         """What the hi-fi is doing, and what it will play after it."""

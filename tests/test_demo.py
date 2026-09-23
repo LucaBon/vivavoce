@@ -274,6 +274,36 @@ def test_a_refusal_beside_a_wrong_record_differs(demo):
     assert out["naive"]["title"] == "Here Comes the Sun"
 
 
+@pytest.mark.parametrize("phrase,lang", [
+    ("metti Money in coda", "it"), ("play Money next", "en"),
+    ("metti Money dopo questa canzone", "it"),
+])
+def test_queueing_a_record_is_not_compared(phrase, lang):
+    # Its first hit is the very record queued: marking it wrong would count
+    # a wrong song that nobody avoided.
+    demo = boot.Demo(DemoHifi(now=lambda: 1000.0))
+    demo.turn("metti Breathe", "it")
+    out = demo.turn(phrase, lang)
+    assert out["ok"], out["speech"]
+    assert out["verdict"] == NOT_A_PLAY
+
+
+def test_a_right_first_hit_beside_a_miss_is_not_scored(demo):
+    # «Rapsody»: Vivavoce does not find it, the keyword search does. The
+    # page says so rather than calling Queen's record the wrong one.
+    out = demo.turn("play Bohemian Rapsody", "en")
+    assert not out["ok"]
+    assert out["naive"]["artist"] == "Queen"
+    assert out["verdict"] == "lucky"
+
+
+@pytest.mark.parametrize("phrase,lang", [
+    ("metti Money dei Beatles", "it"), ("spiele Money von den Beatles", "de"),
+])
+def test_the_right_title_by_the_wrong_artist_is_still_wrong(demo, phrase, lang):
+    assert demo.turn(phrase, lang)["verdict"] == "differs"
+
+
 def test_the_same_record_is_said_to_be_the_same(demo):
     assert demo.turn("metti Time dei Pink Floyd", "it")["verdict"] == "same"
 

@@ -23,6 +23,7 @@ says so rather than inventing a difference.
 
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Union
 
 from hifi import CATALOGUE, _track, _words
@@ -31,6 +32,10 @@ from hifi import CATALOGUE, _track, _words
 #: without it «the» in «play the album Inception» would find «The Dark Side
 #: of the Moon» and the comparison would be against a straw man.
 MIN_KEYWORD = 4
+
+#: How close a title must read to the one asked for before the first hit is
+#: taken for the record the listener meant: «Bohemian Rapsody» is Queen's.
+SAME_TITLE = 0.8
 
 #: :func:`naive_turn`'s answer when the phrase does not ask to play anything.
 NOT_A_PLAY = "n/a"
@@ -84,3 +89,26 @@ def naive_turn(text: str, lang: str = "it") -> Union[str, None, Dict[str, str]]:
         return None
     return {"title": track["title"], "artist": track["artist"],
             "album": track["album"], "url": track["url"]}
+
+
+def resembles(text: str, lang: str, track: Dict[str, Any]) -> bool:
+    """Is the first hit plausibly the record that was asked for?
+
+    Only asked when Vivavoce started nothing. Then the first hit is not
+    wrong by definition: «play Bohemian Rapsody» said with one letter short
+    finds Queen's, and calling that «not what you asked for» would be the
+    page scoring a point for a miss. The title has to read nearly the same,
+    and an artist, when one was named, has to be on the record —
+    «metti Money dei Beatles» answered with Pink Floyd's is still wrong.
+    """
+    from matching import parse_song_query
+
+    asked = parse_song_query(request_tail(text, lang) or "", lang=lang)
+    title = " ".join(_words(asked.get("title") or ""))
+    if not title:
+        return False
+    close = SequenceMatcher(None, title, " ".join(_words(track["title"]))).ratio()
+    if close < SAME_TITLE:
+        return False
+    named = keywords(asked.get("artist") or "")
+    return set(named) <= set(_words(track["artist"]))

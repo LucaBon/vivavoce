@@ -151,6 +151,17 @@ def test_the_first_search_hit_is_shown_beside_the_right_record(demo_page):
     assert page.inner_text("#avoided") == "1"
 
 
+def test_a_lucky_first_hit_is_said_and_not_counted(demo_page):
+    page = demo_page
+    boot(page)
+    say(page, "metti Bohemian Rapsody")
+    last = page.locator("#log .exchange").last
+    assert "Bohemian Rhapsody — Queen" in last.locator(".col.typical").inner_text()
+    assert last.locator(".col.typical.wrong").count() == 0
+    assert last.locator(".lucky").count() == 1
+    assert page.inner_text("#avoided") == "0"
+
+
 def test_the_reply_is_said_aloud_and_can_be_silenced(demo_page):
     page = demo_page
     # Headless Chromium has no voices; what matters is what the page asks for.

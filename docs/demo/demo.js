@@ -262,6 +262,9 @@ function typicalColumn(out) {
     col.appendChild(el("div", "what", "Finds nothing to play"));
   }
   if (out.verdict === "differs") col.appendChild(el("div", "mark", "✗ Not what you asked for"));
+  // Vivavoce missed, and the first hit looks right: said as it is, and
+  // not counted — the counter is for wrong songs, not for points.
+  if (out.verdict === "lucky") col.appendChild(el("div", "lucky", "✓ Probably right this time"));
   return col;
 }
 
@@ -294,7 +297,9 @@ function send(text) {
   viva.appendChild(el("div", "who", "Vivavoce"));
   const said = el("div", "app" + (out.ok ? "" : " no"), `«${out.speech}»`);
   viva.appendChild(said);
-  if (out.verdict === "differs") {
+  if (out.verdict === "lucky") {
+    versus.append(typicalColumn(out), viva);
+  } else if (out.verdict === "differs") {
     versus.append(typicalColumn(out), viva);
     avoided += 1;
     $("#avoided").textContent = String(avoided);
