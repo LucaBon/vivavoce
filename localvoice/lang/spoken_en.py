@@ -5,11 +5,12 @@ from __future__ import annotations
 
 from .base import c
 
-_AMOUNT = r"(?P<n>\d+|half\s+an?|a\s+couple\s+of|[a-z]+)"
+_AMOUNT = r"(?P<n>\d+|[^\W\d_]+(?:[\s-]+[^\W\d_]+){0,3}?)"
+_PLUS = r"(?P<plus>\s+and\s+a\s+half)?"
 _UNIT = r"(?P<unit>seconds?|secs?|minutes?|mins?)"
 _VERB = r"(?:skip|go|jump|move|fast[\s-]?forward|rewind|wind)"
 _DIR = r"(?:back(?:wards?)?|forward|ahead)"
-_BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:by\s+)?{_AMOUNT}[\s-]+{_UNIT}"
+_BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:by\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLUS}"
          rf"(?:\s+{_DIR})?(?:\s+please)?\s*$")
 _BACK = r"(?=.*\b(?:back(?:wards?)?|rewind)\b)"
 

@@ -20,37 +20,68 @@ included (a search for it, as any other title).
 
 from __future__ import annotations
 
+import re
+
 import actions
 from messages import msg
 from parsing import _minutes_of
 from player.errors import PlayerError
 
 #: «mezzo minuto», "half a minute", «eine halbe Minute», «une demi-minute»,
-#: «medio minuto»: thirty seconds, whichever unit follows.
-_HALF = ("mezzo", "mezza", "half", "halbe", "demi", "medio")
-#: «un paio di», "a couple of", «un par de»: two.
-_PAIR = ("paio", "couple", "par")
+#: «medio minuto»: thirty seconds. Half a *second* is not a jump anybody
+#: means, and is asked again rather than read as thirty.
+_HALF = ("mezzo", "mezza", "half", "halbe", "demi", "medio", "media")
+#: «un paio di», "a couple of", «un par de», «ein paar»: two.
+_PAIR = ("paio", "couple", "par", "paar")
+#: The words that join the parts of a spoken number or a pair — «treinta y
+#: cinco», "a couple of" — and add nothing to it.
+_JOINERS = ("e", "y", "und", "et", "and", "of", "di", "de", "a", "an", "un",
+            "ein", "eine", "une", "una", "uno")
 
-#: How many books a spoken title is weighed against. The first is the one the
-#: catalogue ranked highest; the rest only have to lose to it.
+#: How many books a spoken title is weighed against. The catalogue's own
+#: ranking is only the tiebreaker: see :meth:`SpokenIntents._play_book`.
 BOOK_CANDIDATES = 5
 
 
-def seek_seconds(amount: str, unit: str):
+def _count(words):
+    """A spoken number of one or more words -> int, or None.
+
+    Compound numbers are the parts added up — «forty five», «quarante-cinq»,
+    «treinta y cinco» — which is how every one of the five languages says
+    them. A single word is read on its own, joiners included («un minuto»);
+    in a longer amount the joiners are dropped. Any word left over that is
+    not a number makes the whole amount unreadable.
+    """
+    if len(words) == 1:
+        return _minutes_of(words[0])
+    if any(w in _PAIR for w in words):
+        return 2 if all(w in _PAIR or w in _JOINERS for w in words) else None
+    parts = [_minutes_of(w) for w in words if w not in _JOINERS]
+    if not parts or any(p is None for p in parts):
+        return None
+    return sum(parts)
+
+
+def seek_seconds(amount: str, unit: str, plus: str = ""):
     """``(amount, unit)`` as said -> seconds, or ``None`` when the amount is
-    not a number anybody could have meant."""
-    words = (amount or "").strip().lower().split()
+    not a number anybody could have meant. ``plus`` is the «e mezzo» / "and
+    a half" that may follow the unit: half of one more of it."""
+    words = re.split(r"[\s-]+", (amount or "").strip().lower())
+    words = [w for w in words if w]
+    minutes = (unit or "").lower().startswith("min")
     if not words:
         return None
     if any(w in _HALF for w in words):
-        return 30
-    if any(w in _PAIR for w in words):
-        n = 2
-    else:
-        n = _minutes_of(words[-1]) if len(words) == 1 else None
+        return 30 if minutes and not plus else None
+    n = _count(words)
     if not n:
         return None
-    return n * 60 if (unit or "").lower().startswith("min") else n
+    seconds = n * 60 if minutes else n
+    if plus:
+        if not minutes:
+            return None
+        seconds += 30
+    return seconds
 
 
 class SpokenIntents:
@@ -65,7 +96,8 @@ class SpokenIntents:
             for key, sign in (("seek_back", -1), ("seek_fwd", 1)):
                 m = P[key].match(t)
                 if m:
-                    seconds = seek_seconds(m.group("n"), m.group("unit"))
+                    seconds = seek_seconds(m.group("n"), m.group("unit"),
+                                           m.group("plus"))
                     if seconds is None:
                         return actions.ActionResult(msg("ask_seek"), ok=False)
                     return (self._unable("seek", say="no_seek")
@@ -91,20 +123,31 @@ class SpokenIntents:
         if not found:
             return actions.ActionResult(msg("no_book_found", title=query),
                                         ok=False)
-        book = found[0]
-        # The catalogue ranks by its own lights, and a book is hours long:
-        # starting the wrong one in silence is the failure this product
-        # promises not to have. So a weak first match is asked about, with
-        # the same yes/no every other doubt uses — and «sì» plays it where
-        # the question was asked.
+        # The catalogue ranks by its own lights — author and series count
+        # there as much as the title — so the words that were said decide,
+        # and its order only breaks a tie. Otherwise an exact title in
+        # second place was out of reach: the question named the first one,
+        # and «no» ended the turn.
+        scored = [(self._book_score(query, b), i, b) for i, b in enumerate(found)]
+        score, _, book = min(scored, key=lambda s: (-s[0], s[1]))
         title, author = book.get("title"), book.get("author")
-        score = max(actions._score(query, title),
-                    actions._score(query, f"{title} {author or ''}"))
+        # A book is hours long: starting the wrong one in silence is the
+        # failure this product promises not to have. So a weak best match is
+        # asked about, with the same yes/no every other doubt uses — and «sì»
+        # plays it where the question was asked.
         if score < actions.CONFIDENT_SCORE:
             key = "book_did_you_mean_by" if author else "book_did_you_mean"
             return self._offer(msg(key, title=title, author=author),
-                lambda: self._start_book(book))
+                               lambda: self._start_book(book))
         return self._start_book(book)
+
+    @staticmethod
+    def _book_score(query: str, book: dict) -> float:
+        """How well ``query`` names ``book``: by its title, or by its title
+        and author together («lo hobbit di tolkien»)."""
+        title, author = book.get("title"), book.get("author")
+        return max(actions._score(query, title),
+                   actions._score(query, f"{title} {author or ''}"))
 
     def _start_book(self, book: dict):
         title = book.get("title") or ""

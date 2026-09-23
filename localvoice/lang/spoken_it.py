@@ -23,11 +23,12 @@ from __future__ import annotations
 
 from .base import c
 
-_AMOUNT = r"(?P<n>\d+|mezz[oa]|un\s+paio\s+di|[a-zà-ù]+)"
+_AMOUNT = r"(?P<n>\d+|[^\W\d_]+(?:[\s-]+[^\W\d_]+){0,3}?)"
+_PLUS = r"(?P<plus>\s+e\s+mezz[oa])?"
 _UNIT = r"(?P<unit>second[oi]|minut[oi])"
 _VERB = r"(?:vai|va|torna|salta|spostati|sposta|manda|portati|porta|riavvolgi|avanza)"
 _DIR = r"(?:in\s+)?(?:avanti|indietro)"
-_BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:di\s+)?{_AMOUNT}[\s-]+{_UNIT}"
+_BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:di\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLUS}"
          rf"(?:\s+{_DIR})?(?:\s+(?:per\s+favore|grazie))?\s*$")
 _BACK = r"(?=.*\b(?:indietro|riavvolgi)\b)"
 

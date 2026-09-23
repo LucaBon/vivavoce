@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from .base import c
 
-_AMOUNT = r"(?P<n>\d+|eine?\s+halbe|ein\s+paar|[a-zäöüß]+)"
+_AMOUNT = r"(?P<n>\d+|[^\W\d_]+(?:[\s-]+[^\W\d_]+){0,3}?)"
+_PLUS = r"(?P<plus>\s+und\s+(?:eine\s+)?halbe?)?"
 _UNIT = r"(?P<unit>sekunden?|minuten?)"
 _VERB = r"(?:spule?|springe?|gehe?|mach)"
 _DIR = r"(?:vor(?:w[aä]rts)?|zur[uü]ck|nach\s+vorne|weiter)"
-_BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:um\s+)?{_AMOUNT}[\s-]+{_UNIT}"
+_BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:um\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLUS}"
          rf"(?:\s+{_DIR})?(?:\s+bitte)?\s*$")
 _BACK = r"(?=.*\bzur[uü]ck\b)"
 

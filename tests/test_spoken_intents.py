@@ -132,9 +132,18 @@ def test_seek_relative_on_the_lms_is_an_absolute_time_command(lms, transport):
     ("due", "minuti", 120), ("mezzo", "minuto", 30), ("half a", "minute", 30),
     ("eine halbe", "Minute", 30), ("un paio di", "minuti", 120),
     ("a couple of", "minutes", 120), ("quanti", "secondi", None),
+    ("forty five", "seconds", 45), ("forty-five", "seconds", 45),
+    ("quarante-cinq", "secondes", 45), ("treinta y cinco", "segundos", 35),
+    ("ein paar", "Sekunden", 2), ("mezzo", "secondo", None),
+    ("half a", "second", None), ("forty banana", "seconds", None),
 ])
 def test_seek_seconds(amount, unit, seconds):
     assert seek_seconds(amount, unit) == seconds
+
+
+def test_and_a_half_is_half_of_one_more_minute():
+    assert seek_seconds("un", "minuto", " e mezzo") == 90
+    assert seek_seconds("30", "secondi", " e mezzo") is None
 
 
 # -- the sentences, in five languages ------------------------------------------
@@ -158,6 +167,14 @@ JUMPS = [
     ("es", "adelanta 30 segundos", 130.0),
     ("es", "retrocede un minuto", 40.0),
     ("es", "vuelve 10 segundos atrás", 90.0),
+    # Compound amounts: before, these matched no jump and fell through to
+    # «avanti»/"skip" — the next track, the very thing this step stops.
+    ("en", "skip ahead forty five seconds", 145.0),
+    ("en", "skip forward forty-five seconds", 145.0),
+    ("it", "vai avanti di un minuto e mezzo", 190.0),
+    ("fr", "avance de quarante-cinq secondes", 145.0),
+    ("es", "adelanta treinta y cinco segundos", 135.0),
+    ("de", "spul ein paar Sekunden vor", 102.0),
 ]
 
 
@@ -186,9 +203,15 @@ def test_a_title_after_a_play_verb_is_not_a_jump(player):
     assert "seek" not in player.names()
 
 
-def test_a_jump_nobody_could_measure_is_asked_again(player):
-    reply = Router(player, services=()).handle("vai avanti di tanti secondi")
-    assert str(reply) == msg("ask_seek")
+@pytest.mark.parametrize("phrase", [
+    "vai avanti di tanti secondi",
+    "torna indietro di mezzo secondo",
+    "vai avanti di quarantacinque secondi",
+])
+def test_a_jump_nobody_could_measure_is_asked_again(player, phrase):
+    # Asked, and neither a guess nor a track change.
+    reply = Router(player, services=()).handle(phrase)
+    assert str(reply) == msg("ask_seek"), f"«{phrase}»: {reply}"
     assert player.calls == []
 
 
@@ -237,6 +260,18 @@ def test_a_weak_match_is_asked_about_before_hours_of_it_start(player):
     assert player.calls == []
     assert router.handle("sì").ok
     assert player.names() == ["play_tracks"]
+
+
+def test_the_words_said_outrank_the_catalogues_order(player):
+    # Audiobookshelf ranked a weak match first; the exact title, second, is
+    # the one that was asked for — and it plays without a question.
+    other = {"id": "b2", "title": "Il Silmarillion", "author": "J.R.R. Tolkien",
+             "duration": 1.0}
+    books = shelf_of(other, HOBBIT, files={"b1": ["u1"], "b2": ["x"]})
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert reply.ok
+    assert player.calls == [("play_tracks", (["u1"],))]
 
 
 def test_a_weak_match_turned_down_plays_nothing(player):
