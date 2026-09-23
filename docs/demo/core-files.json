@@ -1,5 +1,5 @@
 {
- "ref": "v0.7.0",
+ "ref": "v0.8.0",
  "files": [
   "engine/actions.py",
   "engine/blocklist_store.py",

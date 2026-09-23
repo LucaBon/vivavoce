@@ -34,7 +34,7 @@ volumes:
   vivavoce-data:
 ```
 
-Pin a version (`:0.7.0`, or `:0.7` to follow patches) instead of `:latest` if
+Pin a version (`:0.8.0`, or `:0.8` to follow patches) instead of `:latest` if
 you would rather choose when to move.
 
 > [!NOTE]
