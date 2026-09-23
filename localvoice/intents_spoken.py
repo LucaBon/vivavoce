@@ -33,46 +33,80 @@ from player.errors import PlayerError
 _HALF = ("mezzo", "mezza", "half", "halbe", "demi", "medio", "media")
 #: «un paio di», "a couple of", «un par de», «ein paar»: two.
 _PAIR = ("paio", "couple", "par", "paar")
-#: The words that join the parts of a spoken number or a pair — «treinta y
-#: cinco», "a couple of" — and add nothing to it.
-_JOINERS = ("e", "y", "und", "et", "and", "of", "di", "de", "a", "an", "un",
-            "ein", "eine", "une", "una", "uno")
+#: The words that join the parts of a spoken number — «treinta y cinco»,
+#: «vingt et un», "a couple of" — and add nothing to it. Dropped anywhere.
+_CONJUNCTIONS = ("e", "y", "und", "et", "and", "of", "di", "de")
+#: Articles, which are ALSO the word for one: «un minuto» is a minute, but in
+#: «vingt et une» the «une» is the one of twenty-one. So they are dropped only
+#: in front of an amount — never after a conjunction, where they count.
+_ARTICLES = ("a", "an", "un", "uno", "una", "une", "ein", "eine", "einen")
 
 #: How many books a spoken title is weighed against. The catalogue's own
 #: ranking is only the tiebreaker: see :meth:`SpokenIntents._play_book`.
 BOOK_CANDIDATES = 5
 
 
-def _count(words):
-    """A spoken number of one or more words -> int, or None.
+def _number(words):
+    """Words -> int by the merged number tables, or None.
 
-    Compound numbers are the parts added up — «forty five», «quarante-cinq»,
-    «treinta y cinco» — which is how every one of the five languages says
-    them. A single word is read on its own, joiners included («un minuto»);
-    in a longer amount the joiners are dropped. Any word left over that is
-    not a number makes the whole amount unreadable.
+    The longest run of words that the tables know as one entry is read
+    first, because French multiplies where the others add: «quatre-vingt-dix»
+    is ninety, and summed a part at a time it was thirty-four. What is left
+    after the longest entries is added up — «forty five», «quarante-cinq»,
+    «treinta y un» — which is how all five languages say the rest.
     """
-    if len(words) == 1:
-        return _minutes_of(words[0])
+    total, i = 0, 0
+    while i < len(words):
+        for j in range(len(words), i, -1):
+            span = words[i:j]
+            value = next((v for v in (_minutes_of(" ".join(span)),
+                                      _minutes_of("-".join(span)))
+                          if v is not None), None)
+            if value is not None:
+                total += value
+                i = j
+                break
+        else:
+            if words[i] in _CONJUNCTIONS and 0 < i < len(words) - 1:
+                i += 1  # «vingt ET une»: joins, adds nothing
+                continue
+            return None
+    return total
+
+
+def _count(words):
+    """A spoken amount of one or more words -> int, or None when any word of
+    it is not part of a number."""
     if any(w in _PAIR for w in words):
-        return 2 if all(w in _PAIR or w in _JOINERS for w in words) else None
-    parts = [_minutes_of(w) for w in words if w not in _JOINERS]
-    if not parts or any(p is None for p in parts):
-        return None
-    return sum(parts)
+        rest = [w for w in words if w not in _PAIR]
+        ok = all(w in _CONJUNCTIONS or w in _ARTICLES for w in rest)
+        return 2 if ok else None
+    return _number(words) if words else None
 
 
 def seek_seconds(amount: str, unit: str, plus: str = ""):
     """``(amount, unit)`` as said -> seconds, or ``None`` when the amount is
     not a number anybody could have meant. ``plus`` is the «e mezzo» / "and
-    a half" that may follow the unit: half of one more of it."""
-    words = re.split(r"[\s-]+", (amount or "").strip().lower())
-    words = [w for w in words if w]
+    a half" that may follow the unit: half of one more of it.
+
+    A half inside the amount is the same thing said before the unit — "one
+    and a half minutes", «zweieinhalb» aside — and a half on its own («mezzo
+    minuto», "half a minute») is thirty seconds. Half of a second is not a
+    jump anybody means, and is asked again.
+    """
+    words = [w for w in re.split(r"[\s-]+", (amount or "").strip().lower()) if w]
     minutes = (unit or "").lower().startswith("min")
-    if not words:
-        return None
-    if any(w in _HALF for w in words):
-        return 30 if minutes and not plus else None
+    half = next((i for i, w in enumerate(words) if w in _HALF), None)
+    if half is not None:
+        if not minutes or plus or any(w not in _ARTICLES for w in words[half + 1:]):
+            return None
+        whole = words[:half]
+        while whole and whole[-1] in _CONJUNCTIONS + _ARTICLES:
+            whole = whole[:-1]  # "one AND A half"
+        if not whole or all(w in _ARTICLES for w in whole):
+            return 30
+        n = _count(whole)
+        return n * 60 + 30 if n else None
     n = _count(words)
     if not n:
         return None

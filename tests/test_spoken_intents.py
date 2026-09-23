@@ -136,6 +136,13 @@ def test_seek_relative_on_the_lms_is_an_absolute_time_command(lms, transport):
     ("quarante-cinq", "secondes", 45), ("treinta y cinco", "segundos", 35),
     ("ein paar", "Sekunden", 2), ("mezzo", "secondo", None),
     ("half a", "second", None), ("forty banana", "seconds", None),
+    # From the review of the fix: a half after a number adds to it; French
+    # multiplies before it adds; and the "one" of twenty-one is a number,
+    # not an article.
+    ("one and a half", "minutes", 90), ("two and a half", "minutes", 150),
+    ("quatre-vingt-dix", "secondes", 90), ("quatre-vingt", "secondes", 80),
+    ("quatre-vingt-quinze", "secondes", 95), ("vingt et une", "secondes", 21),
+    ("treinta y un", "segundos", 31), ("et cinq", "secondes", None),
 ])
 def test_seek_seconds(amount, unit, seconds):
     assert seek_seconds(amount, unit) == seconds
@@ -175,6 +182,9 @@ JUMPS = [
     ("fr", "avance de quarante-cinq secondes", 145.0),
     ("es", "adelanta treinta y cinco segundos", 135.0),
     ("de", "spul ein paar Sekunden vor", 102.0),
+    ("en", "skip ahead one and a half minutes", 190.0),
+    ("fr", "avance de quatre-vingt-dix secondes", 190.0),
+    ("fr", "avance de vingt et une secondes", 121.0),
 ]
 
 
