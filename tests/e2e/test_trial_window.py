@@ -143,6 +143,8 @@ def test_a_locked_mic_is_not_offered_by_the_status_line(page, web, tmp_path):
     page.wait_for_selector("#mic.locked")
     status = page.inner_text("#status")
     assert "Scrivi il comando" in status and "Pro" in status
+    # ...and the "tap and speak" label under the knob does not offer it either.
+    assert not page.is_visible("#micstate")
 
 
 def test_an_open_window_keeps_the_ordinary_status_line(page, web, tmp_path):

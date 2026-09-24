@@ -142,6 +142,9 @@ select.locked { opacity: .55; }
 #micstate { margin-top: -.2rem; font-family: var(--font-label); font-size: .72rem;
             text-transform: uppercase; letter-spacing: .08em; }
 #mic.listening ~ #micstate { color: var(--amber-text); }
+/* "tap and speak" under a locked knob is an offer the tap will not keep; the
+   padlock and the status line say what to do instead. */
+#mic.locked ~ #micstate { display: none; }
 .row { display: flex; gap: .5rem; width: 100%; max-width: 480px; }
 /* --border-strong, not --border: a card's edge is decoration, but the edge
    of a text box is the only thing that says "you can type here" (1.35:1
