@@ -4,6 +4,19 @@
 
 ### Changed
 
+- **La pagina si legge meglio, su più schermi e anche senza mouse.** Una
+  revisione dell'interfaccia contro le euristiche di Nielsen e WCAG AA. Il
+  suggerimento nella casella e il bordo dei campi arrivano al contrasto
+  minimo, e su iPhone i campi delle impostazioni non fanno più zoomare la
+  pagina. Con il telefono in orizzontale la conversazione ha di nuovo
+  spazio: da 30 a oltre 200 px. La libreria di Material Skin è un pulsante
+  sopra le impostazioni invece di un link grigio in fondo, e il suo pannello
+  si chiude con Esc e restituisce il fuoco. Le impostazioni sono divise in
+  Ascolto, Musica, Risposta e Pro, e nessun menu vi è più tagliato a metà.
+  Sotto un microfono bloccato la riga di stato dice di scrivere invece di
+  invitare a toccarlo. Il microfono e il pulsante play/pausa hanno un nome
+  che dice cosa fanno.
+
 - **La demo mette Vivavoce accanto a un assistente qualunque.** Ogni frase
   che chiede musica ora mostra due colonne: che cosa avrebbe messo un
   assistente che fa della frase parole chiave e suona il primo risultato, e
