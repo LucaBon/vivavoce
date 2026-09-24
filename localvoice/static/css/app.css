@@ -138,6 +138,9 @@ select.locked { opacity: .55; }
 .row { display: flex; gap: .5rem; width: 100%; max-width: 480px; }
 input, select { background: var(--surface); color: var(--text);
                 border: 1px solid var(--border); }
+/* Chrome's default placeholder grey is 3.7:1 on the dark surface: under AA
+   for the one hint that tells a first-time user what to type. */
+::placeholder { color: var(--text-muted); opacity: 1; }
 .row input { flex: 1; padding: .7rem; font-size: 1rem; border-radius: var(--radius-s); }
 button.send { padding: .7rem 1rem; font-size: 1rem; border-radius: var(--radius-s);
               border: none; color: var(--on-brand);
