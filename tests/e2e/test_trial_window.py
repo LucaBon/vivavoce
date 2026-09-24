@@ -152,6 +152,30 @@ def test_an_open_window_keeps_the_ordinary_status_line(page, web, tmp_path):
         "document.getElementById('status').textContent.includes('Tocca il microfono')")
 
 
+def test_opening_the_pro_panel_keeps_the_microphone_on_screen(
+        browser, web, tmp_path):
+    # A phone context on purpose: there, scrollIntoView() also scrolled the
+    # document, and the hero (microphone included) slid off the top.
+    ctx = browser.new_context(viewport={"width": 390, "height": 844},
+                              is_mobile=True, has_touch=True)
+    try:
+        page = ctx.new_page()
+        page.goto(web(license_mgr=trial_at(tmp_path, day=20)).url)
+        page.wait_for_selector("#mic.locked")
+        page.click("#mic")  # locked: opens the Pro panel instead
+        page.wait_for_function(
+            "document.querySelector('.content').scrollTop > 0")
+        page.wait_for_timeout(1000)  # let the smooth scroll settle
+        assert page.evaluate("document.documentElement.scrollTop") == 0
+        assert page.evaluate(
+            "document.querySelector('.hero').getBoundingClientRect().top") == 0
+        top = page.evaluate(
+            "document.getElementById('probox').getBoundingClientRect().top")
+        assert 0 < top < 844
+    finally:
+        ctx.close()
+
+
 def test_after_expiry_the_prompt_opens_the_pro_panel(page, web, tmp_path):
     # Once the window has closed the same moment becomes a real ask, and it
     # has to lead somewhere: one tap to the panel that sells the licence.

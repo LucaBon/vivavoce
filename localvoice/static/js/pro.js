@@ -97,9 +97,16 @@ export async function refreshLicense() {
   } catch (e) { applyPro(); }  // offline/static: keep the last hint
 }
 
+// Scrolls .content, the page's only scroller, by hand. scrollIntoView() also
+// scrolls every ancestor it can, and on a phone that includes the document
+// itself (overflow: hidden still yields to script): the hero slid off the
+// top, the microphone with it, and a blank band opened at the bottom.
 export function showProUpsell() {
   $("settings").open = true;
-  $("probox").scrollIntoView({ behavior: "smooth", block: "center" });
+  const box = $("probox"), pane = box.closest(".content");
+  const offset = box.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+  pane.scrollTo({ top: pane.scrollTop + offset - (pane.clientHeight - box.offsetHeight) / 2,
+                  behavior: "smooth" });
 }
 
 // --- Kid-safe panel (Pro, server-enforced): state comes from /kidsafe. ---
