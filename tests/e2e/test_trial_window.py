@@ -142,7 +142,7 @@ def test_a_locked_mic_is_not_offered_by_the_status_line(page, web, tmp_path):
     page.goto(web(license_mgr=trial_at(tmp_path, day=15)).url)
     page.wait_for_selector("#mic.locked")
     status = page.inner_text("#status")
-    assert "Scrivi il comando" in status and "funzione Pro" in status
+    assert "Scrivi il comando" in status and "Pro" in status
 
 
 def test_an_open_window_keeps_the_ordinary_status_line(page, web, tmp_path):

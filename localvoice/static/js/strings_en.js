@@ -104,8 +104,7 @@ export const UI_EN = {
   mic_title: "Microphone: tap and speak, tap again to stop",
   title_page: "Vivavoce — local voice",
   status_tap_write: "Tap the microphone and speak, or type below.",
-  status_locked: "Type your command below: that is free, always. " +
-    "The microphone is a Pro feature — tap it to see how to turn it on.",
+  status_locked: "Type your command below, it's free. The microphone is Pro: tap it to learn more.",
   // Art. 50(1) AI Act. `ai_notice` is the English side of the label that lives
   // in the markup; `ai_notice_spoken` is said out loud once per voice session,
   // for the hands-free case where nobody ever looks at the screen.
