@@ -58,9 +58,14 @@ class Player:
 class Shelf:
     """A catalogue of books that answers from a table."""
 
-    def __init__(self, books, files):
+    def __init__(self, books, files, progress=None):
         self.books, self.files = books, files
         self.asked = []
+        # None (the default): this catalogue has no notion of progress at
+        # all, as every one did before T5.6 — Composite.progress() must read
+        # that as "never started" rather than raise. A dict maps an item id
+        # to a position in seconds, as Audiobookshelf's own client answers.
+        self._progress = progress
 
     def book_candidates(self, query, count=10):
         self.asked.append(query)
@@ -69,15 +74,20 @@ class Shelf:
     def stream_urls(self, item_id):
         return list(self.files.get(item_id, []))
 
+    def progress(self, item_id):
+        if self._progress is None:
+            return None
+        return self._progress.get(item_id)
+
 
 HOBBIT = {"id": "b1", "title": "Lo Hobbit", "author": "J.R.R. Tolkien",
           "duration": 36000.0}
 
 
-def shelf_of(*books, files=None):
+def shelf_of(*books, files=None, progress=None):
     files = files if files is not None else {"b1": ["u1", "u2"]}
-    return Composite(Shelf(books, files), Capabilities(streamable=True),
-                     "Audiobookshelf")
+    return Composite(Shelf(books, files, progress),
+                     Capabilities(streamable=True), "Audiobookshelf")
 
 
 @pytest.fixture
@@ -408,6 +418,70 @@ def test_a_failed_fetch_of_the_books_own_files_names_the_catalogue(player):
         "metti l'audiolibro Lo Hobbit")
     assert getattr(reply, "kind", None) == actions.UNREACHABLE
     assert "Audiobookshelf" in str(reply), str(reply)
+
+
+# -- resuming (T5.6) -----------------------------------------------------------
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "riprendi il libro Lo Hobbit"),
+    ("it", "riprendi l'audiolibro Lo Hobbit"),
+    ("it", "continua il libro Lo Hobbit"),
+    ("en", "resume the book Lo Hobbit"),
+    ("en", "continue the audiobook Lo Hobbit"),
+])
+def test_resume_book_routes_like_audiobook(player, lang, phrase):
+    books = shelf_of(HOBBIT)
+    reply = Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert reply.ok, f"«{phrase}»: {reply}"
+    assert player.calls == [("play_tracks", (["u1", "u2"],))]
+    assert books.library.asked == ["Lo Hobbit"]
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "riprendi"), ("it", "continua"), ("en", "resume"), ("en", "continue"),
+])
+def test_a_bare_resume_still_means_play_unpause(player, lang, phrase):
+    # The noun ("il libro"/"the book") is what turns this into a book
+    # request; without it, this stays the transport's own play/unpause, with
+    # a library attached and everything.
+    books = shelf_of(HOBBIT)
+    Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert player.names() == ["resume"]
+    assert books.library.asked == []
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "metti l'audiolibro Lo Hobbit"),
+    ("en", "play the audiobook Lo Hobbit"),
+])
+def test_a_book_already_started_resumes_where_it_was_left(player, lang, phrase):
+    books = shelf_of(HOBBIT, progress={"b1": 600.0})
+    reply = Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert reply.ok, f"«{phrase}»: {reply}"
+    set_lang(lang)
+    assert str(reply) == msg("book_resumed", title="Lo Hobbit", minutes=10)
+
+
+def test_a_book_never_started_gets_the_ordinary_reply(player):
+    books = shelf_of(HOBBIT, progress={})
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert str(reply) == msg("book_playing_by", title="Lo Hobbit",
+                             author="J.R.R. Tolkien")
+
+
+def test_a_failed_progress_lookup_does_not_block_playback(player):
+    # Audiobookshelf owns progress and nothing else does (T5.5): not knowing
+    # it is a reason to start from zero, never a reason not to play at all.
+    books = shelf_of(HOBBIT)
+
+    def down(item_id):
+        raise PlayerUnreachable("off")
+    books.library.progress = down
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert reply.ok
+    assert player.calls == [("play_tracks", (["u1", "u2"],))]
 
 
 def test_a_failed_transport_while_starting_a_book_keeps_the_generic_reply(player):

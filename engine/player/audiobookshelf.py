@@ -112,7 +112,11 @@ def get(base_url: str, token: str, request: Dict[str, Any],
         hint = _STATUS_HINTS.get(exc.code, "Audiobookshelf returned an error")
         kind = (AudiobookshelfUnreachable if exc.code in _GATEWAY_STATUSES
                 else AudiobookshelfRefused)
-        raise kind(f"{hint} ({exc.code}) for {request['path']}") from exc
+        error = kind(f"{hint} ({exc.code}) for {request['path']}")
+        # Carried for callers that need to tell one refusal from another —
+        # ``progress()`` reads a 404 as "never started", not as a failure.
+        error.status = exc.code
+        raise error from exc
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         raise AudiobookshelfUnreachable(
             f"Audiobookshelf at {base_url} is not answering: {exc}",
@@ -231,6 +235,23 @@ class AudiobookshelfClient(Resilient):
     def stream_urls(self, item_id: str) -> List[str]:
         """The files of one book, in order, fetchable with no header at all.
 
+        Built on :meth:`tracks`, which is the one that actually asks — this
+        is only the URLs of what it returns, for a caller that has no use
+        for the durations beside them.
+        """
+        return [t["url"] for t in self.tracks(item_id)]
+
+    def tracks(self, item_id: str) -> List[Dict[str, Any]]:
+        """The files of one book, in order, as ``{"url", "duration"}``.
+
+        ``duration`` is seconds, ``0.0`` when the server did not say — which
+        is how :func:`player.composite.Composite.enqueue` tells "resume this
+        book partway through" from "the files are what they are, play them
+        from the start": it needs the length of each file to find *which*
+        file a resume point falls in, and this is the one call that already
+        fetches the item ``stream_urls`` fetches, so a resume costs nothing
+        extra on the wire.
+
         The key travels in the query string because the transport cannot be
         told to send one — see the module docstring. It is the same key the
         request itself used, so it grants nothing this client did not already
@@ -243,10 +264,33 @@ class AudiobookshelfClient(Resilient):
         media = item.get("media")
         tracks = media.get("tracks") if isinstance(media, dict) else None
         suffix = "?" + urllib.parse.urlencode({"token": self.token})
-        return [self.base_url + track["contentUrl"] + suffix
+        return [{"url": self.base_url + track["contentUrl"] + suffix,
+                "duration": _seconds(track.get("duration"))}
                 for track in tracks or []
                 if isinstance(track, dict)
                 and isinstance(track.get("contentUrl"), str)]
+
+    def progress(self, item_id: str) -> Optional[float]:
+        """How far into ``item_id`` the last listener got, in seconds — or
+        ``None`` for a book never started, or finished (``isFinished``:
+        starting over is what "riprendi" should do with nothing left to
+        resume).
+
+        Audiobookshelf owns this fact; nothing here stores it (T5.5). A book
+        the server has no record of answers ``404`` — "never started" and
+        "no such item" are the same reply from its side, and the caller
+        already lost the second case at ``book_candidates`` if it mattered.
+        """
+        try:
+            answer = self._get(
+                f"/api/me/progress/{urllib.parse.quote(item_id, safe='')}")
+        except AudiobookshelfRefused as exc:
+            if getattr(exc, "status", None) == 404:
+                return None
+            raise
+        if not answer or answer.get("isFinished"):
+            return None
+        return _seconds(answer.get("currentTime"))
 
 
 def _book(item: Any) -> Optional[Dict[str, Any]]:

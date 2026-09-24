@@ -30,4 +30,10 @@ PATTERNS = {
     "audiobook": c(r"^(?:(?:(?:pon|ponme|reproduce|escucha|lee|l[eé]eme)\s+)?"
                    r"(?:el\s+|un\s+|mi\s+)?audiolibro"
                    r"|l[eé]eme\s+(?:el|un)\s+libro)\s+(.+)$"),
+    # «reanuda el libro X», «continúa el audiolibro X»: the same lookup as
+    # ``audiobook``, worded as a return rather than a start (T5.6). The noun
+    # is required so a bare «reanuda»/«continúa»/«sigue» keeps meaning the
+    # transport's own play/unpause.
+    "resume_book": c(r"^(?:reanuda|contin[uú]a|sigue)\s+"
+                     r"(?:el\s+|un\s+|mi\s+)?(?:audio)?libro\s+(.+)$"),
 }

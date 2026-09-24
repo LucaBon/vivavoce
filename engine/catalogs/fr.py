@@ -176,6 +176,7 @@ MESSAGES = {
     "book_did_you_mean_by": "Tu veux dire le livre audio {title} de {author} ?",
     "no_book_found": "Je n'ai trouv\u00e9 aucun livre audio pour {title}.",
     "book_no_audio": "{title} n'a rien \u00e0 \u00e9couter : c'est peut-\u00eatre un e-book.",
+    "book_resumed": "Je reprends \"{title}\" \u00e0 {minutes} minutes.",
     "now_playing": "En ce moment : {title}.",
     "now_playing_by": "En ce moment : {title} de {artist}.",
     "paused_on": "En pause sur {title}.",

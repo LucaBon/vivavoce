@@ -35,4 +35,12 @@ PATTERNS = {
                    r"(?:das\s+|ein\s+|mein\s+)?h(?:ö|oe|o)rbuch"
                    r"|lies\s+(?:mir\s+)?(?:das|ein)\s+buch)\s+(.+?)"
                    r"(?:\s+(?:vor|ab))?\s*$"),
+    # «weiter mit dem Hörbuch X», «setz das Hörbuch X fort»: the same lookup
+    # as ``audiobook``, worded as a return rather than a start (T5.6). The
+    # noun is required so a bare «weiter»/«fortsetzen» keeps meaning the
+    # transport's own play/unpause.
+    "resume_book": c(r"^(?:weiter\s+mit\s+(?:dem\s+|meinem\s+)?"
+                     r"(?:h(?:ö|oe|o)rbuch|buch)"
+                     r"|setz(?:e)?\s+(?:das\s+|mein\s+)?"
+                     r"(?:h(?:ö|oe|o)rbuch|buch))\s+(.+?)(?:\s+fort)?\s*$"),
 }

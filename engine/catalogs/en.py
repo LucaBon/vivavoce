@@ -162,6 +162,7 @@ MESSAGES = {
     "book_did_you_mean_by": "Do you mean the audiobook {title} by {author}?",
     "no_book_found": "I found no audiobook for {title}.",
     "book_no_audio": "{title} has nothing to listen to: it may be an e-book only.",
+    "book_resumed": "Resuming \"{title}\" from {minutes} minutes in.",
     "now_playing": "Now playing {title}.",
     "now_playing_by": "Now playing {title} by {artist}.",
     "paused_on": "Paused on {title}.",

@@ -31,4 +31,10 @@ PATTERNS = {
     "audiobook": c(r"^(?:(?:(?:mets|mettre|joue|lance|lis|[ée]coute)(?:[\s-]+moi)?\s+)?"
                    r"(?:le\s+|un\s+|mon\s+)?livre\s+audio"
                    r"|lis(?:[\s-]+moi)?\s+(?:le|un)\s+livre)\s+(.+)$"),
+    # «reprends le livre audio X», «continue le livre X»: the same lookup as
+    # ``audiobook``, worded as a return rather than a start (T5.6). The noun
+    # is required so a bare «reprends»/«continue» keeps meaning the
+    # transport's own play/unpause.
+    "resume_book": c(r"^(?:reprends?|continue)\s+"
+                     r"(?:le\s+|un\s+|mon\s+)?livre(?:\s+audio)?\s+(.+)$"),
 }

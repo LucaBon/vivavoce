@@ -181,6 +181,7 @@ MESSAGES = {
     "book_did_you_mean_by": "Meinst du das H\u00f6rbuch {title} von {author}?",
     "no_book_found": "Ich habe kein H\u00f6rbuch f\u00fcr {title} gefunden.",
     "book_no_audio": "{title} hat nichts zum Anh\u00f6ren: vielleicht nur ein E-Book.",
+    "book_resumed": "Ich setze \"{title}\" bei {minutes} Minuten fort.",
     "now_playing": "Gerade l\u00e4uft {title}.",
     "now_playing_by": "Gerade l\u00e4uft {title} von {artist}.",
     "paused_on": "Pausiert bei {title}.",

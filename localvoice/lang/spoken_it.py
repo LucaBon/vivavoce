@@ -49,4 +49,12 @@ PATTERNS = {
                    r"|voglio\s+ascoltare|leggi|leggimi)\s+)?"
                    r"(?:l['’]\s*|un\s+|il\s+mio\s+)?audiolibro"
                    r"|(?:leggi|leggimi)\s+(?:il|un)\s+libro)\s+(.+)$"),
+    # «riprendi il libro X», «riprendi l'audiolibro X», «continua il libro
+    # X»: the same lookup as ``audiobook``, worded as a return rather than a
+    # start (T5.6) — resuming is what «riprendi» already does for a book,
+    # so this is only another name for it. The noun is required so a bare
+    # «riprendi» keeps meaning the transport's own play/unpause.
+    "resume_book": c(r"^(?:riprendi|continua)\s+"
+                     r"(?:l['’]\s*|il\s+mio\s+|il\s+|un\s+)?"
+                     r"(?:audiolibro|libro)\s+(.+)$"),
 }

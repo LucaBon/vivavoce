@@ -143,7 +143,7 @@ class SpokenIntents:
                     return (self._unable("seek", say="no_seek")
                             or actions.seek_relative(self.lms, sign * seconds))
         if self.books is not None:
-            m = P["audiobook"].match(t)
+            m = P["audiobook"].match(t) or P["resume_book"].match(t)
             if m:
                 return self._play_book(m.group(1).strip())
         return None
@@ -195,7 +195,17 @@ class SpokenIntents:
     def _start_book(self, book: dict):
         title = book.get("title") or ""
         try:
-            queued = self.books.enqueue(self.lms, book["id"], "play")
+            start = self.books.progress(book["id"]) or 0.0
+        except PlayerError as exc:
+            # Audiobookshelf owns this fact and nothing else does (T5.5), but
+            # not knowing it must not cost the listener the book itself —
+            # only the resume. Logged, not raised: the catalogue may just be
+            # slow to answer, and its files are asked for next regardless.
+            print(f"Audiobookshelf: non riesco a leggere il progresso di "
+                 f"{title!r} ({exc}); riparto da capo.")
+            start = 0.0
+        try:
+            queued = self.books.enqueue(self.lms, book["id"], "play", start)
         except PlayerError as exc:
             # enqueue() makes two kinds of call: fetching the book's own
             # files (the catalogue) and sending them to the speakers (the
@@ -207,6 +217,10 @@ class SpokenIntents:
         if not queued:
             return actions.ActionResult(msg("book_no_audio", title=title),
                                         ok=False)
+        if start:
+            return actions.ActionResult(
+                msg("book_resumed", title=title, minutes=int(start // 60)),
+                ok=True, terms=[title])
         author = book.get("author")
         key = "book_playing_by" if author else "book_playing"
         return actions.ActionResult(msg(key, title=title, author=author),

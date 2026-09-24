@@ -30,4 +30,10 @@ PATTERNS = {
     "audiobook": c(r"^(?:(?:(?:play|put\s+on|start|listen\s+to|read)\s+)?"
                    r"(?:the\s+|an\s+|my\s+)?audio\s*book"
                    r"|read\s+(?:me\s+)?(?:the|a)\s+book)\s+(.+)$"),
+    # "resume the book X", "continue the audiobook X": the same lookup as
+    # "audiobook", worded as a return rather than a start (T5.6). The noun is
+    # required so a bare "resume"/"continue" keeps meaning the transport's
+    # own play/unpause.
+    "resume_book": c(r"^(?:resume|continue)\s+"
+                     r"(?:the\s+|an?\s+|my\s+)?(?:audio\s*book|book)\s+(.+)$"),
 }

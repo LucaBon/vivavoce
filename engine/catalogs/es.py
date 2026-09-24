@@ -184,6 +184,7 @@ MESSAGES = {
     "book_did_you_mean_by": "\u00bfTe refieres al audiolibro {title} de {author}?",
     "no_book_found": "No he encontrado ning\u00fan audiolibro para {title}.",
     "book_no_audio": "{title} no tiene nada que escuchar: quiz\u00e1 es solo un e-book.",
+    "book_resumed": "Reanudo \"{title}\" desde los {minutes} minutos.",
     "now_playing": "Está sonando {title}.",
     "now_playing_by": "Está sonando {title} de {artist}.",
     "paused_on": "Está en pausa en {title}.",
