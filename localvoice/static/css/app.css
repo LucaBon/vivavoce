@@ -6,6 +6,7 @@
   color-scheme: dark light;
   --bg: #0e1311; --surface: #161d18; --surface-raised: #1b241e;
   --border: #2a352e; --text: #e9ede9; --text-muted: #a4b3a9;
+  --border-strong: #62756a;  /* a field's edge: 3:1 on surface (WCAG 1.4.11) */
   --brand: #2d7d46; --brand-strong: #36954f; --brand-soft: #1d3527;
   --brand-border: #3c6b4c; --accent-text: #8fd6a5;
   --amber: #e8a13c; --amber-text: #f0b254; --amber-soft: #2a2013;
@@ -21,6 +22,7 @@
   color-scheme: light;  /* native widgets (range/select) follow the theme */
   --bg: #f4f7f5; --surface: #ffffff; --surface-raised: #ffffff;
   --border: #d7dfda; --text: #1b201d; --text-muted: #55605a;
+  --border-strong: #767f7a;
   --brand: #1e7a3a; --brand-strong: #236237; --brand-soft: #e3f0e8;
   --brand-border: #9ec7ac; --accent-text: #226038;
   --amber-text: #8a5a12; --amber-soft: #f7ecd8;
@@ -136,8 +138,11 @@ select.locked { opacity: .55; }
             text-transform: uppercase; letter-spacing: .08em; }
 #mic.listening ~ #micstate { color: var(--amber-text); }
 .row { display: flex; gap: .5rem; width: 100%; max-width: 480px; }
+/* --border-strong, not --border: a card's edge is decoration, but the edge
+   of a text box is the only thing that says "you can type here" (1.35:1
+   before, invisible in daylight on a phone). */
 input, select { background: var(--surface); color: var(--text);
-                border: 1px solid var(--border); }
+                border: 1px solid var(--border-strong); }
 /* Chrome's default placeholder grey is 3.7:1 on the dark surface: under AA
    for the one hint that tells a first-time user what to type. */
 ::placeholder { color: var(--text-muted); opacity: 1; }
