@@ -13,6 +13,8 @@ export const UI_IT = {
   mic_title: "Microfono: tocca e parla, tocca di nuovo per fermare",
   title_page: "Vivavoce — voce locale",
   status_tap_write: "Tocca il microfono e parla, oppure scrivi qui sotto.",
+  status_locked: "Scrivi il comando qui sotto: è gratis, sempre. " +
+    "Il microfono è una funzione Pro — toccalo per sapere come attivarlo.",
   // Only the spoken half: the on-screen line is Italian markup already.
   // No product name here either — see the English side for why.
   ai_notice_spoken: "Assistente vocale automatico.",

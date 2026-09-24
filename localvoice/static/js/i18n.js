@@ -63,8 +63,20 @@ export function refreshStatus() {
   } else if (statusBase === "offline") {
     statusEl.innerHTML = '<span class="warn">' + ui("offline") + "</span>";
   } else {
-    statusEl.textContent = ui("status_tap_write");
+    statusEl.textContent = ui(micLocked ? "status_locked" : "status_tap_write");
   }
+}
+
+// The free tier's knob is visibly off and opens the Pro panel when tapped; a
+// status line still saying "tap the microphone and speak" under it contradicts
+// the one thing on screen that is telling the truth. Not a status base of its
+// own: it only rewords "nothing is wrong", so every real problem (no mic, no
+// HTTPS, hi-fi unreachable) still wins and setLmsDown needs no changes.
+let micLocked = false;
+export function setMicLocked(locked) {
+  if (locked === micLocked) return;
+  micLocked = locked;
+  if (statusBase === "default") refreshStatus();
 }
 
 // LMS reachability lamp: the header LED turns red and the status line warns.

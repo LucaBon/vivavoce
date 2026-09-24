@@ -7,7 +7,7 @@
 
 import { $, clientId } from "./util.js";
 import { applyBrowse } from "./browse.js";
-import { replyLang, ui } from "./i18n.js";
+import { replyLang, setMicLocked, ui } from "./i18n.js";
 import { syncVoicePanel } from "./tts.js";
 import { syncWakePhrase } from "./miccapture.js";
 import { renderPlayers } from "./settings.js";
@@ -28,6 +28,7 @@ export const isLicensed = () => !!(PRO_INFO && PRO_INFO.key);
 
 export function applyPro() {
   $("mic").classList.toggle("locked", !PRO);
+  setMicLocked(!PRO);
   $("wakemode").disabled = !PRO;
   $("readback").disabled = !PRO;
   $("localasr").disabled = !PRO;

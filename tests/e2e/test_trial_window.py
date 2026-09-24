@@ -136,6 +136,22 @@ def test_a_paying_user_is_never_prompted(page, web, tmp_path):
     assert page.query_selector("#log .bubble.upsell") is None
 
 
+def test_a_locked_mic_is_not_offered_by_the_status_line(page, web, tmp_path):
+    # Under a knob that is visibly off, "tap the microphone and speak" was the
+    # one line on screen contradicting it. Typing is what still works; say so.
+    page.goto(web(license_mgr=trial_at(tmp_path, day=15)).url)
+    page.wait_for_selector("#mic.locked")
+    status = page.inner_text("#status")
+    assert "Scrivi il comando" in status and "funzione Pro" in status
+
+
+def test_an_open_window_keeps_the_ordinary_status_line(page, web, tmp_path):
+    page.goto(web(license_mgr=trial_at(tmp_path, day=1)).url)
+    page.wait_for_selector("#mic:not(.locked)")
+    page.wait_for_function(
+        "document.getElementById('status').textContent.includes('Tocca il microfono')")
+
+
 def test_after_expiry_the_prompt_opens_the_pro_panel(page, web, tmp_path):
     # Once the window has closed the same moment becomes a real ask, and it
     # has to lead somewhere: one tap to the panel that sells the licence.
