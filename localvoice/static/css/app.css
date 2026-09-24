@@ -352,3 +352,25 @@ body.browsing .content > :not(#browse) { display: none; }
 body.browsing h1 { display: none; }
 body.browsing #mic { width: 72px; height: 72px; }
 body.browsing #mic svg { width: 30px; height: 30px; }
+
+/* Short screens. The hero never scrolls, so every pixel it takes is one the
+   conversation loses: a phone in landscape was left 30px for the reply.
+   The knob shrinks but stays the biggest thing on screen; #ainotice is never
+   touched here (see the AI Act note above its rule). */
+@media (max-height: 700px) {
+  .hero { gap: .5rem; }
+  h1 { font-size: 1rem; }
+  #mic { width: 104px; height: 104px; }
+  #mic svg { width: 44px; height: 44px; }
+}
+/* Landscape phone: knob on the left, everything else beside it. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .hero { display: grid; grid-template-columns: auto minmax(0, 480px);
+          justify-content: center; align-items: center;
+          column-gap: 1.2rem; row-gap: .35rem; }
+  .hero > * { grid-column: 2; }
+  #mic { grid-column: 1; grid-row: 1 / span 4; width: 88px; height: 88px; }
+  #mic svg { width: 38px; height: 38px; }
+  #micstate { display: none; }  /* aria-hidden already; the knob's colour says it */
+  h1, #status { margin: 0; text-align: left; }
+}
