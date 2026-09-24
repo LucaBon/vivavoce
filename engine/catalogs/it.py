@@ -12,6 +12,8 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.",
+    "err_unreachable_service":
+        "Non riesco a contattare {service} in questo momento. Riprova tra poco.",
     "err_busy":
         "Sto ancora rispondendo alla frase precedente. Riprova tra poco.",
     # -- what this system cannot do ----------------------------------------

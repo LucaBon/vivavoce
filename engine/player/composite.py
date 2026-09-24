@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from .errors import PlayerError
 from .protocols import Capabilities
 
 #: How the engine's three enqueue modes are spelled, as elsewhere
@@ -66,7 +67,15 @@ class Composite:
         """
         if mode not in MODES:
             raise ValueError(f"unknown enqueue mode {mode!r}")
-        urls = self.library.stream_urls(item_id)
+        try:
+            urls = self.library.stream_urls(item_id)
+        except PlayerError as exc:
+            # Tags which side raised, so a caller catching PlayerError can
+            # still tell "the catalogue's own files are unreachable" from
+            # "the speakers playing them are" — the two get different replies
+            # (see intents_spoken._start_book).
+            exc.from_library = True
+            raise
         if not urls:
             return 0
         if mode == "play":

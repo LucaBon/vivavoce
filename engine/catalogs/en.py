@@ -9,6 +9,8 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "I can't reach the system right now. Please try again in a moment.",
+    "err_unreachable_service":
+        "I can't reach {service} right now. Please try again in a moment.",
     "err_busy":
         "I'm still answering the phrase before this one. Please try again in "
         "a moment.",

@@ -166,8 +166,9 @@ class Resilient:
         """
         wait = self._breaker.open_for()
         if wait > 0:
+            label = getattr(self, "SYSTEM_LABEL", "") or "music server"
             raise self.unreachable(
-                f"music server not answering; not dialled again for {wait:.0f}s",
+                f"{label} not answering; not dialled again for {wait:.0f}s",
                 delivered=False)
         if self._call_timeout() <= 0:
             raise self.unreachable("request skipped: this turn ran out of time",

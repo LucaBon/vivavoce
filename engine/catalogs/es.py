@@ -17,6 +17,9 @@ MESSAGES = {
     "err_unreachable":
         "No consigo conectar con el equipo en este momento. "
         "Inténtalo de nuevo en un momento.",
+    "err_unreachable_service":
+        "No consigo conectar con {service} en este momento. "
+        "Inténtalo de nuevo en un momento.",
     "err_busy":
         "Todavía estoy respondiendo a la frase anterior. "
         "Inténtalo de nuevo en un momento.",

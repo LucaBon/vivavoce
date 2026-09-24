@@ -322,3 +322,50 @@ def test_a_bookshelf_that_is_down_is_reported_as_such(player):
     reply = Router(player, services=(), books=books).handle(
         "metti l'audiolibro Lo Hobbit")
     assert getattr(reply, "kind", None) == actions.UNREACHABLE
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "metti l'audiolibro Lo Hobbit"),
+    ("en", "play the audiobook Lo Hobbit"),
+])
+def test_a_failed_book_search_names_the_catalogue(player, lang, phrase):
+    # A search that fails is Audiobookshelf's own trouble, not the hi-fi's —
+    # the music on the same speakers still plays — so the reply names it
+    # rather than blaming "the system".
+    books = shelf_of(HOBBIT)
+
+    def down(query, count=10):
+        raise PlayerUnreachable("off")
+    books.library.book_candidates = down
+    reply = Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert getattr(reply, "kind", None) == actions.UNREACHABLE
+    assert "Audiobookshelf" in str(reply), str(reply)
+
+
+def test_a_failed_fetch_of_the_books_own_files_names_the_catalogue(player):
+    # enqueue() makes two calls: fetching the book's files (the catalogue)
+    # and sending them to the speakers (the transport). This is the first.
+    books = shelf_of(HOBBIT)
+
+    def down(item_id):
+        raise PlayerUnreachable("off")
+    books.library.stream_urls = down
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert getattr(reply, "kind", None) == actions.UNREACHABLE
+    assert "Audiobookshelf" in str(reply), str(reply)
+
+
+def test_a_failed_transport_while_starting_a_book_keeps_the_generic_reply(player):
+    # The speakers, not the catalogue: this is the same "system" failure
+    # every other action reports, so no service is named.
+    books = shelf_of(HOBBIT)
+
+    def down(tracks):
+        raise PlayerUnreachable("off")
+    player.play_tracks = down
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert getattr(reply, "kind", None) == actions.UNREACHABLE
+    assert str(reply) == msg("err_unreachable")
+    assert "Audiobookshelf" not in str(reply)

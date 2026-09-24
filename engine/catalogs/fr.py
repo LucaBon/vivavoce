@@ -10,6 +10,9 @@ MESSAGES = {
     "err_unreachable":
         "Je n'arrive pas à joindre le système pour le moment. "
         "Réessaie dans un instant.",
+    "err_unreachable_service":
+        "Je n'arrive pas à joindre {service} pour le moment. "
+        "Réessaie dans un instant.",
     "err_busy":
         "Je réponds encore à la phrase précédente. "
         "Réessaie dans un instant.",

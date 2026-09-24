@@ -147,7 +147,10 @@ class SpokenIntents:
         try:
             found = self.books.book_candidates(query, BOOK_CANDIDATES)
         except PlayerError:
-            return actions.unreachable()
+            # The catalogue's own search, not the hi-fi: name it, so a
+            # rebooting Audiobookshelf is not reported as the whole system
+            # being down (the music, on the same speakers, still plays).
+            return actions.unreachable(self.books.label)
         if guard is not None:
             # Blocked is not found: naming the book back to the child who
             # asked for it is the one thing a blocklist must not do. The
@@ -187,8 +190,14 @@ class SpokenIntents:
         title = book.get("title") or ""
         try:
             queued = self.books.enqueue(self.lms, book["id"], "play")
-        except PlayerError:
-            return actions.unreachable()
+        except PlayerError as exc:
+            # enqueue() makes two kinds of call: fetching the book's own
+            # files (the catalogue) and sending them to the speakers (the
+            # transport) — see Composite.enqueue. Only the first is named;
+            # a transport failure keeps the generic "the system", which is
+            # the LMS/MusicAssistant player it was already about.
+            service = self.books.label if getattr(exc, "from_library", False) else None
+            return actions.unreachable(service)
         if not queued:
             return actions.ActionResult(msg("book_no_audio", title=title),
                                         ok=False)

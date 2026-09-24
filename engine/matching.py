@@ -57,7 +57,6 @@ _MODE_SUFFIX = {"play": "", "add": "_queued", "insert": "_queued_next"}
 _MODE_KEY = {"play": "playing", "add": "queued", "insert": "queued_next"}
 _MODE_KEY_BY = {"add": "queued_by", "insert": "queued_next_by"}
 
-
 # ``kind`` values that mean something to the dispatch, not just to bookkeeping.
 #
 # GATE marks a refusal the words cannot argue with: no Pro licence, not the
@@ -122,9 +121,10 @@ class ActionResult(str):
         return obj
 
 
-def unreachable() -> "ActionResult":
-    """The reply for a music server that did not answer (:data:`UNREACHABLE`)."""
-    return ActionResult(msg("err_unreachable"), ok=False, kind=UNREACHABLE)
+def unreachable(service: Optional[str] = None) -> "ActionResult":
+    """Reply for an unreachable system (:data:`UNREACHABLE`); ``service`` names it, if known."""
+    key = "err_unreachable_service" if service else "err_unreachable"
+    return ActionResult(msg(key, service=service), ok=False, kind=UNREACHABLE)
 
 
 def _score(query: Optional[str], text: Optional[str], *,
