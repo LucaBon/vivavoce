@@ -58,9 +58,14 @@ class Player:
 class Shelf:
     """A catalogue of books that answers from a table."""
 
-    def __init__(self, books, files):
+    def __init__(self, books, files, progress=None):
         self.books, self.files = books, files
         self.asked = []
+        # None (the default): this catalogue has no notion of progress at
+        # all, as every one did before T5.6 — Composite.progress() must read
+        # that as "never started" rather than raise. A dict maps an item id
+        # to a position in seconds, as Audiobookshelf's own client answers.
+        self._progress = progress
 
     def book_candidates(self, query, count=10):
         self.asked.append(query)
@@ -69,15 +74,37 @@ class Shelf:
     def stream_urls(self, item_id):
         return list(self.files.get(item_id, []))
 
+    def progress(self, item_id):
+        if self._progress is None:
+            return None
+        return self._progress.get(item_id)
+
 
 HOBBIT = {"id": "b1", "title": "Lo Hobbit", "author": "J.R.R. Tolkien",
           "duration": 36000.0}
 
 
-def shelf_of(*books, files=None):
+class TimedShelf(Shelf):
+    """A :class:`Shelf` that also says how long each file runs — what a
+    resume needs to find where it falls (``Composite.play_from``)."""
+
+    def __init__(self, books, files, progress, duration):
+        super().__init__(books, files, progress)
+        self.duration = duration
+
+    def tracks(self, item_id):
+        return [{"url": url, "duration": self.duration}
+                for url in self.files.get(item_id, [])]
+
+
+def shelf_of(*books, files=None, progress=None, duration=None):
+    """``duration``: seconds per file, making the shelf a :class:`TimedShelf`
+    that can be resumed into; ``0.0`` is a length the catalogue does not
+    know."""
     files = files if files is not None else {"b1": ["u1", "u2"]}
-    return Composite(Shelf(books, files), Capabilities(streamable=True),
-                     "Audiobookshelf")
+    shelf = (Shelf(books, files, progress) if duration is None
+             else TimedShelf(books, files, progress, duration))
+    return Composite(shelf, Capabilities(streamable=True), "Audiobookshelf")
 
 
 @pytest.fixture
@@ -232,6 +259,69 @@ def test_a_system_that_cannot_seek_says_so(player):
     assert player.calls == []
 
 
+# -- reading speed -------------------------------------------------------------
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "metti a velocità 1.2"),
+    ("it", "velocità 1,5"),
+    ("it", "leggi più veloce"),
+    ("it", "leggi più lento"),
+    ("it", "più veloce"),
+    ("it", "più lento"),
+    ("en", "speed 1.5"),
+    ("en", "play faster"),
+    ("en", "play slower"),
+    ("en", "read faster"),
+    ("de", "Geschwindigkeit 1,5"),
+    ("de", "stell die Geschwindigkeit auf 1.5"),
+    ("de", "lies schneller"),
+    ("de", "langsamer vorlesen"),
+    ("fr", "vitesse 1.5"),
+    ("fr", "mets la vitesse à 1.5"),
+    ("fr", "lis plus vite"),
+    ("fr", "plus lentement"),
+    ("es", "velocidad 1.5"),
+    ("es", "pon la velocidad a 1.5"),
+    ("es", "lee más rápido"),
+    ("es", "más despacio"),
+])
+def test_a_speed_change_answers_rather_than_erroring(player, lang, phrase):
+    reply = Router(player, services=()).handle(phrase, lang=lang)
+    set_lang(lang)
+    assert str(reply) == msg("no_speed"), f"«{phrase}»: {reply}"
+    assert not reply.ok
+    assert player.calls == []  # zero transport calls
+
+
+def test_a_speed_refusal_ends_the_turn_for_every_alternative(player):
+    # «metti più veloce» does not match the speed pattern and carries a play
+    # verb: were the refusal not a GATE, the sweep would route it next and
+    # search for a song called «più veloce».
+    out = Router(player, services=()).handle_many(["più veloce", "metti più veloce"])
+    assert out["speech"] == msg("no_speed")
+    assert player.calls == []
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "alza il volume"), ("it", "più forte"), ("en", "turn it up"),
+])
+def test_a_speed_pattern_does_not_steal_the_volume(player, lang, phrase):
+    player.volume = lambda delta: player.calls.append(("volume", (delta,)))
+    Router(player, services=()).handle(phrase, lang=lang)
+    assert player.names() == ["volume"]
+
+
+@pytest.mark.parametrize("lang, phrase", [("it", "avanti"), ("en", "next")])
+def test_a_speed_pattern_does_not_steal_a_bare_skip(player, lang, phrase):
+    Router(player, services=()).handle(phrase, lang=lang)
+    assert player.names() == ["next_track"]
+
+
+def test_a_speed_pattern_does_not_steal_a_timed_seek(player):
+    reply = Router(player, services=()).handle("vai avanti di 30 secondi")
+    assert reply.ok
+    assert player.calls == [("seek", (130.0,))]
+
+
 # -- books -------------------------------------------------------------------
 def test_without_a_library_an_audiobook_is_searched_as_music(player):
     Router(player, services=()).handle("metti l'audiolibro Lo Hobbit")
@@ -322,3 +412,164 @@ def test_a_bookshelf_that_is_down_is_reported_as_such(player):
     reply = Router(player, services=(), books=books).handle(
         "metti l'audiolibro Lo Hobbit")
     assert getattr(reply, "kind", None) == actions.UNREACHABLE
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "metti l'audiolibro Lo Hobbit"),
+    ("en", "play the audiobook Lo Hobbit"),
+])
+def test_a_failed_book_search_names_the_catalogue(player, lang, phrase):
+    # A search that fails is Audiobookshelf's own trouble, not the hi-fi's —
+    # the music on the same speakers still plays — so the reply names it
+    # rather than blaming "the system".
+    books = shelf_of(HOBBIT)
+
+    def down(query, count=10):
+        raise PlayerUnreachable("off")
+    books.library.book_candidates = down
+    reply = Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert getattr(reply, "kind", None) == actions.UNREACHABLE
+    assert "Audiobookshelf" in str(reply), str(reply)
+
+
+def test_a_failed_fetch_of_the_books_own_files_names_the_catalogue(player):
+    # enqueue() makes two calls: fetching the book's files (the catalogue)
+    # and sending them to the speakers (the transport). This is the first.
+    books = shelf_of(HOBBIT)
+
+    def down(item_id):
+        raise PlayerUnreachable("off")
+    books.library.stream_urls = down
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert getattr(reply, "kind", None) == actions.UNREACHABLE
+    assert "Audiobookshelf" in str(reply), str(reply)
+
+
+# -- resuming (T5.6) -----------------------------------------------------------
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "riprendi il libro Lo Hobbit"),
+    ("it", "riprendi l'audiolibro Lo Hobbit"),
+    ("it", "continua il libro Lo Hobbit"),
+    ("en", "resume the book Lo Hobbit"),
+    ("en", "continue the audiobook Lo Hobbit"),
+    ("de", "weiter mit dem Hörbuch Lo Hobbit"),
+    ("de", "setz das Hörbuch Lo Hobbit fort"),
+])
+def test_resume_book_routes_like_audiobook(player, lang, phrase):
+    books = shelf_of(HOBBIT)
+    reply = Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert reply.ok, f"«{phrase}»: {reply}"
+    assert player.calls == [("play_tracks", (["u1", "u2"],))]
+    assert books.library.asked == ["Lo Hobbit"]
+
+
+def test_a_title_ending_in_fort_keeps_its_last_word(player):
+    books = shelf_of(HOBBIT)
+    Router(player, services=(), books=books).handle(
+        "weiter mit dem Hörbuch Sie sind fort", lang="de")
+    assert books.library.asked == ["Sie sind fort"]
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "riprendi"), ("it", "continua"), ("en", "resume"), ("en", "continue"),
+])
+def test_a_bare_resume_still_means_play_unpause(player, lang, phrase):
+    # The noun ("il libro"/"the book") is what turns this into a book
+    # request; without it, this stays the transport's own play/unpause, with
+    # a library attached and everything.
+    books = shelf_of(HOBBIT)
+    Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert player.names() == ["resume"]
+    assert books.library.asked == []
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "metti l'audiolibro Lo Hobbit"),
+    ("en", "play the audiobook Lo Hobbit"),
+])
+def test_a_book_already_started_resumes_where_it_was_left(player, lang, phrase):
+    books = shelf_of(HOBBIT, progress={"b1": 600.0}, duration=3600.0)
+    reply = Router(player, services=(), books=books).handle(phrase, lang=lang)
+    assert reply.ok, f"«{phrase}»: {reply}"
+    assert player.calls == [("play_tracks", (["u1", "u2"],)), ("seek", (600,))]
+    set_lang(lang)
+    assert str(reply) == msg("book_resumed", title="Lo Hobbit",
+                             position=msg("resume_minutes", n=10))
+
+
+@pytest.mark.parametrize("seconds, said", [
+    (5400.0, "un'ora e 30 minuti"), (3600.0, "un'ora"), (7260.0, "2 ore e un minuto"),
+    (60.0, "un minuto"), (1500.0, "25 minuti"),
+])
+def test_a_resume_is_said_in_hours_and_minutes(player, seconds, said):
+    books = shelf_of(HOBBIT, progress={"b1": seconds}, duration=36000.0)
+    reply = Router(player, services=(), books=books).handle(
+        "riprendi il libro Lo Hobbit")
+    assert str(reply) == msg("book_resumed", title="Lo Hobbit", position=said)
+
+
+@pytest.mark.parametrize("shelf", [
+    # No ``tracks``: nothing can say where 600 s falls.
+    dict(progress={"b1": 600.0}),
+    # Lengths the catalogue does not know: the same.
+    dict(progress={"b1": 600.0}, duration=0.0),
+    # Under a minute in: played from there, not worth announcing.
+    dict(progress={"b1": 40.0}, duration=3600.0),
+])
+def test_a_resume_that_did_not_happen_is_not_announced(player, shelf):
+    reply = Router(player, services=(), books=shelf_of(HOBBIT, **shelf)).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert str(reply) == msg("book_playing_by", title="Lo Hobbit",
+                             author="J.R.R. Tolkien")
+
+
+def test_a_player_that_cannot_seek_announces_where_the_file_begins(player):
+    # 50 minutes in is 20 minutes into the second 30-minute file: with no
+    # seek, the listener hears that file from its start — 30 minutes, which
+    # is what gets said, not the 50 they had reached.
+    player.capabilities = Capabilities(search=True)
+    books = shelf_of(HOBBIT, progress={"b1": 3000.0}, duration=1800.0)
+    reply = Router(player, services=(), books=books).handle(
+        "riprendi il libro Lo Hobbit")
+    assert player.calls == [("play_tracks", (["u2"],))]
+    assert str(reply) == msg("book_resumed", title="Lo Hobbit",
+                             position="30 minuti")
+
+
+def test_a_book_never_started_gets_the_ordinary_reply(player):
+    books = shelf_of(HOBBIT, progress={})
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert str(reply) == msg("book_playing_by", title="Lo Hobbit",
+                             author="J.R.R. Tolkien")
+
+
+def test_a_failed_progress_lookup_does_not_block_playback(player):
+    # Audiobookshelf owns progress and nothing else does (T5.5): not knowing
+    # it is a reason to start from zero, never a reason not to play at all.
+    books = shelf_of(HOBBIT)
+
+    def down(item_id):
+        raise PlayerUnreachable("off")
+    books.library.progress = down
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert reply.ok
+    assert player.calls == [("play_tracks", (["u1", "u2"],))]
+
+
+def test_a_failed_transport_while_starting_a_book_keeps_the_generic_reply(player):
+    # The speakers, not the catalogue: this is the same "system" failure
+    # every other action reports, so no service is named.
+    books = shelf_of(HOBBIT)
+
+    def down(tracks):
+        raise PlayerUnreachable("off")
+    player.play_tracks = down
+    reply = Router(player, services=(), books=books).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert getattr(reply, "kind", None) == actions.UNREACHABLE
+    assert str(reply) == msg("err_unreachable")
+    assert "Audiobookshelf" not in str(reply)

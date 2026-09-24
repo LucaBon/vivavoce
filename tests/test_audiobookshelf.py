@@ -40,6 +40,8 @@ class FakeABSTransport:
         if path in self.raise_on or path not in self.responses:
             raise AudiobookshelfError(f"simulated failure for {path}")
         answer = self.responses[path]
+        if isinstance(answer, BaseException):
+            raise answer
         return answer(query) if callable(answer) else answer
 
     def paths(self):
@@ -186,6 +188,61 @@ def test_an_item_with_no_audio_streams_nothing(shelf, abs_transport):
     assert shelf.stream_urls("ebook") == []
 
 
+def test_tracks_carries_the_duration_stream_urls_drops(shelf, abs_transport):
+    # stream_urls is built on tracks() (T5.6): one HTTP call serves both, and
+    # a resume needs the durations stream_urls never had a reason to keep.
+    abs_transport.responses["/api/items/li-1"] = {
+        "media": {"tracks": [
+            {"contentUrl": "/api/items/li-1/file/100", "duration": 600.0},
+            {"contentUrl": "/api/items/li-1/file/101", "duration": 700.5}]}}
+    found = shelf.tracks("li-1")
+    assert [t["duration"] for t in found] == [600.0, 700.5]
+    assert [urllib.parse.urlsplit(t["url"]).path for t in found] == [
+        "/api/items/li-1/file/100", "/api/items/li-1/file/101"]
+    assert abs_transport.calls == [("/api/items/li-1", {"expanded": 1})]
+
+
+def test_a_track_with_no_duration_is_zero(shelf, abs_transport):
+    abs_transport.responses["/api/items/li-1"] = {
+        "media": {"tracks": [{"contentUrl": "/s/1.m4b"}]}}
+    assert shelf.tracks("li-1")[0]["duration"] == 0.0
+
+
+# -- progress --------------------------------------------------------------
+
+def _refusal(status):
+    exc = AudiobookshelfRefused(f"answered ({status})")
+    exc.status = status
+    return exc
+
+
+def test_progress_reads_the_current_position(shelf, abs_transport):
+    abs_transport.responses["/api/me/progress/li-1"] = {
+        "currentTime": 754.0, "isFinished": False}
+    assert shelf.progress("li-1") == 754.0
+    assert abs_transport.calls[0] == ("/api/me/progress/li-1", {})
+
+
+def test_a_book_never_started_has_no_progress(shelf, abs_transport):
+    # 404 is what Audiobookshelf says for "no such progress row" as much as
+    # for "no such item" — see _STATUS_HINTS — and here it means "never
+    # started", not a failure.
+    abs_transport.responses["/api/me/progress/li-1"] = _refusal(404)
+    assert shelf.progress("li-1") is None
+
+
+def test_a_finished_book_starts_over(shelf, abs_transport):
+    abs_transport.responses["/api/me/progress/li-1"] = {
+        "currentTime": 36000.0, "isFinished": True}
+    assert shelf.progress("li-1") is None
+
+
+def test_a_refusal_that_is_not_a_404_still_raises(shelf, abs_transport):
+    abs_transport.responses["/api/me/progress/li-1"] = _refusal(401)
+    with pytest.raises(AudiobookshelfRefused):
+        shelf.progress("li-1")
+
+
 # -- failure -------------------------------------------------------------------
 
 def test_a_failure_is_a_player_error(shelf, abs_transport):
@@ -245,6 +302,18 @@ def test_a_refusal_is_named_in_the_error(monkeypatch, code, words):
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
     with pytest.raises(AudiobookshelfError, match=words):
         audiobookshelf.get(BASE, KEY, {"path": "/api/items/x"}, 1.0)
+
+
+def test_a_refusal_carries_its_status_code(monkeypatch):
+    # progress() tells "never started" (404) from any other refusal by this
+    # alone, so the status has to survive the trip up from the wire.
+    def urlopen(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 404, "no", {}, None)
+
+    monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
+    with pytest.raises(AudiobookshelfError) as exc:
+        audiobookshelf.get(BASE, KEY, {"path": "/api/items/x"}, 1.0)
+    assert exc.value.status == 404
 
 
 def test_an_unreachable_server_is_an_error_not_a_crash(monkeypatch):

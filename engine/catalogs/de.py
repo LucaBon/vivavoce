@@ -13,6 +13,8 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Ich erreiche die Anlage gerade nicht. Bitte versuch es gleich noch mal.",
+    "err_unreachable_service":
+        "Ich erreiche {service} gerade nicht. Bitte versuch es gleich noch mal.",
     "err_busy":
         "Ich antworte noch auf den Satz davor. Bitte versuch es gleich noch mal.",
     # -- what this system cannot do ----------------------------------------
@@ -171,12 +173,21 @@ MESSAGES = {
     "ask_seek": "Ich habe nicht verstanden, wie weit ich springen soll. "
                 "Kannst du das wiederholen?",
     "no_seek": "Diese Anlage kann innerhalb eines Titels nicht springen.",
+    "no_speed": "Die Vorlesegeschwindigkeit änderst du in der App: das kann ich "
+                "hier noch nicht.",
     "book_playing": "Ich spiele das H\u00f6rbuch {title}.",
     "book_playing_by": "Ich spiele das H\u00f6rbuch {title} von {author}.",
     "book_did_you_mean": "Meinst du das H\u00f6rbuch {title}?",
     "book_did_you_mean_by": "Meinst du das H\u00f6rbuch {title} von {author}?",
     "no_book_found": "Ich habe kein H\u00f6rbuch f\u00fcr {title} gefunden.",
     "book_no_audio": "{title} hat nichts zum Anh\u00f6ren: vielleicht nur ein E-Book.",
+    "book_resumed": "Ich setze \"{title}\" nach {position} fort.",
+    # How far in a resumed book starts, as the phrase above says it.
+    "resume_one_minute": "einer Minute",
+    "resume_minutes": "{n} Minuten",
+    "resume_one_hour": "einer Stunde",
+    "resume_hours": "{n} Stunden",
+    "resume_hours_minutes": "{hours} und {minutes}",
     "now_playing": "Gerade l\u00e4uft {title}.",
     "now_playing_by": "Gerade l\u00e4uft {title} von {artist}.",
     "paused_on": "Pausiert bei {title}.",

@@ -12,6 +12,8 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "Non riesco a contattare l'impianto in questo momento. Riprova tra poco.",
+    "err_unreachable_service":
+        "Non riesco a contattare {service} in questo momento. Riprova tra poco.",
     "err_busy":
         "Sto ancora rispondendo alla frase precedente. Riprova tra poco.",
     # -- what this system cannot do ----------------------------------------
@@ -167,12 +169,20 @@ MESSAGES = {
     "span_one_minute": "un minuto",
     "ask_seek": "Non ho capito di quanto spostarmi. Puoi ripetere?",
     "no_seek": "Questo impianto non sa spostarsi dentro un brano.",
+    "no_speed": "La velocità di lettura si cambia dall'app: da qui ancora non posso.",
     "book_playing": "Metto l'audiolibro {title}.",
     "book_playing_by": "Metto l'audiolibro {title} di {author}.",
     "book_did_you_mean": "Intendi l'audiolibro {title}?",
     "book_did_you_mean_by": "Intendi l'audiolibro {title} di {author}?",
     "no_book_found": "Non ho trovato nessun audiolibro per {title}.",
     "book_no_audio": "{title} non ha niente da ascoltare: forse è solo un e-book.",
+    "book_resumed": "Riprendo \"{title}\" a {position} dall'inizio.",
+    # How far in a resumed book starts, as the phrase above says it.
+    "resume_one_minute": "un minuto",
+    "resume_minutes": "{n} minuti",
+    "resume_one_hour": "un'ora",
+    "resume_hours": "{n} ore",
+    "resume_hours_minutes": "{hours} e {minutes}",
     "now_playing": "Sta suonando {title}.",
     "now_playing_by": "Sta suonando {title} di {artist}.",
     "paused_on": "\u00c8 in pausa su {title}.",

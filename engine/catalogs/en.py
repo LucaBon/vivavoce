@@ -9,6 +9,8 @@ MESSAGES = {
     # -- shared errors / gates ---------------------------------------------
     "err_unreachable":
         "I can't reach the system right now. Please try again in a moment.",
+    "err_unreachable_service":
+        "I can't reach {service} right now. Please try again in a moment.",
     "err_busy":
         "I'm still answering the phrase before this one. Please try again in "
         "a moment.",
@@ -153,12 +155,20 @@ MESSAGES = {
     "span_one_minute": "one minute",
     "ask_seek": "I didn't catch how far to skip. Can you repeat?",
     "no_seek": "This system cannot skip within a track.",
+    "no_speed": "Reading speed is changed from the app: I can't do that here yet.",
     "book_playing": "Playing the audiobook {title}.",
     "book_playing_by": "Playing the audiobook {title} by {author}.",
     "book_did_you_mean": "Do you mean the audiobook {title}?",
     "book_did_you_mean_by": "Do you mean the audiobook {title} by {author}?",
     "no_book_found": "I found no audiobook for {title}.",
     "book_no_audio": "{title} has nothing to listen to: it may be an e-book only.",
+    "book_resumed": "Resuming \"{title}\" {position} in.",
+    # How far in a resumed book starts, as the phrase above says it.
+    "resume_one_minute": "one minute",
+    "resume_minutes": "{n} minutes",
+    "resume_one_hour": "one hour",
+    "resume_hours": "{n} hours",
+    "resume_hours_minutes": "{hours} and {minutes}",
     "now_playing": "Now playing {title}.",
     "now_playing_by": "Now playing {title} by {artist}.",
     "paused_on": "Paused on {title}.",

@@ -15,7 +15,15 @@ _BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:de\s+|d['’]\s*)?{_AMOUNT}[\s-]+{_U
          rf"(?:\s+{_DIR})?(?:\s+(?:s['’]il\s+(?:te|vous)\s+pla[iî]t|merci))?\s*$")
 _BACK_WORDS = r"(?:recul\w*|arri[eè]re|rembobin\w*|reviens|revenir|retourne)"
 
+#: «vitesse 1.5», «mets la vitesse à 1.5», «lis plus vite/lentement», «plus
+#: vite/plus lentement». Not gated on is_play — see
+#: intents_spoken._route_spoken.
+_NUM = r"\d+(?:[.,]\d+)?"
+_SPEED_VALUE = rf"(?:mets(?:\s+la)?\s+vitesse(?:\s+[aà])?|vitesse)\s+{_NUM}"
+_SPEED_WORD = r"(?:lis\s+)?plus\s+(?:vite|lentement)"
+
 PATTERNS = {
+    "speed": c(rf"^(?:{_SPEED_VALUE}|{_SPEED_WORD})\s*$"),
     "seek_back": c(rf"^(?=.*\b{_BACK_WORDS}\b){_BODY}"),
     "seek_fwd": c(rf"^(?!.*\b{_BACK_WORDS}\b)"
                   rf"(?=.*\b(?:avanc\w*|saute|en\s+avant|plus\s+loin)\b){_BODY}"),
@@ -23,4 +31,10 @@ PATTERNS = {
     "audiobook": c(r"^(?:(?:(?:mets|mettre|joue|lance|lis|[ée]coute)(?:[\s-]+moi)?\s+)?"
                    r"(?:le\s+|un\s+|mon\s+)?livre\s+audio"
                    r"|lis(?:[\s-]+moi)?\s+(?:le|un)\s+livre)\s+(.+)$"),
+    # «reprends le livre audio X», «continue le livre X»: the same lookup as
+    # ``audiobook``, worded as a return rather than a start (T5.6). The noun
+    # is required so a bare «reprends»/«continue» keeps meaning the
+    # transport's own play/unpause.
+    "resume_book": c(r"^(?:reprends?|continue)\s+"
+                     r"(?:le\s+|un\s+|mon\s+)?livre(?:\s+audio)?\s+(.+)$"),
 }

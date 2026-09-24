@@ -8,6 +8,7 @@ would only restate the implementation.
 import pytest
 
 from player.composite import Composite
+from player.errors import PlayerUnreachable
 from player.protocols import Capabilities
 
 STREAMABLE = Capabilities(streamable=True)
@@ -24,6 +25,21 @@ class Shelf:
 
     def book_candidates(self, query, count=10):
         return [{"id": "b1", "title": query, "author": "", "duration": 0.0}][:count]
+
+
+class ShelfWithTracks(Shelf):
+    """A catalogue that also knows each file's length — Audiobookshelf's
+    actual shape (T5.6), unlike the plain ``Shelf`` above."""
+
+    def __init__(self, tracks):
+        super().__init__({item_id: [t["url"] for t in files]
+                          for item_id, files in tracks.items()})
+        self.tracks_asked = []
+        self._tracks = tracks
+
+    def tracks(self, item_id):
+        self.tracks_asked.append(item_id)
+        return [dict(t) for t in self._tracks.get(item_id, [])]
 
 
 class Queue:
@@ -45,6 +61,20 @@ class Queue:
     def insert_url(self, url):
         self.calls.append("insert_url")
         self.tracks.insert(self.current + 1, url)
+
+
+class SeekingQueue(Queue):
+    """A :class:`Queue` that also remembers a ``seek``, with the
+    capabilities the engine reads before calling one."""
+
+    def __init__(self, *args, seekable=True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.capabilities = Capabilities(seek=seekable)
+        self.sought = []
+
+    def seek(self, seconds):
+        self.calls.append("seek")
+        self.sought.append(seconds)
 
 
 BOOK = ["ch1", "ch2", "ch3"]
@@ -112,6 +142,108 @@ def test_a_catalogue_that_cannot_stream_is_refused_at_construction():
 
 def test_book_search_is_the_catalogues(composite):
     assert composite.book_candidates("Pinocchio", 1)[0]["title"] == "Pinocchio"
+
+
+# -- resuming (T5.6) ------------------------------------------------------------
+
+RESUMABLE = {"book": [{"url": "ch1", "duration": 300.0},
+                      {"url": "ch2", "duration": 300.0},
+                      {"url": "ch3", "duration": 300.0}]}
+
+
+def test_a_never_started_book_plays_from_zero_with_no_seek():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = SeekingQueue()
+    assert composite.enqueue(queue, "book", "play", 0.0) == 3
+    assert queue.tracks == ["ch1", "ch2", "ch3"]
+    assert queue.sought == []
+    # start <= 0 never needs a file's length: the plain stream_urls path is
+    # taken, exactly as before T5.6.
+    assert composite.library.tracks_asked == []
+    assert composite.library.asked == ["book"]
+
+
+def test_resuming_mid_file_queues_only_what_is_left_and_seeks_into_it():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = SeekingQueue()
+    # 350s in: 300s of chapter 1 gone, 50s into chapter 2 of 3.
+    assert composite.enqueue(queue, "book", "play", 350.0) == 2
+    assert queue.tracks == ["ch2", "ch3"]
+    assert queue.sought == [50]
+
+
+def test_a_transport_that_cannot_seek_still_gets_the_right_file():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = SeekingQueue(seekable=False)
+    assert composite.enqueue(queue, "book", "play", 350.0) == 2
+    assert queue.tracks == ["ch2", "ch3"]
+    assert queue.sought == []
+    assert "seek" not in queue.calls
+
+
+def test_missing_durations_fall_back_to_playing_from_the_start():
+    unknown = {"book": [{"url": "ch1", "duration": 0.0},
+                        {"url": "ch2", "duration": 0.0}]}
+    composite = Composite(ShelfWithTracks(unknown), STREAMABLE, "Audiobookshelf")
+    queue = SeekingQueue()
+    assert composite.enqueue(queue, "book", "play", 100.0) == 2
+    assert queue.tracks == ["ch1", "ch2"]
+    assert queue.sought == []
+
+
+@pytest.mark.parametrize("shelf, seekable, reached", [
+    (ShelfWithTracks(RESUMABLE), True, 350.0),   # seeks to the very second
+    (ShelfWithTracks(RESUMABLE), False, 300.0),  # the start of chapter 2
+    (ShelfWithTracks({"book": [{"url": "ch1", "duration": 0.0},
+                               {"url": "ch2", "duration": 0.0}]}), True, 0.0),
+    (Shelf({"book": ["ch1", "ch2"]}), True, 0.0),  # no ``tracks`` at all
+    # Past the end of a book whose lengths are all known: from the start,
+    # not a seek past the last file that would play nothing.
+    (ShelfWithTracks({"book": [{"url": "ch1", "duration": 100.0},
+                               {"url": "ch2", "duration": 100.0}]}), True, 0.0),
+    # The last file's length unknown: no bound, so the seek is trusted.
+    (ShelfWithTracks({"book": [{"url": "ch1", "duration": 300.0},
+                               {"url": "ch2", "duration": 0.0}]}), True, 350.0),
+])
+def test_play_from_answers_where_playback_really_begins(shelf, seekable, reached):
+    # The reply says this number, so it must be where the listener actually
+    # is — not where Audiobookshelf says they stopped.
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    assert composite.play_from(SeekingQueue(seekable=seekable), "book",
+                               350.0)[1] == reached
+
+
+def test_a_seek_that_fails_leaves_the_book_playing_from_the_file_start():
+    class FailingSeek(SeekingQueue):
+        def seek(self, seconds):
+            raise PlayerUnreachable("still loading")
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = FailingSeek()
+    assert composite.play_from(queue, "book", 350.0) == (2, 300.0)
+    assert queue.tracks == ["ch2", "ch3"]
+
+
+def test_start_is_ignored_outside_play_mode():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = SeekingQueue(["song-a"])
+    composite.enqueue(queue, "book", "add", 350.0)
+    assert queue.tracks == ["song-a", "ch1", "ch2", "ch3"]
+    assert composite.library.tracks_asked == []
+
+
+def test_a_catalogue_with_no_notion_of_progress_costs_nothing():
+    # Shelf (unlike ShelfWithTracks) has no ``progress`` at all — the plain
+    # shape most of this file uses, and the one every catalogue had before
+    # T5.6.
+    composite = Composite(Shelf({}), STREAMABLE, "Audiobookshelf")
+    assert composite.progress("book") is None
+
+
+def test_progress_is_read_off_the_catalogue_when_it_has_one():
+    shelf = ShelfWithTracks(RESUMABLE)
+    shelf.progress = lambda item_id: 42.0
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    assert composite.progress("book") == 42.0
 
 
 # -- against the real clients --------------------------------------------------

@@ -14,7 +14,14 @@ _BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:by\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLUS}
          rf"(?:\s+{_DIR})?(?:\s+please)?\s*$")
 _BACK = r"(?=.*\b(?:back(?:wards?)?|rewind)\b)"
 
+#: "speed 1.5", "play faster/slower", "read faster". Not gated on is_play —
+#: see intents_spoken._route_spoken.
+_NUM = r"\d+(?:[.,]\d+)?"
+_SPEED_VALUE = rf"speed\s+{_NUM}"
+_SPEED_WORD = r"(?:play|read)\s+(?:faster|slower)"
+
 PATTERNS = {
+    "speed": c(rf"^(?:{_SPEED_VALUE}|{_SPEED_WORD})\s*$"),
     "seek_back": c(rf"^{_BACK}{_BODY}"),
     "seek_fwd": c(rf"^(?!.*\b(?:back(?:wards?)?|rewind)\b)"
                   rf"(?=.*\b(?:forward|ahead|skip)\b){_BODY}"),
@@ -23,4 +30,10 @@ PATTERNS = {
     "audiobook": c(r"^(?:(?:(?:play|put\s+on|start|listen\s+to|read)\s+)?"
                    r"(?:the\s+|an\s+|my\s+)?audio\s*book"
                    r"|read\s+(?:me\s+)?(?:the|a)\s+book)\s+(.+)$"),
+    # "resume the book X", "continue the audiobook X": the same lookup as
+    # "audiobook", worded as a return rather than a start (T5.6). The noun is
+    # required so a bare "resume"/"continue" keeps meaning the transport's
+    # own play/unpause.
+    "resume_book": c(r"^(?:resume|continue)\s+"
+                     r"(?:the\s+|an?\s+|my\s+)?(?:audio\s*book|book)\s+(.+)$"),
 }

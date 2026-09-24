@@ -124,8 +124,17 @@ class SpokenIntents:
     books = None  # a player.composite.Composite, or None: no --library
 
     def _route_spoken(self, t: str, P: dict, is_play: bool):
-        """The reply for a jump or a book, or ``None`` when ``t`` is neither
-        and routing goes on."""
+        """The reply for a jump, a speed change or a book, or ``None`` when
+        ``t`` is none of those and routing goes on."""
+        # Ahead of the seek check below and not gated on is_play: «metti a
+        # velocità 1.2» carries a play verb, unlike «vai avanti di 30
+        # secondi». No backend can do this yet, so the answer is fixed —
+        # no Capabilities flag, no transport call. A GATE, as every "this
+        # system cannot" is (conversation.cannot): a second-best transcription
+        # must not turn «più veloce» into a search that starts a song.
+        if P["speed"].match(t):
+            return actions.ActionResult(msg("no_speed"), ok=False,
+                                        kind=actions.GATE)
         if not is_play:
             for key, sign in (("seek_back", -1), ("seek_fwd", 1)):
                 m = P[key].match(t)
@@ -137,9 +146,12 @@ class SpokenIntents:
                     return (self._unable("seek", say="no_seek")
                             or actions.seek_relative(self.lms, sign * seconds))
         if self.books is not None:
-            m = P["audiobook"].match(t)
+            m = P["audiobook"].match(t) or P["resume_book"].match(t)
             if m:
-                return self._play_book(m.group(1).strip())
+                # The first group that took part: German «resume_book» has
+                # one per branch (see spoken_de).
+                title = next(g for g in m.groups() if g is not None)
+                return self._play_book(title.strip())
         return None
 
     def _play_book(self, query: str):
@@ -147,7 +159,10 @@ class SpokenIntents:
         try:
             found = self.books.book_candidates(query, BOOK_CANDIDATES)
         except PlayerError:
-            return actions.unreachable()
+            # The catalogue's own search, not the hi-fi: name it, so a
+            # rebooting Audiobookshelf is not reported as the whole system
+            # being down (the music, on the same speakers, still plays).
+            return actions.unreachable(self.books.label)
         if guard is not None:
             # Blocked is not found: naming the book back to the child who
             # asked for it is the one thing a blocklist must not do. The
@@ -186,13 +201,52 @@ class SpokenIntents:
     def _start_book(self, book: dict):
         title = book.get("title") or ""
         try:
-            queued = self.books.enqueue(self.lms, book["id"], "play")
-        except PlayerError:
-            return actions.unreachable()
+            start = self.books.progress(book["id"]) or 0.0
+        except PlayerError as exc:
+            # Audiobookshelf owns this fact and nothing else does (T5.5), but
+            # not knowing it must not cost the listener the book itself —
+            # only the resume. Logged, not raised: the catalogue may just be
+            # slow to answer, and its files are asked for next regardless.
+            print(f"Audiobookshelf: non riesco a leggere il progresso di "
+                  f"{title!r} ({exc}); riparto da capo.")
+            start = 0.0
+        try:
+            queued, reached = self.books.play_from(self.lms, book["id"], start)
+        except PlayerError as exc:
+            # enqueue() makes two kinds of call: fetching the book's own
+            # files (the catalogue) and sending them to the speakers (the
+            # transport) — see Composite.play_from. Only the first is named;
+            # a transport failure keeps the generic "the system", which is
+            # the LMS/MusicAssistant player it was already about.
+            service = self.books.label if getattr(exc, "from_library", False) else None
+            return actions.unreachable(service)
         if not queued:
             return actions.ActionResult(msg("book_no_audio", title=title),
                                         ok=False)
+        # What is said is where playback really begins, not where the
+        # listener stopped: the two differ when a file's length is unknown or
+        # the player cannot seek (see Composite.play_from). Under a minute in
+        # is not worth announcing as a resume.
+        if reached >= 60:
+            return actions.ActionResult(
+                msg("book_resumed", title=title, position=_position(reached)),
+                ok=True, terms=[title])
         author = book.get("author")
         key = "book_playing_by" if author else "book_playing"
         return actions.ActionResult(msg(key, title=title, author=author),
                                     ok=True, terms=[title])
+
+
+def _position(seconds: float) -> str:
+    """How far into a book, in whole minutes, as a person says it: «un'ora e
+    30 minuti», not «90 minuti»."""
+    hours, minutes = divmod(int(seconds) // 60, 60)
+    said_minutes = (msg("resume_one_minute") if minutes == 1
+                    else msg("resume_minutes", n=minutes))
+    if not hours:
+        return said_minutes
+    said_hours = (msg("resume_one_hour") if hours == 1
+                  else msg("resume_hours", n=hours))
+    if not minutes:
+        return said_hours
+    return msg("resume_hours_minutes", hours=said_hours, minutes=said_minutes)

@@ -32,7 +32,14 @@ _BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:di\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLUS}
          rf"(?:\s+{_DIR})?(?:\s+(?:per\s+favore|grazie))?\s*$")
 _BACK = r"(?=.*\b(?:indietro|riavvolgi)\b)"
 
+#: «metti a velocità 1.2», «velocità 1,5», «leggi più veloce/lento», «più
+#: veloce/più lento». Not gated on is_play — see intents_spoken._route_spoken.
+_NUM = r"\d+(?:[.,]\d+)?"
+_SPEED_VALUE = rf"(?:metti(?:\s+la)?(?:\s+a)?\s+velocit[aà]|velocit[aà])\s+{_NUM}"
+_SPEED_WORD = r"(?:leggi(?:mi)?\s+)?pi[uù]\s+(?:veloce|lento)"
+
 PATTERNS = {
+    "speed": c(rf"^(?:{_SPEED_VALUE}|{_SPEED_WORD})\s*$"),
     "seek_back": c(rf"^{_BACK}{_BODY}"),
     "seek_fwd": c(rf"^(?!.*\b(?:indietro|riavvolgi)\b)"
                   rf"(?=.*\b(?:avanti|salta|avanza)\b){_BODY}"),
@@ -42,4 +49,12 @@ PATTERNS = {
                    r"|voglio\s+ascoltare|leggi|leggimi)\s+)?"
                    r"(?:l['’]\s*|un\s+|il\s+mio\s+)?audiolibro"
                    r"|(?:leggi|leggimi)\s+(?:il|un)\s+libro)\s+(.+)$"),
+    # «riprendi il libro X», «riprendi l'audiolibro X», «continua il libro
+    # X»: the same lookup as ``audiobook``, worded as a return rather than a
+    # start (T5.6) — resuming is what «riprendi» already does for a book,
+    # so this is only another name for it. The noun is required so a bare
+    # «riprendi» keeps meaning the transport's own play/unpause.
+    "resume_book": c(r"^(?:riprendi|continua)\s+"
+                     r"(?:l['’]\s*|il\s+mio\s+|il\s+|un\s+)?"
+                     r"(?:audiolibro|libro)\s+(.+)$"),
 }

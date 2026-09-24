@@ -16,7 +16,15 @@ _BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:um\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLUS}
          rf"(?:\s+{_DIR})?(?:\s+bitte)?\s*$")
 _BACK = r"(?=.*\bzur[uü]ck\b)"
 
+#: «Geschwindigkeit 1,5», «stell die Geschwindigkeit auf 1.5», «lies
+#: schneller/langsamer», «schneller/langsamer vorlesen». Not gated on
+#: is_play — see intents_spoken._route_spoken.
+_NUM = r"\d+(?:[.,]\d+)?"
+_SPEED_VALUE = rf"(?:stelle?\s+(?:die\s+)?geschwindigkeit\s+auf|geschwindigkeit)\s+{_NUM}"
+_SPEED_WORD = r"(?:lies\s+)?(?:schneller|langsamer)(?:\s+vorlesen)?"
+
 PATTERNS = {
+    "speed": c(rf"^(?:{_SPEED_VALUE}|{_SPEED_WORD})\s*$"),
     "seek_back": c(rf"^{_BACK}{_BODY}"),
     "seek_fwd": c(rf"^(?!.*\bzur[uü]ck\b)"
                   rf"(?=.*\b(?:vor(?:w[aä]rts)?|vorne|weiter|spule?|springe?)\b)"
@@ -27,4 +35,14 @@ PATTERNS = {
                    r"(?:das\s+|ein\s+|mein\s+)?h(?:ö|oe|o)rbuch"
                    r"|lies\s+(?:mir\s+)?(?:das|ein)\s+buch)\s+(.+?)"
                    r"(?:\s+(?:vor|ab))?\s*$"),
+    # «weiter mit dem Hörbuch X», «setz das Hörbuch X fort»: the same lookup
+    # as ``audiobook``, worded as a return rather than a start (T5.6). The
+    # noun is required so a bare «weiter»/«fortsetzen» keeps meaning the
+    # transport's own play/unpause.
+    # «fort» is dropped only after «setz…»: a title may end in it («Sie
+    # sind fort»), and «weiter mit» never takes one.
+    "resume_book": c(r"^(?:weiter\s+mit\s+(?:dem\s+|meinem\s+)?"
+                     r"(?:h(?:ö|oe|o)rbuch|buch)\s+(.+?)"
+                     r"|setz(?:e)?\s+(?:das\s+|mein\s+)?"
+                     r"(?:h(?:ö|oe|o)rbuch|buch)\s+(.+?)\s+fort)\s*$"),
 }
