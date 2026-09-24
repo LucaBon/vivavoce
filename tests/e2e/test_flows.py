@@ -83,6 +83,10 @@ def test_nowplaying_panel_renders_the_track(page, web, transport):
     assert "Pink Floyd" in page.inner_text("#npsub")
     # The artwork goes through the server-side proxy, not the LMS directly.
     assert page.get_attribute("#npart", "src").startswith("/artwork?")
+    # Named for what a press will do, like the icon: pause, while playing.
+    assert page.get_attribute("#nptoggle", "aria-label") == "Pausa"
+    page.evaluate("window.vivavoce.renderNowPlaying({mode: 'pause', title: 'Time'})")
+    assert page.get_attribute("#nptoggle", "aria-label") == "Riproduci"
 
 
 def test_unmatched_phrase_offers_the_local_report(page, web):
