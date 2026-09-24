@@ -60,7 +60,8 @@ body { font-family: system-ui, sans-serif; margin: 0; line-height: 1.5;
            width: 100%;
            padding: .7rem max(1rem, env(safe-area-inset-right))
                     max(1.2rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
-h1 { font-size: 1.15rem; font-weight: 600; margin: .2rem 0 0; letter-spacing: .02em; }
+h1 { font-size: clamp(1rem, 4.8vw, 1.15rem);  /* one line down to 360px */
+     font-weight: 600; margin: .2rem 0 0; letter-spacing: .02em; }
 /* power-LED brand mark in place of the old emoji — doubles as the LMS
    status lamp: amber = on, red = the music server is unreachable. */
 h1::before { content: ""; display: inline-block; width: .55em; height: .55em;
@@ -232,8 +233,12 @@ details.card:hover { border-color: var(--brand-border); }
 details[open]:is(.card, #voicepanel) > summary { color: var(--text); }
 details[open]:is(.card, #voicepanel) > summary::after { transform: rotate(225deg); }
 .vset { display: flex; flex-direction: column; gap: .35rem; margin: .3rem 0; }
-.vrow { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
-.vrow select { max-width: 62%; }
+/* A select too long for the row drops under its label instead of being
+   cut mid-word («Automatica: libreria, poi stre…»). */
+.vrow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .3rem .5rem; }
+.vrow select { max-width: 100%; margin-left: auto; }
+.vrow > :first-child:not(select) { flex: 1 1 11rem; }  /* the label gives way first */
+.opts > label.hint { text-align: left; }  /* a wrapped checkbox label is prose */
 /* 1rem, not less: iOS Safari zooms the whole page into any field under 16px
    the moment it gets focus, and leaves it zoomed. */
 select { padding: .3rem .4rem; border-radius: .4rem; font-size: 1rem; }
@@ -371,10 +376,8 @@ body.browsing h1 { display: none; }
 body.browsing #mic { width: 72px; height: 72px; }
 body.browsing #mic svg { width: 30px; height: 30px; }
 
-/* Short screens. The hero never scrolls, so every pixel it takes is one the
-   conversation loses: a phone in landscape was left 30px for the reply.
-   The knob shrinks but stays the biggest thing on screen; #ainotice is never
-   touched here (see the AI Act note above its rule). */
+/* Short screens: the hero never scrolls, so what it takes the conversation
+   loses. The knob shrinks; #ainotice is never touched (see its rule). */
 @media (max-height: 700px) {
   .hero { gap: .5rem; }
   h1 { font-size: 1rem; }
