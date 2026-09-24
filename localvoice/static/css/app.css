@@ -102,8 +102,11 @@ a, a.hint { color: var(--accent-text); }
 /* A Pro control that is locked rather than disabled: it looks unavailable but
    still receives taps, so tapping it can explain itself (see settings.js). */
 select.locked { opacity: .55; }
-#probox, #kidsafebox { width: 100%; border-top: 1px solid var(--border);
-          margin-top: .4rem; padding-top: .55rem; }
+#probox, #kidsafebox, #voicepanel { width: 100%; }
+/* settings group headings: the knob's micro-label with a rule above */ #kidsafebox, .optgroup { border-top: 1px solid var(--border); margin: .4rem 0 0; padding-top: .55rem; }
+.optgroup { width: 100%; color: var(--text-muted); font: 600 .72rem/1.4 var(--font-label);
+            text-transform: uppercase; letter-spacing: .08em; }
+.optgroup:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
 #ksstatus { text-align: left; }
 #ksstatus .lamp { display: inline-block; width: .55em; height: .55em;
           border-radius: 50%; margin-right: .4em; vertical-align: baseline;
@@ -239,8 +242,7 @@ details[open]:is(.card, #voicepanel) > summary::after { transform: rotate(225deg
 .vrow select { max-width: 100%; margin-left: auto; }
 .vrow > :first-child:not(select) { flex: 1 1 11rem; }  /* the label gives way first */
 .opts > label.hint { text-align: left; }  /* a wrapped checkbox label is prose */
-/* 1rem, not less: iOS Safari zooms the whole page into any field under 16px
-   the moment it gets focus, and leaves it zoomed. */
+/* 1rem minimum: iOS Safari zooms the page into any smaller field on focus. */
 select { padding: .3rem .4rem; border-radius: .4rem; font-size: 1rem; }
 .opts { display: flex; flex-direction: column; gap: .55rem; width: 100%;
         align-items: flex-start; margin-top: .5rem; }

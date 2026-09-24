@@ -93,6 +93,10 @@ export const UI_EN = {
     '<button class="choice" data-cmd="which albums do I have by Pink Floyd">which albums do I have by Pink Floyd</button>' +
     '<button class="choice" data-cmd="what\'s playing">what\'s playing</button>',
   settings_summary: "Settings",
+  grp_listen: "Listening",
+  grp_music: "Music",
+  grp_reply: "Replies",
+  grp_pro: "Pro",
   // dynamic strings used from JS
   micstate_listening: "listening…",
   no_voice: "(no voice)",

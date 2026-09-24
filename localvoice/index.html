@@ -82,14 +82,13 @@
      data-i18n="material_link">Sfoglia coda, copertine e libreria con Material Skin</a>
   <details id="settings" class="card">
     <summary data-i18n="settings_summary">Impostazioni</summary>
+    <!-- Grouped by what each control is about. Only the order changed: every
+         control keeps its id, and the JavaScript finds them by id. -->
     <div class="opts">
-      <label class="hint"><input type="checkbox" id="autosend"> <span data-i18n="autosend">invia subito dopo il microfono (mani libere)</span></label>
+      <h2 class="optgroup" data-i18n="grp_listen">Ascolto</h2>
       <label class="vrow hint" style="width:100%"><span data-i18n="lbl_reclang">Lingua che parlo al microfono</span>
         <select id="reclang"></select></label>
-      <label class="vrow hint" style="width:100%"><span data-i18n="lbl_source">Sorgente musica</span>
-        <select id="source"></select></label>
-      <label class="vrow hint" id="playerrow" style="width:100%; display:none"><span><span data-i18n="lbl_player">Dove suona la musica</span> <span class="prolock" id="playerlock" hidden>🔒</span></span>
-        <select id="player"></select></label>
+      <label class="hint"><input type="checkbox" id="autosend"> <span data-i18n="autosend">invia subito dopo il microfono (mani libere)</span></label>
       <label class="hint"><input type="checkbox" id="wakemode"> <span data-i18n="wakemode_lbl">attiva a voce con una parola chiave</span></label>
       <!-- Tutto ciò che configura l'ascolto continuo vive qui dentro e compare
            solo quando l'ascolto è acceso: la scelta del motore era una casella
@@ -126,7 +125,23 @@
           accettarlo.</span></div>
       </div>
       <label class="hint" id="localasrrow" style="display:none; text-align:left"><input type="checkbox" id="localasr"> <span data-i18n="localasr_lbl">🎙 riconoscimento vocale locale (Whisper sul server: l'audio non esce di casa)</span></label>
+      <h2 class="optgroup" data-i18n="grp_music">Musica</h2>
+      <label class="vrow hint" style="width:100%"><span data-i18n="lbl_source">Sorgente musica</span>
+        <select id="source"></select></label>
+      <label class="vrow hint" id="playerrow" style="width:100%; display:none"><span><span data-i18n="lbl_player">Dove suona la musica</span> <span class="prolock" id="playerlock" hidden>🔒</span></span>
+        <select id="player"></select></label>
+      <h2 class="optgroup" data-i18n="grp_reply">Risposta</h2>
       <label class="hint"><input type="checkbox" id="readback"> <span data-i18n="readback_lbl">🔊 leggi la risposta ad alta voce</span></label>
+      <details class="hint" id="voicepanel" style="display:none">
+        <summary data-i18n="voices_summary">Voci &amp; lingue</summary>
+        <div id="voiceSettings" class="vset"></div>
+        <label class="vrow"><span data-i18n="lbl_foreign">Lingua predefinita dei titoli stranieri</span>
+          <select id="foreign"></select></label>
+        <button class="send" id="testvoice" type="button" style="margin-top:.4rem" data-i18n="testvoice">Prova le voci</button>
+        <div class="hint" style="margin-top:.3rem" data-i18n="voices_hint">La cornice italiana («Riproduco…») è letta in italiano;
+          il titolo e l'artista nella loro lingua. Le voci disponibili dipendono dal dispositivo.</div>
+      </details>
+      <h2 class="optgroup" data-i18n="grp_pro">Pro</h2>
       <div id="probox">
         <div id="prostatus" class="hint"></div>
         <div class="row" id="prorow">
@@ -157,15 +172,6 @@
         </div>
       </div>
     </div>
-    <details class="hint" id="voicepanel" style="display:none; margin-top:.5rem">
-      <summary data-i18n="voices_summary">Voci &amp; lingue</summary>
-      <div id="voiceSettings" class="vset"></div>
-      <label class="vrow"><span data-i18n="lbl_foreign">Lingua predefinita dei titoli stranieri</span>
-        <select id="foreign"></select></label>
-      <button class="send" id="testvoice" type="button" style="margin-top:.4rem" data-i18n="testvoice">Prova le voci</button>
-      <div class="hint" style="margin-top:.3rem" data-i18n="voices_hint">La cornice italiana («Riproduco…») è letta in italiano;
-        il titolo e l'artista nella loro lingua. Le voci disponibili dipendono dal dispositivo.</div>
-    </details>
   </details>
   <details class="hint card">
     <summary data-i18n="say_summary">Cosa posso dire</summary>
