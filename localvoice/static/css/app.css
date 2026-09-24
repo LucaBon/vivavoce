@@ -225,19 +225,19 @@ details.card { transition: border-color .15s; }
 details.card:hover { border-color: var(--brand-border); }
 /* custom chevron instead of the default disclosure triangle — also on the
    voices panel nested in the settings card, which had the bare triangle */
-:is(.card, #voicepanel) > summary { cursor: pointer; font-weight: 500; min-height: 44px;
+.card > summary, #voicepanel > summary { cursor: pointer; font-weight: 500; min-height: 44px;
                   display: flex; align-items: center; gap: .5rem;
                   color: var(--text-muted); list-style: none;
                   -webkit-tap-highlight-color: transparent; }
-:is(.card, #voicepanel) > summary::-webkit-details-marker { display: none; }
-:is(.card, #voicepanel) > summary::after { content: ""; margin-left: auto; flex-shrink: 0;
+.card > summary::-webkit-details-marker, #voicepanel > summary::-webkit-details-marker { display: none; }
+.card > summary::after, #voicepanel > summary::after { content: ""; margin-left: auto; flex-shrink: 0;
                          width: .45em; height: .45em;
                          border-right: 2px solid var(--text-muted);
                          border-bottom: 2px solid var(--text-muted);
                          transform: rotate(45deg) translate(-1px,-1px);
                          transition: transform .2s; }
-details[open]:is(.card, #voicepanel) > summary { color: var(--text); }
-details[open]:is(.card, #voicepanel) > summary::after { transform: rotate(225deg); }
+details[open].card > summary, details[open]#voicepanel > summary { color: var(--text); }
+details[open].card > summary::after, details[open]#voicepanel > summary::after { transform: rotate(225deg); }
 .vset { display: flex; flex-direction: column; gap: .35rem; margin: .3rem 0; }
 /* A select too long for the row drops under its label instead of being
    cut mid-word («Automatica: libreria, poi stre…»). */

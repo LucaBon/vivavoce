@@ -85,8 +85,9 @@ def test_nowplaying_panel_renders_the_track(page, web, transport):
     assert page.get_attribute("#npart", "src").startswith("/artwork?")
     # Named for what a press will do, like the icon: pause, while playing.
     assert page.get_attribute("#nptoggle", "aria-label") == "Pausa"
-    page.evaluate("window.vivavoce.renderNowPlaying({mode: 'pause', title: 'Time'})")
-    assert page.get_attribute("#nptoggle", "aria-label") == "Riproduci"
+    assert page.evaluate(
+        "window.vivavoce.renderNowPlaying({mode: 'pause', title: 'Time'}),"
+        " document.getElementById('nptoggle').getAttribute('aria-label')") == "Riproduci"
 
 
 def test_the_page_has_a_landmark_for_the_controls_and_one_for_the_rest(page, web):

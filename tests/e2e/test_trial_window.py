@@ -167,13 +167,12 @@ def test_opening_the_pro_panel_keeps_the_microphone_on_screen(
         page.click("#mic")  # locked: opens the Pro panel instead
         page.wait_for_function(
             "document.querySelector('.content').scrollTop > 0")
-        page.wait_for_timeout(1000)  # let the smooth scroll settle
+        page.wait_for_function(  # the box has arrived, however fast the runner
+            "(t => t > 0 && t < innerHeight)("
+            "document.getElementById('probox').getBoundingClientRect().top)")
         assert page.evaluate("document.documentElement.scrollTop") == 0
         assert page.evaluate(
             "document.querySelector('.hero').getBoundingClientRect().top") == 0
-        top = page.evaluate(
-            "document.getElementById('probox').getBoundingClientRect().top")
-        assert 0 < top < 844
     finally:
         ctx.close()
 

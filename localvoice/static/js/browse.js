@@ -27,11 +27,13 @@ function open() {
   $("browseclose").focus();
 }
 
-function close() {
+export function close() {
   const wasOpen = !$("browse").hidden;
   $("browse").hidden = true;
   document.body.classList.remove("browsing");
-  if (wasOpen) $("material").focus();
+  // A kid-safe lock hides the link before closing: focus cannot land on a
+  // display:none element, so it goes to the text box instead of <body>.
+  if (wasOpen) ($("material").offsetParent ? $("material") : $("text")).focus();
 }
 
 export function initBrowse() {

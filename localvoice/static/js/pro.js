@@ -6,7 +6,7 @@
 // into the served HTML: the PWA-cached copy must not carry stale state.
 
 import { $, clientId } from "./util.js";
-import { applyBrowse } from "./browse.js";
+import { applyBrowse, close as closeBrowse } from "./browse.js";
 import { replyLang, setMicLocked, ui } from "./i18n.js";
 import { syncVoicePanel } from "./tts.js";
 import { syncWakePhrase } from "./miccapture.js";
@@ -101,12 +101,17 @@ export async function refreshLicense() {
 // scrolls every ancestor it can, and on a phone that includes the document
 // itself (overflow: hidden still yields to script): the hero slid off the
 // top, the microphone with it, and a blank band opened at the bottom.
+// Two more details: while Material is open every other child of .content is
+// hidden, so there is nothing to scroll to until the panel closes; and a box
+// taller than the pane is aligned by its top (centring it would push the
+// status line and the buy button off the top).
 export function showProUpsell() {
+  closeBrowse();
   $("settings").open = true;
   const box = $("probox"), pane = box.closest(".content");
   const offset = box.getBoundingClientRect().top - pane.getBoundingClientRect().top;
-  pane.scrollTo({ top: pane.scrollTop + offset - (pane.clientHeight - box.offsetHeight) / 2,
-                  behavior: "smooth" });
+  const margin = Math.max(0, (pane.clientHeight - box.offsetHeight) / 2);
+  pane.scrollTo({ top: pane.scrollTop + offset - margin, behavior: "smooth" });
 }
 
 // --- Kid-safe panel (Pro, server-enforced): state comes from /kidsafe. ---
