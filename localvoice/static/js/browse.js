@@ -15,16 +15,23 @@ import { $ } from "./util.js";
 let path = "";       // where to point the frame; "" = no panel, plain link
 let loaded = false;  // the frame has been given its src
 
+// Focus follows the panel. Opening hides the link that was just activated
+// (every other child of .content goes), so focus left on it would sit on an
+// invisible element and the next Tab would start from nowhere; closing puts it
+// back on the link, where a keyboard or screen-reader user left off.
 function open() {
   const frame = $("browseframe");
   if (!loaded) { frame.src = path; loaded = true; }
   $("browse").hidden = false;
   document.body.classList.add("browsing");
+  $("browseclose").focus();
 }
 
 function close() {
+  const wasOpen = !$("browse").hidden;
   $("browse").hidden = true;
   document.body.classList.remove("browsing");
+  if (wasOpen) $("material").focus();
 }
 
 export function initBrowse() {
@@ -46,6 +53,11 @@ export function initBrowse() {
   // has nowhere left to go.
   $("browseclose").onclick = close;
   window.addEventListener("popstate", close);
+  // Esc closes it like the button does. Only from this page: a key pressed
+  // inside Material stays Material's (its own dialogs close on Esc).
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("browse").hidden) close();
+  });
 }
 
 // Kid-safe: a locked device does not get the door to a UI that can start
