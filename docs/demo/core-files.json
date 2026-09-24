@@ -27,6 +27,7 @@
   "engine/player/errors.py",
   "engine/player/protocols.py",
   "engine/player/resilience.py",
+  "engine/results.py",
   "engine/transport.py",
   "engine/wakematch.py",
   "localvoice/alternatives.py",
