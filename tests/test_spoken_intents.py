@@ -84,10 +84,27 @@ HOBBIT = {"id": "b1", "title": "Lo Hobbit", "author": "J.R.R. Tolkien",
           "duration": 36000.0}
 
 
-def shelf_of(*books, files=None, progress=None):
+class TimedShelf(Shelf):
+    """A :class:`Shelf` that also says how long each file runs — what a
+    resume needs to find where it falls (``Composite.play_from``)."""
+
+    def __init__(self, books, files, progress, duration):
+        super().__init__(books, files, progress)
+        self.duration = duration
+
+    def tracks(self, item_id):
+        return [{"url": url, "duration": self.duration}
+                for url in self.files.get(item_id, [])]
+
+
+def shelf_of(*books, files=None, progress=None, duration=None):
+    """``duration``: seconds per file, making the shelf a :class:`TimedShelf`
+    that can be resumed into; ``0.0`` is a length the catalogue does not
+    know."""
     files = files if files is not None else {"b1": ["u1", "u2"]}
-    return Composite(Shelf(books, files, progress),
-                     Capabilities(streamable=True), "Audiobookshelf")
+    shelf = (Shelf(books, files, progress) if duration is None
+             else TimedShelf(books, files, progress, duration))
+    return Composite(shelf, Capabilities(streamable=True), "Audiobookshelf")
 
 
 @pytest.fixture
@@ -275,6 +292,15 @@ def test_a_speed_change_answers_rather_than_erroring(player, lang, phrase):
     assert player.calls == []  # zero transport calls
 
 
+def test_a_speed_refusal_ends_the_turn_for_every_alternative(player):
+    # «metti più veloce» does not match the speed pattern and carries a play
+    # verb: were the refusal not a GATE, the sweep would route it next and
+    # search for a song called «più veloce».
+    out = Router(player, services=()).handle_many(["più veloce", "metti più veloce"])
+    assert out["speech"] == msg("no_speed")
+    assert player.calls == []
+
+
 @pytest.mark.parametrize("lang, phrase", [
     ("it", "alza il volume"), ("it", "più forte"), ("en", "turn it up"),
 ])
@@ -428,6 +454,8 @@ def test_a_failed_fetch_of_the_books_own_files_names_the_catalogue(player):
     ("it", "continua il libro Lo Hobbit"),
     ("en", "resume the book Lo Hobbit"),
     ("en", "continue the audiobook Lo Hobbit"),
+    ("de", "weiter mit dem Hörbuch Lo Hobbit"),
+    ("de", "setz das Hörbuch Lo Hobbit fort"),
 ])
 def test_resume_book_routes_like_audiobook(player, lang, phrase):
     books = shelf_of(HOBBIT)
@@ -435,6 +463,13 @@ def test_resume_book_routes_like_audiobook(player, lang, phrase):
     assert reply.ok, f"«{phrase}»: {reply}"
     assert player.calls == [("play_tracks", (["u1", "u2"],))]
     assert books.library.asked == ["Lo Hobbit"]
+
+
+def test_a_title_ending_in_fort_keeps_its_last_word(player):
+    books = shelf_of(HOBBIT)
+    Router(player, services=(), books=books).handle(
+        "weiter mit dem Hörbuch Sie sind fort", lang="de")
+    assert books.library.asked == ["Sie sind fort"]
 
 
 @pytest.mark.parametrize("lang, phrase", [
@@ -455,11 +490,52 @@ def test_a_bare_resume_still_means_play_unpause(player, lang, phrase):
     ("en", "play the audiobook Lo Hobbit"),
 ])
 def test_a_book_already_started_resumes_where_it_was_left(player, lang, phrase):
-    books = shelf_of(HOBBIT, progress={"b1": 600.0})
+    books = shelf_of(HOBBIT, progress={"b1": 600.0}, duration=3600.0)
     reply = Router(player, services=(), books=books).handle(phrase, lang=lang)
     assert reply.ok, f"«{phrase}»: {reply}"
+    assert player.calls == [("play_tracks", (["u1", "u2"],)), ("seek", (600,))]
     set_lang(lang)
-    assert str(reply) == msg("book_resumed", title="Lo Hobbit", minutes=10)
+    assert str(reply) == msg("book_resumed", title="Lo Hobbit",
+                             position=msg("resume_minutes", n=10))
+
+
+@pytest.mark.parametrize("seconds, said", [
+    (5400.0, "un'ora e 30 minuti"), (3600.0, "un'ora"), (7260.0, "2 ore e un minuto"),
+    (60.0, "un minuto"), (1500.0, "25 minuti"),
+])
+def test_a_resume_is_said_in_hours_and_minutes(player, seconds, said):
+    books = shelf_of(HOBBIT, progress={"b1": seconds}, duration=36000.0)
+    reply = Router(player, services=(), books=books).handle(
+        "riprendi il libro Lo Hobbit")
+    assert str(reply) == msg("book_resumed", title="Lo Hobbit", position=said)
+
+
+@pytest.mark.parametrize("shelf", [
+    # No ``tracks``: nothing can say where 600 s falls.
+    dict(progress={"b1": 600.0}),
+    # Lengths the catalogue does not know: the same.
+    dict(progress={"b1": 600.0}, duration=0.0),
+    # Under a minute in: played from there, not worth announcing.
+    dict(progress={"b1": 40.0}, duration=3600.0),
+])
+def test_a_resume_that_did_not_happen_is_not_announced(player, shelf):
+    reply = Router(player, services=(), books=shelf_of(HOBBIT, **shelf)).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert str(reply) == msg("book_playing_by", title="Lo Hobbit",
+                             author="J.R.R. Tolkien")
+
+
+def test_a_player_that_cannot_seek_announces_where_the_file_begins(player):
+    # 50 minutes in is 20 minutes into the second 30-minute file: with no
+    # seek, the listener hears that file from its start — 30 minutes, which
+    # is what gets said, not the 50 they had reached.
+    player.capabilities = Capabilities(search=True)
+    books = shelf_of(HOBBIT, progress={"b1": 3000.0}, duration=1800.0)
+    reply = Router(player, services=(), books=books).handle(
+        "riprendi il libro Lo Hobbit")
+    assert player.calls == [("play_tracks", (["u2"],))]
+    assert str(reply) == msg("book_resumed", title="Lo Hobbit",
+                             position="30 minuti")
 
 
 def test_a_book_never_started_gets_the_ordinary_reply(player):

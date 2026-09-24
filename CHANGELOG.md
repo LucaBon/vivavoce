@@ -8,7 +8,10 @@
   l'audiolibro X», e ora anche «riprendi il libro X», leggono il punto
   d'ascolto che Audiobookshelf tiene già per la sua app, e ripartono da lì:
   mettono in coda solo i file da quel punto in avanti e saltano al secondo
-  giusto; la risposta dice da quanti minuti. Un libro finito o mai aperto
+  giusto; la risposta dice da dove, in ore e minuti («da un'ora e 30
+  minuti»). Se il lettore non sa saltare dentro un file, o Audiobookshelf non
+  conosce la durata dei file, la risposta dice il punto da cui l'ascolto
+  riparte davvero, non quello salvato. Un libro finito o mai aperto
   parte dall'inizio, come prima. Vivavoce legge il progresso ma non lo
   scrive ancora. «metti a velocità 1.2» ha una risposta che si può usare
   invece di un errore, e non tocca il lettore. E se a non rispondere è

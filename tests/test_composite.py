@@ -8,6 +8,7 @@ would only restate the implementation.
 import pytest
 
 from player.composite import Composite
+from player.errors import PlayerUnreachable
 from player.protocols import Capabilities
 
 STREAMABLE = Capabilities(streamable=True)
@@ -188,6 +189,38 @@ def test_missing_durations_fall_back_to_playing_from_the_start():
     assert composite.enqueue(queue, "book", "play", 100.0) == 2
     assert queue.tracks == ["ch1", "ch2"]
     assert queue.sought == []
+
+
+@pytest.mark.parametrize("shelf, seekable, reached", [
+    (ShelfWithTracks(RESUMABLE), True, 350.0),   # seeks to the very second
+    (ShelfWithTracks(RESUMABLE), False, 300.0),  # the start of chapter 2
+    (ShelfWithTracks({"book": [{"url": "ch1", "duration": 0.0},
+                               {"url": "ch2", "duration": 0.0}]}), True, 0.0),
+    (Shelf({"book": ["ch1", "ch2"]}), True, 0.0),  # no ``tracks`` at all
+    # Past the end of a book whose lengths are all known: from the start,
+    # not a seek past the last file that would play nothing.
+    (ShelfWithTracks({"book": [{"url": "ch1", "duration": 100.0},
+                               {"url": "ch2", "duration": 100.0}]}), True, 0.0),
+    # The last file's length unknown: no bound, so the seek is trusted.
+    (ShelfWithTracks({"book": [{"url": "ch1", "duration": 300.0},
+                               {"url": "ch2", "duration": 0.0}]}), True, 350.0),
+])
+def test_play_from_answers_where_playback_really_begins(shelf, seekable, reached):
+    # The reply says this number, so it must be where the listener actually
+    # is — not where Audiobookshelf says they stopped.
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    assert composite.play_from(SeekingQueue(seekable=seekable), "book",
+                               350.0)[1] == reached
+
+
+def test_a_seek_that_fails_leaves_the_book_playing_from_the_file_start():
+    class FailingSeek(SeekingQueue):
+        def seek(self, seconds):
+            raise PlayerUnreachable("still loading")
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = FailingSeek()
+    assert composite.play_from(queue, "book", 350.0) == (2, 300.0)
+    assert queue.tracks == ["ch2", "ch3"]
 
 
 def test_start_is_ignored_outside_play_mode():

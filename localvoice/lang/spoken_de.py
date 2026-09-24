@@ -39,8 +39,10 @@ PATTERNS = {
     # as ``audiobook``, worded as a return rather than a start (T5.6). The
     # noun is required so a bare «weiter»/«fortsetzen» keeps meaning the
     # transport's own play/unpause.
+    # «fort» is dropped only after «setz…»: a title may end in it («Sie
+    # sind fort»), and «weiter mit» never takes one.
     "resume_book": c(r"^(?:weiter\s+mit\s+(?:dem\s+|meinem\s+)?"
-                     r"(?:h(?:ö|oe|o)rbuch|buch)"
+                     r"(?:h(?:ö|oe|o)rbuch|buch)\s+(.+?)"
                      r"|setz(?:e)?\s+(?:das\s+|mein\s+)?"
-                     r"(?:h(?:ö|oe|o)rbuch|buch))\s+(.+?)(?:\s+fort)?\s*$"),
+                     r"(?:h(?:ö|oe|o)rbuch|buch)\s+(.+?)\s+fort)\s*$"),
 }
