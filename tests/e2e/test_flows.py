@@ -89,6 +89,15 @@ def test_nowplaying_panel_renders_the_track(page, web, transport):
     assert page.get_attribute("#nptoggle", "aria-label") == "Riproduci"
 
 
+def test_the_page_has_a_landmark_for_the_controls_and_one_for_the_rest(page, web):
+    # Two places a screen reader can jump to: the microphone and the text box
+    # (a named region), and everything that scrolls under them (main).
+    page.goto(web().url)
+    page.wait_for_function("!!window.vivavoce")
+    assert page.get_by_role("region", name="Comandi").is_visible()
+    assert page.get_by_role("main").is_visible()
+
+
 def test_unmatched_phrase_offers_the_local_report(page, web):
     # A phrase the parser can't place gets a "report" button: tapping it saves
     # the report on-device and opens a pre-filled GitHub issue. The github.com

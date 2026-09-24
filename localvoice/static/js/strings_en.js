@@ -139,6 +139,7 @@ export const UI_EN = {
   still_working: "Still working on the previous command\u2026",
   asr_working: "Transcribing…",
   asr_failed: "Local recognition failed: using the browser's.",
+  lbl_controls: "Commands",
   lbl_text: "Text command",
   log_label: "Command history",
   np_label: "Now playing",

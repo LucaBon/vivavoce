@@ -47,7 +47,7 @@ def _ui_table(name):
 def _hero_markup():
     """Just the sticky top area: the mic, the status line, the text box."""
     page = _asset("index.html")
-    start = page.index('<div class="hero">')
+    start = page.index('<div class="hero"')
     return page[start:page.index('<div class="content"', start)]
 
 

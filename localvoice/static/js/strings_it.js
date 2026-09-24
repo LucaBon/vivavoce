@@ -48,6 +48,7 @@ export const UI_IT = {
   still_working: "Sto ancora eseguendo il comando precedente\u2026",
   asr_working: "Trascrivo…",
   asr_failed: "Riconoscimento locale non riuscito: uso quello del browser.",
+  lbl_controls: "Comandi",
   lbl_text: "Comando testuale",
   log_label: "Cronologia comandi",
   np_label: "In riproduzione",

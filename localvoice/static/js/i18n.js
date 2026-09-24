@@ -109,6 +109,7 @@ export function applyUI() {
   $("mic").title = ui("mic_title");
   $("mic").setAttribute("aria-label", ui("mic_title"));
   $("log").setAttribute("aria-label", ui("log_label"));
+  document.querySelector(".hero").setAttribute("aria-label", ui("lbl_controls"));
   // the data-i18n swap resets #micstate to idle text: keep it truthful while listening
   $("micstate").textContent = $("mic").classList.contains("listening")
     ? ui("micstate_listening") : ui("micstate_idle");
