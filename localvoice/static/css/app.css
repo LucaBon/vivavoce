@@ -121,7 +121,7 @@ select.locked { opacity: .55; }
 #prostatus b { color: var(--accent-text); }
 #prostatus.warn b { color: var(--danger); }
 #prorow { margin-top: .45rem; max-width: none; }
-#prorow input { font-family: var(--font-label); font-size: .9rem; }
+#prorow input { font-family: var(--font-label); }
 #mic:focus-visible { outline: 3px solid var(--amber); outline-offset: 4px; }
 #mic.listening { background: radial-gradient(circle at 35% 30%,
                  #f0b254, var(--amber) 55%, #b87a24);
@@ -232,10 +232,12 @@ details[open].card > summary::after { transform: rotate(225deg); }
 .vset { display: flex; flex-direction: column; gap: .35rem; margin: .3rem 0; }
 .vrow { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
 .vrow select { max-width: 62%; }
-select { padding: .3rem .4rem; border-radius: .4rem; font-size: .9rem; }
+/* 1rem, not less: iOS Safari zooms the whole page into any field under 16px
+   the moment it gets focus, and leaves it zoomed. */
+select { padding: .3rem .4rem; border-radius: .4rem; font-size: 1rem; }
 .opts { display: flex; flex-direction: column; gap: .55rem; width: 100%;
         align-items: flex-start; margin-top: .5rem; }
-.opts input[type=text] { padding: .3rem .4rem; font-size: .9rem; border-radius: .4rem; }
+.opts input[type=text] { padding: .3rem .4rem; font-size: 1rem; border-radius: .4rem; }
 .choices { display: flex; flex-wrap: wrap; gap: .4rem; max-width: 480px;
            align-self: flex-start; margin: -.1rem 0 .2rem; }
 .choice { padding: .5rem .85rem; border-radius: 999px; cursor: pointer;
