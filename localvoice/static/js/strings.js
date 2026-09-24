@@ -95,7 +95,7 @@ export const UI_EN = {
   micstate_listening: "listening…",
   no_voice: "(no voice)",
   ph_text: "e.g. play Time by Pink Floyd",
-  mic_title: "Tap and speak",
+  mic_title: "Microphone: tap and speak, tap again to stop",
   title_page: "Vivavoce — local voice",
   status_tap_write: "Tap the microphone and speak, or type below.",
   // Art. 50(1) AI Act. `ai_notice` is the English side of the label that lives
@@ -250,7 +250,7 @@ export const UI_IT = {
   micstate_listening: "in ascolto…",
   no_voice: "(nessuna voce)",
   ph_text: "es. riproduci Time dei Pink Floyd",
-  mic_title: "Tieni premuto o clicca e parla",
+  mic_title: "Microfono: tocca e parla, tocca di nuovo per fermare",
   title_page: "Vivavoce — voce locale",
   status_tap_write: "Tocca il microfono e parla, oppure scrivi qui sotto.",
   // Only the spoken half: the on-screen line is Italian markup already.
