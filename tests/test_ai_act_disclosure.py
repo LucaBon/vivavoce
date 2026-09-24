@@ -37,8 +37,8 @@ def _asset(*parts):
 
 
 def _ui_table(name):
-    """The keys of ``UI_EN`` / ``UI_IT`` as written in strings.js."""
-    source = _asset("static", "js", "strings.js")
+    """The keys of ``UI_EN`` / ``UI_IT`` as written in strings_en/_it.js."""
+    source = _asset("static", "js", "strings_%s.js" % name[-2:].lower())
     body = source.split("export const %s = {" % name, 1)[1]
     body = re.split(r"^export const ", body, flags=re.M)[0]
     return set(re.findall(r"^  ([A-Za-z_][A-Za-z0-9_]*)\s*:", body, re.M))

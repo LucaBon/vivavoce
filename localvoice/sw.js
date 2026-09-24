@@ -15,7 +15,7 @@
 // Nota: Chrome registra il service worker solo su HTTPS *fidato* — quindi con
 // la CA locale installata (vedi /ca.pem), non con il certificato "accettato
 // nonostante l'avviso".
-const VERSION = "vivavoce-v15";
+const VERSION = "vivavoce-v16";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png",
                "/static/css/app.css",
                "/static/js/app.js", "/static/js/browse.js",
@@ -27,7 +27,8 @@ const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png",
                "/static/js/nowplaying.js",
                "/static/js/pro.js", "/static/js/serverwake.js",
                "/static/js/settings.js",
-               "/static/js/strings.js", "/static/js/tts.js",
+               "/static/js/strings_en.js", "/static/js/strings_it.js",
+               "/static/js/tts.js",
                "/static/js/util.js",
                "/static/js/wakeword.js"];
 // Endpoint dinamici: mai in cache (lo stato del player cambia di continuo).

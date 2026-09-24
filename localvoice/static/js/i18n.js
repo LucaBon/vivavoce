@@ -14,7 +14,8 @@
 // graph and no cycle can bite at evaluation time.
 
 import { $ } from "./util.js";
-import { UI_EN, UI_IT } from "./strings.js";
+import { UI_EN } from "./strings_en.js";
+import { UI_IT } from "./strings_it.js";
 
 export const LANGS = {
   it: { name: "Italiano", tag: "it-IT" },
