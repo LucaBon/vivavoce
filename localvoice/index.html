@@ -10,12 +10,13 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Vivavoce — voce locale</title>
 <link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/nowplaying.css">
 </head>
 <body>
-  <div class="hero">
+  <div class="hero" role="region" aria-label="Comandi">
     <h1 data-i18n="h1">Vivavoce — comando vocale locale</h1>
-    <button id="mic" type="button" title="Tieni premuto o clicca e parla"
-            aria-pressed="false" aria-label="Tieni premuto o clicca e parla"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/></svg></button>
+    <button id="mic" type="button" title="Microfono: tocca e parla, tocca di nuovo per fermare"
+            aria-pressed="false" aria-label="Microfono: tocca e parla, tocca di nuovo per fermare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/></svg></button>
     <div id="micstate" class="hint" aria-hidden="true" data-i18n="micstate_idle">tocca e parla</div>
     <div id="status" class="hint" role="status" aria-live="polite">Tocca il microfono e parla, oppure scrivi qui sotto.</div>
     <!-- Art. 50(1) AI Act (applicabile dal 2 agosto 2026): chi parla con
@@ -36,7 +37,7 @@
       <button class="send" id="send" type="button" data-i18n="send">Invia</button>
     </div>
   </div>
-  <div class="content">
+  <div class="content" role="main">
   <div id="np" class="card" hidden>
     <div class="nptop">
       <img id="npart" alt="" hidden>
@@ -73,16 +74,22 @@
       Per forzare la sorgente: «<i>dalla mia musica</i> …», «<i>da tidal</i> …» o
       «<i>da qobuz</i> …» — anche in fondo: «<i>metti Time da qobuz</i>».</div>
   </div>
+  <!-- Stays a plain link: with no panel to open (the browse path is empty
+       when Material lives somewhere other than our LMS) it works with no
+       JavaScript at all, and browse.js intercepts the click only when it has
+       somewhere to put it. Above the settings, not under three closed panels
+       at the foot of the page: it is the only way into the library. -->
+  <a class="browselink" id="material" href="__MATERIAL_URL__" target="_blank" rel="noopener"
+     data-i18n="material_link">Sfoglia coda, copertine e libreria con Material Skin</a>
   <details id="settings" class="card">
     <summary data-i18n="settings_summary">Impostazioni</summary>
+    <!-- Grouped by what each control is about. Only the order changed: every
+         control keeps its id, and the JavaScript finds them by id. -->
     <div class="opts">
-      <label class="hint"><input type="checkbox" id="autosend"> <span data-i18n="autosend">invia subito dopo il microfono (mani libere)</span></label>
+      <h2 class="optgroup" data-i18n="grp_listen">Ascolto</h2>
       <label class="vrow hint" style="width:100%"><span data-i18n="lbl_reclang">Lingua che parlo al microfono</span>
         <select id="reclang"></select></label>
-      <label class="vrow hint" style="width:100%"><span data-i18n="lbl_source">Sorgente musica</span>
-        <select id="source"></select></label>
-      <label class="vrow hint" id="playerrow" style="width:100%; display:none"><span><span data-i18n="lbl_player">Dove suona la musica</span> <span class="prolock" id="playerlock" hidden>🔒</span></span>
-        <select id="player"></select></label>
+      <label class="hint"><input type="checkbox" id="autosend"> <span data-i18n="autosend">invia subito dopo il microfono (mani libere)</span></label>
       <label class="hint"><input type="checkbox" id="wakemode"> <span data-i18n="wakemode_lbl">attiva a voce con una parola chiave</span></label>
       <!-- Tutto ciò che configura l'ascolto continuo vive qui dentro e compare
            solo quando l'ascolto è acceso: la scelta del motore era una casella
@@ -119,7 +126,23 @@
           accettarlo.</span></div>
       </div>
       <label class="hint" id="localasrrow" style="display:none; text-align:left"><input type="checkbox" id="localasr"> <span data-i18n="localasr_lbl">🎙 riconoscimento vocale locale (Whisper sul server: l'audio non esce di casa)</span></label>
+      <h2 class="optgroup" data-i18n="grp_music">Musica</h2>
+      <label class="vrow hint" style="width:100%"><span data-i18n="lbl_source">Sorgente musica</span>
+        <select id="source"></select></label>
+      <label class="vrow hint" id="playerrow" style="width:100%; display:none"><span><span data-i18n="lbl_player">Dove suona la musica</span> <span class="prolock" id="playerlock" hidden>🔒</span></span>
+        <select id="player"></select></label>
+      <h2 class="optgroup" data-i18n="grp_reply">Risposta</h2>
       <label class="hint"><input type="checkbox" id="readback"> <span data-i18n="readback_lbl">🔊 leggi la risposta ad alta voce</span></label>
+      <details class="hint" id="voicepanel" style="display:none">
+        <summary data-i18n="voices_summary">Voci &amp; lingue</summary>
+        <div id="voiceSettings" class="vset"></div>
+        <label class="vrow"><span data-i18n="lbl_foreign">Lingua predefinita dei titoli stranieri</span>
+          <select id="foreign"></select></label>
+        <button class="send" id="testvoice" type="button" style="margin-top:.4rem" data-i18n="testvoice">Prova le voci</button>
+        <div class="hint" style="margin-top:.3rem" data-i18n="voices_hint">La cornice italiana («Riproduco…») è letta in italiano;
+          il titolo e l'artista nella loro lingua. Le voci disponibili dipendono dal dispositivo.</div>
+      </details>
+      <h2 class="optgroup" data-i18n="grp_pro">Pro</h2>
       <div id="probox">
         <div id="prostatus" class="hint"></div>
         <div class="row" id="prorow">
@@ -150,15 +173,6 @@
         </div>
       </div>
     </div>
-    <details class="hint" id="voicepanel" style="display:none; margin-top:.5rem">
-      <summary data-i18n="voices_summary">Voci &amp; lingue</summary>
-      <div id="voiceSettings" class="vset"></div>
-      <label class="vrow"><span data-i18n="lbl_foreign">Lingua predefinita dei titoli stranieri</span>
-        <select id="foreign"></select></label>
-      <button class="send" id="testvoice" type="button" style="margin-top:.4rem" data-i18n="testvoice">Prova le voci</button>
-      <div class="hint" style="margin-top:.3rem" data-i18n="voices_hint">La cornice italiana («Riproduco…») è letta in italiano;
-        il titolo e l'artista nella loro lingua. Le voci disponibili dipendono dal dispositivo.</div>
-    </details>
   </details>
   <details class="hint card">
     <summary data-i18n="say_summary">Cosa posso dire</summary>
@@ -219,12 +233,6 @@
     </div>
     <iframe id="browseframe" title="Material Skin" referrerpolicy="no-referrer"></iframe>
   </section>
-  <!-- Stays exactly what it was: with no panel to open (the browse path is
-       empty when Material lives somewhere other than our LMS) this is the
-       link of before, and it works with no JavaScript at all. browse.js
-       intercepts the click only when it has somewhere to put it. -->
-  <a class="hint" id="material" href="__MATERIAL_URL__" target="_blank" rel="noopener"
-     data-i18n="material_link">Sfoglia coda, copertine e libreria con Material Skin</a>
   </div><!-- /.content -->
 
 <!-- Server-injected config: the streaming services this music system

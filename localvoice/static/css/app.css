@@ -6,6 +6,7 @@
   color-scheme: dark light;
   --bg: #0e1311; --surface: #161d18; --surface-raised: #1b241e;
   --border: #2a352e; --text: #e9ede9; --text-muted: #a4b3a9;
+  --border-strong: #62756a;  /* a field's edge: 3:1 on surface (WCAG 1.4.11) */
   --brand: #2d7d46; --brand-strong: #36954f; --brand-soft: #1d3527;
   --brand-border: #3c6b4c; --accent-text: #8fd6a5;
   --amber: #e8a13c; --amber-text: #f0b254; --amber-soft: #2a2013;
@@ -15,12 +16,14 @@
   --glow-brand: 0 0 24px rgba(45,125,70,.35);
   --glow-amber: 0 0 28px rgba(232,161,60,.45);
   --radius-s: .5rem; --radius-m: .75rem; --radius-l: 1.1rem;
+  --ico-library: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4v16M9 4v16'/%3E%3Cpath d='m14 4.5 5 15'/%3E%3C/svg%3E");
   --font-label: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: light) { :root {
   color-scheme: light;  /* native widgets (range/select) follow the theme */
   --bg: #f4f7f5; --surface: #ffffff; --surface-raised: #ffffff;
   --border: #d7dfda; --text: #1b201d; --text-muted: #55605a;
+  --border-strong: #767f7a;
   --brand: #1e7a3a; --brand-strong: #236237; --brand-soft: #e3f0e8;
   --brand-border: #9ec7ac; --accent-text: #226038;
   --amber-text: #8a5a12; --amber-soft: #f7ecd8;
@@ -57,7 +60,8 @@ body { font-family: system-ui, sans-serif; margin: 0; line-height: 1.5;
            width: 100%;
            padding: .7rem max(1rem, env(safe-area-inset-right))
                     max(1.2rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
-h1 { font-size: 1.15rem; font-weight: 600; margin: .2rem 0 0; letter-spacing: .02em; }
+h1 { font-size: clamp(1rem, 4.8vw, 1.15rem);  /* one line down to 360px */
+     font-weight: 600; margin: .2rem 0 0; letter-spacing: .02em; }
 /* power-LED brand mark in place of the old emoji — doubles as the LMS
    status lamp: amber = on, red = the music server is unreachable. */
 h1::before { content: ""; display: inline-block; width: .55em; height: .55em;
@@ -98,8 +102,11 @@ a, a.hint { color: var(--accent-text); }
 /* A Pro control that is locked rather than disabled: it looks unavailable but
    still receives taps, so tapping it can explain itself (see settings.js). */
 select.locked { opacity: .55; }
-#probox, #kidsafebox { width: 100%; border-top: 1px solid var(--border);
-          margin-top: .4rem; padding-top: .55rem; }
+#probox, #kidsafebox, #voicepanel { width: 100%; }
+/* settings group headings: the knob's micro-label with a rule above */ #kidsafebox, .optgroup { border-top: 1px solid var(--border); margin: .4rem 0 0; padding-top: .55rem; }
+.optgroup { width: 100%; color: var(--text-muted); font: 600 .72rem/1.4 var(--font-label);
+            text-transform: uppercase; letter-spacing: .08em; }
+.optgroup:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
 #ksstatus { text-align: left; }
 #ksstatus .lamp { display: inline-block; width: .55em; height: .55em;
           border-radius: 50%; margin-right: .4em; vertical-align: baseline;
@@ -119,7 +126,7 @@ select.locked { opacity: .55; }
 #prostatus b { color: var(--accent-text); }
 #prostatus.warn b { color: var(--danger); }
 #prorow { margin-top: .45rem; max-width: none; }
-#prorow input { font-family: var(--font-label); font-size: .9rem; }
+#prorow input { font-family: var(--font-label); }
 #mic:focus-visible { outline: 3px solid var(--amber); outline-offset: 4px; }
 #mic.listening { background: radial-gradient(circle at 35% 30%,
                  #f0b254, var(--amber) 55%, #b87a24);
@@ -135,9 +142,18 @@ select.locked { opacity: .55; }
 #micstate { margin-top: -.2rem; font-family: var(--font-label); font-size: .72rem;
             text-transform: uppercase; letter-spacing: .08em; }
 #mic.listening ~ #micstate { color: var(--amber-text); }
+/* "tap and speak" under a locked knob is an offer the tap will not keep; the
+   padlock and the status line say what to do instead. */
+#mic.locked ~ #micstate { display: none; }
 .row { display: flex; gap: .5rem; width: 100%; max-width: 480px; }
+/* --border-strong, not --border: a card's edge is decoration, but the edge
+   of a text box is the only thing that says "you can type here" (1.35:1
+   before, invisible in daylight on a phone). */
 input, select { background: var(--surface); color: var(--text);
-                border: 1px solid var(--border); }
+                border: 1px solid var(--border-strong); }
+/* Chrome's default placeholder grey is 3.7:1 on the dark surface: under AA
+   for the one hint that tells a first-time user what to type. */
+::placeholder { color: var(--text-muted); opacity: 1; }
 .row input { flex: 1; padding: .7rem; font-size: 1rem; border-radius: var(--radius-s); }
 button.send { padding: .7rem 1rem; font-size: 1rem; border-radius: var(--radius-s);
               border: none; color: var(--on-brand);
@@ -207,27 +223,33 @@ button.send:disabled { opacity: .55; cursor: default; }
 details[open].card { background: var(--surface-raised); }
 details.card { transition: border-color .15s; }
 details.card:hover { border-color: var(--brand-border); }
-/* custom chevron instead of the default disclosure triangle */
-.card > summary { cursor: pointer; font-weight: 500; min-height: 44px;
+/* custom chevron instead of the default disclosure triangle — also on the
+   voices panel nested in the settings card, which had the bare triangle */
+.card > summary, #voicepanel > summary { cursor: pointer; font-weight: 500; min-height: 44px;
                   display: flex; align-items: center; gap: .5rem;
                   color: var(--text-muted); list-style: none;
                   -webkit-tap-highlight-color: transparent; }
-.card > summary::-webkit-details-marker { display: none; }
-.card > summary::after { content: ""; margin-left: auto; flex-shrink: 0;
+.card > summary::-webkit-details-marker, #voicepanel > summary::-webkit-details-marker { display: none; }
+.card > summary::after, #voicepanel > summary::after { content: ""; margin-left: auto; flex-shrink: 0;
                          width: .45em; height: .45em;
                          border-right: 2px solid var(--text-muted);
                          border-bottom: 2px solid var(--text-muted);
                          transform: rotate(45deg) translate(-1px,-1px);
                          transition: transform .2s; }
-details[open].card > summary { color: var(--text); }
-details[open].card > summary::after { transform: rotate(225deg); }
+details[open].card > summary, details[open]#voicepanel > summary { color: var(--text); }
+details[open].card > summary::after, details[open]#voicepanel > summary::after { transform: rotate(225deg); }
 .vset { display: flex; flex-direction: column; gap: .35rem; margin: .3rem 0; }
-.vrow { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
-.vrow select { max-width: 62%; }
-select { padding: .3rem .4rem; border-radius: .4rem; font-size: .9rem; }
+/* A select too long for the row drops under its label instead of being
+   cut mid-word («Automatica: libreria, poi stre…»). */
+.vrow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .3rem .5rem; }
+.vrow select { max-width: 100%; margin-left: auto; }
+.vrow > :first-child:not(select) { flex: 1 1 11rem; }  /* the label gives way first */
+.opts > label.hint { text-align: left; }  /* a wrapped checkbox label is prose */
+/* 1rem minimum: iOS Safari zooms the page into any smaller field on focus. */
+select { padding: .3rem .4rem; border-radius: .4rem; font-size: 1rem; }
 .opts { display: flex; flex-direction: column; gap: .55rem; width: 100%;
         align-items: flex-start; margin-top: .5rem; }
-.opts input[type=text] { padding: .3rem .4rem; font-size: .9rem; border-radius: .4rem; }
+.opts input[type=text] { padding: .3rem .4rem; font-size: 1rem; border-radius: .4rem; }
 .choices { display: flex; flex-wrap: wrap; gap: .4rem; max-width: 480px;
            align-self: flex-start; margin: -.1rem 0 .2rem; }
 .choice { padding: .5rem .85rem; border-radius: 999px; cursor: pointer;
@@ -236,85 +258,21 @@ select { padding: .3rem .4rem; border-radius: .4rem; font-size: .9rem; }
           transition: border-color .15s, transform .1s, box-shadow .15s;
           min-height: 44px; display: inline-flex; align-items: center; }
 .choice:hover { border-color: var(--brand); box-shadow: var(--glow-brand); }
+/* The way into the library (browse.js): a button-sized row with the chip's
+   colours, not a muted link. The glyph is a mask, not markup, because
+   applyUI() rewrites this element's innerHTML on every language change. */
+.browselink { display: flex; align-items: center; gap: .6rem; min-height: 44px; flex-shrink: 0;
+              width: 100%; max-width: 480px; padding: .65rem 1rem; line-height: 1.3;
+              border: 1px solid var(--brand-border); border-radius: var(--radius-m);
+              background: var(--brand-soft); color: var(--text);
+              text-decoration: none; font-size: .95rem;
+              transition: border-color .15s, box-shadow .15s; }
+.browselink:hover { border-color: var(--brand); box-shadow: var(--glow-brand); }
+.browselink::before { content: ""; flex-shrink: 0; width: 20px; height: 20px;
+      background: var(--accent-text);
+      -webkit-mask: var(--ico-library) center / contain no-repeat;
+      mask: var(--ico-library) center / contain no-repeat; }
 .choice:active { transform: scale(.97); }
-/* Now-playing mini-player: artwork with the same machined-bezel treatment
-   as the knob, track metadata, a state lamp (green = playing, amber =
-   paused), then a transport row — prev / play-pause / next and a draggable
-   amber seek bar framed by elapsed/total times. */
-#np { display: flex; flex-direction: column; gap: .45rem;
-      padding: .7rem 1rem .5rem; flex-shrink: 0; }
-#np[hidden] { display: none; }
-.nptop { display: flex; gap: .8rem; align-items: center; min-width: 0; }
-#npart { width: 92px; height: 92px; border-radius: .45rem; object-fit: cover;
-         flex-shrink: 0; background: var(--brand-soft);
-         box-shadow: 0 0 0 3px rgba(0,0,0,.35), 0 0 0 4px rgba(255,255,255,.08),
-                     var(--shadow); }
-#np .npmeta { min-width: 0; flex: 1; }
-#nptitle { font-weight: 600; white-space: nowrap; overflow: hidden;
-           text-overflow: ellipsis; }
-#npsub { font-size: .85rem; white-space: nowrap; overflow: hidden;
-         text-overflow: ellipsis; }
-#nplamp { width: .6em; height: .6em; border-radius: 50%; flex-shrink: 0;
-          background: var(--brand-strong); box-shadow: 0 0 8px var(--brand-strong); }
-#np.paused #nplamp { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
-.npctl { display: flex; align-items: center; gap: .3rem; }
-.npbtn { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
-         border: 1px solid var(--border); background: var(--surface-raised);
-         color: var(--text); cursor: pointer; padding: 0;
-         display: inline-flex; align-items: center; justify-content: center;
-         transition: border-color .15s, transform .1s, box-shadow .15s;
-         -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-.npbtn:hover { border-color: var(--brand); box-shadow: var(--glow-brand); }
-.npbtn:active { transform: scale(.94); }
-.npbtn svg { width: 20px; height: 20px; }
-#np:not(.paused) .ico-play { display: none; }
-#np.paused .ico-pause { display: none; }
-.nptime { font-family: var(--font-label); font-size: .74rem;
-          color: var(--text-muted); font-variant-numeric: tabular-nums;
-          flex-shrink: 0; min-width: 2.9em; text-align: center; }
-/* The whole 44px-tall strip is the touch target; the visible bar is thin.
-   touch-action none: dragging the knob must not scroll the page. */
-#npseek { flex: 1; min-width: 40px; height: 44px; display: flex;
-          align-items: center; cursor: pointer; touch-action: none;
-          border-radius: var(--radius-s); }
-#npseek.nodur { cursor: default; }
-#npbar { position: relative; width: 100%; height: 4px; border-radius: 999px;
-         background: rgba(127,127,127,.25); }
-#npfill { position: relative; height: 100%; width: 0; border-radius: inherit;
-          background: var(--amber); box-shadow: 0 0 6px var(--amber);
-          transition: width .6s linear; }
-#npseek.drag #npfill { transition: none; }
-#npfill::after { content: ""; position: absolute; right: -6px; top: 50%;
-                 width: 12px; height: 12px; margin-top: -6px;
-                 border-radius: 50%; background: var(--amber);
-                 box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 0 8px var(--amber); }
-#npseek.nodur #npfill::after { display: none; }
-/* Volume row: a range input restyled to mirror the seek bar (4px track,
-   amber fill + glowing knob). --vol carries the fill percentage from JS
-   because Chromium can't paint the filled side of a range on its own.
-   44px tall strip for touch, the visible control stays slim. */
-#npvolrow { display: flex; align-items: center; gap: .6rem; }
-#npvolrow[hidden] { display: none; }
-#npvolrow svg { width: 18px; height: 18px; color: var(--text-muted);
-                flex-shrink: 0; }
-#npvol { flex: 1; height: 44px; margin: 0; background: transparent;
-         border: none; padding: 0; cursor: pointer; touch-action: none;
-         -webkit-appearance: none; appearance: none; }
-#npvol::-webkit-slider-runnable-track { height: 4px; border-radius: 999px;
-         background: linear-gradient(90deg,
-                     var(--amber) var(--vol, 50%),
-                     rgba(127,127,127,.25) var(--vol, 50%)); }
-#npvol::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
-         height: 12px; margin-top: -4px; border-radius: 50%;
-         background: var(--amber);
-         box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 0 8px var(--amber); }
-#npvol::-moz-range-track { height: 4px; border-radius: 999px;
-         background: rgba(127,127,127,.25); }
-#npvol::-moz-range-progress { height: 4px; border-radius: 999px;
-         background: var(--amber); box-shadow: 0 0 6px var(--amber); }
-#npvol::-moz-range-thumb { width: 12px; height: 12px; border: none;
-         border-radius: 50%; background: var(--amber);
-         box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 0 8px var(--amber); }
 #empty { display: flex; flex-direction: column; gap: .5rem; align-items: center;
          width: 100%; max-width: 480px; }
 #empty .choices { justify-content: center; align-self: center; }
@@ -344,3 +302,23 @@ body.browsing .content > :not(#browse) { display: none; }
 body.browsing h1 { display: none; }
 body.browsing #mic { width: 72px; height: 72px; }
 body.browsing #mic svg { width: 30px; height: 30px; }
+
+/* Short screens: the hero never scrolls, so what it takes the conversation
+   loses. The knob shrinks; #ainotice is never touched (see its rule). */
+@media (max-height: 700px) {
+  .hero { gap: .5rem; }
+  h1 { font-size: 1rem; }
+  #mic { width: 104px; height: 104px; }
+  #mic svg { width: 44px; height: 44px; }
+}
+/* Landscape phone: knob on the left, everything else beside it. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .hero { display: grid; grid-template-columns: auto minmax(0, 480px);
+          justify-content: center; align-items: center;
+          column-gap: 1.2rem; row-gap: .35rem; }
+  .hero > * { grid-column: 2; }
+  #mic { grid-column: 1; grid-row: 1 / span 4; width: 88px; height: 88px; }
+  #mic svg { width: 38px; height: 38px; }
+  #micstate { display: none; }  /* aria-hidden already; the knob's colour says it */
+  h1, #status { margin: 0; text-align: left; }
+}

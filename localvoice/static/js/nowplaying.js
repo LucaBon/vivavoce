@@ -58,6 +58,12 @@ function renderNpTime() {
   seek.setAttribute("aria-valuetext",
     fmtTime(cur) + (dur ? " / " + fmtTime(dur) : ""));
 }
+// The toggle is named for what it will do, like the icon it shows: "Pausa"
+// while playing, "Riproduci" while paused. "Riproduci/pausa" told a screen
+// reader nothing about which one a press would be.
+function labelToggle(paused) {
+  $("nptoggle").setAttribute("aria-label", ui(paused ? "np_play" : "np_pause"));
+}
 export function renderNowPlaying(d) {
   const el = $("np");
   if (!d || !d.title || (d.mode !== "play" && d.mode !== "pause")) {
@@ -71,7 +77,7 @@ export function renderNowPlaying(d) {
   el.classList.toggle("paused", d.mode === "pause");
   el.setAttribute("aria-label", ui("np_label"));
   $("npprev").setAttribute("aria-label", ui("np_prev"));
-  $("nptoggle").setAttribute("aria-label", ui("np_toggle"));
+  labelToggle(d.mode === "pause");
   $("npnext").setAttribute("aria-label", ui("np_next"));
   $("npseek").setAttribute("aria-label", ui("np_seek"));
   $("npvol").setAttribute("aria-label", ui("np_vol"));
@@ -176,6 +182,7 @@ export function initNowPlaying() {
     npState.elapsed = cur;
     npState.syncedAt = performance.now();
     $("np").classList.toggle("paused", pausing);
+    labelToggle(pausing);
     playerAction(pausing ? "pause" : "resume");
   };
 

@@ -59,7 +59,7 @@ function splitByTerms(speech, terms) {
 // speakAiNotice), and that sentence used to begin with the wake word itself —
 // so the app woke itself up, took "assistente vocale automatico" for a
 // command and answered "Non ho capito", once per page load. The notice no
-// longer carries the wake word (see ai_notice_spoken in strings.js), but that
+// longer carries the wake word (see ai_notice_spoken in strings_it.js), but that
 // only fixes the phrase that ships: the wake word is a free-text field, and
 // read-back speaks whatever the server replied. The general rule is this flag
 // — while the app is talking, wakeword.js ignores what it hears.
