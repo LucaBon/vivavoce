@@ -4,6 +4,16 @@
 
 ### Changed
 
+- **Un audiolibro già iniziato riparte da dove era rimasto.** «metti
+  l'audiolibro X», e ora anche «riprendi il libro X», leggono il punto
+  d'ascolto che Audiobookshelf tiene già per la sua app, e ripartono da lì:
+  mettono in coda solo i file da quel punto in avanti e saltano al secondo
+  giusto; la risposta dice da quanti minuti. Un libro finito o mai aperto
+  parte dall'inizio, come prima. Vivavoce legge il progresso ma non lo
+  scrive ancora. «metti a velocità 1.2» ha una risposta che si può usare
+  invece di un errore, e non tocca il lettore. E se a non rispondere è
+  Audiobookshelf, la risposta dice Audiobookshelf invece di «l'impianto».
+
 - **La pagina si legge meglio, su più schermi e anche senza mouse.** Una
   revisione dell'interfaccia contro le euristiche di Nielsen e WCAG AA. Il
   suggerimento nella casella e il bordo dei campi arrivano al contrasto
