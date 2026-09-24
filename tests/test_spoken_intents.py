@@ -232,6 +232,60 @@ def test_a_system_that_cannot_seek_says_so(player):
     assert player.calls == []
 
 
+# -- reading speed -------------------------------------------------------------
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "metti a velocità 1.2"),
+    ("it", "velocità 1,5"),
+    ("it", "leggi più veloce"),
+    ("it", "leggi più lento"),
+    ("it", "più veloce"),
+    ("it", "più lento"),
+    ("en", "speed 1.5"),
+    ("en", "play faster"),
+    ("en", "play slower"),
+    ("en", "read faster"),
+    ("de", "Geschwindigkeit 1,5"),
+    ("de", "stell die Geschwindigkeit auf 1.5"),
+    ("de", "lies schneller"),
+    ("de", "langsamer vorlesen"),
+    ("fr", "vitesse 1.5"),
+    ("fr", "mets la vitesse à 1.5"),
+    ("fr", "lis plus vite"),
+    ("fr", "plus lentement"),
+    ("es", "velocidad 1.5"),
+    ("es", "pon la velocidad a 1.5"),
+    ("es", "lee más rápido"),
+    ("es", "más despacio"),
+])
+def test_a_speed_change_answers_rather_than_erroring(player, lang, phrase):
+    reply = Router(player, services=()).handle(phrase, lang=lang)
+    set_lang(lang)
+    assert str(reply) == msg("no_speed"), f"«{phrase}»: {reply}"
+    assert not reply.ok
+    assert player.calls == []  # zero transport calls
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "alza il volume"), ("it", "più forte"), ("en", "turn it up"),
+])
+def test_a_speed_pattern_does_not_steal_the_volume(player, lang, phrase):
+    player.volume = lambda delta: player.calls.append(("volume", (delta,)))
+    Router(player, services=()).handle(phrase, lang=lang)
+    assert player.names() == ["volume"]
+
+
+@pytest.mark.parametrize("lang, phrase", [("it", "avanti"), ("en", "next")])
+def test_a_speed_pattern_does_not_steal_a_bare_skip(player, lang, phrase):
+    Router(player, services=()).handle(phrase, lang=lang)
+    assert player.names() == ["next_track"]
+
+
+def test_a_speed_pattern_does_not_steal_a_timed_seek(player):
+    reply = Router(player, services=()).handle("vai avanti di 30 secondi")
+    assert reply.ok
+    assert player.calls == [("seek", (130.0,))]
+
+
 # -- books -------------------------------------------------------------------
 def test_without_a_library_an_audiobook_is_searched_as_music(player):
     Router(player, services=()).handle("metti l'audiolibro Lo Hobbit")

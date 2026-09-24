@@ -173,6 +173,8 @@ MESSAGES = {
     "ask_seek": "Ich habe nicht verstanden, wie weit ich springen soll. "
                 "Kannst du das wiederholen?",
     "no_seek": "Diese Anlage kann innerhalb eines Titels nicht springen.",
+    "no_speed": "Die Vorlesegeschwindigkeit änderst du in der App: das kann ich "
+                "hier noch nicht.",
     "book_playing": "Ich spiele das H\u00f6rbuch {title}.",
     "book_playing_by": "Ich spiele das H\u00f6rbuch {title} von {author}.",
     "book_did_you_mean": "Meinst du das H\u00f6rbuch {title}?",

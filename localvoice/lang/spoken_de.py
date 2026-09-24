@@ -16,7 +16,15 @@ _BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:um\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLUS}
          rf"(?:\s+{_DIR})?(?:\s+bitte)?\s*$")
 _BACK = r"(?=.*\bzur[uü]ck\b)"
 
+#: «Geschwindigkeit 1,5», «stell die Geschwindigkeit auf 1.5», «lies
+#: schneller/langsamer», «schneller/langsamer vorlesen». Not gated on
+#: is_play — see intents_spoken._route_spoken.
+_NUM = r"\d+(?:[.,]\d+)?"
+_SPEED_VALUE = rf"(?:stelle?\s+(?:die\s+)?geschwindigkeit\s+auf|geschwindigkeit)\s+{_NUM}"
+_SPEED_WORD = r"(?:lies\s+)?(?:schneller|langsamer)(?:\s+vorlesen)?"
+
 PATTERNS = {
+    "speed": c(rf"^(?:{_SPEED_VALUE}|{_SPEED_WORD})\s*$"),
     "seek_back": c(rf"^{_BACK}{_BODY}"),
     "seek_fwd": c(rf"^(?!.*\bzur[uü]ck\b)"
                   rf"(?=.*\b(?:vor(?:w[aä]rts)?|vorne|weiter|spule?|springe?)\b)"

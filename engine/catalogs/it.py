@@ -169,6 +169,7 @@ MESSAGES = {
     "span_one_minute": "un minuto",
     "ask_seek": "Non ho capito di quanto spostarmi. Puoi ripetere?",
     "no_seek": "Questo impianto non sa spostarsi dentro un brano.",
+    "no_speed": "La velocità di lettura si cambia dall'app: da qui ancora non posso.",
     "book_playing": "Metto l'audiolibro {title}.",
     "book_playing_by": "Metto l'audiolibro {title} di {author}.",
     "book_did_you_mean": "Intendi l'audiolibro {title}?",

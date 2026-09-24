@@ -168,6 +168,8 @@ MESSAGES = {
     "span_one_minute": "une minute",
     "ask_seek": "Je n'ai pas compris de combien me d\u00e9placer. Tu peux r\u00e9p\u00e9ter ?",
     "no_seek": "Ce syst\u00e8me ne sait pas se d\u00e9placer dans un morceau.",
+    "no_speed": "La vitesse de lecture se change depuis l'application : je ne "
+                "peux pas encore le faire ici.",
     "book_playing": "Je mets le livre audio {title}.",
     "book_playing_by": "Je mets le livre audio {title} de {author}.",
     "book_did_you_mean": "Tu veux dire le livre audio {title} ?",

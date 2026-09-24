@@ -14,7 +14,15 @@ _BODY = (rf"(?:{_VERB}\s+)?(?:{_DIR}\s+)?(?:unos\s+)?{_AMOUNT}[\s-]+{_UNIT}{_PLU
          rf"(?:\s+{_DIR})?(?:\s+por\s+favor)?\s*$")
 _BACK_WORDS = r"(?:retroced\w*|atras\w*|atr[aá]s|rebobin\w*|vuelve)"
 
+#: «velocidad 1.5», «pon la velocidad a 1.5», «lee más rápido/despacio»,
+#: «más rápido/más despacio». Not gated on is_play — see
+#: intents_spoken._route_spoken.
+_NUM = r"\d+(?:[.,]\d+)?"
+_SPEED_VALUE = rf"(?:pon(?:me)?(?:\s+la)?\s+velocidad(?:\s+a)?|velocidad)\s+{_NUM}"
+_SPEED_WORD = r"(?:lee\s+)?m[aá]s\s+(?:r[aá]pido|despacio|lento)"
+
 PATTERNS = {
+    "speed": c(rf"^(?:{_SPEED_VALUE}|{_SPEED_WORD})\s*$"),
     "seek_back": c(rf"^(?=.*\b{_BACK_WORDS}(?!\w)){_BODY}"),
     "seek_fwd": c(rf"^(?!.*\b{_BACK_WORDS}(?!\w))"
                   rf"(?=.*\b(?:adelant\w*|avanz\w*|salta|delante)\b){_BODY}"),

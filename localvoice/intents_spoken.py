@@ -124,8 +124,14 @@ class SpokenIntents:
     books = None  # a player.composite.Composite, or None: no --library
 
     def _route_spoken(self, t: str, P: dict, is_play: bool):
-        """The reply for a jump or a book, or ``None`` when ``t`` is neither
-        and routing goes on."""
+        """The reply for a jump, a speed change or a book, or ``None`` when
+        ``t`` is none of those and routing goes on."""
+        # Ahead of the seek check below and not gated on is_play: «metti a
+        # velocità 1.2» carries a play verb, unlike «vai avanti di 30
+        # secondi». No backend can do this yet, so the answer is fixed —
+        # no Capabilities flag, no transport call.
+        if P["speed"].match(t):
+            return actions.ActionResult(msg("no_speed"), ok=False)
         if not is_play:
             for key, sign in (("seek_back", -1), ("seek_fwd", 1)):
                 m = P[key].match(t)

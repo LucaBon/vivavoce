@@ -155,6 +155,7 @@ MESSAGES = {
     "span_one_minute": "one minute",
     "ask_seek": "I didn't catch how far to skip. Can you repeat?",
     "no_seek": "This system cannot skip within a track.",
+    "no_speed": "Reading speed is changed from the app: I can't do that here yet.",
     "book_playing": "Playing the audiobook {title}.",
     "book_playing_by": "Playing the audiobook {title} by {author}.",
     "book_did_you_mean": "Do you mean the audiobook {title}?",
