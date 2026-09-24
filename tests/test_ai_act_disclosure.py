@@ -75,7 +75,9 @@ def test_the_disclosure_is_not_hidden_by_the_markup():
 
 
 def test_no_stylesheet_rule_hides_the_disclosure():
-    css = _asset("static", "css", "app.css")
+    css_dir = os.path.join(WEB_DIR, "static", "css")
+    css = "".join(_asset("static", "css", n)
+                  for n in sorted(os.listdir(css_dir)) if n.endswith(".css"))
     for rule in re.findall(r"#ainotice[^{]*\{([^}]*)\}", css):
         assert "display: none" not in rule and "display:none" not in rule
         assert "visibility: hidden" not in rule
