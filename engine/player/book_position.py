@@ -9,6 +9,7 @@ between the two, with no state and no network — the part of
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 #: Seconds by which the player's idea of a file's length may differ from the
@@ -111,3 +112,32 @@ def seek_landed(elapsed: Callable[[], Any], target: float,
         if now() >= deadline:
             return False
         sleep(SEEK_POLL)
+
+
+#: A chapter title that is only a number — «Capitolo 3», "Chapter 03",
+#: «Track 3», «3» — which is what a folder of MP3s gets from its file names.
+_NUMBERED_ONLY = re.compile(
+    r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
+    r"|part|parte|teil|partie)\W*)?(\d*)\W*$", re.I)
+
+#: A number in front of a chapter's title — «02 - Gli Dei», «2. Gli Dei»,
+#: «Capitolo 2: Gli Dei» — as LibriVox's .m4b files carry them.
+_NUMBER_PREFIX = re.compile(
+    r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
+    r"|part|parte|teil|partie)\s*)?0*(\d+)\s*[-–—.:)]\s*(?=\S)", re.I)
+
+
+def chapter_name(title: str, index: int) -> str:
+    """What is worth saying of chapter ``index``'s ``title`` beside its
+    number: «02 - Gli Dei» at position 2 is «Gli Dei», and «Capitolo 2» or
+    «02» there is nothing at all — the number is said already. A number that
+    is *not* the position (a «Prologo» first, then «Capitolo 1») is kept:
+    then it is information."""
+    title = (title or "").strip()
+    prefix = _NUMBER_PREFIX.match(title)
+    if prefix and int(prefix.group(1)) == index + 1:
+        title = title[prefix.end():]
+    numbered = _NUMBERED_ONLY.match(title)
+    if numbered and (not numbered.group(1) or int(numbered.group(1)) == index + 1):
+        return ""
+    return title

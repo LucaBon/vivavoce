@@ -90,6 +90,32 @@ def test_nowplaying_panel_renders_the_track(page, web, transport):
         " document.getElementById('nptoggle').getAttribute('aria-label')") == "Riproduci"
 
 
+def test_an_audiobook_shows_the_book_the_author_and_the_chapter(page, web,
+                                                                transport):
+    # Found on the hi-fi: the player knows only the file, so the panel showed
+    # a chapter's tag cut short, and no book, author or picture. The server
+    # sends the chapter as numbers; the words are the page's.
+    class Books:
+        def now_playing(self, client):
+            return {"title": "Le favole di La Fontaine",
+                    "author": "Jean de La Fontaine", "chapter": 3,
+                    "chapters": 9, "chapter_title": "Il Castaldo", "cover": None}
+    transport.responses["status"] = {
+        "mode": "play", "time": 12,
+        "playlist_loop": [{"title": "03 - Il Castaldo, il Cane", "duration": 222}]}
+    page.goto(web(books=Books()).url)
+    page.wait_for_selector("#np:not([hidden])")
+    assert page.inner_text("#nptitle") == "Le favole di La Fontaine"
+    assert page.inner_text("#npsub") == "Jean de La Fontaine"
+    # A line of its own, number first: at the end of the author's line it was
+    # the part a phone's width cut off (the hi-fi, 2026-09-25).
+    assert page.inner_text("#npchap") == "Capitolo 3 di 9 · Il Castaldo"
+    # Music has no chapter, and no empty line where it would go.
+    page.evaluate("window.vivavoce.renderNowPlaying({mode: 'play', title: 'Time',"
+                  " artist: 'Pink Floyd'})")
+    assert page.is_hidden("#npchap")
+
+
 def test_the_page_has_a_landmark_for_the_controls_and_one_for_the_rest(page, web):
     # Two places a screen reader can jump to: the microphone and the text box
     # (a named region), and everything that scrolls under them (main).

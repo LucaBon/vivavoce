@@ -16,8 +16,8 @@
 #np .npmeta { min-width: 0; flex: 1; }
 #nptitle { font-weight: 600; white-space: nowrap; overflow: hidden;
            text-overflow: ellipsis; }
-#npsub { font-size: .85rem; white-space: nowrap; overflow: hidden;
-         text-overflow: ellipsis; }
+#npsub, #npchap { font-size: .85rem; white-space: nowrap; overflow: hidden;
+                 text-overflow: ellipsis; }
 #nplamp { width: .6em; height: .6em; border-radius: 50%; flex-shrink: 0;
           background: var(--brand-strong); box-shadow: 0 0 8px var(--brand-strong); }
 #np.paused #nplamp { background: var(--amber); box-shadow: 0 0 8px var(--amber); }

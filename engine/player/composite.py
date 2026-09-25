@@ -22,7 +22,6 @@ everywhere else.
 
 from __future__ import annotations
 
-import contextlib
 import time
 
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -30,19 +29,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .errors import PlayerError
 from .book_position import (CHAPTER_SLACK, LENGTH_TOLERANCE, chapter_point,
                             file_chapters, resume_point, seconds, seek_landed)
+from .book_listening import Listening, _from_library, _player_key
 from .protocols import Capabilities, supports
 
 #: How the engine's three enqueue modes are spelled, as elsewhere
 #: (``actions.play_song``, ``musicassistant._QUEUE_OPTION``).
 MODES = ("play", "add", "insert")
 
-#: Seconds a book must have moved since the last save to be saved again. A
-#: paused hi-fi does not move, so it stops writing — and does not overwrite
-#: the position of somebody listening on the phone meanwhile.
-SAVE_STEP = 5.0
 
-
-class Composite:
+class Composite(Listening):
     """A :class:`~player.protocols.SpokenLibrary`, heard through any transport."""
 
     def __init__(self, library: Any, capabilities: Capabilities,
@@ -79,6 +74,12 @@ class Composite:
         # it has no request for; and the last position saved, with the record
         # it belonged to, so a book started over is saved again at once.
         self._transports: Dict[Any, Any] = {}
+        # Each book a record points at, as the catalogue's ``book()`` answers
+        # it — files, chapters, title, author — read the first time it is
+        # needed and again only when the book is played again. The page
+        # polls every few seconds, and a request per poll per player for
+        # files the catalogue already sent is what this saves.
+        self._books: Dict[str, Dict[str, Any]] = {}
         self._saved: Dict[Any, Tuple[Tuple[str, int, int], float]] = {}
 
     def book_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
@@ -231,8 +232,7 @@ class Composite:
         if found is None:
             return None
         (item_id, _, _), durations, head, elapsed = found
-        get_chapters = getattr(self.library, "chapters", None)
-        chapters = _from_library(get_chapters, item_id) if get_chapters else []
+        chapters = self._books[item_id]["chapters"]
         if not chapters:
             return {"item_id": item_id, "chapters": file_chapters(durations),
                     "index": head}
@@ -275,52 +275,39 @@ class Composite:
         placed = sum(f.get("duration") or 0.0 for f in files[:index]) + offset
         return self._play_files(transport, item_id, files, placed)[1]
 
-    # -- progress (T5.6) -----------------------------------------------------
-    def save_progress(self, transport: Any) -> Optional[float]:
-        """Save where ``transport`` is in its book to the catalogue, and
-        answer the position saved — or ``None`` when nothing was: no book of
-        ours playing there (:meth:`chapter_at`'s checks, the same ones), a
-        position that cannot be summed, a catalogue with no
-        ``save_progress``, or a book that has not moved :data:`SAVE_STEP`
-        since the last save.
-
-        Called by the sampler, never by a sentence, so that *every*
-        interruption is covered — music started from Material Skin included,
-        which Vivavoce never hears about. Once the book is replaced, the
-        checks fail and nothing more is written: the last save stays the
-        last true position.
-        """
-        save = getattr(self.library, "save_progress", None)
-        if save is None:
-            return None
-        with _background(transport), _background(self.library):
-            found = self._locate(transport)
-            if found is None:
-                return None
-            record, durations, head, elapsed = found
-            if not all(durations[:head]):
-                return None
-            position = sum(durations[:head]) + elapsed
-            key = _player_key(transport)
-            last = self._saved.get(key)
-            if (last is not None and last[0] is record
-                    and abs(position - last[1]) < SAVE_STEP):
-                return None
-            total = sum(durations) if all(durations) else None
-            _from_library(lambda item: save(item, position, total), record[0])
-        self._saved[key] = (record, position)
-        return position
-
-    def players(self) -> List[Any]:
-        """The transports a book of ours was last played on — the ones the
-        progress sampler looks at."""
-        return [self._transports[key] for key in list(self._playing)
-                if key in self._transports]
-
     def _remember(self, transport: Any, record: Tuple[str, int, int]) -> None:
         key = _player_key(transport)
         self._playing[key] = record
         self._transports[key] = transport
+        # Played again: read again (a chapter edited in the catalogue shows up
+        # at the next play). And nothing kept for a book no player holds.
+        self._books.pop(record[0], None)
+        held = {item for item, _, _ in self._playing.values()}
+        for item in [item for item in self._books if item not in held]:
+            self._books.pop(item, None)
+
+    def _book(self, item_id: str) -> Optional[Dict[str, Any]]:
+        """``{"title", "author", "tracks", "chapters"}`` for ``item_id``, from
+        memory when it is there. A catalogue with a ``book()`` answers it in
+        one call; one with only ``tracks`` (and maybe ``chapters``) is asked
+        those, and has no title to show; one with neither, ``None``."""
+        book = self._books.get(item_id)
+        if book is not None:
+            return book
+        get_book = getattr(self.library, "book", None)
+        get_tracks = getattr(self.library, "tracks", None)
+        if get_book is not None:
+            book = _from_library(get_book, item_id)
+        elif get_tracks is not None:
+            get_chapters = getattr(self.library, "chapters", None)
+            book = {"title": "", "author": "",
+                    "tracks": _from_library(get_tracks, item_id),
+                    "chapters": (_from_library(get_chapters, item_id)
+                                 if get_chapters else [])}
+        else:
+            return None
+        self._books[item_id] = book
+        return book
 
     def _locate(self, transport: Any) -> Optional[tuple]:
         """``(record, durations, head, elapsed)`` for the book of ours
@@ -329,8 +316,7 @@ class Composite:
         "of ours" takes."""
         key = _player_key(transport)
         record = self._playing.get(key)
-        get_tracks = getattr(self.library, "tracks", None)
-        if record is None or get_tracks is None:
+        if record is None:
             return None
         item_id, first, count = record
         now = transport.now_playing_info() or {}
@@ -338,7 +324,10 @@ class Composite:
         if (now.get("mode") not in ("play", "pause")
                 or not isinstance(index, int) or not 0 <= index < count):
             return None
-        files = _from_library(get_tracks, item_id)
+        book = self._book(item_id)
+        if book is None:
+            return None
+        files = book["tracks"]
         head = first + index
         durations = [f.get("duration") or 0.0 for f in files]
         heard = seconds((transport.status_info() or {}).get("duration"))
@@ -356,31 +345,3 @@ class Composite:
         if self._playing.get(key) is record:
             self._playing.pop(key, None)
             self._saved.pop(key, None)
-
-
-def _background(client: Any):
-    """``client.background()`` — calls that never count toward its breaker
-    (``player/resilience.py``) — for a client that has it, and nothing for
-    one that does not: probed, as the engine probes everything optional."""
-    block = getattr(client, "background", None)
-    return block() if block is not None else contextlib.nullcontext()
-
-
-def _player_key(transport: Any) -> Any:
-    """Which player a transport is aimed at, as :attr:`Composite._playing`
-    is keyed: both clients carry ``player_id``, and one that does not is a
-    single player anyway."""
-    return getattr(transport, "player_id", None)
-
-
-def _from_library(fetch, item_id: str) -> Any:
-    """``fetch(item_id)``, a call to the catalogue, with any
-    :class:`PlayerError` tagged ``from_library`` so a caller can still tell
-    "the catalogue's own files are unreachable" from "the speakers playing
-    them are" — the two get different replies (see
-    ``intents_spoken._start_book``)."""
-    try:
-        return fetch(item_id)
-    except PlayerError as exc:
-        exc.from_library = True
-        raise

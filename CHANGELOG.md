@@ -32,6 +32,15 @@
 
 ### Changed
 
+- **Il riquadro «In riproduzione» mostra il libro.** Con un audiolibro
+  messo da Vivavoce, al posto del nome del file tagliato a metà compaiono
+  il titolo del libro, l'autore, una riga col capitolo che comincia dal
+  numero («Capitolo 3 di 9 · Il Castaldo, il Cane e la Volpe») e la
+  copertina di Audiobookshelf. Con la musica il riquadro è quello di
+  sempre. Material Skin mostra ancora il nome del file: legge dall'LMS, che
+  del libro sa solo quello. Dopo un riavvio di Vivavoce il libro va
+  rimesso a voce perché il riquadro lo riconosca di nuovo.
+
 - **Un audiolibro si attraversa per capitoli.** «capitolo successivo»,
   «capitolo precedente» e «a che capitolo sono», nelle cinque lingue, su un
   libro messo da Vivavoce. I capitoli sono quelli di Audiobookshelf, anche
