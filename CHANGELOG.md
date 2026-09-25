@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### New
+
+- **Il punto d'ascolto torna su Audiobookshelf.** Mentre un audiolibro messo
+  da Vivavoce suona, ogni mezzo minuto la posizione viene salvata su
+  Audiobookshelf, la stessa che usa la sua app. Se in mezzo al libro metti
+  un disco — a voce, da Material Skin o dal telecomando — «riprendi il libro
+  X» riparte da dove eri, perdendo al più l'ultimo mezzo minuto; e da lì
+  riparte anche l'app sul telefono. Vale anche il contrario: se riprendi il
+  libro sull'impianto, è l'impianto a scrivere, e la posizione che il
+  telefono aveva raggiunto nel frattempo viene sostituita. Un impianto in
+  pausa non scrive niente. Il libro non viene mai segnato come finito:
+  quello resta all'app. Con l'impianto spento il salvataggio aspetta in
+  silenzio, e non rallenta il primo comando quando lo riaccendi. Senza
+  `--library` non parte niente.
+
+- **Una ripresa che non riesce lo dice.** Se il punto salvato non si può
+  raggiungere — il lettore non salta davvero, o Audiobookshelf non conosce
+  la durata dei file — la risposta è «Non riesco a riprendere X da 2 ore:
+  questo impianto lo fa ripartire dall'inizio», invece di un «Metto
+  l'audiolibro» che nascondeva la posizione persa. Provato sull'impianto
+  vero: LMS 9 accetta il salto dentro un `.m4b` servito da Audiobookshelf,
+  dice di saperlo fare, e riparte da zero senza errori. Vivavoce ora
+  controlla dove il lettore è arrivato davvero; e se non è arrivato, non
+  salva niente, così la posizione di Audiobookshelf non viene sovrascritta
+  con quella sbagliata. Su LMS un audiolibro in un file unico si ascolta
+  quindi dall'inizio, senza capitoli né ripresa; uno a più file funziona in
+  tutto.
+
 ### Changed
 
 - **Un audiolibro si attraversa per capitoli.** «capitolo successivo»,
@@ -24,8 +52,7 @@
   minuti»). Se il lettore non sa saltare dentro un file, o Audiobookshelf non
   conosce la durata dei file, la risposta dice il punto da cui l'ascolto
   riparte davvero, non quello salvato. Un libro finito o mai aperto
-  parte dall'inizio, come prima. Vivavoce legge il progresso ma non lo
-  scrive ancora. «metti a velocità 1.2» ha una risposta che si può usare
+  parte dall'inizio, come prima. «metti a velocità 1.2» ha una risposta che si può usare
   invece di un errore, e non tocca il lettore. E se a non rispondere è
   Audiobookshelf, la risposta dice Audiobookshelf invece di «l'impianto».
 
