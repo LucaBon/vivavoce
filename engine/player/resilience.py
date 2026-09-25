@@ -141,6 +141,29 @@ class Resilient:
         finally:
             self._turn.until = previous
 
+    @contextlib.contextmanager
+    def background(self):
+        """Calls this thread makes inside never count toward the breaker —
+        though a success still closes it, and an open one still refuses.
+
+        For the audiobook progress sampler (``localvoice/book_progress.py``),
+        which asks every half minute whether a book is still playing. The
+        breaker's probe after a cooldown was meant to be the next *sentence*:
+        with the hi-fi off, a sampler's failures would re-open it all night,
+        and the first command after switching it on would be refused unheard.
+        What the sampler learns that is good news — the server is back — is
+        still recorded.
+        """
+        previous = self._in_background()
+        self._turn.background = True
+        try:
+            yield
+        finally:
+            self._turn.background = previous
+
+    def _in_background(self) -> bool:
+        return getattr(self._turn, "background", False)
+
     def _call_timeout(self) -> float:
         """The socket timeout for the next call: the configured one, clamped
         to what is left of the turn's budget (``timeout`` when unbounded)."""
@@ -204,7 +227,7 @@ class Resilient:
         return result
 
     def _count_failure(self, exc) -> None:
-        if isinstance(exc, PlayerRefused):
+        if isinstance(exc, PlayerRefused) or self._in_background():
             return
         if getattr(exc, "clipped", False) and getattr(exc, "delivered", True):
             return   # a timeout the turn's budget shortened: the turn was slow
