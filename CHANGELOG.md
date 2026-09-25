@@ -4,6 +4,18 @@
 
 ### Changed
 
+- **Un audiolibro si attraversa per capitoli.** «capitolo successivo»,
+  «capitolo precedente» e «a che capitolo sono», nelle cinque lingue, su un
+  libro messo da Vivavoce. I capitoli sono quelli di Audiobookshelf, anche
+  dentro un unico file `.m4b`; un libro che non ne ha conta un capitolo per
+  file. La risposta dice il numero, e il titolo quando è più del numero
+  («capitolo 3 di 19, "Un incontro inatteso"»). Se sullo stesso lettore nel
+  frattempo è partito altro — un disco messo da Material Skin, per esempio —
+  la risposta dice che non sta suonando un audiolibro, e non tocca niente. Un
+  lettore che non sa saltare dentro un file non riceve un capitolo che
+  inizia a metà di uno: lo dice invece di mettere quello prima. «avanti» e
+  «indietro» da soli continuano a passare al file successivo e precedente.
+
 - **Un audiolibro già iniziato riparte da dove era rimasto.** «metti
   l'audiolibro X», e ora anche «riprendi il libro X», leggono il punto
   d'ascolto che Audiobookshelf tiene già per la sua app, e ripartono da lì:

@@ -208,6 +208,35 @@ def test_a_track_with_no_duration_is_zero(shelf, abs_transport):
     assert shelf.tracks("li-1")[0]["duration"] == 0.0
 
 
+# -- chapters --------------------------------------------------------------
+
+def test_chapters_are_read_off_the_item_in_order(shelf, abs_transport):
+    # The server's own order is by ``id``; the book's is by ``start``, and a
+    # chapter list edited by hand in its UI can hold the two apart.
+    abs_transport.responses["/api/items/li-1"] = {"media": {"chapters": [
+        {"id": 1, "start": 1200.5, "end": 2400, "title": "Un incontro"},
+        {"id": 0, "start": 0, "end": 1200.5, "title": "Capitolo 1"}]}}
+    assert shelf.chapters("li-1") == [
+        {"start": 0.0, "end": 1200.5, "title": "Capitolo 1"},
+        {"start": 1200.5, "end": 2400.0, "title": "Un incontro"}]
+    assert abs_transport.calls == [("/api/items/li-1", {"expanded": 1})]
+
+
+@pytest.mark.parametrize("media", [
+    {}, {"chapters": None}, {"chapters": []},
+    {"chapters": ["not a chapter", {"title": "no start"}]},
+])
+def test_a_book_without_chapters_has_none(shelf, abs_transport, media):
+    abs_transport.responses["/api/items/li-1"] = {"media": media}
+    assert shelf.chapters("li-1") == []
+
+
+def test_a_chapter_with_no_title_or_end_is_still_a_chapter(shelf, abs_transport):
+    abs_transport.responses["/api/items/li-1"] = {"media": {"chapters": [
+        {"start": 0}]}}
+    assert shelf.chapters("li-1") == [{"start": 0.0, "end": 0.0, "title": ""}]
+
+
 # -- progress --------------------------------------------------------------
 
 def _refusal(status):

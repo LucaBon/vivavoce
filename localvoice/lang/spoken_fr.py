@@ -37,4 +37,17 @@ PATTERNS = {
     # transport's own play/unpause.
     "resume_book": c(r"^(?:reprends?|continue)\s+"
                      r"(?:le\s+|un\s+|mon\s+)?livre(?:\s+audio)?\s+(.+)$"),
+    # Chapters (T5.6): «chapitre» is in every one, so a bare «suivant» /
+    # «précédent» keeps skipping the track. A near miss falls through to the
+    # track skip, which on a one-file .m4b skips the book.
+    "chapter_next": c(r"^(?:(?:passe|va|aller|saute|mets)(?:[\s-]+moi)?\s+)?"
+                      r"(?:au\s+|le\s+)?(?:chapitre\s+suivant|prochain\s+chapitre)"
+                      r"(?:,?\s+s['’]\s*il\s+(?:te|vous)\s+pla[iî]t)?\s*$"),
+    "chapter_prev": c(r"^(?:(?:reviens|retourne|va|passe|mets)(?:[\s-]+moi)?\s+)?"
+                      r"(?:au\s+|le\s+)?chapitre\s+pr[ée]c[ée]dent"
+                      r"(?:,?\s+s['’]\s*il\s+(?:te|vous)\s+pla[iî]t)?\s*$"),
+    "chapter_which": c(r"^(?:(?:[àa]|dans)\s+)?quel\s+chapitre"
+                       r"(?:\s+(?:je\s+suis|suis[\s-]je|on\s+est|sommes[\s-]nous|c['’]\s*est))?\s*$"
+                       r"|^c['’]\s*est\s+quel\s+chapitre\s*$"
+                       r"|^(?:on\s+est|je\s+suis|nous\s+sommes)\s+[àa]\s+quel\s+chapitre\s*$"),
 }

@@ -1,9 +1,8 @@
 """The sentences for spoken media: «vai avanti di 30 secondi», «metti
-l'audiolibro X».
+l'audiolibro X», «riprendi il libro X», «capitolo successivo».
 
 Its own module because ``intents.py`` is near the size ceiling and this is
-the part that will grow — chapters, speed and «riprendi il libro» come next
-(T5.6). A mixin over :class:`router.Router`, like the other four: it reads
+the part that grows (T5.6). A mixin over :class:`router.Router`, like the other four: it reads
 the router's aimed client, its guard and its yes/no offer.
 
 **One step, run before the transport block** (see ``IntentTable._route``).
@@ -23,8 +22,10 @@ from __future__ import annotations
 import re
 
 import actions
+from conversation import cannot
 from messages import msg
 from parsing import _minutes_of
+from player.composite import LENGTH_TOLERANCE
 from player.errors import PlayerError
 
 #: «mezzo minuto», "half a minute", «eine halbe Minute», «une demi-minute»,
@@ -44,6 +45,19 @@ _ARTICLES = ("a", "an", "un", "uno", "una", "une", "ein", "eine", "einen")
 #: How many books a spoken title is weighed against. The catalogue's own
 #: ranking is only the tiebreaker: see :meth:`SpokenIntents._play_book`.
 BOOK_CANDIDATES = 5
+
+#: A chapter title that is only a number — «Capitolo 3», "Chapter 03",
+#: «Track 3», «3» — which is what a folder of MP3s gets from its file names.
+#: When the number is the chapter's own position it is said once, «capitolo 3
+#: di 12», not «capitolo 3 di 12, "Capitolo 3"»; when it is not — a prologue
+#: ahead of «Capitolo 1» — the title is information, and said.
+_NUMBERED_ONLY = re.compile(
+    r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
+    r"|part|parte|teil|partie)\W*)?(\d*)\W*$", re.I)
+
+#: The spoken chapter moves, as ``(pattern key, step)``: 0 asks, ±1 moves.
+_CHAPTER_STEPS = (("chapter_which", 0), ("chapter_next", 1),
+                  ("chapter_prev", -1))
 
 
 def _number(words):
@@ -146,6 +160,9 @@ class SpokenIntents:
                     return (self._unable("seek", say="no_seek")
                             or actions.seek_relative(self.lms, sign * seconds))
         if self.books is not None:
+            for key, step in _CHAPTER_STEPS:
+                if P[key].match(t):
+                    return self._chapter(step)
             m = P["audiobook"].match(t) or P["resume_book"].match(t)
             if m:
                 # The first group that took part: German «resume_book» has
@@ -189,6 +206,50 @@ class SpokenIntents:
             return self._offer(msg(key, title=title, author=author),
                                lambda: self._start_book(book))
         return self._start_book(book)
+
+    def _chapter(self, step: int):
+        """«a che capitolo sono» (``step`` 0), or a move of ``step`` chapters
+        through the book this player is playing (T5.6).
+
+        Only a book Vivavoce itself started can be placed — the transport says
+        which queue position is playing, never which file — so «no audiobook
+        playing» covers a book started from Audiobookshelf's own app too, and
+        says so («messo da me»). See ``Composite.chapter_at`` for how a queue
+        changed since is told apart.
+        """
+        try:
+            where = self.books.chapter_at(self.lms)
+            if where is None:
+                return actions.ActionResult(msg("no_book_playing"), ok=False)
+            chapters, target = where["chapters"], where["index"] + step
+            if not step:
+                return actions.ActionResult(
+                    _chapter_said("chapter_now", target, chapters), ok=True)
+            if target < 0:
+                return actions.ActionResult(msg("chapter_first"), ok=False)
+            if target >= len(chapters):
+                return actions.ActionResult(msg("chapter_last"), ok=False)
+            chapter = chapters[target]
+            reached = self.books.play_chapter(self.lms, where["item_id"],
+                                              chapter)
+        except ValueError:
+            # The book's own files cannot place it (Composite.play_chapter):
+            # not the player's fault, so not «this system cannot».
+            return actions.ActionResult(msg("chapter_unplaceable"), ok=False)
+        except PlayerError as exc:
+            # As in _start_book: the catalogue named, the speakers not.
+            service = self.books.label if getattr(exc, "from_library", False) else None
+            return actions.unreachable(service)
+        if reached is None:
+            return cannot("no_seek_chapter")
+        if reached < chapter["start"] - LENGTH_TOLERANCE:
+            # The seek into the file failed after the file started: what
+            # plays is that file from its start, and the reply must not
+            # name a chapter the listener is not hearing.
+            return actions.ActionResult(msg("chapter_file_start", n=target + 1),
+                                        ok=True)
+        return actions.ActionResult(
+            _chapter_said("chapter_playing", target, chapters), ok=True)
 
     @staticmethod
     def _book_score(query: str, book: dict) -> float:
@@ -250,3 +311,14 @@ def _position(seconds: float) -> str:
     if not minutes:
         return said_hours
     return msg("resume_hours_minutes", hours=said_hours, minutes=said_minutes)
+
+
+def _chapter_said(key: str, index: int, chapters: list) -> str:
+    """Chapter ``index`` of ``chapters`` as the reply ``key`` says it: by
+    number, and by name too when it has one that is more than its number."""
+    title = (chapters[index].get("title") or "").strip()
+    numbered = _NUMBERED_ONLY.match(title)
+    if title and not (numbered and (not numbered.group(1)
+                                    or int(numbered.group(1)) == index + 1)):
+        return msg(f"{key}_titled", n=index + 1, total=len(chapters), title=title)
+    return msg(key, n=index + 1, total=len(chapters))

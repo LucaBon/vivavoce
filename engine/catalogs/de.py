@@ -188,6 +188,18 @@ MESSAGES = {
     "resume_one_hour": "einer Stunde",
     "resume_hours": "{n} Stunden",
     "resume_hours_minutes": "{hours} und {minutes}",
+    # Chapters (T5.6): where the book is, and moving through it.
+    "chapter_now": "Du bist bei Kapitel {n} von {total}.",
+    "chapter_now_titled": "Du bist bei Kapitel {n} von {total}, \"{title}\".",
+    "chapter_playing": "Kapitel {n} von {total}.",
+    "chapter_playing_titled": "Kapitel {n} von {total}, \"{title}\".",
+    "chapter_first": "Das ist schon das erste Kapitel.",
+    "chapter_last": "Das ist schon das letzte Kapitel.",
+    "chapter_file_start": "Kapitel {n} habe ich nicht erreicht: Ich spiele die Datei von vorne.",
+    "no_seek_chapter":
+        "Dieses System kann nicht zu einem Kapitel springen, das mitten in einer Datei beginnt.",
+    "chapter_unplaceable": "Ich weiß nicht, wo dieses Kapitel in den Dateien des Buchs beginnt.",
+    "no_book_playing": "Gerade läuft kein Hörbuch, das ich gestartet habe.",
     "now_playing": "Gerade l\u00e4uft {title}.",
     "now_playing_by": "Gerade l\u00e4uft {title} von {artist}.",
     "paused_on": "Pausiert bei {title}.",
