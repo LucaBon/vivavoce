@@ -185,6 +185,9 @@ MESSAGES = {
     "no_book_found": "No he encontrado ning\u00fan audiolibro para {title}.",
     "book_no_audio": "{title} no tiene nada que escuchar: quiz\u00e1 es solo un e-book.",
     "book_resumed": "Reanudo \"{title}\" a partir de {position}.",
+    "book_from_start":
+        "No puedo reanudar \"{title}\" a partir de {position}: "
+        "este sistema lo pone desde el principio.",
     # How far in a resumed book starts, as the phrase above says it.
     "resume_one_minute": "un minuto",
     "resume_minutes": "{n} minutos",

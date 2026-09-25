@@ -48,7 +48,9 @@ class Player:
         return {"title": self.status["title"], "artist": "",
                 "mode": self.status["mode"], "index": self.index,
                 "elapsed": self.status["elapsed"], "connected": True}
-    def seek(self, seconds): return self._say("seek", seconds)
+    def seek(self, seconds):
+        self.status["elapsed"] = float(seconds)  # a seek that lands, as most do
+        return self._say("seek", seconds)
     def pause(self): return self._say("pause")
     def resume(self): return self._say("resume")
     def next_track(self): return self._say("next_track")
@@ -522,11 +524,20 @@ def test_a_resume_is_said_in_hours_and_minutes(player, seconds, said):
     dict(progress={"b1": 600.0}),
     # Lengths the catalogue does not know: the same.
     dict(progress={"b1": 600.0}, duration=0.0),
-    # Under a minute in: played from there, not worth announcing.
-    dict(progress={"b1": 40.0}, duration=3600.0),
 ])
-def test_a_resume_that_did_not_happen_is_not_announced(player, shelf):
+def test_a_resume_that_could_not_happen_says_so(player, shelf):
+    # Not announced as a resume — it is not one — and not hidden behind a
+    # plain «Metto l'audiolibro» either: the listener had a place, and the
+    # book starts from the beginning. Same words as a seek that did not land.
     reply = Router(player, services=(), books=shelf_of(HOBBIT, **shelf)).handle(
+        "metti l'audiolibro Lo Hobbit")
+    assert str(reply) == msg("book_from_start", title="Lo Hobbit",
+                             position=msg("resume_minutes", n=10))
+
+
+def test_under_a_minute_in_is_not_worth_a_word(player):
+    books = shelf_of(HOBBIT, progress={"b1": 40.0}, duration=3600.0)
+    reply = Router(player, services=(), books=books).handle(
         "metti l'audiolibro Lo Hobbit")
     assert str(reply) == msg("book_playing_by", title="Lo Hobbit",
                              author="J.R.R. Tolkien")
@@ -717,6 +728,20 @@ def test_a_numbered_title_that_is_not_the_position_is_said(player):
                              title="Capitolo 1")
 
 
+@pytest.mark.parametrize("title, said", [
+    ("02 - Gli Dei", "Gli Dei"),          # LibriVox's .m4b, as Audiobookshelf reads it
+    ("2. Gli Dei", "Gli Dei"),
+    ("Capitolo 2: Gli Dei", "Gli Dei"),
+    ("07 - Gli Dei", "07 - Gli Dei"),     # not its position: kept whole
+])
+def test_a_title_numbered_as_its_position_is_said_once(player, title, said):
+    chapters = [dict(SERVER_CHAPTERS[0]), dict(SERVER_CHAPTERS[1], title=title)]
+    router = book_playing(player, chapters=chapters)
+    player.status["elapsed"] = 1000.0
+    reply = router.handle("a che capitolo sono")
+    assert str(reply) == msg("chapter_now_titled", n=2, total=2, title=said)
+
+
 @pytest.mark.parametrize("title", ["Capitolo 2", "Chapter 2", "02", "Track 2", ""])
 def test_a_chapter_named_after_its_number_is_said_by_number(player, title):
     chapters = [dict(SERVER_CHAPTERS[0]), dict(SERVER_CHAPTERS[1], title=title)]
@@ -825,3 +850,20 @@ def test_file_chapters_count_every_file_even_past_an_unknown_length(player):
     reply = router.handle("capitolo successivo")
     assert str(reply) == msg("chapter_unplaceable")
     assert player.calls == []
+
+
+def test_a_resume_the_player_did_not_reach_is_said(player):
+    # The hi-fi, 2026-09-25: LMS accepted the seek into an .m4b and played it
+    # from 0 s. «Metto l'audiolibro» there would hide that the listener's
+    # place was not found.
+    books = shelf_of(HOBBIT, files={"b1": ["u1"]}, progress={"b1": 7200.0},
+                     duration=36000.0)
+    books._sleep = lambda seconds: None
+    ticks = iter(range(100))
+    books._now = lambda: float(next(ticks))
+    player.seek = lambda seconds: player._say("seek", seconds)  # never lands
+    player.status["elapsed"] = 0.0
+    reply = Router(player, services=(), books=books).handle(
+        "riprendi il libro Lo Hobbit")
+    assert str(reply) == msg("book_from_start", title="Lo Hobbit",
+                             position=msg("resume_hours", n=2))

@@ -86,9 +86,14 @@ _STATUS_HINTS = {
 }
 
 
-def get(base_url: str, token: str, request: Dict[str, Any],
-        timeout: float) -> Any:
-    """One ``GET``, and its body as JSON.
+def call(base_url: str, token: str, request: Dict[str, Any],
+         timeout: float) -> Any:
+    """One request, and its reply body as JSON.
+
+    A ``GET`` unless the request names a ``method``, and any other method is
+    a write: its ``body`` goes as JSON, and the reply is not read —
+    Audiobookshelf answers a progress ``PATCH`` with a bare «OK», which is
+    not JSON, and a write has nothing to report back but its status.
 
     Every failure is an :class:`AudiobookshelfError`, because from the engine
     up "the bookshelf did not answer" is one outcome and the detail is for
@@ -102,12 +107,18 @@ def get(base_url: str, token: str, request: Dict[str, Any],
     url = base_url.rstrip("/") + request["path"]
     if query:
         url += "?" + urllib.parse.urlencode(query)
-    http_request = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {token}",
-                      "Accept": "application/json"})
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    method = request.get("method") or "GET"
+    write = method != "GET"
+    data = None
+    if write and request.get("body") is not None:
+        data = json.dumps(request["body"]).encode()
+        headers["Content-Type"] = "application/json"
+    http_request = urllib.request.Request(url, data=data, headers=headers,
+                                          method=method)
     try:
         with urllib.request.urlopen(http_request, timeout=timeout) as response:
-            payload = response.read()
+            payload = None if write else response.read()
     except urllib.error.HTTPError as exc:
         hint = _STATUS_HINTS.get(exc.code, "Audiobookshelf returned an error")
         kind = (AudiobookshelfUnreachable if exc.code in _GATEWAY_STATUSES
@@ -121,6 +132,8 @@ def get(base_url: str, token: str, request: Dict[str, Any],
         raise AudiobookshelfUnreachable(
             f"Audiobookshelf at {base_url} is not answering: {exc}",
             delivered=not never_delivered(exc)) from exc
+    if payload is None:
+        return None
     try:
         return json.loads(payload)
     except ValueError as exc:
@@ -154,17 +167,19 @@ class AudiobookshelfClient(Resilient):
         self._init_resilience(timeout)
 
     def _http_transport(self, request: Dict[str, Any]) -> Any:
-        return get(self.base_url, self.token, request, self._call_timeout())
+        return call(self.base_url, self.token, request, self._call_timeout())
 
     def _repeat_safe(self, request: Dict[str, Any]) -> bool:
-        """Every request this client makes is a ``GET`` of the catalogue.
+        """Every request this client makes is safe to send twice.
 
-        There is nothing here that sending twice could do twice: no queue to
-        append to, no volume to step. A shelf is read, and the books on it
-        are played by whatever backend the engine was handed
-        (``player/composite.py``). So a reply that went missing is always
-        worth asking for again — which is the difference between one dropped
-        packet and «l'impianto non risponde».
+        Almost all are a ``GET`` of the catalogue: a shelf is read, and the
+        books on it are played by whatever backend the engine was handed
+        (``player/composite.py``). The one write, :meth:`save_progress`,
+        carries an absolute position — «at 350 s», never «35 s further» — so
+        a second copy leaves the server exactly where the first did. A reply
+        that went missing is therefore always worth asking for again — which
+        is the difference between one dropped packet and «l'impianto non
+        risponde».
         """
         return True
 
@@ -174,7 +189,7 @@ class AudiobookshelfClient(Resilient):
         Anything else that is still valid JSON — a list, a string, a number —
         is an answer from something that is not an Audiobookshelf: a captive
         portal, a reverse-proxy error page that happens to parse, or a schema
-        that moved under us. ``get()`` above already converts a body that is
+        that moved under us. ``call()`` above already converts a body that is
         not JSON at all; this is the other half of the same boundary, and
         without it the shape reached ``.get()`` three frames up as
         ``AttributeError: 'list' object has no attribute 'get'``.
@@ -292,6 +307,28 @@ class AudiobookshelfClient(Resilient):
                  for ch in chapters or []
                  if isinstance(ch, dict) and ch.get("start") is not None]
         return sorted(found, key=lambda ch: ch["start"])
+
+    def save_progress(self, item_id: str, position: float,
+                      duration: Optional[float]) -> None:
+        """Tell Audiobookshelf the listener is ``position`` seconds into
+        ``item_id`` — the record :meth:`progress` reads, and the one its own
+        app resumes from (T5.5: it owns this fact, nothing here stores it).
+
+        ``PATCH /api/me/progress/<id>``, verified against ``advplyr/
+        audiobookshelf`` on 2026-09-25 (``MeController.createUpdateMediaProgress``
+        → ``User.createUpdateMediaProgressFromPayload``). The server computes
+        nothing: ``progress`` is stored as sent, and a ``duration`` not sent
+        is stored as 0. So both go only when the book's length is known, and
+        a position alone otherwise. ``isFinished`` is never sent: finishing
+        a book is the app's business, not a sampler's.
+        """
+        body: Dict[str, Any] = {"currentTime": position}
+        if duration:
+            body["duration"] = duration
+            body["progress"] = min(1.0, position / duration)
+        self._guarded({
+            "path": f"/api/me/progress/{urllib.parse.quote(item_id, safe='')}",
+            "method": "PATCH", "body": body})
 
     def progress(self, item_id: str) -> Optional[float]:
         """How far into ``item_id`` the last listener got, in seconds — or

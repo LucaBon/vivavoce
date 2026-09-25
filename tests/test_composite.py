@@ -264,6 +264,10 @@ class Playing(SeekingQueue):
                 "index": self.current, "elapsed": self.elapsed,
                 "connected": True}
 
+    def seek(self, seconds):
+        super().seek(seconds)
+        self.elapsed = float(seconds)  # lands: see SilentSeek for one that does not
+
     def status_info(self):
         return {"mode": self.mode, "elapsed": self.elapsed,
                 "duration": self.duration}
@@ -509,6 +513,268 @@ def test_the_first_chapter_is_the_book_from_the_start():
     queue = Playing(seekable=False)
     assert composite.play_chapter(queue, "book", THREE_INSIDE["book"][0]) == 0.0
     assert queue.tracks == ["all"]
+
+
+# -- a seek that says yes and does not move (T5.6, found on the hi-fi) -------------
+
+class SilentSeek(Playing):
+    """LMS 9 with a remote .m4b: ``can_seek`` 1, the call accepted, and the
+    stream restarted from 0 — no error anywhere. ``lands_after`` reads of the
+    position before it does get there; None: never."""
+
+    def __init__(self, *args, lands_after=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lands_after = lands_after
+        self.target = None
+        self.reads = 0
+
+    def seek(self, seconds):
+        SeekingQueue.seek(self, seconds)
+        self.target, self.elapsed, self.reads = float(seconds), 0.0, 0
+
+    def now_playing_info(self):
+        self.reads += 1
+        if self.target is not None and self.lands_after is not None \
+                and self.reads > self.lands_after:
+            self.elapsed = self.target
+        return super().now_playing_info()
+
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+        self.slept = []
+
+    def now(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.t += seconds
+
+
+def checked(shelf):
+    clock = Clock()
+    return Composite(shelf, STREAMABLE, "Audiobookshelf",
+                     now=clock.now, sleep=clock.sleep), clock
+
+
+def test_a_seek_that_did_not_move_is_not_announced_as_the_chapter():
+    composite, clock = checked(ShelfWithChapters(ONE_FILE, THREE_INSIDE))
+    queue = SilentSeek()
+    assert composite.play_chapter(queue, "book", THREE_INSIDE["book"][2]) == 0.0
+    # ...and bounded: a player that never gets there costs seconds, not a hang.
+    assert 0 < clock.t <= 3.5
+
+
+def test_a_book_whose_seek_did_not_move_is_not_ours_to_save():
+    # The whole point on the hi-fi: «riprendi» at 2 h into an .m4b restarted
+    # it from 0 s, and a sample 30 s later would have written 30 s over 2 h.
+    shelf = ShelfThatSaves(ONE_FILE)
+    composite, _ = checked(shelf)
+    queue = SilentSeek()
+    assert composite.play_from(queue, "book", 2000.0) == (1, 0.0)
+    queue.elapsed = 40.0
+    assert composite.save_progress(queue) is None
+    assert composite.chapter_at(queue) is None
+    assert shelf.saved == []
+
+
+def test_a_seek_that_takes_a_moment_to_land_is_waited_for():
+    composite, clock = checked(ShelfWithChapters(ONE_FILE, THREE_INSIDE))
+    queue = SilentSeek(lands_after=2)
+    assert composite.play_chapter(queue, "book", THREE_INSIDE["book"][2]) == 2000.0
+    assert composite.chapter_at(queue)["index"] == 2
+    assert clock.t < 3.0
+
+
+def test_a_player_that_cannot_say_where_it_is_is_trusted():
+    # SeekingQueue has no now_playing_info: nothing to check against, and
+    # refusing would take chapters away from a player that may well seek.
+    composite, clock = checked(ShelfWithTracks(RESUMABLE))
+    queue = SeekingQueue()
+    assert composite.play_from(queue, "book", 350.0) == (2, 350.0)
+    assert clock.slept == []
+
+
+def test_a_seek_that_raised_is_not_ours_to_save_either():
+    class Raising(Playing):
+        def seek(self, seconds):
+            raise PlayerUnreachable("still loading")
+    shelf = ShelfThatSaves(RESUMABLE)
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    queue = Raising()
+    assert composite.play_from(queue, "book", 350.0) == (2, 300.0)
+    assert composite.save_progress(queue) is None
+
+
+# -- saving progress (T5.6) -----------------------------------------------------
+
+class ShelfThatSaves(ShelfWithTracks):
+    def __init__(self, tracks):
+        super().__init__(tracks)
+        self.saved = []
+
+    def save_progress(self, item_id, position, duration):
+        self.saved.append((item_id, position, duration))
+
+
+def saving(tracks=None):
+    shelf = ShelfThatSaves(tracks or RESUMABLE)
+    return Composite(shelf, STREAMABLE, "Audiobookshelf"), shelf
+
+
+def test_the_position_saved_is_the_seconds_into_the_whole_book():
+    composite, shelf = saving()
+    queue = Playing()
+    composite.play_from(queue, "book", 350.0)  # the queue starts at file 2
+    queue.elapsed = 80.0
+    assert composite.save_progress(queue) == 380.0
+    assert shelf.saved == [("book", 380.0, 900.0)]
+
+
+def test_a_book_of_unknown_total_length_saves_no_duration():
+    composite, shelf = saving({"book": [{"url": "ch1", "duration": 300.0},
+                                        {"url": "ch2", "duration": 0.0}]})
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.current, queue.elapsed = 1, 10.0
+    composite.save_progress(queue)
+    assert shelf.saved == [("book", 310.0, None)]
+
+
+def test_a_position_that_has_not_moved_is_not_saved_again():
+    # A paused hi-fi must not keep writing: somebody may be listening on
+    # the phone meanwhile, and the last listener's position is theirs.
+    composite, shelf = saving()
+    queue = Playing(mode="pause")
+    composite.enqueue(queue, "book", "play")
+    queue.elapsed = 100.0
+    composite.save_progress(queue)
+    queue.elapsed = 103.0
+    assert composite.save_progress(queue) is None
+    queue.mode, queue.elapsed = "play", 131.0
+    assert composite.save_progress(queue) == 131.0
+    assert [p for _, p, _ in shelf.saved] == [100.0, 131.0]
+
+
+def test_a_new_book_is_saved_even_at_the_same_second():
+    composite, shelf = saving()
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    composite.save_progress(queue)
+    composite.enqueue(queue, "book", "play")  # started over: a new record
+    assert composite.save_progress(queue) == 0.0
+    assert len(shelf.saved) == 2
+
+
+@pytest.mark.parametrize("change", ["stop", "music"])
+def test_nothing_is_saved_once_the_book_is_not_playing(change):
+    # Music put on since, or a stop: the last save stays the last true
+    # position, instead of being overwritten with the song's.
+    composite, shelf = saving()
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    if change == "stop":
+        queue.mode = "stop"
+    else:
+        queue.duration = 241.0
+    queue.elapsed = 200.0
+    assert composite.save_progress(queue) is None
+    assert shelf.saved == []
+
+
+def test_a_catalogue_that_cannot_save_is_asked_nothing():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    assert composite.save_progress(queue) is None
+
+
+def test_the_players_with_a_book_are_the_ones_to_sample():
+    composite, _ = saving()
+    lounge, kitchen, study = (Playing(player_id=p) for p in ("lounge", "kitchen",
+                                                              "study"))
+    composite.enqueue(lounge, "book", "play")
+    composite.enqueue(kitchen, "book", "play")
+    composite.enqueue(kitchen, "book", "add")  # behind something: forgotten
+    assert composite.players() == [lounge]
+    assert study not in composite.players()
+
+
+class Quiet:
+    """``background()`` as the resilient clients have it: records whether
+    each call was made inside it."""
+
+    def __init__(self):
+        self.inside = False
+        self.seen = []
+
+    def background(self):
+        import contextlib
+
+        @contextlib.contextmanager
+        def block():
+            self.inside = True
+            try:
+                yield
+            finally:
+                self.inside = False
+        return block()
+
+
+def test_a_save_runs_in_background_on_both_sides():
+    # Neither a hi-fi switched off nor a slow Audiobookshelf may open the
+    # breaker a sentence will meet: the sampler's failures are not the
+    # household's (player/resilience.py, background()).
+    composite, shelf = saving()
+    queue, quiet_shelf = Playing(), Quiet()
+    quiet_player = Quiet()
+    queue.background = quiet_player.background
+    shelf.background = quiet_shelf.background
+    real_info, real_save = queue.now_playing_info, shelf.save_progress
+
+    def info():
+        quiet_player.seen.append(quiet_player.inside)
+        return real_info()
+
+    def save(*args):
+        quiet_shelf.seen.append(quiet_shelf.inside)
+        return real_save(*args)
+    queue.now_playing_info, shelf.save_progress = info, save
+    composite.enqueue(queue, "book", "play")
+    assert composite.save_progress(queue) == 0.0
+    assert quiet_player.seen == [True] and quiet_shelf.seen == [True]
+
+
+def test_the_book_is_not_ours_to_save_until_the_seek_is_done():
+    # A sample between play_tracks and the seek would read 0 s into the new
+    # file and write it over the resume point Audiobookshelf already had.
+    composite, shelf = saving()
+    queue = Playing()
+    saved_during_seek = []
+    real_seek = queue.seek
+
+    def seek(seconds):
+        saved_during_seek.append(composite.save_progress(queue))
+        real_seek(seconds)
+    queue.seek = seek
+    composite.play_from(queue, "book", 350.0)
+    assert saved_during_seek == [None]
+    assert shelf.saved == []
+
+
+def test_a_failed_save_is_tagged_as_the_catalogue():
+    composite, shelf = saving()
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+
+    def down(*args):
+        raise PlayerUnreachable("off")
+    shelf.save_progress = down
+    with pytest.raises(PlayerUnreachable) as caught:
+        composite.save_progress(queue)
+    assert caught.value.from_library
 
 
 # -- against the real clients --------------------------------------------------
