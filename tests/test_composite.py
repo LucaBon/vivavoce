@@ -173,6 +173,37 @@ def test_resuming_mid_file_queues_only_what_is_left_and_seeks_into_it():
     assert queue.sought == [50]
 
 
+@pytest.mark.parametrize("start, files, sought, reached", [
+    # The hi-fi, 2026-09-25: a seek 5.5 s before the end of a remote MP3 left
+    # the LMS «playing» at that second for good — no sound, and no move to
+    # the next file; ten seconds out still did, right after the file started;
+    # twenty did not. So a resume that close to the end starts twenty seconds
+    # before it: a few seconds heard twice, as audiobook apps do anyway.
+    (595.0, ["ch2", "ch3"], [280], 580.0),
+    (895.0, ["ch3"], [280], 880.0),           # the last file too
+    (579.0, ["ch2", "ch3"], [279], 579.0),    # twenty-one seconds out: untouched
+])
+def test_a_resume_in_the_last_seconds_of_a_file_starts_a_little_earlier(
+        start, files, sought, reached):
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = SeekingQueue()
+    assert composite.play_from(queue, "book", start)[1] == reached
+    assert queue.tracks == files
+    assert queue.sought == sought
+
+
+def test_a_chapter_on_a_file_boundary_is_still_the_next_file():
+    # The end margin must not undo the boundary snap: a chapter that starts a
+    # hair before a file ends starts the next file, not ten seconds before.
+    chapters = {"book": [{"start": 0.0, "end": 299.8, "title": ""},
+                         {"start": 299.8, "end": 600.0, "title": ""}]}
+    composite = Composite(ShelfWithChapters(RESUMABLE, chapters),
+                          STREAMABLE, "Audiobookshelf")
+    queue = SeekingQueue(seekable=False)
+    assert composite.play_chapter(queue, "book", chapters["book"][1]) == 300.0
+    assert queue.tracks == ["ch2", "ch3"]
+
+
 def test_a_transport_that_cannot_seek_still_gets_the_right_file():
     composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
     queue = SeekingQueue(seekable=False)
@@ -264,6 +295,12 @@ class Playing(SeekingQueue):
         return {"title": "", "artist": "", "mode": self.mode,
                 "index": self.current, "elapsed": self.elapsed,
                 "connected": True}
+
+    def play_tracks(self, tracks):
+        super().play_tracks(tracks)
+        self.elapsed = self.started_at  # the new file, already under way
+
+    started_at = 1.0
 
     def seek(self, seconds):
         super().seek(seconds)
@@ -609,6 +646,50 @@ def test_a_seek_that_raised_is_not_ours_to_save_either():
     assert composite.save_progress(queue) is None
 
 
+class LateStart(Playing):
+    """The LMS with a remote file it has just been handed: a seek before the
+    stream is under way is ignored, or stalls it (the hi-fi, 2026-09-25). It
+    is under way once its position has moved; ``starts_after`` reads."""
+
+    def __init__(self, *args, starts_after=2, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.starts_after, self.reads, self.seeks_at = starts_after, 0, []
+
+    def play_tracks(self, tracks):
+        SeekingQueue.play_tracks(self, tracks)
+        self.elapsed, self.reads = 0.0, 0
+
+    def now_playing_info(self):
+        self.reads += 1
+        if self.reads > self.starts_after and self.elapsed < 1.0:
+            self.elapsed = 1.0
+        return super().now_playing_info()
+
+    def seek(self, seconds):
+        self.seeks_at.append(self.elapsed)
+        if self.elapsed > 0:  # under way: the seek lands
+            super().seek(seconds)
+
+
+def test_the_seek_waits_for_the_file_to_be_under_way():
+    composite, clock = checked(ShelfWithTracks(RESUMABLE))
+    queue = LateStart(starts_after=2)
+    assert composite.play_from(queue, "book", 350.0) == (2, 350.0)
+    assert queue.seeks_at == [1.0]
+    assert clock.slept  # it did wait
+    assert composite.chapter_at(queue) is not None
+
+
+def test_a_file_that_never_gets_under_way_is_still_sought_once():
+    # Waited for, not forever: past the wait the seek is sent anyway, and
+    # the landing check says whether it took.
+    composite, clock = checked(ShelfWithTracks(RESUMABLE))
+    queue = LateStart(starts_after=10**6)
+    assert composite.play_from(queue, "book", 350.0) == (2, 300.0)
+    assert len(queue.seeks_at) == 1
+    assert clock.t < 8.0
+
+
 # -- the book, read once; and what the page shows (T5.6) ------------------------
 
 class ShelfWithBooks(ShelfWithChapters):
@@ -812,7 +893,7 @@ def test_a_new_book_is_saved_even_at_the_same_second():
     composite.enqueue(queue, "book", "play")
     composite.save_progress(queue)
     composite.enqueue(queue, "book", "play")  # started over: a new record
-    assert composite.save_progress(queue) == 0.0
+    assert composite.save_progress(queue) == 1.0
     assert len(shelf.saved) == 2
 
 
@@ -891,7 +972,7 @@ def test_a_save_runs_in_background_on_both_sides():
         return real_save(*args)
     queue.now_playing_info, shelf.save_progress = info, save
     composite.enqueue(queue, "book", "play")
-    assert composite.save_progress(queue) == 0.0
+    assert composite.save_progress(queue) == 1.0
     assert quiet_player.seen == [True] and quiet_shelf.seen == [True]
 
 

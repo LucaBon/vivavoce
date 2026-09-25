@@ -178,12 +178,16 @@ class Composite(Listening):
         key = _player_key(transport)
         self._playing.pop(key, None)
         transport.play_tracks(_queued(urls, book)[index:])
-        reached = start - offset if point is not None else 0.0
+        # Where the file begins, not ``start - offset``: resume_point may
+        # have moved the offset off ``start`` (the end margin).
+        reached = (sum(f.get("duration") or 0.0 for f in files[:index])
+                   if point is not None else 0.0)
         landed = True
         if offset > 0 and supports(transport, "seek"):
             # The book is already playing: a seek that fails costs the
             # second, not the book, and the answer stays the file's start.
             try:
+                self._under_way(transport)
                 transport.seek(int(offset))
                 landed = self._landed(transport, int(offset))
             except PlayerError:
@@ -198,6 +202,15 @@ class Composite(Listening):
             self._remember(transport, (item_id, index, len(urls) - index),
                            fresh=book is not None)
         return len(urls) - index, reached
+
+    def _under_way(self, transport: Any) -> None:
+        """Wait — up to the same bound as the landing check — for the file
+        just handed over to be playing, and only then seek. Found on the
+        hi-fi, 2026-09-25: a seek sent to the LMS the moment a remote file
+        was queued was ignored (played from 0) or stalled it, depending on
+        the run; one sent after its position had moved always took. Past the
+        bound the seek goes anyway, and ``_landed`` says whether it did."""
+        self._landed(transport, CHAPTER_SLACK + 0.5)
 
     def _landed(self, transport: Any, target: int) -> bool:
         """Whether ``transport`` really got to ``target`` seconds after a seek
