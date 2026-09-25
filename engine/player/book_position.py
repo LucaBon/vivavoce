@@ -23,6 +23,9 @@ LENGTH_TOLERANCE = 2.0
 #: asked right after «capitolo successivo» must not name the one before.
 CHAPTER_SLACK = 1.0
 
+#: Seconds before the end of a file no seek goes past (see ``resume_point``).
+END_MARGIN = 20.0
+
 #: How long a seek is given to show up in the player's position, and how
 #: often it is asked meanwhile (see :func:`seek_landed`).
 SEEK_CHECK = 3.0
@@ -35,6 +38,26 @@ BOUNDARY_SNAP = 0.5
 
 def resume_point(files: List[Dict[str, Any]],
                  start: float) -> Optional[tuple]:
+    """:func:`_point`, never closer than :data:`END_MARGIN` to the end of its
+    file: found on the hi-fi, 2026-09-25, a seek 5.5 s before the end of a
+    remote MP3 left the LMS «playing» that second for good — no sound, and
+    no move to the next file. Ten seconds out still did, right after the file
+    started; twenty did not, and a book at a lower bitrate than that one's
+    64 kbps needs more seconds for the same bytes. The listener hears a few
+    seconds twice, as audiobook apps do on a resume anyway; the caller says
+    where playback really begins."""
+    point = _point(files, start)
+    if point is None:
+        return None
+    index, offset = point
+    duration = files[index].get("duration") or 0.0
+    if duration > END_MARGIN and offset > duration - END_MARGIN:
+        return index, duration - END_MARGIN
+    return point
+
+
+def _point(files: List[Dict[str, Any]],
+           start: float) -> Optional[tuple]:
     """``(index, offset)`` of the file ``start`` seconds in falls inside, or
     ``None`` when a file's duration is unknown (``0.0``) and the search
     cannot be trusted past it — or when ``start`` lies past the end of a
@@ -59,7 +82,7 @@ def chapter_point(files: List[Dict[str, Any]],
     :data:`BOUNDARY_SNAP`: Audiobookshelf sums its chapter starts on its own,
     and a boundary it rounds differently from the track lengths is still the
     boundary — not a seek a player that cannot seek would be refused."""
-    point = resume_point(files, start)
+    point = _point(files, start)
     if point is None:
         return None
     index, offset = point
@@ -68,7 +91,7 @@ def chapter_point(files: List[Dict[str, Any]],
         return index, 0.0
     if duration and duration - offset < BOUNDARY_SNAP and index + 1 < len(files):
         return index + 1, 0.0
-    return index, offset
+    return resume_point(files, start)
 
 
 def file_chapters(durations: List[float]) -> List[Dict[str, Any]]:
