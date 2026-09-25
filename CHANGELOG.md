@@ -32,6 +32,14 @@
 
 ### Changed
 
+- **Una ripresa non blocca più l'impianto.** Provato sull'impianto: un salto
+  dato all'LMS nell'istante in cui un file remoto parte a volte viene
+  ignorato e a volte lo pianta, e uno a pochi secondi dalla fine del file lo
+  lascia «in riproduzione» senza suono e senza passare al file dopo. Ora
+  Vivavoce aspetta che il file suoni prima di saltare, e non salta mai negli
+  ultimi 20 secondi di un file: una ripresa lì riparte 20 secondi prima, e
+  la risposta dice il punto vero.
+
 - **Nella coda dell'impianto i capitoli hanno un nome prima di suonare.**
   L'LMS legge i tag di un file remoto solo quando lo suona, quindi in
   Material Skin ogni capitolo ancora da ascoltare era «Unknown». Ora
