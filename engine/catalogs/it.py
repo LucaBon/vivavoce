@@ -183,6 +183,17 @@ MESSAGES = {
     "resume_one_hour": "un'ora",
     "resume_hours": "{n} ore",
     "resume_hours_minutes": "{hours} e {minutes}",
+    # Chapters (T5.6): where the book is, and moving through it.
+    "chapter_now": "Sei al capitolo {n} di {total}.",
+    "chapter_now_titled": "Sei al capitolo {n} di {total}, \"{title}\".",
+    "chapter_playing": "Capitolo {n} di {total}.",
+    "chapter_playing_titled": "Capitolo {n} di {total}, \"{title}\".",
+    "chapter_first": "Sei già al primo capitolo.",
+    "chapter_last": "Sei già all'ultimo capitolo.",
+    "chapter_file_start":
+        "Non sono riuscito ad arrivare al capitolo {n}: riparto dall'inizio del file.",
+    "no_seek_chapter": "Questo impianto non sa saltare a un capitolo che inizia a metà di un file.",
+    "no_book_playing": "Al momento non sta suonando un audiolibro messo da me.",
     "now_playing": "Sta suonando {title}.",
     "now_playing_by": "Sta suonando {title} di {artist}.",
     "paused_on": "\u00c8 in pausa su {title}.",

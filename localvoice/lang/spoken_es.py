@@ -36,4 +36,12 @@ PATTERNS = {
     # transport's own play/unpause.
     "resume_book": c(r"^(?:reanuda|contin[uú]a|sigue)\s+"
                      r"(?:el\s+|un\s+|mi\s+)?(?:audio)?libro\s+(.+)$"),
+    # Chapters (T5.6): «capítulo» is in every one, so a bare «siguiente» /
+    # «anterior» keeps skipping the track.
+    "chapter_next": c(r"^(?:(?:pasa|ve|salta|pon)(?:me)?\s+al\s+)?"
+                      r"(?:(?:siguiente|pr[oó]ximo)\s+cap[ií]tulo|cap[ií]tulo\s+siguiente)\s*$"),
+    "chapter_prev": c(r"^(?:(?:vuelve|volver|ve|pasa|pon)(?:me)?\s+al\s+)?"
+                      r"cap[ií]tulo\s+anterior\s*$"),
+    "chapter_which": c(r"^(?:en\s+)?(?:qu[eé]|cu[aá]l)\s+(?:es\s+el\s+)?cap[ií]tulo"
+                       r"(?:\s+(?:estoy|estamos|es))?\s*$"),
 }

@@ -36,4 +36,18 @@ PATTERNS = {
     # own play/unpause.
     "resume_book": c(r"^(?:resume|continue)\s+"
                      r"(?:the\s+|an?\s+|my\s+)?(?:audio\s*book|book)\s+(.+)$"),
+    # Chapters (T5.6): "chapter" is in every one, so a bare "next"/"back"
+    # keeps skipping the track.
+    "chapter_next": c(r"^(?:(?:(?:go|skip|jump|move)\s+(?:on\s+)?(?:to\s+)?|play\s+)?"
+                      r"(?:the\s+)?next\s+chapter"
+                      r"|skip\s+(?:this\s+|the\s+)?chapter"
+                      r"|(?:go\s+|skip\s+)?(?:forward|ahead)\s+(?:a|one)\s+chapter)"
+                      r"(?:\s+please)?\s*$"),
+    "chapter_prev": c(r"^(?:(?:(?:go|skip|jump|move)\s+(?:back\s+)?(?:to\s+)?"
+                      r"|play\s+|back\s+to\s+)?"
+                      r"(?:the\s+)?previous\s+chapter"
+                      r"|(?:go\s+|skip\s+)?back\s+(?:a|one)\s+chapter)"
+                      r"(?:\s+please)?\s*$"),
+    "chapter_which": c(r"^(?:what|which)\s+chapter"
+                       r"(?:\s+(?:am\s+i\s+(?:on|in|at)|are\s+we\s+(?:on|in|at)|is\s+(?:this|it)))?\s*$"),
 }

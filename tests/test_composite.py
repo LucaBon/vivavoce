@@ -246,6 +246,202 @@ def test_progress_is_read_off_the_catalogue_when_it_has_one():
     assert composite.progress("book") == 42.0
 
 
+# -- chapters (T5.6) -----------------------------------------------------------
+
+class Playing(SeekingQueue):
+    """A :class:`SeekingQueue` that also says what it is playing, as
+    ``now_playing_info`` and ``status_info`` do: the queue position, the
+    seconds played of it, and — when the player knows it — its length."""
+
+    def __init__(self, *args, player_id="lounge", mode="play", elapsed=0.0,
+                 duration=0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.player_id = player_id
+        self.mode, self.elapsed, self.duration = mode, elapsed, duration
+
+    def now_playing_info(self):
+        return {"title": "", "artist": "", "mode": self.mode,
+                "index": self.current, "elapsed": self.elapsed,
+                "connected": True}
+
+    def status_info(self):
+        return {"mode": self.mode, "elapsed": self.elapsed,
+                "duration": self.duration}
+
+
+class ShelfWithChapters(ShelfWithTracks):
+    def __init__(self, tracks, chapters):
+        super().__init__(tracks)
+        self._chapters = chapters
+        self.chapters_asked = []
+
+    def chapters(self, item_id):
+        self.chapters_asked.append(item_id)
+        return [dict(ch) for ch in self._chapters.get(item_id, [])]
+
+
+#: One file, three chapters inside it: the ``.m4b`` shape.
+ONE_FILE = {"book": [{"url": "all", "duration": 3000.0}]}
+THREE_INSIDE = {"book": [{"start": 0.0, "end": 1000.0, "title": "Uno"},
+                         {"start": 1000.0, "end": 2000.0, "title": "Due"},
+                         {"start": 2000.0, "end": 3000.0, "title": "Tre"}]}
+
+
+def test_no_book_played_on_this_player_is_no_chapter():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    assert composite.chapter_at(Playing()) is None
+
+
+def test_with_no_chapters_on_the_server_each_file_is_one():
+    # 350s in: the queue starts at file 2 of 3, so its head is the book's
+    # second file, and 20s into it is 320s into the book.
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.play_from(queue, "book", 350.0)
+    queue.elapsed = 20.0
+    where = composite.chapter_at(queue)
+    assert where["item_id"] == "book"
+    assert where["position"] == 320.0
+    assert where["index"] == 1
+    assert [ch["start"] for ch in where["chapters"]] == [0.0, 300.0, 600.0]
+
+
+def test_the_servers_chapters_are_found_inside_one_file():
+    shelf = ShelfWithChapters(ONE_FILE, THREE_INSIDE)
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.elapsed = 1500.0
+    where = composite.chapter_at(queue)
+    assert where["index"] == 1
+    assert where["chapters"][1]["title"] == "Due"
+
+
+def test_the_queue_moving_on_moves_the_chapter():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.current, queue.elapsed = 2, 10.0
+    assert composite.chapter_at(queue)["index"] == 2
+
+
+def test_another_player_has_not_got_the_book():
+    # The record is per player: «capitolo successivo» in the kitchen must not
+    # move the book playing in the lounge — nor start it in the kitchen.
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    composite.enqueue(Playing(player_id="lounge"), "book", "play")
+    assert composite.chapter_at(Playing(player_id="kitchen")) is None
+
+
+def test_a_stopped_player_is_not_playing_the_book():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.mode = "stop"
+    assert composite.chapter_at(queue) is None
+
+
+def test_a_queue_past_the_book_is_not_the_book():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.current = 3  # three files queued: index 3 is something else
+    assert composite.chapter_at(queue) is None
+
+
+def test_a_track_of_another_length_is_music_played_since():
+    # Somebody put a record on from Material Skin: same player, index 0,
+    # playing — only its length says it is not chapter 1. And once seen,
+    # the record is dropped, so the book cannot come back by coincidence.
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.duration = 241.0
+    assert composite.chapter_at(queue) is None
+    queue.duration = 300.0
+    assert composite.chapter_at(queue) is None
+
+
+@pytest.mark.parametrize("duration", [0.0, 300.0, 301.5])
+def test_a_length_that_is_unknown_or_close_is_the_book(duration):
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing(duration=duration)
+    composite.enqueue(queue, "book", "play")
+    assert composite.chapter_at(queue)["index"] == 0
+
+
+@pytest.mark.parametrize("mode", ["add", "insert"])
+def test_a_book_queued_behind_something_else_cannot_be_placed(mode):
+    # Its first file is not at the head of the queue, and where it is
+    # depends on what was there: forgotten rather than guessed.
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    composite.enqueue(queue, "book", mode)
+    assert composite.chapter_at(queue) is None
+
+
+def test_an_unknown_file_length_before_the_head_places_nothing():
+    unknown = {"book": [{"url": "ch1", "duration": 0.0},
+                        {"url": "ch2", "duration": 300.0}]}
+    composite = Composite(ShelfWithTracks(unknown), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.current = 1
+    assert composite.chapter_at(queue) is None
+
+
+def test_the_catalogue_failing_is_tagged_as_the_catalogue():
+    shelf = ShelfWithTracks(RESUMABLE)
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+
+    def down(item_id):
+        raise PlayerUnreachable("off")
+    shelf.tracks = down
+    with pytest.raises(PlayerUnreachable) as caught:
+        composite.chapter_at(queue)
+    assert caught.value.from_library
+
+
+def test_a_chapter_inside_a_file_is_a_seek():
+    composite = Composite(ShelfWithChapters(ONE_FILE, THREE_INSIDE),
+                          STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    assert composite.play_chapter(queue, "book", THREE_INSIDE["book"][2]) == 2000.0
+    assert queue.tracks == ["all"]
+    assert queue.sought == [2000]
+
+
+def test_a_chapter_that_is_a_file_needs_no_seek():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing(seekable=False)
+    assert composite.play_chapter(queue, "book", {"start": 300.0}) == 300.0
+    assert queue.tracks == ["ch2", "ch3"]
+    # ...and the record follows it: chapter 2 is now the queue's head.
+    assert composite.chapter_at(queue)["index"] == 1
+
+
+def test_a_chapter_inside_a_file_on_a_player_that_cannot_seek_sends_nothing():
+    # Playing the file from its start would be chapter 1 announced as
+    # chapter 3: the one thing this must not do.
+    composite = Composite(ShelfWithChapters(ONE_FILE, THREE_INSIDE),
+                          STREAMABLE, "Audiobookshelf")
+    queue = Playing(["song-a"], seekable=False)
+    assert composite.play_chapter(queue, "book", THREE_INSIDE["book"][2]) is None
+    assert queue.calls == []
+    assert queue.tracks == ["song-a"]
+
+
+def test_the_first_chapter_is_the_book_from_the_start():
+    composite = Composite(ShelfWithChapters(ONE_FILE, THREE_INSIDE),
+                          STREAMABLE, "Audiobookshelf")
+    queue = Playing(seekable=False)
+    assert composite.play_chapter(queue, "book", THREE_INSIDE["book"][0]) == 0.0
+    assert queue.tracks == ["all"]
+
+
 # -- against the real clients --------------------------------------------------
 #
 # The Queue above proves the order; these prove the two music systems really

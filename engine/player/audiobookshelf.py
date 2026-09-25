@@ -270,6 +270,29 @@ class AudiobookshelfClient(Resilient):
                 if isinstance(track, dict)
                 and isinstance(track.get("contentUrl"), str)]
 
+    def chapters(self, item_id: str) -> List[Dict[str, Any]]:
+        """The chapters of one book as ``{"start", "end", "title"}``, in
+        listening order — seconds from the beginning of the whole book, not
+        of any one file, which is why a single ``.m4b`` and a folder of MP3s
+        read the same here.
+
+        Empty for a book the server has no chapters for: the caller decides
+        what a chapter is then (:meth:`player.composite.Composite.chapter_at`
+        falls back to the files). Sorted by ``start`` because the server's
+        own order is by ``id``, and a chapter list edited in its UI can hold
+        the two apart.
+        """
+        item = self._get(f"/api/items/{urllib.parse.quote(item_id, safe='')}",
+                         expanded=1)
+        media = item.get("media")
+        chapters = media.get("chapters") if isinstance(media, dict) else None
+        found = [{"start": _seconds(ch.get("start")),
+                  "end": _seconds(ch.get("end")),
+                  "title": ch.get("title") if isinstance(ch.get("title"), str) else ""}
+                 for ch in chapters or []
+                 if isinstance(ch, dict) and ch.get("start") is not None]
+        return sorted(found, key=lambda ch: ch["start"])
+
     def progress(self, item_id: str) -> Optional[float]:
         """How far into ``item_id`` the last listener got, in seconds — or
         ``None`` for a book never started, or finished (``isFinished``:

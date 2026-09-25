@@ -31,6 +31,17 @@ from .protocols import Capabilities, supports
 #: (``actions.play_song``, ``musicassistant._QUEUE_OPTION``).
 MODES = ("play", "add", "insert")
 
+#: Seconds by which the player's idea of a file's length may differ from the
+#: catalogue's and still be the same file. Decoders round, and a VBR MP3
+#: read from its header and from a scan disagree by a second or so; a song
+#: put on since is minutes off (see :meth:`Composite.chapter_at`).
+LENGTH_TOLERANCE = 2.0
+
+#: How far before a chapter's start still counts as inside it. A seek to a
+#: chapter lands a hair early on some players, and «di che capitolo sono»
+#: asked right after «capitolo successivo» must not name the one before.
+CHAPTER_SLACK = 1.0
+
 
 class Composite:
     """A :class:`~player.protocols.SpokenLibrary`, heard through any transport."""
@@ -48,6 +59,20 @@ class Composite:
         self.library = library
         self.capabilities = capabilities
         self.label = label
+        # What each player was last given, as ``player_id -> (item_id,
+        # first, count)``: the book, the index of its file now at the head
+        # of the queue, and how many of its files follow. Written by every
+        # ``play``, dropped by ``add``/``insert`` (the book is then behind
+        # something else, at a place that depends on what) — and the only
+        # way to know where a book is, because a transport says *which queue
+        # position* is playing, never which URL (T5.6, chapters).
+        #
+        # Here and not on the Router: there is one router per browser, and a
+        # book started from the phone must still move for «capitolo
+        # successivo» said to the satellite in the same room. Plain dict
+        # writes of whole tuples, which the GIL keeps whole across the
+        # server's threads.
+        self._playing: Dict[Any, Tuple[str, int, int]] = {}
 
     def book_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         return self.library.book_candidates(query, count)
@@ -84,12 +109,16 @@ class Composite:
         urls = _from_library(self.library.stream_urls, item_id)
         if not urls:
             return 0
+        key = _player_key(transport)
         if mode == "play":
             # One call, the one the protocol has for exactly this: Music
             # Assistant takes the whole list at once, and a play_url followed
             # by add_url per chapter would race the first file starting.
             transport.play_tracks([{"url": url} for url in urls])
-        elif mode == "add":
+            self._playing[key] = (item_id, 0, len(urls))
+            return len(urls)
+        self._playing.pop(key, None)
+        if mode == "add":
             for url in urls:
                 transport.add_url(url)
         else:
@@ -118,13 +147,21 @@ class Composite:
         get_tracks = getattr(self.library, "tracks", None)
         if start <= 0 or get_tracks is None:
             return self.enqueue(transport, item_id, "play"), 0.0
-        files = _from_library(get_tracks, item_id)
+        return self._play_files(transport, item_id,
+                                _from_library(get_tracks, item_id), start)
+
+    def _play_files(self, transport: Any, item_id: str,
+                    files: List[Dict[str, Any]],
+                    start: float) -> Tuple[int, float]:
+        """:meth:`play_from`, once the files are in hand."""
         if not files:
             return 0, 0.0
         urls = [f["url"] for f in files]
         point = _resume_point(files, start)
         index, offset = point if point is not None else (0, 0.0)
         transport.play_tracks([{"url": url} for url in urls[index:]])
+        self._playing[_player_key(transport)] = (item_id, index,
+                                                 len(urls) - index)
         reached = start - offset if point is not None else 0.0
         if offset > 0 and supports(transport, "seek"):
             # The book is already playing: a seek that fails costs the
@@ -135,6 +172,112 @@ class Composite:
             except PlayerError:
                 pass
         return len(urls) - index, reached
+
+    # -- chapters (T5.6) -----------------------------------------------------
+    def chapter_at(self, transport: Any) -> Optional[Dict[str, Any]]:
+        """Where ``transport`` is in the book this composite last gave it:
+        ``{"item_id", "chapters", "index", "position"}`` — the chapter list,
+        the one playing, and the seconds into the whole book — or ``None``
+        when that player is not playing a book of ours.
+
+        "Not playing a book of ours" is decided with some care, because the
+        answer moves a book or names a chapter aloud: nothing was given to
+        this player, the player is stopped, the queue has moved past the
+        book, or the file at the head is not as long as the book's file
+        there. The last is the one that catches a record put on from
+        Material Skin since — same player, same index, playing — and on it
+        the record is dropped, so a coincidence later cannot bring the book
+        back. A player that reports no length is trusted (the check is
+        skipped, not failed); a file before the head whose length the
+        catalogue does not know makes the position unknowable, and is
+        ``None`` too.
+
+        The chapters are the catalogue's (``chapters()``, probed with
+        ``getattr`` as ``tracks`` is), or, when it has none, the book's
+        files, one chapter each — the folder-of-MP3s shape.
+        """
+        key = _player_key(transport)
+        record = self._playing.get(key)
+        get_tracks = getattr(self.library, "tracks", None)
+        if record is None or get_tracks is None:
+            return None
+        item_id, first, count = record
+        now = transport.now_playing_info() or {}
+        index = now.get("index")
+        if (now.get("mode") not in ("play", "pause")
+                or not isinstance(index, int) or not 0 <= index < count):
+            return None
+        files = _from_library(get_tracks, item_id)
+        head = first + index
+        if head >= len(files):
+            self._playing.pop(key, None)
+            return None
+        durations = [f.get("duration") or 0.0 for f in files]
+        heard = _float((transport.status_info() or {}).get("duration"))
+        if heard and durations[head] and abs(heard - durations[head]) > LENGTH_TOLERANCE:
+            self._playing.pop(key, None)
+            return None
+        if not all(durations[:head]):
+            return None
+        position = sum(durations[:head]) + _float(now.get("elapsed"))
+        chapters = self._chapters(item_id, durations)
+        if not chapters:
+            return None
+        current = max((i for i, ch in enumerate(chapters)
+                       if ch["start"] <= position + CHAPTER_SLACK), default=0)
+        return {"item_id": item_id, "chapters": chapters, "index": current,
+                "position": position}
+
+    def play_chapter(self, transport: Any, item_id: str,
+                     chapter: Dict[str, Any]) -> Optional[float]:
+        """Play ``item_id`` from the start of ``chapter`` — the resume path,
+        from a point the listener named rather than one Audiobookshelf kept.
+
+        Answers where playback really begins (as :meth:`play_from`), or
+        ``None``, **with nothing sent**, when the chapter starts inside a
+        file and ``transport`` cannot seek: the file from its own start
+        would be an earlier chapter announced as this one.
+        """
+        start = _float(chapter.get("start"))
+        get_tracks = getattr(self.library, "tracks", None)
+        if start <= 0 or get_tracks is None:
+            return self.play_from(transport, item_id, start)[1]
+        files = _from_library(get_tracks, item_id)
+        point = _resume_point(files, start)
+        if point is None or (point[1] > 0 and not supports(transport, "seek")):
+            return None
+        return self._play_files(transport, item_id, files, start)[1]
+
+    def _chapters(self, item_id: str,
+                  durations: List[float]) -> List[Dict[str, Any]]:
+        get_chapters = getattr(self.library, "chapters", None)
+        found = _from_library(get_chapters, item_id) if get_chapters else []
+        if found:
+            return found
+        # One chapter per file, as far as the lengths are known: past a file
+        # of unknown length no start can be placed, so that file is the last.
+        chapters, elapsed = [], 0.0
+        for duration in durations:
+            chapters.append({"start": elapsed, "end": elapsed + duration,
+                             "title": ""})
+            if not duration:
+                break
+            elapsed += duration
+        return chapters
+
+
+def _player_key(transport: Any) -> Any:
+    """Which player a transport is aimed at, as :attr:`Composite._playing`
+    is keyed: both clients carry ``player_id``, and one that does not is a
+    single player anyway."""
+    return getattr(transport, "player_id", None)
+
+
+def _float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _from_library(fetch, item_id: str) -> Any:

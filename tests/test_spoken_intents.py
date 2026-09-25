@@ -31,6 +31,9 @@ class Player:
         self.status = {"mode": mode, "title": "Capitolo 3",
                        "elapsed": elapsed, "duration": duration}
         self.calls = []
+        # The queue position ``now_playing_info`` reports: 0 is the first
+        # file a play just queued (see Composite.chapter_at).
+        self.index = 0
 
     @contextlib.contextmanager
     def turn_deadline(self, seconds):
@@ -41,6 +44,10 @@ class Player:
         return {}
 
     def status_info(self): return dict(self.status)
+    def now_playing_info(self):
+        return {"title": self.status["title"], "artist": "",
+                "mode": self.status["mode"], "index": self.index,
+                "elapsed": self.status["elapsed"], "connected": True}
     def seek(self, seconds): return self._say("seek", seconds)
     def pause(self): return self._say("pause")
     def resume(self): return self._say("resume")
@@ -573,3 +580,181 @@ def test_a_failed_transport_while_starting_a_book_keeps_the_generic_reply(player
     assert getattr(reply, "kind", None) == actions.UNREACHABLE
     assert str(reply) == msg("err_unreachable")
     assert "Audiobookshelf" not in str(reply)
+
+
+# -- chapters (T5.6, third slice) ---------------------------------------------
+class ChapterShelf(TimedShelf):
+    """A :class:`TimedShelf` whose books also have the server's chapters."""
+
+    def __init__(self, books, files, duration, chapters):
+        super().__init__(books, files, None, duration)
+        self._chapters = chapters
+
+    def chapters(self, item_id):
+        return [dict(ch) for ch in self._chapters]
+
+
+THREE_FILES = {"b1": ["u1", "u2", "u3"]}
+
+
+def book_playing(player, *, files=THREE_FILES, chapters=None, lang="it"):
+    """A router whose player is playing Lo Hobbit, started by voice: three
+    files of 600 s (the Player's own track length), and the server's
+    ``chapters`` when given — otherwise each file is one."""
+    shelf = (TimedShelf([HOBBIT], files, None, 600.0) if chapters is None
+             else ChapterShelf([HOBBIT], files, 600.0, chapters))
+    router = Router(player, services=(),
+                    books=Composite(shelf, Capabilities(streamable=True),
+                                    "Audiobookshelf"))
+    assert router.handle("metti l'audiolibro Lo Hobbit").ok
+    player.calls.clear()
+    set_lang(lang)
+    return router
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "a che capitolo sono"), ("it", "che capitolo è"),
+    ("it", "di che capitolo sono?"), ("it", "in quale capitolo siamo"),
+    ("en", "what chapter am I on"), ("en", "which chapter is this?"),
+    ("de", "welches Kapitel ist das"), ("de", "in welchem Kapitel bin ich"),
+    ("fr", "à quel chapitre je suis"), ("fr", "c'est quel chapitre"),
+    ("es", "en qué capítulo estoy"), ("es", "qué capítulo es"),
+])
+def test_which_chapter_is_said_in_five_languages(player, lang, phrase):
+    router = book_playing(player)
+    player.index = 1
+    reply = router.handle(phrase, lang=lang)
+    assert str(reply) == msg("chapter_now", n=2, total=3), f"«{phrase}»"
+    assert player.calls == []
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "capitolo successivo"), ("it", "vai al prossimo capitolo"),
+    ("it", "salta il capitolo"),
+    ("en", "next chapter"), ("en", "skip to the next chapter"),
+    ("de", "nächstes Kapitel"), ("de", "spring zum nächsten Kapitel"),
+    ("fr", "chapitre suivant"), ("fr", "passe au chapitre suivant"),
+    ("es", "siguiente capítulo"), ("es", "pasa al capítulo siguiente"),
+])
+def test_next_chapter_plays_the_book_from_there(player, lang, phrase):
+    router = book_playing(player)
+    reply = router.handle(phrase, lang=lang)
+    assert reply.ok, f"«{phrase}»: {reply}"
+    assert player.calls == [("play_tracks", (["u2", "u3"],))]
+    assert str(reply) == msg("chapter_playing", n=2, total=3)
+
+
+@pytest.mark.parametrize("lang, phrase", [
+    ("it", "capitolo precedente"), ("it", "torna al capitolo precedente"),
+    ("en", "previous chapter"), ("en", "go back a chapter"),
+    ("de", "vorheriges Kapitel"), ("de", "ein Kapitel zurück"),
+    ("fr", "chapitre précédent"), ("fr", "reviens au chapitre précédent"),
+    ("es", "capítulo anterior"), ("es", "vuelve al capítulo anterior"),
+])
+def test_previous_chapter_plays_the_book_from_there(player, lang, phrase):
+    router = book_playing(player)
+    player.index = 2
+    reply = router.handle(phrase, lang=lang)
+    assert reply.ok, f"«{phrase}»: {reply}"
+    assert player.calls == [("play_tracks", (["u2", "u3"],))]
+    assert str(reply) == msg("chapter_playing", n=2, total=3)
+
+
+def test_there_is_no_chapter_before_the_first(player):
+    router = book_playing(player)
+    reply = router.handle("capitolo precedente")
+    assert str(reply) == msg("chapter_first")
+    assert player.calls == []
+
+
+def test_there_is_no_chapter_after_the_last(player):
+    router = book_playing(player)
+    player.index = 2
+    reply = router.handle("capitolo successivo")
+    assert str(reply) == msg("chapter_last")
+    assert player.calls == []
+
+
+SERVER_CHAPTERS = [
+    {"start": 0.0, "end": 900.0, "title": "Una festa a lungo attesa"},
+    {"start": 900.0, "end": 1800.0, "title": "Capitolo 2"},
+]
+
+
+def test_a_chapter_with_a_name_is_said_by_name(player):
+    router = book_playing(player, files={"b1": ["u1", "u2", "u3"]},
+                          chapters=SERVER_CHAPTERS)
+    reply = router.handle("a che capitolo sono")
+    assert str(reply) == msg("chapter_now_titled", n=1, total=2,
+                             title="Una festa a lungo attesa")
+
+
+@pytest.mark.parametrize("title", ["Capitolo 2", "Chapter 2", "02", "Track 2", ""])
+def test_a_chapter_named_after_its_number_is_said_by_number(player, title):
+    chapters = [dict(SERVER_CHAPTERS[0]), dict(SERVER_CHAPTERS[1], title=title)]
+    router = book_playing(player, chapters=chapters)
+    player.status["elapsed"] = 1000.0
+    reply = router.handle("a che capitolo sono")
+    assert str(reply) == msg("chapter_now", n=2, total=2)
+
+
+def test_a_chapter_inside_a_file_is_reached_with_a_seek(player):
+    router = book_playing(player, chapters=SERVER_CHAPTERS)
+    reply = router.handle("capitolo successivo")
+    assert reply.ok
+    # 900 s in: 600 s of file 1 gone, 300 s into file 2.
+    assert player.calls == [("play_tracks", (["u2", "u3"],)), ("seek", (300,))]
+
+
+def test_a_player_that_cannot_seek_is_not_sent_the_wrong_chapter(player):
+    router = book_playing(player, chapters=SERVER_CHAPTERS)
+    player.capabilities = Capabilities(search=True)
+    reply = router.handle("capitolo successivo")
+    assert str(reply) == msg("no_seek_chapter")
+    assert player.calls == []
+
+
+def test_no_book_playing_is_said_and_nothing_moves(player):
+    router = book_playing(player)
+    player.status["mode"] = "stop"
+    reply = router.handle("capitolo successivo")
+    assert str(reply) == msg("no_book_playing")
+    assert player.calls == []
+
+
+def test_music_put_on_since_is_not_the_book(player):
+    router = book_playing(player)
+    player.status["duration"] = 241.0  # a song, from Material Skin
+    reply = router.handle("capitolo successivo")
+    assert str(reply) == msg("no_book_playing")
+    assert player.calls == []
+
+
+def test_a_bookshelf_down_mid_chapter_is_named(player):
+    router = book_playing(player)
+
+    def down(item_id):
+        raise PlayerUnreachable("off")
+    router.books.library.tracks = down
+    reply = router.handle("capitolo successivo")
+    assert getattr(reply, "kind", None) == actions.UNREACHABLE
+    assert str(reply) == msg("err_unreachable_service", service="Audiobookshelf")
+
+
+@pytest.mark.parametrize("lang, phrase, call", [
+    ("it", "avanti", "next_track"), ("it", "indietro", "previous_track"),
+    ("en", "next", "next_track"), ("en", "previous", "previous_track"),
+    ("it", "prossimo", "next_track"), ("en", "next track", "next_track"),
+])
+def test_a_bare_skip_still_skips_the_file_with_a_book_playing(player, lang,
+                                                              phrase, call):
+    router = book_playing(player)
+    router.handle(phrase, lang=lang)
+    assert player.names() == [call]
+
+
+def test_without_a_library_a_chapter_is_not_this_steps(player):
+    # No --library: the step does not look at the sentence, and no reply
+    # about audiobooks reaches a household that has none.
+    reply = Router(player, services=()).handle("capitolo successivo")
+    assert str(reply) not in (msg("no_book_playing"), msg("chapter_last"))
