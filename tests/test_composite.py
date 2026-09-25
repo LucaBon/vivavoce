@@ -53,6 +53,7 @@ class Queue:
     def play_tracks(self, tracks):
         self.calls.append("play_tracks")
         self.tracks, self.current = [t["url"] for t in tracks], 0
+        self.titles = [t.get("queue_title") for t in tracks]
 
     def add_url(self, url):
         self.calls.append("add_url")
@@ -687,6 +688,72 @@ def test_nothing_is_shown_for_a_book_that_is_not_ours():
     composite.enqueue(queue, "book", "play")
     queue.duration = 241.0  # music put on since
     assert composite.now_playing(queue) is None
+
+
+# -- a title for every file in the queue (T5.6) --------------------------------
+#
+# The hi-fi, 2026-09-25: the LMS reads a remote file's tags only when it plays
+# it, so every chapter still to come showed as «Unknown» in the queue.
+
+FILES_AS_CHAPTERS = {"book": [{"start": 0.0, "end": 300.0, "title": "01 - Il Leone"},
+                              {"start": 300.0, "end": 600.0, "title": "02 - Gli Dei"},
+                              {"start": 600.0, "end": 900.0, "title": "03 - Il Castaldo"}]}
+
+
+def test_each_file_is_queued_with_its_chapters_title():
+    composite = Composite(ShelfWithBooks(RESUMABLE, FILES_AS_CHAPTERS),
+                          STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    assert queue.titles == ["01 - Il Leone", "02 - Gli Dei", "03 - Il Castaldo"]
+
+
+def test_a_resume_queues_the_titles_of_the_files_it_queues():
+    composite = Composite(ShelfWithBooks(RESUMABLE, FILES_AS_CHAPTERS),
+                          STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.play_from(queue, "book", 350.0)
+    assert queue.titles == ["02 - Gli Dei", "03 - Il Castaldo"]
+
+
+def test_files_with_no_chapter_of_their_own_are_the_book_and_a_count():
+    # No chapters at all, or chapters that do not line up with the files:
+    # the book's title and which file of how many — never a chapter name
+    # stretched over a file it does not fill.
+    composite = Composite(ShelfWithBooks(RESUMABLE, {}), STREAMABLE,
+                          "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    assert queue.titles == ["Le favole · 1/3", "Le favole · 2/3", "Le favole · 3/3"]
+
+
+def test_one_file_with_chapters_inside_is_the_book():
+    # An .m4b: «01 - Il Leone» would name the whole book after its first
+    # chapter.
+    composite = Composite(ShelfWithBooks(ONE_FILE, THREE_INSIDE), STREAMABLE,
+                          "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    assert queue.titles == ["Le favole"]
+
+
+def test_the_book_read_to_queue_it_is_the_one_the_page_uses():
+    # One request: the titles need the book, and the panel and the chapter
+    # commands then use that same reading instead of asking again.
+    shelf = ShelfWithBooks(RESUMABLE, FILES_AS_CHAPTERS)
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    composite.chapter_at(queue)
+    assert shelf.books_asked == ["book"]
+    assert shelf.asked == []  # stream_urls: not needed once the book is read
+
+
+def test_a_catalogue_with_no_book_queues_plain_files():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    assert queue.titles == [None, None, None]
 
 
 # -- saving progress (T5.6) -----------------------------------------------------

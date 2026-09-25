@@ -141,3 +141,37 @@ def chapter_name(title: str, index: int) -> str:
     if numbered and (not numbered.group(1) or int(numbered.group(1)) == index + 1):
         return ""
     return title
+
+
+def file_titles(book: Dict[str, Any]) -> List[Optional[str]]:
+    """What the player's queue should call each of ``book``'s files before it
+    has played them — the LMS reads a remote file's tags only then, and
+    showed every chapter still to come as «Unknown».
+
+    A file that *is* a chapter — one starts where the file starts, and none
+    starts inside it — is called by that chapter's title, number and all
+    («03 - Il Castaldo»: the queue has no other number). Any other file is
+    the book and which file of how many («Le favole · 2/9»), or the book
+    alone when it is one file: an .m4b named after its first chapter would
+    be wrong for the other eight. Nothing, when the book has no title.
+    """
+    files, chapters = book.get("tracks") or [], book.get("chapters") or []
+    title = book.get("title") or ""
+    names: List[Optional[str]] = []
+    start = 0.0
+    for index, f in enumerate(files):
+        duration = f.get("duration") or 0.0
+        end = start + duration if duration else None
+        own = [ch for ch in chapters
+               if abs(ch["start"] - start) < BOUNDARY_SNAP and ch.get("title")]
+        inside = [ch for ch in chapters if end is not None
+                  and start + BOUNDARY_SNAP <= ch["start"] < end - BOUNDARY_SNAP]
+        if own and not inside and end is not None:
+            names.append(own[0]["title"])
+        elif title:
+            names.append(title if len(files) == 1
+                         else f"{title} · {index + 1}/{len(files)}")
+        else:
+            names.append(None)
+        start = end if end is not None else start
+    return names
