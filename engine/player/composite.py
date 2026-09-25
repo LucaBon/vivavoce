@@ -28,7 +28,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .errors import PlayerError
 from .book_position import (CHAPTER_SLACK, LENGTH_TOLERANCE, chapter_point,
-                            file_chapters, resume_point, seconds, seek_landed)
+                            file_chapters, file_titles, resume_point, seconds,
+                            seek_landed)
 from .book_listening import Listening, _from_library, _player_key
 from .protocols import Capabilities, supports
 
@@ -114,7 +115,9 @@ class Composite(Listening):
             raise ValueError(f"unknown enqueue mode {mode!r}")
         if mode == "play" and start > 0:
             return self.play_from(transport, item_id, start)[0]
-        urls = _from_library(self.library.stream_urls, item_id)
+        book = self._read_book(item_id) if mode == "play" else None
+        urls = ([f["url"] for f in book["tracks"]] if book is not None
+                else _from_library(self.library.stream_urls, item_id))
         if not urls:
             return 0
         key = _player_key(transport)
@@ -122,8 +125,9 @@ class Composite(Listening):
             # One call, the one the protocol has for exactly this: Music
             # Assistant takes the whole list at once, and a play_url followed
             # by add_url per chapter would race the first file starting.
-            transport.play_tracks([{"url": url} for url in urls])
-            self._remember(transport, (item_id, 0, len(urls)))
+            transport.play_tracks(_queued(urls, book))
+            self._remember(transport, (item_id, 0, len(urls)),
+                           fresh=book is not None)
             return len(urls)
         self._playing.pop(key, None)
         if mode == "add":
@@ -155,13 +159,14 @@ class Composite(Listening):
         get_tracks = getattr(self.library, "tracks", None)
         if start <= 0 or get_tracks is None:
             return self.enqueue(transport, item_id, "play"), 0.0
-        return self._play_files(transport, item_id,
-                                _from_library(get_tracks, item_id), start)
+        files, book = self._files(item_id)
+        return self._play_files(transport, item_id, files, start, book)
 
     def _play_files(self, transport: Any, item_id: str,
-                    files: List[Dict[str, Any]],
-                    start: float) -> Tuple[int, float]:
-        """:meth:`play_from`, once the files are in hand."""
+                    files: List[Dict[str, Any]], start: float,
+                    book: Optional[Dict[str, Any]] = None) -> Tuple[int, float]:
+        """:meth:`play_from`, once the files are in hand — and the book they
+        came from, when it was read whole (titles for the queue)."""
         if not files:
             return 0, 0.0
         urls = [f["url"] for f in files]
@@ -172,7 +177,7 @@ class Composite(Listening):
         # resume point — through the old record, too, if this player had one.
         key = _player_key(transport)
         self._playing.pop(key, None)
-        transport.play_tracks([{"url": url} for url in urls[index:]])
+        transport.play_tracks(_queued(urls, book)[index:])
         reached = start - offset if point is not None else 0.0
         landed = True
         if offset > 0 and supports(transport, "seek"):
@@ -190,7 +195,8 @@ class Composite(Listening):
             # a save from there would write it over the resume point the
             # catalogue kept — hours of it, on a one-file .m4b. Not ours, then:
             # no chapter is named for it and nothing is saved.
-            self._remember(transport, (item_id, index, len(urls) - index))
+            self._remember(transport, (item_id, index, len(urls) - index),
+                           fresh=book is not None)
         return len(urls) - index, reached
 
     def _landed(self, transport: Any, target: int) -> bool:
@@ -265,7 +271,7 @@ class Composite(Listening):
         get_tracks = getattr(self.library, "tracks", None)
         if start <= 0 or get_tracks is None:
             return self.play_from(transport, item_id, start)[1]
-        files = _from_library(get_tracks, item_id)
+        files, book = self._files(item_id)
         point = chapter_point(files, start)
         if point is None:
             raise ValueError(f"chapter at {start}s is not inside the files")
@@ -273,18 +279,40 @@ class Composite(Listening):
         if offset > 0 and not supports(transport, "seek"):
             return None
         placed = sum(f.get("duration") or 0.0 for f in files[:index]) + offset
-        return self._play_files(transport, item_id, files, placed)[1]
+        return self._play_files(transport, item_id, files, placed, book)[1]
 
-    def _remember(self, transport: Any, record: Tuple[str, int, int]) -> None:
+    def _remember(self, transport: Any, record: Tuple[str, int, int],
+                  fresh: bool = False) -> None:
         key = _player_key(transport)
         self._playing[key] = record
         self._transports[key] = transport
         # Played again: read again (a chapter edited in the catalogue shows up
-        # at the next play). And nothing kept for a book no player holds.
-        self._books.pop(record[0], None)
+        # at the next play) — unless it was read to queue it, just now. And
+        # nothing kept for a book no player holds.
+        if not fresh:
+            self._books.pop(record[0], None)
         held = {item for item, _, _ in self._playing.values()}
         for item in [item for item in self._books if item not in held]:
             self._books.pop(item, None)
+
+    def _read_book(self, item_id: str) -> Optional[Dict[str, Any]]:
+        """The book read afresh from a catalogue that has ``book()``, kept for
+        the page and the chapters; ``None`` from one that does not."""
+        get_book = getattr(self.library, "book", None)
+        if get_book is None:
+            return None
+        book = _from_library(get_book, item_id)
+        self._books[item_id] = book
+        return book
+
+    def _files(self, item_id: str) -> Tuple[List[Dict[str, Any]],
+                                             Optional[Dict[str, Any]]]:
+        """A book's files, with their lengths, read afresh to play them; and
+        the whole book when the catalogue answers one (``None`` otherwise)."""
+        book = self._read_book(item_id)
+        if book is not None:
+            return book["tracks"], book
+        return _from_library(self.library.tracks, item_id), None
 
     def _book(self, item_id: str) -> Optional[Dict[str, Any]]:
         """``{"title", "author", "tracks", "chapters"}`` for ``item_id``, from
@@ -345,3 +373,12 @@ class Composite(Listening):
         if self._playing.get(key) is record:
             self._playing.pop(key, None)
             self._saved.pop(key, None)
+
+
+def _queued(urls: List[str], book: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The entries ``play_tracks`` takes: each URL, with the title the queue
+    should show before the file has played when the book is known (see
+    ``book_position.file_titles``)."""
+    titles = file_titles(book) if book is not None else [None] * len(urls)
+    return [dict({"url": url}, **({"queue_title": title} if title else {}))
+            for url, title in zip(urls, titles)]

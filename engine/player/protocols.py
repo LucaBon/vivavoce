@@ -220,7 +220,9 @@ class PlayerTransport(Protocol):
         """Queue ``url`` right after the current track."""
 
     def play_tracks(self, tracks: List[Any]) -> None:
-        """Replace the queue with several tracks and start it."""
+        """Replace the queue with several tracks and start it. A ``{"url"}``
+        entry may also carry a ``"queue_title"`` for the queue to show before
+        the file has played; a backend that has no use for it ignores it."""
 
     # -- which player ------------------------------------------------------
     def get_players(self) -> List[Dict[str, Any]]:

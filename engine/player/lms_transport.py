@@ -93,16 +93,18 @@ class LMSTransport:
         }
 
     # -- playback / controls ----------------------------------------------
-    def play_url(self, url: str) -> Dict[str, Any]:
-        """Play a direct URL (e.g. a track ``tidal://<id>.flc``) on the player."""
-        return self.command("playlist", "play", url)
+    def play_url(self, url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        """Play a direct URL (e.g. a track ``tidal://<id>.flc``) on the player.
+        ``title``: what the queue shows for a remote file until the LMS has
+        streamed it and read its tags (see :meth:`play_tracks`)."""
+        return self.command("playlist", "play", url, *([title] if title else []))
 
     def play_browse_item(self, item_id: str) -> Dict[str, Any]:
         """Play a browseable app-feed node (album/playlist) by its OPML id."""
         return self.command(self.service.tag, "playlist", "play", f"item_id:{item_id}")
 
-    def add_url(self, url: str) -> Dict[str, Any]:
-        return self.command("playlist", "add", url)
+    def add_url(self, url: str, title: Optional[str] = None) -> Dict[str, Any]:
+        return self.command("playlist", "add", url, *([title] if title else []))
 
     def insert_url(self, url: str) -> Dict[str, Any]:
         """Queue a track to play right after the current one ("play next")."""
@@ -131,16 +133,25 @@ class LMSTransport:
         rest. An entry is a url, or a row from :meth:`artist_tracks` — which
         may carry ``item_id`` instead of ``url``. Ids are resolved one at a
         time, in order, so the music starts after a single extra round trip
-        rather than after all twenty."""
+        rather than after all twenty.
+
+        An entry may carry a ``queue_title``, sent with its URL: a remote
+        file the LMS has not streamed yet has no tags read, and the queue
+        shows it as «Unknown» until it plays — every chapter still to come of
+        an audiobook, found on the hi-fi. Once it plays, its own tags win.
+        Not ``title``: the rows of :meth:`artist_tracks` already carry one,
+        and a streaming plugin's own metadata is not this code's to
+        override."""
         started = False
         for entry in tracks or []:
             url = self._entry_url(entry)
             if not url:
                 continue
+            title = entry.get("queue_title") if isinstance(entry, dict) else None
             if started:
-                self.add_url(url)
+                self.add_url(url, title)
             else:
-                self.play_url(url)
+                self.play_url(url, title)
                 started = True
 
     def pause(self) -> Dict[str, Any]:

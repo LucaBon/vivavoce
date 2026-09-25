@@ -32,6 +32,14 @@
 
 ### Changed
 
+- **Nella coda dell'impianto i capitoli hanno un nome prima di suonare.**
+  L'LMS legge i tag di un file remoto solo quando lo suona, quindi in
+  Material Skin ogni capitolo ancora da ascoltare era «Unknown». Ora
+  Vivavoce mette in coda ogni file col titolo del suo capitolo («Il Lupo e
+  la Volpe»), o col titolo del libro e il numero del file quando i capitoli
+  non coincidono coi file; quando il file parte, restano i suoi tag. La
+  musica non cambia: il titolo lo porta solo un audiolibro.
+
 - **Il riquadro «In riproduzione» mostra il libro.** Con un audiolibro
   messo da Vivavoce, al posto del nome del file tagliato a metà compaiono
   il titolo del libro, l'autore, una riga col capitolo che comincia dal
