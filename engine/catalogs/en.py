@@ -178,6 +178,7 @@ MESSAGES = {
     "chapter_last": "This is already the last chapter.",
     "chapter_file_start": "I couldn't reach chapter {n}: playing from the start of the file.",
     "no_seek_chapter": "This system cannot jump to a chapter that starts partway through a file.",
+    "chapter_unplaceable": "I can't tell where that chapter starts in the book's files.",
     "no_book_playing": "No audiobook I started is playing right now.",
     "now_playing": "Now playing {title}.",
     "now_playing_by": "Now playing {title} by {artist}.",

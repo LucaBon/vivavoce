@@ -46,12 +46,14 @@ _ARTICLES = ("a", "an", "un", "uno", "una", "une", "ein", "eine", "einen")
 #: ranking is only the tiebreaker: see :meth:`SpokenIntents._play_book`.
 BOOK_CANDIDATES = 5
 
-#: A chapter title that is only its own number — «Capitolo 3», "Chapter 03",
+#: A chapter title that is only a number — «Capitolo 3», "Chapter 03",
 #: «Track 3», «3» — which is what a folder of MP3s gets from its file names.
-#: Said as «capitolo 3 di 12», not «capitolo 3 di 12, "Capitolo 3"».
+#: When the number is the chapter's own position it is said once, «capitolo 3
+#: di 12», not «capitolo 3 di 12, "Capitolo 3"»; when it is not — a prologue
+#: ahead of «Capitolo 1» — the title is information, and said.
 _NUMBERED_ONLY = re.compile(
     r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
-    r"|part|parte|teil|partie)\W*)?\d*\W*$", re.I)
+    r"|part|parte|teil|partie)\W*)?(\d*)\W*$", re.I)
 
 #: The spoken chapter moves, as ``(pattern key, step)``: 0 asks, ±1 moves.
 _CHAPTER_STEPS = (("chapter_which", 0), ("chapter_next", 1),
@@ -230,6 +232,10 @@ class SpokenIntents:
             chapter = chapters[target]
             reached = self.books.play_chapter(self.lms, where["item_id"],
                                               chapter)
+        except ValueError:
+            # The book's own files cannot place it (Composite.play_chapter):
+            # not the player's fault, so not «this system cannot».
+            return actions.ActionResult(msg("chapter_unplaceable"), ok=False)
         except PlayerError as exc:
             # As in _start_book: the catalogue named, the speakers not.
             service = self.books.label if getattr(exc, "from_library", False) else None
@@ -311,6 +317,8 @@ def _chapter_said(key: str, index: int, chapters: list) -> str:
     """Chapter ``index`` of ``chapters`` as the reply ``key`` says it: by
     number, and by name too when it has one that is more than its number."""
     title = (chapters[index].get("title") or "").strip()
-    if title and not _NUMBERED_ONLY.match(title):
+    numbered = _NUMBERED_ONLY.match(title)
+    if title and not (numbered and (not numbered.group(1)
+                                    or int(numbered.group(1)) == index + 1)):
         return msg(f"{key}_titled", n=index + 1, total=len(chapters), title=title)
     return msg(key, n=index + 1, total=len(chapters))

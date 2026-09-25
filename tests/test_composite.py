@@ -301,7 +301,6 @@ def test_with_no_chapters_on_the_server_each_file_is_one():
     queue.elapsed = 20.0
     where = composite.chapter_at(queue)
     assert where["item_id"] == "book"
-    assert where["position"] == 320.0
     assert where["index"] == 1
     assert [ch["start"] for ch in where["chapters"]] == [0.0, 300.0, 600.0]
 
@@ -381,10 +380,27 @@ def test_a_book_queued_behind_something_else_cannot_be_placed(mode):
     assert composite.chapter_at(queue) is None
 
 
-def test_an_unknown_file_length_before_the_head_places_nothing():
+def test_an_unknown_file_length_before_the_head_still_names_the_file():
+    # With one chapter per file, the file playing is the chapter: no length
+    # is summed to say which. Only the start of what follows is unknown.
     unknown = {"book": [{"url": "ch1", "duration": 0.0},
                         {"url": "ch2", "duration": 300.0}]}
     composite = Composite(ShelfWithTracks(unknown), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.current = 1
+    where = composite.chapter_at(queue)
+    assert where["index"] == 1
+    assert [ch["start"] for ch in where["chapters"]] == [0.0, None]
+
+
+def test_an_unknown_file_length_before_the_head_hides_the_servers_chapter():
+    # The server's chapters are placed by seconds into the book, which a
+    # file of unknown length before the head makes unknowable.
+    unknown = {"book": [{"url": "ch1", "duration": 0.0},
+                        {"url": "ch2", "duration": 300.0}]}
+    composite = Composite(ShelfWithChapters(unknown, THREE_INSIDE), STREAMABLE,
+                          "Audiobookshelf")
     queue = Playing()
     composite.enqueue(queue, "book", "play")
     queue.current = 1
@@ -403,6 +419,59 @@ def test_the_catalogue_failing_is_tagged_as_the_catalogue():
     with pytest.raises(PlayerUnreachable) as caught:
         composite.chapter_at(queue)
     assert caught.value.from_library
+
+
+@pytest.mark.parametrize("elapsed, index", [
+    (999.5, 1),    # a seek to chapter 2 that landed a hair early
+    (998.5, 0),    # past the slack: still the end of chapter 1
+    (1000.0, 1),
+])
+def test_the_chapter_boundary_has_a_second_of_slack(elapsed, index):
+    composite = Composite(ShelfWithChapters(ONE_FILE, THREE_INSIDE),
+                          STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.elapsed = elapsed
+    assert composite.chapter_at(queue)["index"] == index
+
+
+def test_a_chapter_a_rounding_away_from_a_file_start_needs_no_seek():
+    # The server computes chapter starts on its own; a boundary it rounds
+    # differently from the track lengths is still the boundary.
+    chapters = {"book": [{"start": 0.0, "end": 300.0, "title": ""},
+                         {"start": 300.0000001, "end": 600.0, "title": ""}]}
+    composite = Composite(ShelfWithChapters(RESUMABLE, chapters),
+                          STREAMABLE, "Audiobookshelf")
+    queue = Playing(seekable=False)
+    assert composite.play_chapter(queue, "book", chapters["book"][1]) == 300.0
+    assert queue.tracks == ["ch2", "ch3"]
+
+
+def test_a_chapter_past_the_files_cannot_be_placed():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing(["song-a"])
+    with pytest.raises(ValueError):
+        composite.play_chapter(queue, "book", {"start": 5000.0})
+    assert queue.calls == []
+
+
+def test_a_stale_check_does_not_drop_a_book_started_meanwhile():
+    # chapter_at reads the record, then asks the network; a play from another
+    # thread in between writes a new record, which the stale check must not
+    # delete when it finds the old one wrong.
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.duration = 241.0
+    fresh = ("book", 0, 3)
+    real_status = queue.status_info
+
+    def status_while_replayed():
+        composite._playing["lounge"] = fresh
+        return real_status()
+    queue.status_info = status_while_replayed
+    assert composite.chapter_at(queue) is None
+    assert composite._playing["lounge"] is fresh
 
 
 def test_a_chapter_inside_a_file_is_a_seek():

@@ -37,11 +37,14 @@ PATTERNS = {
     "resume_book": c(r"^(?:reanuda|contin[uú]a|sigue)\s+"
                      r"(?:el\s+|un\s+|mi\s+)?(?:audio)?libro\s+(.+)$"),
     # Chapters (T5.6): «capítulo» is in every one, so a bare «siguiente» /
-    # «anterior» keeps skipping the track.
-    "chapter_next": c(r"^(?:(?:pasa|ve|salta|pon)(?:me)?\s+al\s+)?"
-                      r"(?:(?:siguiente|pr[oó]ximo)\s+cap[ií]tulo|cap[ií]tulo\s+siguiente)\s*$"),
-    "chapter_prev": c(r"^(?:(?:vuelve|volver|ve|pasa|pon)(?:me)?\s+al\s+)?"
-                      r"cap[ií]tulo\s+anterior\s*$"),
+    # «anterior» keeps skipping the track. A near miss falls through to the
+    # track skip, which on a one-file .m4b skips the book.
+    "chapter_next": c(r"^(?:(?:pasa|ve|salta|pon)(?:me)?\s+)?(?:al\s+|el\s+)?"
+                      r"(?:(?:siguiente|pr[oó]ximo)\s+cap[ií]tulo|cap[ií]tulo\s+siguiente)"
+                      r"(?:,?\s+por\s+favor)?\s*$"),
+    "chapter_prev": c(r"^(?:(?:vuelve|volver|ve|pasa|pon)(?:me)?\s+)?(?:al\s+|el\s+)?"
+                      r"cap[ií]tulo\s+anterior"
+                      r"(?:,?\s+por\s+favor)?\s*$"),
     "chapter_which": c(r"^(?:en\s+)?(?:qu[eé]|cu[aá]l)\s+(?:es\s+el\s+)?cap[ií]tulo"
                        r"(?:\s+(?:estoy|estamos|es))?\s*$"),
 }

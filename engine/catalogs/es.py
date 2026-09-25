@@ -201,6 +201,7 @@ MESSAGES = {
     "chapter_file_start": "No pude llegar al capítulo {n}: vuelvo al principio del archivo.",
     "no_seek_chapter":
         "Este sistema no puede saltar a un capítulo que empieza a mitad de un archivo.",
+    "chapter_unplaceable": "No sé dónde empieza ese capítulo en los archivos del libro.",
     "no_book_playing": "Ahora no suena ningún audiolibro que haya puesto yo.",
     "now_playing": "Está sonando {title}.",
     "now_playing_by": "Está sonando {title} de {artist}.",

@@ -194,6 +194,7 @@ MESSAGES = {
         "Je n'ai pas pu atteindre le chapitre {n} : je reprends au début du fichier.",
     "no_seek_chapter":
         "Ce système ne sait pas sauter à un chapitre qui commence au milieu d'un fichier.",
+    "chapter_unplaceable": "Je ne sais pas où ce chapitre commence dans les fichiers du livre.",
     "no_book_playing": "Aucun livre audio lancé par moi n'est en cours de lecture.",
     "now_playing": "En ce moment : {title}.",
     "now_playing_by": "En ce moment : {title} de {artist}.",

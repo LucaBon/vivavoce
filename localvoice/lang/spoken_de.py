@@ -46,13 +46,16 @@ PATTERNS = {
                      r"|setz(?:e)?\s+(?:das\s+|mein\s+)?"
                      r"(?:h(?:ö|oe|o)rbuch|buch)\s+(.+?)\s+fort)\s*$"),
     # Chapters (T5.6): «Kapitel» is in every one, so a bare «weiter» /
-    # «zurück» keeps skipping the track.
-    "chapter_next": c(r"^(?:(?:spring|springe|geh|gehe)\s+(?:zum\s+)?)?"
-                      r"n(?:ä|ae|a)chste[sn]?\s+kapitel(?:\s+bitte)?\s*$"
-                      r"|^(?:ein\s+)?kapitel\s+(?:weiter|vor)\s*$"),
-    "chapter_prev": c(r"^(?:(?:spring|springe|geh|gehe)\s+(?:zum\s+)?)?"
-                      r"vorherige[sn]?\s+kapitel(?:\s+bitte)?\s*$"
-                      r"|^(?:ein\s+)?kapitel\s+zur(?:ü|ue|u)ck\s*$"),
+    # «zurück» keeps skipping the track. A near miss falls through to the
+    # track skip, which on a one-file .m4b skips the book.
+    "chapter_next": c(r"^(?:(?:(?:spring|springe|geh|gehe)\s+)?(?:zum\s+)?"
+                      r"n(?:ä|ae|a)chste[snm]?\s+kapitel"
+                      r"|(?:ein\s+)?kapitel\s+(?:weiter|vor))"
+                      r"(?:,?\s+bitte)?\s*$"),
+    "chapter_prev": c(r"^(?:(?:(?:spring|springe|geh|gehe)\s+)?(?:zum\s+)?"
+                      r"vorherige[snm]?\s+kapitel"
+                      r"|(?:ein\s+)?kapitel\s+zur(?:ü|ue|u)ck)"
+                      r"(?:,?\s+bitte)?\s*$"),
     "chapter_which": c(r"^(?:(?:in|bei)\s+)?welche[sm]?\s+kapitel"
                        r"(?:\s+(?:ist\s+(?:das|es)|bin\s+ich|sind\s+wir|h(?:ö|oe|o)re\s+ich))?\s*$"),
 }

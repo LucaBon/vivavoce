@@ -58,14 +58,20 @@ PATTERNS = {
                      r"(?:l['’]\s*|il\s+mio\s+|il\s+|un\s+)?"
                      r"(?:audiolibro|libro)\s+(.+)$"),
     # Chapters (T5.6): the noun «capitolo» is in every one, so a bare
-    # «avanti»/«indietro»/«prossimo» keeps skipping the track.
-    "chapter_next": c(r"^(?:(?:(?:vai|passa|salta|metti)\s+(?:al\s+|il\s+)?)?"
+    # «avanti»/«indietro»/«prossimo» keeps skipping the track. A near miss is
+    # worse than "not understood": it falls through to next/prev track, which
+    # on a one-file .m4b skips the book — hence the article and the courtesy.
+    "chapter_next": c(r"^(?:(?:(?:vai|passa|salta|metti|mettimi)\s+)?(?:al\s+|il\s+)?"
                       r"(?:prossimo\s+capitolo|capitolo\s+(?:successivo|seguente|dopo))"
                       r"|salta\s+(?:questo\s+|il\s+)?capitolo"
-                      r"|avanti\s+(?:di\s+)?un\s+capitolo)\s*$"),
-    "chapter_prev": c(r"^(?:(?:(?:vai|torna|passa|metti)\s+(?:al\s+|il\s+)?)?"
+                      r"|(?:vai\s+)?avanti\s+(?:di\s+)?un\s+capitolo)"
+                      r"(?:,?\s+(?:per\s+favore|grazie))?\s*$"),
+    "chapter_prev": c(r"^(?:(?:(?:vai|torna|passa|metti|mettimi)\s+)?(?:al\s+|il\s+)?"
                       r"capitolo\s+(?:precedente|prima)"
-                      r"|(?:torna\s+|vai\s+)?indietro\s+(?:di\s+)?un\s+capitolo)\s*$"),
-    "chapter_which": c(r"^(?:(?:a|di|in)\s+)?(?:che|quale)\s+capitolo"
-                       r"(?:\s+(?:sono|siamo|[eè]|sto\s+ascoltando|sono\s+arrivat[oa]))?\s*$"),
+                      r"|(?:torna\s+|vai\s+)?indietro\s+(?:di\s+)?un\s+capitolo)"
+                      r"(?:,?\s+(?:per\s+favore|grazie))?\s*$"),
+    "chapter_which": c(r"^(?:(?:(?:a|di|in)\s+)?(?:che|quale)\s+capitolo"
+                       r"(?:\s+(?:sono|siamo|[eè]|sto\s+ascoltando"
+                       r"|(?:sono|siamo)\s+arrivat[oaie]))?(?:\s+questo)?"
+                       r"|qual\s*['’]?\s*[eè]\s+il\s+capitolo)\s*$"),
 }

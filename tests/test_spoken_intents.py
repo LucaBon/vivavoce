@@ -619,6 +619,9 @@ def book_playing(player, *, files=THREE_FILES, chapters=None, lang="it"):
     ("de", "welches Kapitel ist das"), ("de", "in welchem Kapitel bin ich"),
     ("fr", "à quel chapitre je suis"), ("fr", "c'est quel chapitre"),
     ("es", "en qué capítulo estoy"), ("es", "qué capítulo es"),
+    # From the review: the ways people actually ask, not only the tidy one.
+    ("it", "a che capitolo siamo arrivati"), ("it", "che capitolo è questo"),
+    ("it", "qual è il capitolo"), ("fr", "on est à quel chapitre"),
 ])
 def test_which_chapter_is_said_in_five_languages(player, lang, phrase):
     router = book_playing(player)
@@ -635,6 +638,16 @@ def test_which_chapter_is_said_in_five_languages(player, lang, phrase):
     ("de", "nächstes Kapitel"), ("de", "spring zum nächsten Kapitel"),
     ("fr", "chapitre suivant"), ("fr", "passe au chapitre suivant"),
     ("es", "siguiente capítulo"), ("es", "pasa al capítulo siguiente"),
+    # A near miss here is not "not understood": it falls through to «next
+    # track», which on a one-file .m4b skips the whole book. Whisper puts the
+    # comma before "please"; people put the article in front.
+    ("en", "Next chapter, please"), ("en", "the next chapter"),
+    ("it", "il capitolo successivo"), ("it", "capitolo successivo per favore"),
+    ("it", "metti il capitolo successivo"),
+    ("de", "Nächstes Kapitel, bitte"), ("de", "zum nächsten Kapitel"),
+    ("fr", "le chapitre suivant"), ("fr", "chapitre suivant s'il te plaît"),
+    ("es", "el siguiente capítulo"), ("es", "siguiente capítulo, por favor"),
+    ("es", "pon el siguiente capítulo"),
 ])
 def test_next_chapter_plays_the_book_from_there(player, lang, phrase):
     router = book_playing(player)
@@ -650,6 +663,9 @@ def test_next_chapter_plays_the_book_from_there(player, lang, phrase):
     ("de", "vorheriges Kapitel"), ("de", "ein Kapitel zurück"),
     ("fr", "chapitre précédent"), ("fr", "reviens au chapitre précédent"),
     ("es", "capítulo anterior"), ("es", "vuelve al capítulo anterior"),
+    ("en", "chapter back"), ("en", "Previous chapter, please"),
+    ("it", "il capitolo precedente"), ("de", "zum vorherigen Kapitel"),
+    ("fr", "le chapitre précédent"), ("es", "el capítulo anterior"),
 ])
 def test_previous_chapter_plays_the_book_from_there(player, lang, phrase):
     router = book_playing(player)
@@ -687,6 +703,18 @@ def test_a_chapter_with_a_name_is_said_by_name(player):
     reply = router.handle("a che capitolo sono")
     assert str(reply) == msg("chapter_now_titled", n=1, total=2,
                              title="Una festa a lungo attesa")
+
+
+def test_a_numbered_title_that_is_not_the_position_is_said(player):
+    # «Prologo» is chapter 1, so the book's own «Capitolo 1» is second: its
+    # title is information, not a repeat of the number.
+    chapters = [dict(SERVER_CHAPTERS[0], title="Prologo"),
+                dict(SERVER_CHAPTERS[1], title="Capitolo 1")]
+    router = book_playing(player, chapters=chapters)
+    player.status["elapsed"] = 1000.0
+    reply = router.handle("a che capitolo sono")
+    assert str(reply) == msg("chapter_now_titled", n=2, total=2,
+                             title="Capitolo 1")
 
 
 @pytest.mark.parametrize("title", ["Capitolo 2", "Chapter 2", "02", "Track 2", ""])
@@ -758,3 +786,42 @@ def test_without_a_library_a_chapter_is_not_this_steps(player):
     # about audiobooks reaches a household that has none.
     reply = Router(player, services=()).handle("capitolo successivo")
     assert str(reply) not in (msg("no_book_playing"), msg("chapter_last"))
+
+
+def test_a_seek_that_fails_does_not_name_the_chapter(player):
+    # The file started, the seek into it did not: what plays is the file
+    # from its start, and naming chapter 2 there would be a lie.
+    router = book_playing(player, chapters=SERVER_CHAPTERS)
+
+    def still_loading(seconds):
+        raise PlayerUnreachable("loading")
+    player.seek = still_loading
+    reply = router.handle("capitolo successivo")
+    assert str(reply) == msg("chapter_file_start", n=2)
+    assert player.names() == ["play_tracks"]
+
+
+def test_a_chapter_that_cannot_be_placed_is_not_blamed_on_the_player(player):
+    # The player can seek; it is the book whose lengths do not reach the
+    # chapter (the server's chapter list longer than its files).
+    chapters = SERVER_CHAPTERS + [{"start": 5000.0, "end": 6000.0, "title": ""}]
+    router = book_playing(player, chapters=chapters)
+    player.status["elapsed"] = 1000.0
+    player.index = 1
+    reply = router.handle("capitolo successivo")
+    assert str(reply) == msg("chapter_unplaceable")
+    assert player.calls == []
+
+
+def test_file_chapters_count_every_file_even_past_an_unknown_length(player):
+    # Files of unknown length: each is still one chapter, so the total is
+    # the number of files, not the number of lengths known.
+    router = book_playing(player)
+    router.books.library.duration = 0.0
+    player.status["duration"] = 0.0
+    player.index = 1
+    reply = router.handle("a che capitolo sono")
+    assert str(reply) == msg("chapter_now", n=2, total=3)
+    reply = router.handle("capitolo successivo")
+    assert str(reply) == msg("chapter_unplaceable")
+    assert player.calls == []

@@ -42,6 +42,10 @@ LENGTH_TOLERANCE = 2.0
 #: asked right after «capitolo successivo» must not name the one before.
 CHAPTER_SLACK = 1.0
 
+#: How close to a file boundary a chapter start is the boundary itself (see
+#: ``_chapter_point``).
+BOUNDARY_SNAP = 0.5
+
 
 class Composite:
     """A :class:`~player.protocols.SpokenLibrary`, heard through any transport."""
@@ -176,9 +180,8 @@ class Composite:
     # -- chapters (T5.6) -----------------------------------------------------
     def chapter_at(self, transport: Any) -> Optional[Dict[str, Any]]:
         """Where ``transport`` is in the book this composite last gave it:
-        ``{"item_id", "chapters", "index", "position"}`` — the chapter list,
-        the one playing, and the seconds into the whole book — or ``None``
-        when that player is not playing a book of ours.
+        ``{"item_id", "chapters", "index"}`` — the chapter list and the one
+        playing — or ``None`` when that player is not playing a book of ours.
 
         "Not playing a book of ours" is decided with some care, because the
         answer moves a book or names a chapter aloud: nothing was given to
@@ -188,13 +191,16 @@ class Composite:
         Material Skin since — same player, same index, playing — and on it
         the record is dropped, so a coincidence later cannot bring the book
         back. A player that reports no length is trusted (the check is
-        skipped, not failed); a file before the head whose length the
-        catalogue does not know makes the position unknowable, and is
-        ``None`` too.
+        skipped, not failed).
 
         The chapters are the catalogue's (``chapters()``, probed with
-        ``getattr`` as ``tracks`` is), or, when it has none, the book's
-        files, one chapter each — the folder-of-MP3s shape.
+        ``getattr`` as ``tracks`` is), placed by the seconds into the whole
+        book — which a file of unknown length before the head makes
+        unknowable, and is ``None`` too. When the catalogue has none, each
+        file is one chapter — the folder-of-MP3s shape — and the file
+        playing is the chapter, with no arithmetic at all; a file whose
+        start cannot be summed has ``"start": None`` and can be named but
+        not jumped to (:meth:`play_chapter`).
         """
         key = _player_key(transport)
         record = self._playing.get(key)
@@ -209,24 +215,23 @@ class Composite:
             return None
         files = _from_library(get_tracks, item_id)
         head = first + index
-        if head >= len(files):
-            self._playing.pop(key, None)
-            return None
         durations = [f.get("duration") or 0.0 for f in files]
         heard = _float((transport.status_info() or {}).get("duration"))
-        if heard and durations[head] and abs(heard - durations[head]) > LENGTH_TOLERANCE:
-            self._playing.pop(key, None)
+        if head >= len(files) or (heard and durations[head] and
+                                  abs(heard - durations[head]) > LENGTH_TOLERANCE):
+            self._forget(key, record)
             return None
+        get_chapters = getattr(self.library, "chapters", None)
+        chapters = _from_library(get_chapters, item_id) if get_chapters else []
+        if not chapters:
+            return {"item_id": item_id, "chapters": _file_chapters(durations),
+                    "index": head}
         if not all(durations[:head]):
             return None
         position = sum(durations[:head]) + _float(now.get("elapsed"))
-        chapters = self._chapters(item_id, durations)
-        if not chapters:
-            return None
         current = max((i for i, ch in enumerate(chapters)
                        if ch["start"] <= position + CHAPTER_SLACK), default=0)
-        return {"item_id": item_id, "chapters": chapters, "index": current,
-                "position": position}
+        return {"item_id": item_id, "chapters": chapters, "index": current}
 
     def play_chapter(self, transport: Any, item_id: str,
                      chapter: Dict[str, Any]) -> Optional[float]:
@@ -237,33 +242,66 @@ class Composite:
         ``None``, **with nothing sent**, when the chapter starts inside a
         file and ``transport`` cannot seek: the file from its own start
         would be an earlier chapter announced as this one.
+
+        Raises :class:`ValueError`, also with nothing sent, when the book's
+        files cannot place the chapter at all — its start unknown, a file of
+        unknown length before it, or a start past the end of the files.
+        That is not the player's fault, and the caller says so differently.
         """
-        start = _float(chapter.get("start"))
+        start = chapter.get("start")
+        if start is None:
+            raise ValueError("chapter start unknown")
+        start = _float(start)
         get_tracks = getattr(self.library, "tracks", None)
         if start <= 0 or get_tracks is None:
             return self.play_from(transport, item_id, start)[1]
         files = _from_library(get_tracks, item_id)
-        point = _resume_point(files, start)
-        if point is None or (point[1] > 0 and not supports(transport, "seek")):
+        point = _chapter_point(files, start)
+        if point is None:
+            raise ValueError(f"chapter at {start}s is not inside the files")
+        index, offset = point
+        if offset > 0 and not supports(transport, "seek"):
             return None
-        return self._play_files(transport, item_id, files, start)[1]
+        placed = sum(f.get("duration") or 0.0 for f in files[:index]) + offset
+        return self._play_files(transport, item_id, files, placed)[1]
 
-    def _chapters(self, item_id: str,
-                  durations: List[float]) -> List[Dict[str, Any]]:
-        get_chapters = getattr(self.library, "chapters", None)
-        found = _from_library(get_chapters, item_id) if get_chapters else []
-        if found:
-            return found
-        # One chapter per file, as far as the lengths are known: past a file
-        # of unknown length no start can be placed, so that file is the last.
-        chapters, elapsed = [], 0.0
-        for duration in durations:
-            chapters.append({"start": elapsed, "end": elapsed + duration,
-                             "title": ""})
-            if not duration:
-                break
-            elapsed += duration
-        return chapters
+    def _forget(self, key: Any, record: Tuple[str, int, int]) -> None:
+        """Drop ``record`` — only if it is still the one there. Between
+        reading it and finding it stale, :meth:`chapter_at` has asked the
+        network, and a book started meanwhile from another thread is a new
+        record this must not delete."""
+        if self._playing.get(key) is record:
+            self._playing.pop(key, None)
+
+
+def _file_chapters(durations: List[float]) -> List[Dict[str, Any]]:
+    """One chapter per file. A start after a file of unknown length cannot
+    be summed, and is ``None`` from there on."""
+    chapters: List[Dict[str, Any]] = []
+    elapsed: Optional[float] = 0.0
+    for duration in durations:
+        end = elapsed + duration if elapsed is not None and duration else None
+        chapters.append({"start": elapsed, "end": end, "title": ""})
+        elapsed = end
+    return chapters
+
+
+def _chapter_point(files: List[Dict[str, Any]],
+                   start: float) -> Optional[tuple]:
+    """:func:`_resume_point`, snapped to a file boundary within
+    :data:`BOUNDARY_SNAP`: Audiobookshelf sums its chapter starts on its own,
+    and a boundary it rounds differently from the track lengths is still the
+    boundary — not a seek a player that cannot seek would be refused."""
+    point = _resume_point(files, start)
+    if point is None:
+        return None
+    index, offset = point
+    duration = files[index].get("duration") or 0.0
+    if offset < BOUNDARY_SNAP:
+        return index, 0.0
+    if duration and duration - offset < BOUNDARY_SNAP and index + 1 < len(files):
+        return index + 1, 0.0
+    return index, offset
 
 
 def _player_key(transport: Any) -> Any:
