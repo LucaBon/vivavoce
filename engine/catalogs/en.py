@@ -163,6 +163,8 @@ MESSAGES = {
     "no_book_found": "I found no audiobook for {title}.",
     "book_no_audio": "{title} has nothing to listen to: it may be an e-book only.",
     "book_resumed": "Resuming \"{title}\" {position} in.",
+    "book_from_start":
+        "I can't resume \"{title}\" at {position} in: this system plays it from the start.",
     # How far in a resumed book starts, as the phrase above says it.
     "resume_one_minute": "one minute",
     "resume_minutes": "{n} minutes",

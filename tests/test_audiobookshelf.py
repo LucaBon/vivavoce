@@ -31,12 +31,14 @@ class FakeABSTransport:
 
     def __init__(self):
         self.calls = []
+        self.requests = []
         self.responses = {}
         self.raise_on = set()
 
     def __call__(self, request):
         path, query = request["path"], dict(request.get("query") or {})
         self.calls.append((path, query))
+        self.requests.append(request)
         if path in self.raise_on or path not in self.responses:
             raise AudiobookshelfError(f"simulated failure for {path}")
         answer = self.responses[path]
@@ -272,6 +274,29 @@ def test_a_refusal_that_is_not_a_404_still_raises(shelf, abs_transport):
         shelf.progress("li-1")
 
 
+def test_save_progress_patches_the_position_the_duration_and_the_fraction(
+        shelf, abs_transport):
+    abs_transport.responses["/api/me/progress/li-1"] = None
+    shelf.save_progress("li-1", 350.0, 1400.0)
+    assert abs_transport.requests == [{
+        "path": "/api/me/progress/li-1", "method": "PATCH",
+        "body": {"currentTime": 350.0, "duration": 1400.0, "progress": 0.25}}]
+
+
+def test_a_book_of_unknown_length_saves_the_position_alone(shelf, abs_transport):
+    # The server does not compute progress, and a duration it is not sent
+    # it stores as 0: sending neither beats sending a wrong one.
+    abs_transport.responses["/api/me/progress/li-1"] = None
+    shelf.save_progress("li-1", 350.0, None)
+    assert abs_transport.requests[0]["body"] == {"currentTime": 350.0}
+
+
+def test_save_progress_quotes_the_item_id(shelf, abs_transport):
+    abs_transport.responses["/api/me/progress/..%2Fsecret"] = None
+    shelf.save_progress("../secret", 1.0, None)
+    assert abs_transport.requests[0]["path"] == "/api/me/progress/..%2Fsecret"
+
+
 # -- failure -------------------------------------------------------------------
 
 def test_a_failure_is_a_player_error(shelf, abs_transport):
@@ -322,6 +347,27 @@ def test_the_wire_sends_a_bearer_get_with_the_query(monkeypatch):
     assert timeout == 4.0
 
 
+def test_the_wire_sends_a_write_as_json_and_reads_no_reply(monkeypatch):
+    # Audiobookshelf answers a progress PATCH with a bare «OK», which is not
+    # JSON: a write reads no body, or every save would look like a server
+    # that is not an Audiobookshelf.
+    sent = []
+
+    def urlopen(request, timeout):
+        sent.append(request)
+        return _Response(b"OK")
+
+    monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
+    assert audiobookshelf.call(BASE, KEY, {
+        "path": "/api/me/progress/li-1", "method": "PATCH",
+        "body": {"currentTime": 12.5}}, 1.0) is None
+    request = sent[0]
+    assert request.get_method() == "PATCH"
+    assert request.get_header("Authorization") == f"Bearer {KEY}"
+    assert request.get_header("Content-type") == "application/json"
+    assert json.loads(request.data) == {"currentTime": 12.5}
+
+
 @pytest.mark.parametrize("code, words", [(401, "refused the API key"),
                                          (404, "no such item")])
 def test_a_refusal_is_named_in_the_error(monkeypatch, code, words):
@@ -330,7 +376,7 @@ def test_a_refusal_is_named_in_the_error(monkeypatch, code, words):
 
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
     with pytest.raises(AudiobookshelfError, match=words):
-        audiobookshelf.get(BASE, KEY, {"path": "/api/items/x"}, 1.0)
+        audiobookshelf.call(BASE, KEY, {"path": "/api/items/x"}, 1.0)
 
 
 def test_a_refusal_carries_its_status_code(monkeypatch):
@@ -341,7 +387,7 @@ def test_a_refusal_carries_its_status_code(monkeypatch):
 
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
     with pytest.raises(AudiobookshelfError) as exc:
-        audiobookshelf.get(BASE, KEY, {"path": "/api/items/x"}, 1.0)
+        audiobookshelf.call(BASE, KEY, {"path": "/api/items/x"}, 1.0)
     assert exc.value.status == 404
 
 
@@ -351,14 +397,14 @@ def test_an_unreachable_server_is_an_error_not_a_crash(monkeypatch):
 
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
     with pytest.raises(AudiobookshelfError, match="not answering"):
-        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+        audiobookshelf.call(BASE, KEY, {"path": "/api/libraries"}, 1.0)
 
 
 def test_a_body_that_is_not_json_is_an_error(monkeypatch):
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen",
                         lambda request, timeout: _Response(b"<html>login</html>"))
     with pytest.raises(AudiobookshelfError, match="not JSON"):
-        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+        audiobookshelf.call(BASE, KEY, {"path": "/api/libraries"}, 1.0)
 
 
 # -- silence and refusal are not the same thing --------------------------------
@@ -375,7 +421,7 @@ def test_an_error_status_is_an_answer_unless_a_gateway_sent_it(monkeypatch,
 
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
     with pytest.raises(kind):
-        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+        audiobookshelf.call(BASE, KEY, {"path": "/api/libraries"}, 1.0)
 
 
 def test_a_refused_connection_never_reached_the_shelf(monkeypatch):
@@ -384,7 +430,7 @@ def test_a_refused_connection_never_reached_the_shelf(monkeypatch):
 
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
     with pytest.raises(AudiobookshelfUnreachable) as exc:
-        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+        audiobookshelf.call(BASE, KEY, {"path": "/api/libraries"}, 1.0)
     assert exc.value.delivered is False
 
 
@@ -396,7 +442,7 @@ def test_a_timeout_may_have_been_delivered(monkeypatch):
 
     monkeypatch.setattr(audiobookshelf.urllib.request, "urlopen", urlopen)
     with pytest.raises(AudiobookshelfUnreachable) as exc:
-        audiobookshelf.get(BASE, KEY, {"path": "/api/libraries"}, 1.0)
+        audiobookshelf.call(BASE, KEY, {"path": "/api/libraries"}, 1.0)
     assert exc.value.delivered is True
 
 
@@ -449,7 +495,7 @@ def test_a_lost_reply_is_asked_for_again(shelf):
 
 # -- a 200 that is not the object the API documents ----------------------------
 #
-# ``get()`` turns a body that is not JSON into an AudiobookshelfRefused, and
+# ``call()`` turns a body that is not JSON into an AudiobookshelfRefused, and
 # let a body that IS valid JSON but not an object straight through: a captive
 # portal or a reverse-proxy error page rendered as a JSON array or string, or
 # a schema that moved. Three frames up that became

@@ -25,7 +25,7 @@ import actions
 from conversation import cannot
 from messages import msg
 from parsing import _minutes_of
-from player.composite import LENGTH_TOLERANCE
+from player.book_position import LENGTH_TOLERANCE
 from player.errors import PlayerError
 
 #: «mezzo minuto», "half a minute", «eine halbe Minute», «une demi-minute»,
@@ -54,6 +54,13 @@ BOOK_CANDIDATES = 5
 _NUMBERED_ONLY = re.compile(
     r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
     r"|part|parte|teil|partie)\W*)?(\d*)\W*$", re.I)
+
+#: A number in front of a chapter's title — «02 - Gli Dei», «2. Gli Dei»,
+#: «Capitolo 2: Gli Dei» — as LibriVox's .m4b files carry them. Dropped when
+#: it is the chapter's own position, which the reply already says.
+_NUMBER_PREFIX = re.compile(
+    r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
+    r"|part|parte|teil|partie)\s*)?0*(\d+)\s*[-–—.:)]\s*(?=\S)", re.I)
 
 #: The spoken chapter moves, as ``(pattern key, step)``: 0 asks, ±1 moves.
 _CHAPTER_STEPS = (("chapter_which", 0), ("chapter_next", 1),
@@ -292,6 +299,13 @@ class SpokenIntents:
             return actions.ActionResult(
                 msg("book_resumed", title=title, position=_position(reached)),
                 ok=True, terms=[title])
+        if start >= 60:
+            # There was a place to go back to, and the player did not get
+            # there (a seek it accepted and did not do: see
+            # Composite._landed). Said, not hidden behind «Metto l'audiolibro».
+            return actions.ActionResult(
+                msg("book_from_start", title=title, position=_position(start)),
+                ok=True, terms=[title])
         author = book.get("author")
         key = "book_playing_by" if author else "book_playing"
         return actions.ActionResult(msg(key, title=title, author=author),
@@ -317,6 +331,9 @@ def _chapter_said(key: str, index: int, chapters: list) -> str:
     """Chapter ``index`` of ``chapters`` as the reply ``key`` says it: by
     number, and by name too when it has one that is more than its number."""
     title = (chapters[index].get("title") or "").strip()
+    prefix = _NUMBER_PREFIX.match(title)
+    if prefix and int(prefix.group(1)) == index + 1:
+        title = title[prefix.end():]  # «02 - Gli Dei» said as «capitolo 2, Gli Dei»
     numbered = _NUMBERED_ONLY.match(title)
     if title and not (numbered and (not numbered.group(1)
                                     or int(numbered.group(1)) == index + 1)):

@@ -22,36 +22,32 @@ everywhere else.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+import contextlib
+import time
+
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .errors import PlayerError
+from .book_position import (CHAPTER_SLACK, LENGTH_TOLERANCE, chapter_point,
+                            file_chapters, resume_point, seconds, seek_landed)
 from .protocols import Capabilities, supports
 
 #: How the engine's three enqueue modes are spelled, as elsewhere
 #: (``actions.play_song``, ``musicassistant._QUEUE_OPTION``).
 MODES = ("play", "add", "insert")
 
-#: Seconds by which the player's idea of a file's length may differ from the
-#: catalogue's and still be the same file. Decoders round, and a VBR MP3
-#: read from its header and from a scan disagree by a second or so; a song
-#: put on since is minutes off (see :meth:`Composite.chapter_at`).
-LENGTH_TOLERANCE = 2.0
-
-#: How far before a chapter's start still counts as inside it. A seek to a
-#: chapter lands a hair early on some players, and «di che capitolo sono»
-#: asked right after «capitolo successivo» must not name the one before.
-CHAPTER_SLACK = 1.0
-
-#: How close to a file boundary a chapter start is the boundary itself (see
-#: ``_chapter_point``).
-BOUNDARY_SNAP = 0.5
+#: Seconds a book must have moved since the last save to be saved again. A
+#: paused hi-fi does not move, so it stops writing — and does not overwrite
+#: the position of somebody listening on the phone meanwhile.
+SAVE_STEP = 5.0
 
 
 class Composite:
     """A :class:`~player.protocols.SpokenLibrary`, heard through any transport."""
 
     def __init__(self, library: Any, capabilities: Capabilities,
-                 label: str = "") -> None:
+                 label: str = "", *, now: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
         # Refused here, at startup, rather than at the first sentence: a
         # catalogue that cannot say where its files are would be offered to
         # the listener and then fail every request, which is the "declared
@@ -63,6 +59,7 @@ class Composite:
         self.library = library
         self.capabilities = capabilities
         self.label = label
+        self._now, self._sleep = now, sleep  # the seek check's, injectable
         # What each player was last given, as ``player_id -> (item_id,
         # first, count)``: the book, the index of its file now at the head
         # of the queue, and how many of its files follow. Written by every
@@ -77,6 +74,12 @@ class Composite:
         # writes of whole tuples, which the GIL keeps whole across the
         # server's threads.
         self._playing: Dict[Any, Tuple[str, int, int]] = {}
+        # Beside each record: the transport it was played on, which is how
+        # the progress sampler (localvoice/book_progress.py) reaches a player
+        # it has no request for; and the last position saved, with the record
+        # it belonged to, so a book started over is saved again at once.
+        self._transports: Dict[Any, Any] = {}
+        self._saved: Dict[Any, Tuple[Tuple[str, int, int], float]] = {}
 
     def book_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         return self.library.book_candidates(query, count)
@@ -119,7 +122,7 @@ class Composite:
             # Assistant takes the whole list at once, and a play_url followed
             # by add_url per chapter would race the first file starting.
             transport.play_tracks([{"url": url} for url in urls])
-            self._playing[key] = (item_id, 0, len(urls))
+            self._remember(transport, (item_id, 0, len(urls)))
             return len(urls)
         self._playing.pop(key, None)
         if mode == "add":
@@ -161,21 +164,43 @@ class Composite:
         if not files:
             return 0, 0.0
         urls = [f["url"] for f in files]
-        point = _resume_point(files, start)
+        point = resume_point(files, start)
         index, offset = point if point is not None else (0, 0.0)
+        # Not ours to sample until the seek is done: in between, the new
+        # file plays from 0 s, and a save there would write that over the
+        # resume point — through the old record, too, if this player had one.
+        key = _player_key(transport)
+        self._playing.pop(key, None)
         transport.play_tracks([{"url": url} for url in urls[index:]])
-        self._playing[_player_key(transport)] = (item_id, index,
-                                                 len(urls) - index)
         reached = start - offset if point is not None else 0.0
+        landed = True
         if offset > 0 and supports(transport, "seek"):
             # The book is already playing: a seek that fails costs the
             # second, not the book, and the answer stays the file's start.
             try:
                 transport.seek(int(offset))
-                reached += int(offset)
+                landed = self._landed(transport, int(offset))
             except PlayerError:
-                pass
+                landed = False
+            if landed:
+                reached += int(offset)
+        if landed:
+            # A seek that did not land leaves the file playing from 0 s, and
+            # a save from there would write it over the resume point the
+            # catalogue kept — hours of it, on a one-file .m4b. Not ours, then:
+            # no chapter is named for it and nothing is saved.
+            self._remember(transport, (item_id, index, len(urls) - index))
         return len(urls) - index, reached
+
+    def _landed(self, transport: Any, target: int) -> bool:
+        """Whether ``transport`` really got to ``target`` seconds after a seek
+        it accepted — see :func:`book_position.seek_landed`. A player that
+        cannot say where it is is trusted: there is nothing to check against."""
+        now_playing = getattr(transport, "now_playing_info", None)
+        if now_playing is None:
+            return True
+        return seek_landed(lambda: (now_playing() or {}).get("elapsed"),
+                           target, self._now, self._sleep)
 
     # -- chapters (T5.6) -----------------------------------------------------
     def chapter_at(self, transport: Any) -> Optional[Dict[str, Any]]:
@@ -202,33 +227,18 @@ class Composite:
         start cannot be summed has ``"start": None`` and can be named but
         not jumped to (:meth:`play_chapter`).
         """
-        key = _player_key(transport)
-        record = self._playing.get(key)
-        get_tracks = getattr(self.library, "tracks", None)
-        if record is None or get_tracks is None:
+        found = self._locate(transport)
+        if found is None:
             return None
-        item_id, first, count = record
-        now = transport.now_playing_info() or {}
-        index = now.get("index")
-        if (now.get("mode") not in ("play", "pause")
-                or not isinstance(index, int) or not 0 <= index < count):
-            return None
-        files = _from_library(get_tracks, item_id)
-        head = first + index
-        durations = [f.get("duration") or 0.0 for f in files]
-        heard = _float((transport.status_info() or {}).get("duration"))
-        if head >= len(files) or (heard and durations[head] and
-                                  abs(heard - durations[head]) > LENGTH_TOLERANCE):
-            self._forget(key, record)
-            return None
+        (item_id, _, _), durations, head, elapsed = found
         get_chapters = getattr(self.library, "chapters", None)
         chapters = _from_library(get_chapters, item_id) if get_chapters else []
         if not chapters:
-            return {"item_id": item_id, "chapters": _file_chapters(durations),
+            return {"item_id": item_id, "chapters": file_chapters(durations),
                     "index": head}
         if not all(durations[:head]):
             return None
-        position = sum(durations[:head]) + _float(now.get("elapsed"))
+        position = sum(durations[:head]) + elapsed
         current = max((i for i, ch in enumerate(chapters)
                        if ch["start"] <= position + CHAPTER_SLACK), default=0)
         return {"item_id": item_id, "chapters": chapters, "index": current}
@@ -251,12 +261,12 @@ class Composite:
         start = chapter.get("start")
         if start is None:
             raise ValueError("chapter start unknown")
-        start = _float(start)
+        start = seconds(start)
         get_tracks = getattr(self.library, "tracks", None)
         if start <= 0 or get_tracks is None:
             return self.play_from(transport, item_id, start)[1]
         files = _from_library(get_tracks, item_id)
-        point = _chapter_point(files, start)
+        point = chapter_point(files, start)
         if point is None:
             raise ValueError(f"chapter at {start}s is not inside the files")
         index, offset = point
@@ -265,6 +275,79 @@ class Composite:
         placed = sum(f.get("duration") or 0.0 for f in files[:index]) + offset
         return self._play_files(transport, item_id, files, placed)[1]
 
+    # -- progress (T5.6) -----------------------------------------------------
+    def save_progress(self, transport: Any) -> Optional[float]:
+        """Save where ``transport`` is in its book to the catalogue, and
+        answer the position saved — or ``None`` when nothing was: no book of
+        ours playing there (:meth:`chapter_at`'s checks, the same ones), a
+        position that cannot be summed, a catalogue with no
+        ``save_progress``, or a book that has not moved :data:`SAVE_STEP`
+        since the last save.
+
+        Called by the sampler, never by a sentence, so that *every*
+        interruption is covered — music started from Material Skin included,
+        which Vivavoce never hears about. Once the book is replaced, the
+        checks fail and nothing more is written: the last save stays the
+        last true position.
+        """
+        save = getattr(self.library, "save_progress", None)
+        if save is None:
+            return None
+        with _background(transport), _background(self.library):
+            found = self._locate(transport)
+            if found is None:
+                return None
+            record, durations, head, elapsed = found
+            if not all(durations[:head]):
+                return None
+            position = sum(durations[:head]) + elapsed
+            key = _player_key(transport)
+            last = self._saved.get(key)
+            if (last is not None and last[0] is record
+                    and abs(position - last[1]) < SAVE_STEP):
+                return None
+            total = sum(durations) if all(durations) else None
+            _from_library(lambda item: save(item, position, total), record[0])
+        self._saved[key] = (record, position)
+        return position
+
+    def players(self) -> List[Any]:
+        """The transports a book of ours was last played on — the ones the
+        progress sampler looks at."""
+        return [self._transports[key] for key in list(self._playing)
+                if key in self._transports]
+
+    def _remember(self, transport: Any, record: Tuple[str, int, int]) -> None:
+        key = _player_key(transport)
+        self._playing[key] = record
+        self._transports[key] = transport
+
+    def _locate(self, transport: Any) -> Optional[tuple]:
+        """``(record, durations, head, elapsed)`` for the book of ours
+        ``transport`` is playing — the file at the head of its queue and the
+        seconds played of it — or ``None``; see :meth:`chapter_at` for what
+        "of ours" takes."""
+        key = _player_key(transport)
+        record = self._playing.get(key)
+        get_tracks = getattr(self.library, "tracks", None)
+        if record is None or get_tracks is None:
+            return None
+        item_id, first, count = record
+        now = transport.now_playing_info() or {}
+        index = now.get("index")
+        if (now.get("mode") not in ("play", "pause")
+                or not isinstance(index, int) or not 0 <= index < count):
+            return None
+        files = _from_library(get_tracks, item_id)
+        head = first + index
+        durations = [f.get("duration") or 0.0 for f in files]
+        heard = seconds((transport.status_info() or {}).get("duration"))
+        if head >= len(files) or (heard and durations[head] and
+                                  abs(heard - durations[head]) > LENGTH_TOLERANCE):
+            self._forget(key, record)
+            return None
+        return record, durations, head, seconds(now.get("elapsed"))
+
     def _forget(self, key: Any, record: Tuple[str, int, int]) -> None:
         """Drop ``record`` — only if it is still the one there. Between
         reading it and finding it stale, :meth:`chapter_at` has asked the
@@ -272,36 +355,15 @@ class Composite:
         record this must not delete."""
         if self._playing.get(key) is record:
             self._playing.pop(key, None)
+            self._saved.pop(key, None)
 
 
-def _file_chapters(durations: List[float]) -> List[Dict[str, Any]]:
-    """One chapter per file. A start after a file of unknown length cannot
-    be summed, and is ``None`` from there on."""
-    chapters: List[Dict[str, Any]] = []
-    elapsed: Optional[float] = 0.0
-    for duration in durations:
-        end = elapsed + duration if elapsed is not None and duration else None
-        chapters.append({"start": elapsed, "end": end, "title": ""})
-        elapsed = end
-    return chapters
-
-
-def _chapter_point(files: List[Dict[str, Any]],
-                   start: float) -> Optional[tuple]:
-    """:func:`_resume_point`, snapped to a file boundary within
-    :data:`BOUNDARY_SNAP`: Audiobookshelf sums its chapter starts on its own,
-    and a boundary it rounds differently from the track lengths is still the
-    boundary — not a seek a player that cannot seek would be refused."""
-    point = _resume_point(files, start)
-    if point is None:
-        return None
-    index, offset = point
-    duration = files[index].get("duration") or 0.0
-    if offset < BOUNDARY_SNAP:
-        return index, 0.0
-    if duration and duration - offset < BOUNDARY_SNAP and index + 1 < len(files):
-        return index + 1, 0.0
-    return index, offset
+def _background(client: Any):
+    """``client.background()`` — calls that never count toward its breaker
+    (``player/resilience.py``) — for a client that has it, and nothing for
+    one that does not: probed, as the engine probes everything optional."""
+    block = getattr(client, "background", None)
+    return block() if block is not None else contextlib.nullcontext()
 
 
 def _player_key(transport: Any) -> Any:
@@ -309,13 +371,6 @@ def _player_key(transport: Any) -> Any:
     is keyed: both clients carry ``player_id``, and one that does not is a
     single player anyway."""
     return getattr(transport, "player_id", None)
-
-
-def _float(value: Any) -> float:
-    try:
-        return float(value or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _from_library(fetch, item_id: str) -> Any:
@@ -329,23 +384,3 @@ def _from_library(fetch, item_id: str) -> Any:
     except PlayerError as exc:
         exc.from_library = True
         raise
-
-
-def _resume_point(files: List[Dict[str, Any]],
-                  start: float) -> Optional[tuple]:
-    """``(index, offset)`` of the file ``start`` seconds in falls inside, or
-    ``None`` when a file's duration is unknown (``0.0``) and the search
-    cannot be trusted past it — or when ``start`` lies past the end of a
-    book whose every length is known: progress saved against other files,
-    and seeking past the last one would play nothing at all."""
-    elapsed = 0.0
-    for index, f in enumerate(files):
-        duration = f.get("duration") or 0.0
-        if not duration and index < len(files) - 1:
-            return None
-        if start < elapsed + duration:
-            return index, start - elapsed
-        if index == len(files) - 1:
-            return (index, start - elapsed) if not duration else None
-        elapsed += duration
-    return None

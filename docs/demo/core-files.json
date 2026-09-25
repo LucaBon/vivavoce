@@ -24,7 +24,7 @@
   "engine/moods.py",
   "engine/playback.py",
   "engine/player/__init__.py",
-  "engine/player/composite.py",
+  "engine/player/book_position.py",
   "engine/player/errors.py",
   "engine/player/protocols.py",
   "engine/player/resilience.py",

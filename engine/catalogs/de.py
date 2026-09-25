@@ -182,6 +182,8 @@ MESSAGES = {
     "no_book_found": "Ich habe kein H\u00f6rbuch f\u00fcr {title} gefunden.",
     "book_no_audio": "{title} hat nichts zum Anh\u00f6ren: vielleicht nur ein E-Book.",
     "book_resumed": "Ich setze \"{title}\" nach {position} fort.",
+    "book_from_start":
+        "Ich kann \"{title}\" nicht nach {position} fortsetzen: Dieses System spielt es von vorne.",
     # How far in a resumed book starts, as the phrase above says it.
     "resume_one_minute": "einer Minute",
     "resume_minutes": "{n} Minuten",

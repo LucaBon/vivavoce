@@ -177,6 +177,9 @@ MESSAGES = {
     "no_book_found": "Je n'ai trouv\u00e9 aucun livre audio pour {title}.",
     "book_no_audio": "{title} n'a rien \u00e0 \u00e9couter : c'est peut-\u00eatre un e-book.",
     "book_resumed": "Je reprends \"{title}\" \u00e0 {position} du d\u00e9but.",
+    "book_from_start":
+        "Je ne peux pas reprendre \"{title}\" à {position} du début : "
+        "ce système le relance depuis le début.",
     # How far in a resumed book starts, as the phrase above says it.
     "resume_one_minute": "une minute",
     "resume_minutes": "{n} minutes",
