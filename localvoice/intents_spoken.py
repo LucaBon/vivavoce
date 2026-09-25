@@ -25,7 +25,7 @@ import actions
 from conversation import cannot
 from messages import msg
 from parsing import _minutes_of
-from player.book_position import LENGTH_TOLERANCE
+from player.book_position import LENGTH_TOLERANCE, chapter_name
 from player.errors import PlayerError
 
 #: «mezzo minuto», "half a minute", «eine halbe Minute», «une demi-minute»,
@@ -45,22 +45,6 @@ _ARTICLES = ("a", "an", "un", "uno", "una", "une", "ein", "eine", "einen")
 #: How many books a spoken title is weighed against. The catalogue's own
 #: ranking is only the tiebreaker: see :meth:`SpokenIntents._play_book`.
 BOOK_CANDIDATES = 5
-
-#: A chapter title that is only a number — «Capitolo 3», "Chapter 03",
-#: «Track 3», «3» — which is what a folder of MP3s gets from its file names.
-#: When the number is the chapter's own position it is said once, «capitolo 3
-#: di 12», not «capitolo 3 di 12, "Capitolo 3"»; when it is not — a prologue
-#: ahead of «Capitolo 1» — the title is information, and said.
-_NUMBERED_ONLY = re.compile(
-    r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
-    r"|part|parte|teil|partie)\W*)?(\d*)\W*$", re.I)
-
-#: A number in front of a chapter's title — «02 - Gli Dei», «2. Gli Dei»,
-#: «Capitolo 2: Gli Dei» — as LibriVox's .m4b files carry them. Dropped when
-#: it is the chapter's own position, which the reply already says.
-_NUMBER_PREFIX = re.compile(
-    r"^\W*(?:(?:chapter|capitolo|kapitel|chapitre|cap[ií]tulo|track|traccia"
-    r"|part|parte|teil|partie)\s*)?0*(\d+)\s*[-–—.:)]\s*(?=\S)", re.I)
 
 #: The spoken chapter moves, as ``(pattern key, step)``: 0 asks, ±1 moves.
 _CHAPTER_STEPS = (("chapter_which", 0), ("chapter_next", 1),
@@ -330,12 +314,7 @@ def _position(seconds: float) -> str:
 def _chapter_said(key: str, index: int, chapters: list) -> str:
     """Chapter ``index`` of ``chapters`` as the reply ``key`` says it: by
     number, and by name too when it has one that is more than its number."""
-    title = (chapters[index].get("title") or "").strip()
-    prefix = _NUMBER_PREFIX.match(title)
-    if prefix and int(prefix.group(1)) == index + 1:
-        title = title[prefix.end():]  # «02 - Gli Dei» said as «capitolo 2, Gli Dei»
-    numbered = _NUMBERED_ONLY.match(title)
-    if title and not (numbered and (not numbered.group(1)
-                                    or int(numbered.group(1)) == index + 1)):
+    title = chapter_name(chapters[index].get("title") or "", index)
+    if title:
         return msg(f"{key}_titled", n=index + 1, total=len(chapters), title=title)
     return msg(key, n=index + 1, total=len(chapters))

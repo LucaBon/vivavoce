@@ -52,6 +52,7 @@ export const UI_IT = {
   lbl_text: "Comando testuale",
   log_label: "Cronologia comandi",
   np_label: "In riproduzione",
+  np_chapter: "Capitolo {n} di {total}",
   np_prev: "Brano precedente",
   np_play: "Riproduci",
   np_pause: "Pausa",

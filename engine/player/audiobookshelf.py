@@ -274,39 +274,54 @@ class AudiobookshelfClient(Resilient):
         at that queue can read it, which is why ``--library-token`` asks for
         a key of its own, on a user that can only listen.
         """
-        item = self._get(f"/api/items/{urllib.parse.quote(item_id, safe='')}",
-                         expanded=1)
-        media = item.get("media")
-        tracks = media.get("tracks") if isinstance(media, dict) else None
-        suffix = "?" + urllib.parse.urlencode({"token": self.token})
-        return [{"url": self.base_url + track["contentUrl"] + suffix,
-                "duration": _seconds(track.get("duration"))}
-                for track in tracks or []
-                if isinstance(track, dict)
-                and isinstance(track.get("contentUrl"), str)]
+        return self.book(item_id)["tracks"]
 
     def chapters(self, item_id: str) -> List[Dict[str, Any]]:
         """The chapters of one book as ``{"start", "end", "title"}``, in
-        listening order — seconds from the beginning of the whole book, not
-        of any one file, which is why a single ``.m4b`` and a folder of MP3s
-        read the same here.
+        seconds from the start of the whole book — a single ``.m4b`` and a
+        folder of MP3s read the same. Empty when the server has none (the
+        caller then counts files: ``Composite.chapter_at``). Sorted by
+        ``start``: the server's order is by ``id``, which a hand-edited
+        chapter list can hold apart."""
+        return self.book(item_id)["chapters"]
 
-        Empty for a book the server has no chapters for: the caller decides
-        what a chapter is then (:meth:`player.composite.Composite.chapter_at`
-        falls back to the files). Sorted by ``start`` because the server's
-        own order is by ``id``, and a chapter list edited in its UI can hold
-        the two apart.
-        """
+    def book(self, item_id: str) -> Dict[str, Any]:
+        """One book as ``{"title", "author", "tracks", "chapters"}`` — what
+        :meth:`tracks` and :meth:`chapters` each answer half of, from the one
+        ``GET`` both already make. For a caller that needs it all at once:
+        the now-playing panel and the chapter commands, which read it when
+        a book starts rather than on every poll of the page."""
         item = self._get(f"/api/items/{urllib.parse.quote(item_id, safe='')}",
                          expanded=1)
         media = item.get("media")
-        chapters = media.get("chapters") if isinstance(media, dict) else None
-        found = [{"start": _seconds(ch.get("start")),
-                  "end": _seconds(ch.get("end")),
-                  "title": ch.get("title") if isinstance(ch.get("title"), str) else ""}
-                 for ch in chapters or []
-                 if isinstance(ch, dict) and ch.get("start") is not None]
-        return sorted(found, key=lambda ch: ch["start"])
+        media = media if isinstance(media, dict) else {}
+        metadata = media.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        suffix = "?" + urllib.parse.urlencode({"token": self.token})
+        tracks = [{"url": self.base_url + track["contentUrl"] + suffix,
+                   "duration": _seconds(track.get("duration"))}
+                  for track in media.get("tracks") or []
+                  if isinstance(track, dict)
+                  and isinstance(track.get("contentUrl"), str)]
+        chapters = [{"start": _seconds(ch.get("start")),
+                     "end": _seconds(ch.get("end")),
+                     "title": ch.get("title") if isinstance(ch.get("title"), str) else ""}
+                    for ch in media.get("chapters") or []
+                    if isinstance(ch, dict) and ch.get("start") is not None]
+        return {"title": metadata.get("title") or "",
+                "author": metadata.get("authorName") or "",
+                "tracks": tracks,
+                "chapters": sorted(chapters, key=lambda ch: ch["start"])}
+
+    def cover_url(self, item_id: str) -> str:
+        """Where the cover of ``item_id`` is, fetchable with no header — the
+        key in the query, as for the files (see :meth:`tracks`). Built, not
+        asked: the web server's ``/artwork`` proxy is what fetches it, and a
+        book with no cover answers 404 there, which the page already reads
+        as "no picture"."""
+        return (f"{self.base_url}/api/items/"
+                f"{urllib.parse.quote(item_id, safe='')}/cover?"
+                + urllib.parse.urlencode({"token": self.token}))
 
     def save_progress(self, item_id: str, position: float,
                       duration: Optional[float]) -> None:

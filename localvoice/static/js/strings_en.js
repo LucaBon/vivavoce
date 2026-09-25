@@ -143,6 +143,7 @@ export const UI_EN = {
   lbl_text: "Text command",
   log_label: "Command history",
   np_label: "Now playing",
+  np_chapter: "Chapter {n} of {total}",
   np_prev: "Previous track",
   np_play: "Play",
   np_pause: "Pause",

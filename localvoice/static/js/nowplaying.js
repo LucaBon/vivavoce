@@ -90,6 +90,11 @@ export function renderNowPlaying(d) {
   }
   $("nptitle").textContent = d.title;
   $("npsub").textContent = [d.artist, d.album].filter(Boolean).join(" · ");
+  // Its own line, number first, so a long chapter name loses its tail and
+  // never the number (see chapterLine).
+  const chap = chapterLine(d);
+  $("npchap").textContent = chap;
+  $("npchap").hidden = !chap;
   const img = $("npart");
   if (d.artwork && d.artwork !== npLastArt) {
     npLastArt = d.artwork;
@@ -253,4 +258,13 @@ export function initNowPlaying() {
     playerAction("volume", null, Number(npvolEl.value));
   });
   npvolEl.addEventListener("pointercancel", () => { npVolDrag = false; });
+}
+
+// An audiobook of ours (T5.6): the server sends the chapter as numbers and a
+// name, and the words are the page's, in the page's language — /nowplaying is
+// polled with no language of its own. «Capitolo 3 di 9 · Il Castaldo».
+function chapterLine(d) {
+  if (!d.chapter) return "";
+  const line = ui("np_chapter").replace("{n}", d.chapter).replace("{total}", d.chapters);
+  return d.chapter_title ? `${line} · ${d.chapter_title}` : line;
 }

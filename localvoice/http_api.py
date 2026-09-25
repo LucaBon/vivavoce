@@ -207,6 +207,17 @@ def make_handler(lms, material_url: str, services, default_service: str,
                  "players": out},
                 ensure_ascii=False))
 
+        def _book_playing(self, client):
+            """Il libro nostro che ``client`` sta suonando, come lo vuole il
+            pannello (``Composite.now_playing``), o None. Mai un errore: uno
+            scaffale giù non costa al pannello la musica."""
+            if books is None:
+                return None
+            try:
+                return books.now_playing(client)
+            except Exception:
+                return None
+
         def _nowplaying_payload(self, client=None):
             # Mai un 5xx: il pannello si nasconde su mode "unknown", niente
             # spam di errori in console quando l'LMS è giù.
@@ -215,6 +226,18 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 info = client.status_info()
             except Exception:
                 return {"mode": "unknown"}
+            book = self._book_playing(client)
+            if book:
+                # L'impianto conosce solo il file: il titolo è il tag di un
+                # capitolo, e non c'è né autore né copertina. Libro, autore e
+                # capitolo li sa Vivavoce; lo stato (mode, tempo) resta suo.
+                info["title"] = book["title"] or info.get("title")
+                info["artist"] = book["author"] or info.get("artist")
+                info["album"] = None
+                info.update(chapter=book["chapter"], chapters=book["chapters"],
+                            chapter_title=book["chapter_title"])
+                if book.get("cover"):
+                    info["artwork"] = book["cover"]
             if info.get("artwork"):
                 # Cache-buster: cambia col brano, così il browser non mostra
                 # la copertina precedente. L'URL vero lo risolve /artwork.
@@ -267,7 +290,10 @@ def make_handler(lms, material_url: str, services, default_service: str,
             # parametro dal client: l'URL viene sempre ricavato qui dallo
             # status del player, quindi niente open relay.
             try:
-                art = client_for(self._query_player()).status_info().get("artwork")
+                client = client_for(self._query_player())
+                book = self._book_playing(client)
+                art = ((book or {}).get("cover")
+                       or client.status_info().get("artwork"))
                 if not art:
                     self._send(404, "no artwork", "text/plain")
                     return

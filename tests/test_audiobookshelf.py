@@ -239,6 +239,41 @@ def test_a_chapter_with_no_title_or_end_is_still_a_chapter(shelf, abs_transport)
     assert shelf.chapters("li-1") == [{"start": 0.0, "end": 0.0, "title": ""}]
 
 
+# -- the whole book, in one call ------------------------------------------
+
+def test_book_is_the_files_the_chapters_the_title_and_the_author_at_once(
+        shelf, abs_transport):
+    # What the now-playing panel and the chapter commands both need, read
+    # once when a book starts rather than on every poll of the page.
+    abs_transport.responses["/api/items/li-1"] = {"media": {
+        "metadata": {"title": "Le favole", "authorName": "La Fontaine"},
+        "tracks": [{"contentUrl": "/api/items/li-1/file/100", "duration": 184.5}],
+        "chapters": [{"start": 0, "end": 184.5, "title": "01 - Il Leone"}]}}
+    book = shelf.book("li-1")
+    assert (book["title"], book["author"]) == ("Le favole", "La Fontaine")
+    assert [t["duration"] for t in book["tracks"]] == [184.5]
+    assert book["chapters"] == [{"start": 0.0, "end": 184.5, "title": "01 - Il Leone"}]
+    assert abs_transport.calls == [("/api/items/li-1", {"expanded": 1})]
+
+
+def test_a_book_with_no_metadata_still_has_its_files(shelf, abs_transport):
+    abs_transport.responses["/api/items/li-1"] = {"media": {
+        "tracks": [{"contentUrl": "/s/1.mp3", "duration": 10}]}}
+    book = shelf.book("li-1")
+    assert (book["title"], book["author"], book["chapters"]) == ("", "", [])
+    assert len(book["tracks"]) == 1
+
+
+def test_the_cover_is_an_address_not_a_request(shelf, abs_transport):
+    # Fetched by the web server's /artwork proxy, with the key in the query
+    # like the files: building it asks the shelf nothing.
+    url = shelf.cover_url("li 1")
+    parts = urllib.parse.urlsplit(url)
+    assert parts.path == "/api/items/li%201/cover"
+    assert urllib.parse.parse_qs(parts.query) == {"token": [KEY]}
+    assert abs_transport.calls == []
+
+
 # -- progress --------------------------------------------------------------
 
 def _refusal(status):

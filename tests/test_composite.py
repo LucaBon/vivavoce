@@ -608,6 +608,87 @@ def test_a_seek_that_raised_is_not_ours_to_save_either():
     assert composite.save_progress(queue) is None
 
 
+# -- the book, read once; and what the page shows (T5.6) ------------------------
+
+class ShelfWithBooks(ShelfWithChapters):
+    """Audiobookshelf's own shape: ``book()`` answers files, chapters, title
+    and author in one call, and ``cover_url`` builds an address."""
+
+    def __init__(self, tracks, chapters):
+        super().__init__(tracks, chapters)
+        self.books_asked = []
+
+    def book(self, item_id):
+        self.books_asked.append(item_id)
+        return {"title": "Le favole", "author": "La Fontaine",
+                "tracks": [dict(t) for t in self._tracks.get(item_id, [])],
+                "chapters": [dict(c) for c in self._chapters.get(item_id, [])]}
+
+    def cover_url(self, item_id):
+        return f"http://abs/cover/{item_id}"
+
+
+def test_the_book_is_read_once_not_on_every_question():
+    # The page polls every few seconds: asking Audiobookshelf each time for
+    # files it already sent would be a request per poll per player.
+    shelf = ShelfWithBooks(ONE_FILE, THREE_INSIDE)
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    for elapsed in (10.0, 1500.0, 2500.0):
+        queue.elapsed = elapsed
+        composite.chapter_at(queue)
+    assert shelf.books_asked == ["book"]
+    assert shelf.tracks_asked == [] and shelf.chapters_asked == []
+
+
+def test_playing_the_book_again_reads_it_again():
+    # A chapter edited in Audiobookshelf's UI shows up at the next play, not
+    # at the next restart of the server.
+    shelf = ShelfWithBooks(ONE_FILE, THREE_INSIDE)
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    composite.chapter_at(queue)
+    composite.enqueue(queue, "book", "play")
+    composite.chapter_at(queue)
+    assert shelf.books_asked == ["book", "book"]
+
+
+def test_what_the_page_shows_is_the_book_its_author_and_the_chapter():
+    shelf = ShelfWithBooks(ONE_FILE, {"book": [
+        {"start": 0.0, "end": 1000.0, "title": "01 - Il Leone"},
+        {"start": 1000.0, "end": 3000.0, "title": "02 - Gli Dei"}]})
+    composite = Composite(shelf, STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.elapsed = 1200.0
+    assert composite.now_playing(queue) == {
+        "title": "Le favole", "author": "La Fontaine",
+        "chapter": 2, "chapters": 2, "chapter_title": "Gli Dei",
+        "cover": "http://abs/cover/book"}
+
+
+def test_a_catalogue_without_titles_or_covers_still_shows_the_chapter():
+    composite = Composite(ShelfWithTracks(RESUMABLE), STREAMABLE, "Audiobookshelf")
+    queue = Playing()
+    composite.enqueue(queue, "book", "play")
+    queue.current = 1
+    assert composite.now_playing(queue) == {
+        "title": "", "author": "", "chapter": 2, "chapters": 3,
+        "chapter_title": "", "cover": None}
+
+
+def test_nothing_is_shown_for_a_book_that_is_not_ours():
+    composite = Composite(ShelfWithBooks(ONE_FILE, THREE_INSIDE), STREAMABLE,
+                          "Audiobookshelf")
+    queue = Playing()
+    assert composite.now_playing(queue) is None
+    composite.enqueue(queue, "book", "play")
+    queue.duration = 241.0  # music put on since
+    assert composite.now_playing(queue) is None
+
+
 # -- saving progress (T5.6) -----------------------------------------------------
 
 class ShelfThatSaves(ShelfWithTracks):
