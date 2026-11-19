@@ -139,6 +139,12 @@ export function initMic() {
     // wake mode stops and says what happened.
     const MAX_WAKE_FAILURES = 5;
     let wakeFailures = 0;
+    // True when the session that just ended reported a real error. The browser
+    // always fires `end` right after `error`, and endCommandCapture() rewrites
+    // the status line — so without this the error was wiped within a frame and
+    // the mic just seemed to switch itself off (Edge with online speech
+    // recognition unreachable: `network`, nothing on screen).
+    let errorShown = false;
     // Set when a live session is torn down deliberately (see stopAll), cleared
     // when the next one actually starts. There is only ONE recogniser object,
     // reused for every mode, so a late onend/onerror carries nothing that says
@@ -240,7 +246,7 @@ export function initMic() {
       else startManual();
     };
     rec.onstart = () => {
-      active = true; tornDown = false; wakeFailures = 0;
+      active = true; tornDown = false; wakeFailures = 0; errorShown = false;
       wake.newSession();  // before micUI: it is micUI that starts the app talking
       micUI(true);
       if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
@@ -277,7 +283,7 @@ export function initMic() {
         // server-wake trigger (mode "manual" via captureCommand) instead
         // falls back to "still listening for <the phrase>" when that's true.
         mode = "off";
-        endCommandCapture(isAwaitingReview());
+        endCommandCapture(isAwaitingReview() || errorShown);
       }
     };
     function leaveWakeMode() {
@@ -320,7 +326,8 @@ export function initMic() {
         statusEl.textContent = ui("wake_gave_up")(e.error);
         return;
       }
-      statusEl.textContent = ui("mic_error")(e);
+      errorShown = !ROUTINE_ERRORS.has(e.error);
+      if (errorShown) statusEl.textContent = ui("mic_error")(e);
     };
     rec.onresult = (e) => {
       if (mode === "wake") { wake.wakeResult(e); return; }
