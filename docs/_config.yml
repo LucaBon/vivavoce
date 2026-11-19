@@ -19,3 +19,4 @@ exclude:
   - api.md
   - ai-act.md
   - ha-integration-design.md
+  - name-recognition-design.md
