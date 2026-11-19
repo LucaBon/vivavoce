@@ -115,6 +115,7 @@ export const UI_EN = {
   src_only: "Only ",
   lms_down: "Can't reach the music server (LMS): check that it's on.",
   offline: "This device is offline: check its Wi-Fi.",
+  server_down: "Can't reach Vivavoce: is the server running, at this address (http or https)?",
   net_error: "Network error talking to the local server.",
   no_mic: "This browser doesn't support the microphone. Use the text box, or open in Chrome/Edge.",
   need_https: "The microphone needs HTTPS when opened from another device. Start the server " +
@@ -261,6 +262,7 @@ export const UI_IT = {
   src_only: "Solo ",
   lms_down: "Non raggiungo il server musicale (LMS): controlla che sia acceso.",
   offline: "Questo dispositivo \u00e8 offline: controlla il Wi-Fi.",
+  server_down: "Non raggiungo Vivavoce: il server è avviato, a questo indirizzo (http o https)?",
   net_error: "Errore di rete verso il server locale.",
   no_mic: "Questo browser non supporta il microfono. Usa la casella di testo, oppure apri con Chrome/Edge.",
   need_https: "Il microfono richiede HTTPS quando apri da un altro dispositivo. Avvia il " +

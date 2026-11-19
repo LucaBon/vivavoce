@@ -79,10 +79,13 @@ def test_network_error_falls_back_to_local_recognition(page_with_fake_mic, web):
     assert not page.is_checked("#localasr")
 
     page.click("#mic")  # Web Speech fails with `network`...
-    page.wait_for_function(  # ...and the server's recorder takes over
+    # ...and the server's recorder takes over. Not "the mic is listening":
+    # the fake Web Speech session lights the button too, before it fails.
+    page.wait_for_function("document.getElementById('localasr').checked",
+                           timeout=3000)
+    page.wait_for_function(
         "document.getElementById('mic').classList.contains('listening')",
         timeout=3000)
-    assert page.is_checked("#localasr")
     assert page.evaluate("localStorage.getItem('localasr')") == "1"
 
     page.wait_for_timeout(300)

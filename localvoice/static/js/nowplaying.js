@@ -125,10 +125,11 @@ export async function refreshNowPlaying() {
   } catch (e) {
     if (stale()) return;
     npRendered = seq;
-    // Offline is not "the LMS is down": the phone left the Wi-Fi, or the
-    // screen slept. Saying the hi-fi is unreachable sends people to look at
-    // the wrong box entirely.
-    setLmsDown(true, navigator.onLine === false);
+    // No answer from Vivavoce at all — the LMS was never asked. Offline is
+    // the phone off the Wi-Fi (or asleep); otherwise it is the server itself
+    // that is stopped or at another address. Neither is "the LMS is down",
+    // which sent people to look at a hi-fi that was working fine.
+    setLmsDown(true, navigator.onLine === false ? "offline" : "server");
     renderNowPlaying(null);
   }
 }

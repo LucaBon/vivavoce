@@ -48,7 +48,7 @@ export const ui = (key) => (uiLang() === "it" ? UI_IT : UI_EN)[key];
 
 // The base state of the status line, re-rendered on language change. The mic
 // handlers overwrite it with transient text; that's fine until the next render.
-let statusBase = "default";  // "default" | "nomic" | "nohttps" | "lmsdown"
+let statusBase = "default";  // "default" | "nomic" | "nohttps" | "lmsdown" | "offline" | "serverdown"
 export const getStatusBase = () => statusBase;
 export const setStatusBase = (v) => { statusBase = v; };
 
@@ -59,8 +59,9 @@ export function refreshStatus() {
       ui(statusBase === "nomic" ? "no_mic" : "need_https") + "</span>";
   } else if (statusBase === "lmsdown") {
     statusEl.innerHTML = '<span class="warn">' + ui("lms_down") + "</span>";
-  } else if (statusBase === "offline") {
-    statusEl.innerHTML = '<span class="warn">' + ui("offline") + "</span>";
+  } else if (statusBase === "offline" || statusBase === "serverdown") {
+    statusEl.innerHTML = '<span class="warn">' +
+      ui(statusBase === "offline" ? "offline" : "server_down") + "</span>";
   } else {
     statusEl.textContent = ui("status_tap_write");
   }
@@ -68,14 +69,19 @@ export function refreshStatus() {
 
 // LMS reachability lamp: the header LED turns red and the status line warns.
 // Only the "default" status is replaced — mic problems keep their message.
-export function setLmsDown(down, offline) {
+//
+// `why` says who is not answering, because each sends the user to a different
+// box: "lms" (Vivavoce answered, the LMS behind it did not), "offline" (this
+// device has no network) or "server" (Vivavoce itself did not answer — a
+// stopped server, or the page opened at an address it no longer serves, e.g.
+// https:// from the installed app's cache while it now runs on http://).
+// Blaming the LMS for the last one sent people to check a hi-fi that worked.
+export function setLmsDown(down, why = "lms") {
   document.body.classList.toggle("lmsdown", down);
-  // "This device has no network" and "the hi-fi is unreachable" look
-  // identical from here — a failed fetch — but they send the user to
-  // different rooms. Say which one it is when the browser knows.
-  const want = down ? (offline ? "offline" : "lmsdown") : "default";
-  const replaceable = statusBase === "default" || statusBase === "lmsdown"
-                      || statusBase === "offline";
+  const want = !down ? "default"
+    : why === "offline" ? "offline" : why === "server" ? "serverdown" : "lmsdown";
+  const replaceable = ["default", "lmsdown", "offline", "serverdown"]
+    .includes(statusBase);
   if (replaceable && statusBase !== want) { statusBase = want; refreshStatus(); }
 }
 
