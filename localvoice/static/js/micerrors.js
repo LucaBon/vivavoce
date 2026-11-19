@@ -22,8 +22,10 @@ export const MIC_WHY_EN = {
   NotFoundError: "this device has no microphone the browser can use.",
   NotReadableError: "the microphone is busy in another app. Close it and try " +
     "again.",
-  network: "the browser could not reach its speech service. Check this " +
-    "device's internet connection, or switch on local recognition.",
+  network: "the browser could not reach its speech service (on Edge, " +
+    "check Windows Settings > Privacy > Speech > Online speech recognition). " +
+    "Try another browser such as Chrome, or install local recognition on " +
+    "the server.",
   "no-speech": "nothing was heard.",
   aborted: "listening was interrupted.",
   "language-not-supported": "this browser does not recognise the language " +
@@ -44,9 +46,10 @@ export const MIC_WHY_IT = {
     "browser.",
   NotReadableError: "il microfono è occupato da un'altra app. Chiudila e " +
     "riprova.",
-  network: "il browser non è riuscito a raggiungere il suo servizio vocale. " +
-    "Controlla la connessione di questo dispositivo, oppure attiva il " +
-    "riconoscimento locale.",
+  network: "il browser non è riuscito a raggiungere il suo servizio vocale " +
+    "(su Edge: Impostazioni di Windows > Privacy > Voce > Riconoscimento " +
+    "vocale online). Prova un altro browser come Chrome, oppure installa il " +
+    "riconoscimento locale sul server.",
   "no-speech": "non ho sentito niente.",
   aborted: "l'ascolto è stato interrotto.",
   "language-not-supported": "questo browser non riconosce la lingua scelta " +

@@ -33,6 +33,21 @@ export const canRecord = () => !!(navigator.mediaDevices && window.MediaRecorder
 export const localAsrOn = () =>
   ASR.available && !asrFailed && canRecord() && $("localasr").checked;
 
+// The browser's own recogniser is a cloud service, and it can be out of reach
+// while everything else works: Edge on Windows with its online speech
+// recognition blocked or down answers every tap with `network`. If this
+// server can transcribe, use it — for this tap (the user just spoke, or was
+// about to) and for every later one, by ticking the toggle and keeping it —
+// rather than failing the same way on each tap. Returns false when there is
+// no server engine to fall back on, so the caller reports the error instead.
+export function fallBackToLocalAsr() {
+  if (!ASR.available || asrFailed || !canRecord()) return false;
+  $("localasr").checked = true;
+  localStorage.setItem("localasr", "1");
+  setTimeout(startLocalRec, 0);  // after the dying Web Speech session's end
+  return true;
+}
+
 function renderAsrRow() {
   $("localasrrow").style.display = (ASR.available && canRecord()) ? "" : "none";
   // A browser without Web Speech (e.g. Firefox) showed "no mic support":

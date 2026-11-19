@@ -23,7 +23,8 @@ import { micUI, serverWakeOn, syncWakePhrase,
          serverWakeRunning, serverWakeStartPending, startServerWake,
          restartServerWake, stopServerWake,
          endCommandCapture } from "./miccapture.js";
-import { localAsrOn, startLocalRec, cancelLocalRec } from "./localasr.js";
+import { localAsrOn, startLocalRec, cancelLocalRec,
+         fallBackToLocalAsr } from "./localasr.js";
 
 export { refreshServerWake } from "./miccapture.js";
 export { refreshAsr } from "./localasr.js";
@@ -326,6 +327,8 @@ export function initMic() {
         statusEl.textContent = ui("wake_gave_up")(e.error);
         return;
       }
+      // The cloud recogniser is unreachable: hand this tap to the server.
+      if (e.error === "network" && fallBackToLocalAsr()) { stopAll(); return; }
       errorShown = !ROUTINE_ERRORS.has(e.error);
       if (errorShown) statusEl.textContent = ui("mic_error")(e);
     };
