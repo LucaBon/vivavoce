@@ -58,6 +58,12 @@ function renderNpTime() {
   seek.setAttribute("aria-valuetext",
     fmtTime(cur) + (dur ? " / " + fmtTime(dur) : ""));
 }
+// The toggle is named for what it will do, like the icon it shows: "Pausa"
+// while playing, "Riproduci" while paused. "Riproduci/pausa" told a screen
+// reader nothing about which one a press would be.
+function labelToggle(paused) {
+  $("nptoggle").setAttribute("aria-label", ui(paused ? "np_play" : "np_pause"));
+}
 export function renderNowPlaying(d) {
   const el = $("np");
   if (!d || !d.title || (d.mode !== "play" && d.mode !== "pause")) {
@@ -71,7 +77,7 @@ export function renderNowPlaying(d) {
   el.classList.toggle("paused", d.mode === "pause");
   el.setAttribute("aria-label", ui("np_label"));
   $("npprev").setAttribute("aria-label", ui("np_prev"));
-  $("nptoggle").setAttribute("aria-label", ui("np_toggle"));
+  labelToggle(d.mode === "pause");
   $("npnext").setAttribute("aria-label", ui("np_next"));
   $("npseek").setAttribute("aria-label", ui("np_seek"));
   $("npvol").setAttribute("aria-label", ui("np_vol"));
@@ -84,6 +90,11 @@ export function renderNowPlaying(d) {
   }
   $("nptitle").textContent = d.title;
   $("npsub").textContent = [d.artist, d.album].filter(Boolean).join(" · ");
+  // Its own line, number first, so a long chapter name loses its tail and
+  // never the number (see chapterLine).
+  const chap = chapterLine(d);
+  $("npchap").textContent = chap;
+  $("npchap").hidden = !chap;
   const img = $("npart");
   if (d.artwork && d.artwork !== npLastArt) {
     npLastArt = d.artwork;
@@ -176,6 +187,7 @@ export function initNowPlaying() {
     npState.elapsed = cur;
     npState.syncedAt = performance.now();
     $("np").classList.toggle("paused", pausing);
+    labelToggle(pausing);
     playerAction(pausing ? "pause" : "resume");
   };
 
@@ -246,4 +258,13 @@ export function initNowPlaying() {
     playerAction("volume", null, Number(npvolEl.value));
   });
   npvolEl.addEventListener("pointercancel", () => { npVolDrag = false; });
+}
+
+// An audiobook of ours (T5.6): the server sends the chapter as numbers and a
+// name, and the words are the page's, in the page's language — /nowplaying is
+// polled with no language of its own. «Capitolo 3 di 9 · Il Castaldo».
+function chapterLine(d) {
+  if (!d.chapter) return "";
+  const line = ui("np_chapter").replace("{n}", d.chapter).replace("{total}", d.chapters);
+  return d.chapter_title ? `${line} · ${d.chapter_title}` : line;
 }

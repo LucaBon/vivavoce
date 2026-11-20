@@ -1,9 +1,8 @@
 """The sentences for spoken media: «vai avanti di 30 secondi», «metti
-l'audiolibro X».
+l'audiolibro X», «riprendi il libro X», «capitolo successivo».
 
 Its own module because ``intents.py`` is near the size ceiling and this is
-the part that will grow — chapters, speed and «riprendi il libro» come next
-(T5.6). A mixin over :class:`router.Router`, like the other four: it reads
+the part that grows (T5.6). A mixin over :class:`router.Router`, like the other four: it reads
 the router's aimed client, its guard and its yes/no offer.
 
 **One step, run before the transport block** (see ``IntentTable._route``).
@@ -23,8 +22,10 @@ from __future__ import annotations
 import re
 
 import actions
+from conversation import cannot
 from messages import msg
 from parsing import _minutes_of
+from player.book_position import LENGTH_TOLERANCE, chapter_name
 from player.errors import PlayerError
 
 #: «mezzo minuto», "half a minute", «eine halbe Minute», «une demi-minute»,
@@ -44,6 +45,10 @@ _ARTICLES = ("a", "an", "un", "uno", "una", "une", "ein", "eine", "einen")
 #: How many books a spoken title is weighed against. The catalogue's own
 #: ranking is only the tiebreaker: see :meth:`SpokenIntents._play_book`.
 BOOK_CANDIDATES = 5
+
+#: The spoken chapter moves, as ``(pattern key, step)``: 0 asks, ±1 moves.
+_CHAPTER_STEPS = (("chapter_which", 0), ("chapter_next", 1),
+                  ("chapter_prev", -1))
 
 
 def _number(words):
@@ -124,8 +129,17 @@ class SpokenIntents:
     books = None  # a player.composite.Composite, or None: no --library
 
     def _route_spoken(self, t: str, P: dict, is_play: bool):
-        """The reply for a jump or a book, or ``None`` when ``t`` is neither
-        and routing goes on."""
+        """The reply for a jump, a speed change or a book, or ``None`` when
+        ``t`` is none of those and routing goes on."""
+        # Ahead of the seek check below and not gated on is_play: «metti a
+        # velocità 1.2» carries a play verb, unlike «vai avanti di 30
+        # secondi». No backend can do this yet, so the answer is fixed —
+        # no Capabilities flag, no transport call. A GATE, as every "this
+        # system cannot" is (conversation.cannot): a second-best transcription
+        # must not turn «più veloce» into a search that starts a song.
+        if P["speed"].match(t):
+            return actions.ActionResult(msg("no_speed"), ok=False,
+                                        kind=actions.GATE)
         if not is_play:
             for key, sign in (("seek_back", -1), ("seek_fwd", 1)):
                 m = P[key].match(t)
@@ -137,9 +151,15 @@ class SpokenIntents:
                     return (self._unable("seek", say="no_seek")
                             or actions.seek_relative(self.lms, sign * seconds))
         if self.books is not None:
-            m = P["audiobook"].match(t)
+            for key, step in _CHAPTER_STEPS:
+                if P[key].match(t):
+                    return self._chapter(step)
+            m = P["audiobook"].match(t) or P["resume_book"].match(t)
             if m:
-                return self._play_book(m.group(1).strip())
+                # The first group that took part: German «resume_book» has
+                # one per branch (see spoken_de).
+                title = next(g for g in m.groups() if g is not None)
+                return self._play_book(title.strip())
         return None
 
     def _play_book(self, query: str):
@@ -147,7 +167,10 @@ class SpokenIntents:
         try:
             found = self.books.book_candidates(query, BOOK_CANDIDATES)
         except PlayerError:
-            return actions.unreachable()
+            # The catalogue's own search, not the hi-fi: name it, so a
+            # rebooting Audiobookshelf is not reported as the whole system
+            # being down (the music, on the same speakers, still plays).
+            return actions.unreachable(self.books.label)
         if guard is not None:
             # Blocked is not found: naming the book back to the child who
             # asked for it is the one thing a blocklist must not do. The
@@ -175,6 +198,50 @@ class SpokenIntents:
                                lambda: self._start_book(book))
         return self._start_book(book)
 
+    def _chapter(self, step: int):
+        """«a che capitolo sono» (``step`` 0), or a move of ``step`` chapters
+        through the book this player is playing (T5.6).
+
+        Only a book Vivavoce itself started can be placed — the transport says
+        which queue position is playing, never which file — so «no audiobook
+        playing» covers a book started from Audiobookshelf's own app too, and
+        says so («messo da me»). See ``Composite.chapter_at`` for how a queue
+        changed since is told apart.
+        """
+        try:
+            where = self.books.chapter_at(self.lms)
+            if where is None:
+                return actions.ActionResult(msg("no_book_playing"), ok=False)
+            chapters, target = where["chapters"], where["index"] + step
+            if not step:
+                return actions.ActionResult(
+                    _chapter_said("chapter_now", target, chapters), ok=True)
+            if target < 0:
+                return actions.ActionResult(msg("chapter_first"), ok=False)
+            if target >= len(chapters):
+                return actions.ActionResult(msg("chapter_last"), ok=False)
+            chapter = chapters[target]
+            reached = self.books.play_chapter(self.lms, where["item_id"],
+                                              chapter)
+        except ValueError:
+            # The book's own files cannot place it (Composite.play_chapter):
+            # not the player's fault, so not «this system cannot».
+            return actions.ActionResult(msg("chapter_unplaceable"), ok=False)
+        except PlayerError as exc:
+            # As in _start_book: the catalogue named, the speakers not.
+            service = self.books.label if getattr(exc, "from_library", False) else None
+            return actions.unreachable(service)
+        if reached is None:
+            return cannot("no_seek_chapter")
+        if reached < chapter["start"] - LENGTH_TOLERANCE:
+            # The seek into the file failed after the file started: what
+            # plays is that file from its start, and the reply must not
+            # name a chapter the listener is not hearing.
+            return actions.ActionResult(msg("chapter_file_start", n=target + 1),
+                                        ok=True)
+        return actions.ActionResult(
+            _chapter_said("chapter_playing", target, chapters), ok=True)
+
     @staticmethod
     def _book_score(query: str, book: dict) -> float:
         """How well ``query`` names ``book``: by its title, or by its title
@@ -186,13 +253,68 @@ class SpokenIntents:
     def _start_book(self, book: dict):
         title = book.get("title") or ""
         try:
-            queued = self.books.enqueue(self.lms, book["id"], "play")
-        except PlayerError:
-            return actions.unreachable()
+            start = self.books.progress(book["id"]) or 0.0
+        except PlayerError as exc:
+            # Audiobookshelf owns this fact and nothing else does (T5.5), but
+            # not knowing it must not cost the listener the book itself —
+            # only the resume. Logged, not raised: the catalogue may just be
+            # slow to answer, and its files are asked for next regardless.
+            print(f"Audiobookshelf: non riesco a leggere il progresso di "
+                  f"{title!r} ({exc}); riparto da capo.")
+            start = 0.0
+        try:
+            queued, reached = self.books.play_from(self.lms, book["id"], start)
+        except PlayerError as exc:
+            # enqueue() makes two kinds of call: fetching the book's own
+            # files (the catalogue) and sending them to the speakers (the
+            # transport) — see Composite.play_from. Only the first is named;
+            # a transport failure keeps the generic "the system", which is
+            # the LMS/MusicAssistant player it was already about.
+            service = self.books.label if getattr(exc, "from_library", False) else None
+            return actions.unreachable(service)
         if not queued:
             return actions.ActionResult(msg("book_no_audio", title=title),
                                         ok=False)
+        # What is said is where playback really begins, not where the
+        # listener stopped: the two differ when a file's length is unknown or
+        # the player cannot seek (see Composite.play_from). Under a minute in
+        # is not worth announcing as a resume.
+        if reached >= 60:
+            return actions.ActionResult(
+                msg("book_resumed", title=title, position=_position(reached)),
+                ok=True, terms=[title])
+        if start >= 60:
+            # There was a place to go back to, and the player did not get
+            # there (a seek it accepted and did not do: see
+            # Composite._landed). Said, not hidden behind «Metto l'audiolibro».
+            return actions.ActionResult(
+                msg("book_from_start", title=title, position=_position(start)),
+                ok=True, terms=[title])
         author = book.get("author")
         key = "book_playing_by" if author else "book_playing"
         return actions.ActionResult(msg(key, title=title, author=author),
                                     ok=True, terms=[title])
+
+
+def _position(seconds: float) -> str:
+    """How far into a book, in whole minutes, as a person says it: «un'ora e
+    30 minuti», not «90 minuti»."""
+    hours, minutes = divmod(int(seconds) // 60, 60)
+    said_minutes = (msg("resume_one_minute") if minutes == 1
+                    else msg("resume_minutes", n=minutes))
+    if not hours:
+        return said_minutes
+    said_hours = (msg("resume_one_hour") if hours == 1
+                  else msg("resume_hours", n=hours))
+    if not minutes:
+        return said_hours
+    return msg("resume_hours_minutes", hours=said_hours, minutes=said_minutes)
+
+
+def _chapter_said(key: str, index: int, chapters: list) -> str:
+    """Chapter ``index`` of ``chapters`` as the reply ``key`` says it: by
+    number, and by name too when it has one that is more than its number."""
+    title = chapter_name(chapters[index].get("title") or "", index)
+    if title:
+        return msg(f"{key}_titled", n=index + 1, total=len(chapters), title=title)
+    return msg(key, n=index + 1, total=len(chapters))

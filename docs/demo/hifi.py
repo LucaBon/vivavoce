@@ -9,7 +9,9 @@ nothing else, so a branch of the engine that forgot to ask fails here the way
 it would on a real partial backend.
 
 The catalogue is chosen for the cases the demo exists to show. Two records are
-called «Time»; «Wish You Were Here» is not here at all. «metti Time di Hans
+called «Time»; «Wish You Were Here» is not here at all, and «Here Comes the
+Sun» is — so a keyword search (``naive.py``, the page's comparison) has
+something wrong to play for it. «metti Time di Hans
 Zimmer» must start Zimmer's, and a song it has not got must be *said*, not
 replaced by the first hit.
 
@@ -41,6 +43,7 @@ CATALOGUE = (
     ("Time", "Hans Zimmer", "Inception", 275),
     ("Bohemian Rhapsody", "Queen", "A Night at the Opera", 354),
     ("Clair de lune", "Claude Debussy", "Suite bergamasque", 300),
+    ("Here Comes the Sun", "The Beatles", "Abbey Road", 185),
 )
 
 

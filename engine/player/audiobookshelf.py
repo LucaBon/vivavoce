@@ -86,9 +86,14 @@ _STATUS_HINTS = {
 }
 
 
-def get(base_url: str, token: str, request: Dict[str, Any],
-        timeout: float) -> Any:
-    """One ``GET``, and its body as JSON.
+def call(base_url: str, token: str, request: Dict[str, Any],
+         timeout: float) -> Any:
+    """One request, and its reply body as JSON.
+
+    A ``GET`` unless the request names a ``method``, and any other method is
+    a write: its ``body`` goes as JSON, and the reply is not read —
+    Audiobookshelf answers a progress ``PATCH`` with a bare «OK», which is
+    not JSON, and a write has nothing to report back but its status.
 
     Every failure is an :class:`AudiobookshelfError`, because from the engine
     up "the bookshelf did not answer" is one outcome and the detail is for
@@ -102,21 +107,33 @@ def get(base_url: str, token: str, request: Dict[str, Any],
     url = base_url.rstrip("/") + request["path"]
     if query:
         url += "?" + urllib.parse.urlencode(query)
-    http_request = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {token}",
-                      "Accept": "application/json"})
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    method = request.get("method") or "GET"
+    write = method != "GET"
+    data = None
+    if write and request.get("body") is not None:
+        data = json.dumps(request["body"]).encode()
+        headers["Content-Type"] = "application/json"
+    http_request = urllib.request.Request(url, data=data, headers=headers,
+                                          method=method)
     try:
         with urllib.request.urlopen(http_request, timeout=timeout) as response:
-            payload = response.read()
+            payload = None if write else response.read()
     except urllib.error.HTTPError as exc:
         hint = _STATUS_HINTS.get(exc.code, "Audiobookshelf returned an error")
         kind = (AudiobookshelfUnreachable if exc.code in _GATEWAY_STATUSES
                 else AudiobookshelfRefused)
-        raise kind(f"{hint} ({exc.code}) for {request['path']}") from exc
+        error = kind(f"{hint} ({exc.code}) for {request['path']}")
+        # Carried for callers that need to tell one refusal from another —
+        # ``progress()`` reads a 404 as "never started", not as a failure.
+        error.status = exc.code
+        raise error from exc
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         raise AudiobookshelfUnreachable(
             f"Audiobookshelf at {base_url} is not answering: {exc}",
             delivered=not never_delivered(exc)) from exc
+    if payload is None:
+        return None
     try:
         return json.loads(payload)
     except ValueError as exc:
@@ -150,17 +167,19 @@ class AudiobookshelfClient(Resilient):
         self._init_resilience(timeout)
 
     def _http_transport(self, request: Dict[str, Any]) -> Any:
-        return get(self.base_url, self.token, request, self._call_timeout())
+        return call(self.base_url, self.token, request, self._call_timeout())
 
     def _repeat_safe(self, request: Dict[str, Any]) -> bool:
-        """Every request this client makes is a ``GET`` of the catalogue.
+        """Every request this client makes is safe to send twice.
 
-        There is nothing here that sending twice could do twice: no queue to
-        append to, no volume to step. A shelf is read, and the books on it
-        are played by whatever backend the engine was handed
-        (``player/composite.py``). So a reply that went missing is always
-        worth asking for again — which is the difference between one dropped
-        packet and «l'impianto non risponde».
+        Almost all are a ``GET`` of the catalogue: a shelf is read, and the
+        books on it are played by whatever backend the engine was handed
+        (``player/composite.py``). The one write, :meth:`save_progress`,
+        carries an absolute position — «at 350 s», never «35 s further» — so
+        a second copy leaves the server exactly where the first did. A reply
+        that went missing is therefore always worth asking for again — which
+        is the difference between one dropped packet and «l'impianto non
+        risponde».
         """
         return True
 
@@ -170,7 +189,7 @@ class AudiobookshelfClient(Resilient):
         Anything else that is still valid JSON — a list, a string, a number —
         is an answer from something that is not an Audiobookshelf: a captive
         portal, a reverse-proxy error page that happens to parse, or a schema
-        that moved under us. ``get()`` above already converts a body that is
+        that moved under us. ``call()`` above already converts a body that is
         not JSON at all; this is the other half of the same boundary, and
         without it the shape reached ``.get()`` three frames up as
         ``AttributeError: 'list' object has no attribute 'get'``.
@@ -231,6 +250,23 @@ class AudiobookshelfClient(Resilient):
     def stream_urls(self, item_id: str) -> List[str]:
         """The files of one book, in order, fetchable with no header at all.
 
+        Built on :meth:`tracks`, which is the one that actually asks — this
+        is only the URLs of what it returns, for a caller that has no use
+        for the durations beside them.
+        """
+        return [t["url"] for t in self.tracks(item_id)]
+
+    def tracks(self, item_id: str) -> List[Dict[str, Any]]:
+        """The files of one book, in order, as ``{"url", "duration"}``.
+
+        ``duration`` is seconds, ``0.0`` when the server did not say — which
+        is how :func:`player.composite.Composite.enqueue` tells "resume this
+        book partway through" from "the files are what they are, play them
+        from the start": it needs the length of each file to find *which*
+        file a resume point falls in, and this is the one call that already
+        fetches the item ``stream_urls`` fetches, so a resume costs nothing
+        extra on the wire.
+
         The key travels in the query string because the transport cannot be
         told to send one — see the module docstring. It is the same key the
         request itself used, so it grants nothing this client did not already
@@ -238,15 +274,98 @@ class AudiobookshelfClient(Resilient):
         at that queue can read it, which is why ``--library-token`` asks for
         a key of its own, on a user that can only listen.
         """
+        return self.book(item_id)["tracks"]
+
+    def chapters(self, item_id: str) -> List[Dict[str, Any]]:
+        """The chapters of one book as ``{"start", "end", "title"}``, in
+        seconds from the start of the whole book — a single ``.m4b`` and a
+        folder of MP3s read the same. Empty when the server has none (the
+        caller then counts files: ``Composite.chapter_at``). Sorted by
+        ``start``: the server's order is by ``id``, which a hand-edited
+        chapter list can hold apart."""
+        return self.book(item_id)["chapters"]
+
+    def book(self, item_id: str) -> Dict[str, Any]:
+        """One book as ``{"title", "author", "tracks", "chapters"}`` — what
+        :meth:`tracks` and :meth:`chapters` each answer half of, from the one
+        ``GET`` both already make. For a caller that needs it all at once:
+        the now-playing panel and the chapter commands, which read it when
+        a book starts rather than on every poll of the page."""
         item = self._get(f"/api/items/{urllib.parse.quote(item_id, safe='')}",
                          expanded=1)
         media = item.get("media")
-        tracks = media.get("tracks") if isinstance(media, dict) else None
+        media = media if isinstance(media, dict) else {}
+        metadata = media.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
         suffix = "?" + urllib.parse.urlencode({"token": self.token})
-        return [self.base_url + track["contentUrl"] + suffix
-                for track in tracks or []
-                if isinstance(track, dict)
-                and isinstance(track.get("contentUrl"), str)]
+        tracks = [{"url": self.base_url + track["contentUrl"] + suffix,
+                   "duration": _seconds(track.get("duration"))}
+                  for track in media.get("tracks") or []
+                  if isinstance(track, dict)
+                  and isinstance(track.get("contentUrl"), str)]
+        chapters = [{"start": _seconds(ch.get("start")),
+                     "end": _seconds(ch.get("end")),
+                     "title": ch.get("title") if isinstance(ch.get("title"), str) else ""}
+                    for ch in media.get("chapters") or []
+                    if isinstance(ch, dict) and ch.get("start") is not None]
+        return {"title": metadata.get("title") or "",
+                "author": metadata.get("authorName") or "",
+                "tracks": tracks,
+                "chapters": sorted(chapters, key=lambda ch: ch["start"])}
+
+    def cover_url(self, item_id: str) -> str:
+        """Where the cover of ``item_id`` is, fetchable with no header — the
+        key in the query, as for the files (see :meth:`tracks`). Built, not
+        asked: the web server's ``/artwork`` proxy is what fetches it, and a
+        book with no cover answers 404 there, which the page already reads
+        as "no picture"."""
+        return (f"{self.base_url}/api/items/"
+                f"{urllib.parse.quote(item_id, safe='')}/cover?"
+                + urllib.parse.urlencode({"token": self.token}))
+
+    def save_progress(self, item_id: str, position: float,
+                      duration: Optional[float]) -> None:
+        """Tell Audiobookshelf the listener is ``position`` seconds into
+        ``item_id`` — the record :meth:`progress` reads, and the one its own
+        app resumes from (T5.5: it owns this fact, nothing here stores it).
+
+        ``PATCH /api/me/progress/<id>``, verified against ``advplyr/
+        audiobookshelf`` on 2026-09-25 (``MeController.createUpdateMediaProgress``
+        → ``User.createUpdateMediaProgressFromPayload``). The server computes
+        nothing: ``progress`` is stored as sent, and a ``duration`` not sent
+        is stored as 0. So both go only when the book's length is known, and
+        a position alone otherwise. ``isFinished`` is never sent: finishing
+        a book is the app's business, not a sampler's.
+        """
+        body: Dict[str, Any] = {"currentTime": position}
+        if duration:
+            body["duration"] = duration
+            body["progress"] = min(1.0, position / duration)
+        self._guarded({
+            "path": f"/api/me/progress/{urllib.parse.quote(item_id, safe='')}",
+            "method": "PATCH", "body": body})
+
+    def progress(self, item_id: str) -> Optional[float]:
+        """How far into ``item_id`` the last listener got, in seconds — or
+        ``None`` for a book never started, or finished (``isFinished``:
+        starting over is what "riprendi" should do with nothing left to
+        resume).
+
+        Audiobookshelf owns this fact; nothing here stores it (T5.5). A book
+        the server has no record of answers ``404`` — "never started" and
+        "no such item" are the same reply from its side, and the caller
+        already lost the second case at ``book_candidates`` if it mattered.
+        """
+        try:
+            answer = self._get(
+                f"/api/me/progress/{urllib.parse.quote(item_id, safe='')}")
+        except AudiobookshelfRefused as exc:
+            if getattr(exc, "status", None) == 404:
+                return None
+            raise
+        if not answer or answer.get("isFinished"):
+            return None
+        return _seconds(answer.get("currentTime"))
 
 
 def _book(item: Any) -> Optional[Dict[str, Any]]:

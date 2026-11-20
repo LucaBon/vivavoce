@@ -199,7 +199,8 @@ STARTS = {"play_url", "play_tracks", "play_browse_item"}
 
 def test_the_page_suggests_the_same_things_in_all_five_languages():
     assert sorted(PHRASES) == ["de", "en", "es", "fr", "it"]
-    shapes = {lang: [p["expect"] for p in ps] for lang, ps in PHRASES.items()}
+    shapes = {lang: [(p["expect"], p["naive"]) for p in ps]
+              for lang, ps in PHRASES.items()}
     assert len(set(map(tuple, shapes.values()))) == 1, shapes
 
 
@@ -222,6 +223,95 @@ def test_every_suggested_phrase_does_what_the_page_promises(lang):
         else:
             assert expect == "controls", said
             assert out["ok"] and told and not told & STARTS, said
+        assert out["verdict"] == phrase["naive"], f"{said} naive={out['naive']}"
+
+
+@pytest.mark.parametrize("lang", sorted(PHRASES))
+def test_the_page_opens_on_the_differences(lang):
+    """The chips a visitor taps first are the ones where the typical
+    assistant gets it wrong: that difference is what the page is for."""
+    verdicts = [p["naive"] for p in PHRASES[lang]]
+    assert verdicts[:3] == ["differs"] * 3
+
+
+# -- the typical assistant beside it (naive.py) --------------------------------
+from naive import NOT_A_PLAY, naive_pick, naive_turn  # noqa: E402
+
+
+def test_the_typical_assistant_plays_the_first_hit_in_catalogue_order():
+    # «di Hans Zimmer» is two more keywords to it, and «Time» is on Pink
+    # Floyd's record first.
+    assert naive_pick("metti Time di Hans Zimmer", "it")["artist"] == "Pink Floyd"
+
+
+def test_the_typical_assistant_plays_something_rather_than_nothing():
+    assert naive_pick("play Wish You Were Here", "en")["title"] == "Here Comes the Sun"
+    assert naive_pick("metti Money for Nothing", "it")["title"] == "Money"
+
+
+def test_it_is_not_a_straw_man():
+    # Short words are not keywords: «the» must not find «The Dark Side of
+    # the Moon» when the album asked for is Inception.
+    assert naive_pick("play the album Inception", "en")["album"] == "Inception"
+    assert naive_pick("metti Time dei Pink Floyd", "it")["artist"] == "Pink Floyd"
+
+
+def test_it_finds_nothing_when_no_keyword_is_on_the_shelf():
+    assert naive_turn("metti Stairway to Heaven", "it") is None
+
+
+@pytest.mark.parametrize("phrase,lang", [
+    ("pausa", "it"), ("metti la 2", "it"), ("play number 2", "en"),
+    ("vai avanti di 30 secondi", "it"), ("quali sono i brani di Pink Floyd", "it"),
+])
+def test_only_a_request_to_play_is_compared(phrase, lang):
+    assert naive_turn(phrase, lang) == NOT_A_PLAY
+
+
+def test_a_refusal_beside_a_wrong_record_differs(demo):
+    out = demo.turn("metti Wish You Were Here", "it")
+    assert out["verdict"] == "differs"
+    assert out["naive"]["title"] == "Here Comes the Sun"
+
+
+@pytest.mark.parametrize("phrase,lang", [
+    ("metti Money in coda", "it"), ("play Money next", "en"),
+    ("metti Money dopo questa canzone", "it"),
+])
+def test_queueing_a_record_is_not_compared(phrase, lang):
+    # Its first hit is the very record queued: marking it wrong would count
+    # a wrong song that nobody avoided.
+    demo = boot.Demo(DemoHifi(now=lambda: 1000.0))
+    demo.turn("metti Breathe", "it")
+    out = demo.turn(phrase, lang)
+    assert out["ok"], out["speech"]
+    assert out["verdict"] == NOT_A_PLAY
+
+
+def test_a_right_first_hit_beside_a_miss_is_not_scored(demo):
+    # «Rapsody»: Vivavoce does not find it, the keyword search does. The
+    # page says so rather than calling Queen's record the wrong one.
+    out = demo.turn("play Bohemian Rapsody", "en")
+    assert not out["ok"]
+    assert out["naive"]["artist"] == "Queen"
+    assert out["verdict"] == "lucky"
+
+
+@pytest.mark.parametrize("phrase,lang", [
+    ("metti Money dei Beatles", "it"), ("spiele Money von den Beatles", "de"),
+])
+def test_the_right_title_by_the_wrong_artist_is_still_wrong(demo, phrase, lang):
+    assert demo.turn(phrase, lang)["verdict"] == "differs"
+
+
+def test_the_same_record_is_said_to_be_the_same(demo):
+    assert demo.turn("metti Time dei Pink Floyd", "it")["verdict"] == "same"
+
+
+def test_the_page_knows_what_comes_next(demo):
+    out = demo.turn("metti l'album The Dark Side of the Moon", "it")
+    assert out["now_playing"]["title"] == "Time"
+    assert [t["title"] for t in out["now_playing"]["upcoming"]] == ["Money", "Breathe"]
 
 
 def test_a_tap_sends_what_the_app_sends():
@@ -239,7 +329,8 @@ def test_a_tap_sends_what_the_app_sends():
 def test_a_tap_on_a_number_plays_it(lang):
     hifi = DemoHifi(now=lambda: 1000.0)
     demo = boot.Demo(hifi)
-    listing = demo.turn(PHRASES[lang][4]["say"], lang)
+    listing = demo.turn(next(p["say"] for p in PHRASES[lang]
+                             if p["expect"] == "lists"), lang)
     assert listing["needs_choice"], listing["speech"]
     out = demo.turn(_pick_templates()[lang].format(n=3), lang)
     assert out["ok"], out["speech"]
@@ -303,7 +394,7 @@ def test_the_list_is_enough_on_its_own(tmp_path):
     demo.mkdir()
     elsewhere = tmp_path / "cwd"
     elsewhere.mkdir()
-    for name in ("boot.py", "hifi.py"):
+    for name in ("boot.py", "hifi.py", "naive.py"):
         shutil.copy(os.path.join(DEMO_DIR, name), demo / name)
     probe = ("import sys; sys.path.insert(0, sys.argv[2]); import boot; "
              "boot.install(sys.argv[1]); "

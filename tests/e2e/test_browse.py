@@ -54,6 +54,20 @@ def test_closing_returns_to_the_commands(page, web):
     assert page.is_visible("#empty")   # the suggestions, back where they were
 
 
+def test_focus_follows_the_panel_and_escape_closes_it(page, web):
+    # Opening hides the link that was activated; focus left there would sit on
+    # an invisible element. Closing puts it back where the user left off.
+    page.goto(web().url)
+    page.wait_for_function("!!window.vivavoce")
+    page.focus("#material")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#browse:not([hidden])")
+    assert page.evaluate("document.activeElement.id") == "browseclose"
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#browse", state="hidden")
+    assert page.evaluate("document.activeElement.id") == "material"
+
+
 def test_the_close_button_still_closes_after_browsing_inside_the_frame(page, web):
     # The panel is closed directly, not with history.back(): navigating inside
     # the iframe adds entries to the JOINT session history, so a back() here

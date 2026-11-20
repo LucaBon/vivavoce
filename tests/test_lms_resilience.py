@@ -145,6 +145,68 @@ def test_the_breaker_is_shared_by_every_clone_of_a_client():
     assert c.for_player("bb:cc")._breaker is c._breaker
 
 
+# -- background calls (the audiobook progress sampler) ------------------------
+
+def test_background_failures_never_open_the_breaker():
+    # The sampler asks every half minute whether a book is still playing. With
+    # the hi-fi off, counting those would keep the breaker open all night, and
+    # the first sentence after switching it on would be refused unheard.
+    transport = CountingTransport(fail=99)
+    c = client(transport)
+    with c.background():
+        for _ in range(BREAKER_THRESHOLD * 3):
+            with pytest.raises(LMSError):
+                c.command("status")
+    assert c._breaker.open_for() == 0
+    assert c._breaker._failures == 0
+
+
+def test_a_background_success_still_closes_the_breaker():
+    # The other half: the sampler is the first to notice the hi-fi is back,
+    # and that is good news for the next sentence.
+    clock = Clock()
+    transport = CountingTransport(fail=BREAKER_THRESHOLD * 2)
+    c = client(transport)
+    c._breaker = _Breaker(now=clock)
+    for _ in range(BREAKER_THRESHOLD):
+        with pytest.raises(LMSError):
+            c.command("pause")
+    clock.advance(BREAKER_COOLDOWN + 1)
+    transport.fail = 0
+    with c.background():
+        c.command("status")
+    assert c._breaker.open_for() == 0
+
+
+def test_background_respects_an_open_breaker():
+    # Open is open: the sampler does not dial a server the turns gave up on.
+    clock = Clock()
+    transport = CountingTransport(fail=99)
+    c = client(transport)
+    c._breaker = _Breaker(now=clock)
+    for _ in range(BREAKER_THRESHOLD):
+        with pytest.raises(LMSError):
+            c.command("pause")
+    before = len(transport.calls)
+    with c.background(), pytest.raises(LMSError, match="not dialled again"):
+        c.command("status")
+    assert len(transport.calls) == before
+
+
+def test_background_is_per_thread_and_ends_with_the_block():
+    import threading
+    transport = CountingTransport(fail=99)
+    c = client(transport)
+    seen = []
+    with c.background():
+        worker = threading.Thread(target=lambda: seen.append(c._in_background()))
+        worker.start()
+        worker.join()
+        assert c._in_background()
+    assert seen == [False]
+    assert not c._in_background()
+
+
 # -- the turn budget -----------------------------------------------------------
 
 def test_calls_are_unbounded_until_a_turn_says_otherwise():

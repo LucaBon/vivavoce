@@ -32,6 +32,7 @@ sys.path.insert(0, HERE)  # router, http_api, ...
 
 import appdata
 import audio_engines  # noqa: E402
+import book_progress  # noqa: E402
 import cli  # noqa: E402
 from httpbase import BoundedThreadingHTTPServer  # noqa: E402
 import licensing  # noqa: E402
@@ -359,6 +360,11 @@ def main() -> int:
                   f"https://{hosts[0]}:{args.port}/ca.pem sul telefono e installala "
                   "come certificato CA (una volta sola).")
     print("Ctrl+C per fermare.")
+    if books is not None:
+        # Where each book is, saved to Audiobookshelf every half minute — so
+        # that music started from anywhere, Material Skin included, costs the
+        # book at most that (see book_progress.py). Only with --library.
+        book_progress.start(books)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

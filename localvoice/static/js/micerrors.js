@@ -6,7 +6,7 @@
 // fixed vocabulary of codes, and every one of them has a thing the person in
 // front of the phone could actually do about it.
 //
-// Kept apart from strings.js because it is the one table keyed by somebody
+// Kept apart from strings_*.js because it is the one table keyed by somebody
 // else's words: it changes when a browser invents a code, not when we write
 // a new sentence.
 

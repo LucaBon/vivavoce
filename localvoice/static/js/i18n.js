@@ -14,7 +14,8 @@
 // graph and no cycle can bite at evaluation time.
 
 import { $ } from "./util.js";
-import { UI_EN, UI_IT } from "./strings.js";
+import { UI_EN } from "./strings_en.js";
+import { UI_IT } from "./strings_it.js";
 
 export const LANGS = {
   it: { name: "Italiano", tag: "it-IT" },
@@ -62,8 +63,20 @@ export function refreshStatus() {
   } else if (statusBase === "offline") {
     statusEl.innerHTML = '<span class="warn">' + ui("offline") + "</span>";
   } else {
-    statusEl.textContent = ui("status_tap_write");
+    statusEl.textContent = ui(micLocked ? "status_locked" : "status_tap_write");
   }
+}
+
+// The free tier's knob is visibly off and opens the Pro panel when tapped; a
+// status line still saying "tap the microphone and speak" under it contradicts
+// the one thing on screen that is telling the truth. Not a status base of its
+// own: it only rewords "nothing is wrong", so every real problem (no mic, no
+// HTTPS, hi-fi unreachable) still wins and setLmsDown needs no changes.
+let micLocked = false;
+export function setMicLocked(locked) {
+  if (locked === micLocked) return;
+  micLocked = locked;
+  if (statusBase === "default") refreshStatus();
 }
 
 // LMS reachability lamp: the header LED turns red and the status line warns.
@@ -96,6 +109,7 @@ export function applyUI() {
   $("mic").title = ui("mic_title");
   $("mic").setAttribute("aria-label", ui("mic_title"));
   $("log").setAttribute("aria-label", ui("log_label"));
+  document.querySelector(".hero").setAttribute("aria-label", ui("lbl_controls"));
   // the data-i18n swap resets #micstate to idle text: keep it truthful while listening
   $("micstate").textContent = $("mic").classList.contains("listening")
     ? ui("micstate_listening") : ui("micstate_idle");

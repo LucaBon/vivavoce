@@ -52,8 +52,8 @@ export function useServerWakeInstead(restart) {
   restart();
 }
 
-// Kept here rather than in strings.js, which is at the line ceiling, and
-// because it is one panel's worth of words, like micerrors.js.
+// Kept here rather than in strings_*.js: one panel's worth of words, in both
+// languages side by side, like micerrors.js.
 const HINT = {
   it: { why: "Il riconoscimento vocale di questo browser non funziona qui " +
                 "(con Edge succede spesso). In Chrome il microfono funziona:",

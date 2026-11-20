@@ -37,8 +37,8 @@ def _asset(*parts):
 
 
 def _ui_table(name):
-    """The keys of ``UI_EN`` / ``UI_IT`` as written in strings.js."""
-    source = _asset("static", "js", "strings.js")
+    """The keys of ``UI_EN`` / ``UI_IT`` as written in strings_en/_it.js."""
+    source = _asset("static", "js", "strings_%s.js" % name[-2:].lower())
     body = source.split("export const %s = {" % name, 1)[1]
     body = re.split(r"^export const ", body, flags=re.M)[0]
     return set(re.findall(r"^  ([A-Za-z_][A-Za-z0-9_]*)\s*:", body, re.M))
@@ -47,8 +47,8 @@ def _ui_table(name):
 def _hero_markup():
     """Just the sticky top area: the mic, the status line, the text box."""
     page = _asset("index.html")
-    start = page.index('<div class="hero">')
-    return page[start:page.index('<div class="content">', start)]
+    start = page.index('<div class="hero"')
+    return page[start:page.index('<div class="content"', start)]
 
 
 # -- on screen -----------------------------------------------------------------
@@ -75,7 +75,9 @@ def test_the_disclosure_is_not_hidden_by_the_markup():
 
 
 def test_no_stylesheet_rule_hides_the_disclosure():
-    css = _asset("static", "css", "app.css")
+    css_dir = os.path.join(WEB_DIR, "static", "css")
+    css = "".join(_asset("static", "css", n)
+                  for n in sorted(os.listdir(css_dir)) if n.endswith(".css"))
     for rule in re.findall(r"#ainotice[^{]*\{([^}]*)\}", css):
         assert "display: none" not in rule and "display:none" not in rule
         assert "visibility: hidden" not in rule

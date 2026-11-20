@@ -1,5 +1,126 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **Il punto d'ascolto torna su Audiobookshelf.** Mentre un audiolibro messo
+  da Vivavoce suona, ogni mezzo minuto la posizione viene salvata su
+  Audiobookshelf, la stessa che usa la sua app. Se in mezzo al libro metti
+  un disco — a voce, da Material Skin o dal telecomando — «riprendi il libro
+  X» riparte da dove eri, perdendo al più l'ultimo mezzo minuto; e da lì
+  riparte anche l'app sul telefono. Vale anche il contrario: se riprendi il
+  libro sull'impianto, è l'impianto a scrivere, e la posizione che il
+  telefono aveva raggiunto nel frattempo viene sostituita. Un impianto in
+  pausa non scrive niente. Il libro non viene mai segnato come finito:
+  quello resta all'app. Con l'impianto spento il salvataggio aspetta in
+  silenzio, e non rallenta il primo comando quando lo riaccendi. Senza
+  `--library` non parte niente.
+
+- **Una ripresa che non riesce lo dice.** Se il punto salvato non si può
+  raggiungere — il lettore non salta davvero, o Audiobookshelf non conosce
+  la durata dei file — la risposta è «Non riesco a riprendere X da 2 ore:
+  questo impianto lo fa ripartire dall'inizio», invece di un «Metto
+  l'audiolibro» che nascondeva la posizione persa. Provato sull'impianto
+  vero: LMS 9 accetta il salto dentro un `.m4b` servito da Audiobookshelf,
+  dice di saperlo fare, e riparte da zero senza errori. Vivavoce ora
+  controlla dove il lettore è arrivato davvero; e se non è arrivato, non
+  salva niente, così la posizione di Audiobookshelf non viene sovrascritta
+  con quella sbagliata. Su LMS un audiolibro in un file unico si ascolta
+  quindi dall'inizio, senza capitoli né ripresa; uno a più file funziona in
+  tutto.
+
+### Changed
+
+- **Una ripresa non blocca più l'impianto.** Provato sull'impianto: un salto
+  dato all'LMS nell'istante in cui un file remoto parte a volte viene
+  ignorato e a volte lo pianta, e uno a pochi secondi dalla fine del file lo
+  lascia «in riproduzione» senza suono e senza passare al file dopo. Ora
+  Vivavoce aspetta che il file suoni prima di saltare, e non salta mai negli
+  ultimi 20 secondi di un file: una ripresa lì riparte 20 secondi prima, e
+  la risposta dice il punto vero.
+
+- **Nella coda dell'impianto i capitoli hanno un nome prima di suonare.**
+  L'LMS legge i tag di un file remoto solo quando lo suona, quindi in
+  Material Skin ogni capitolo ancora da ascoltare era «Unknown». Ora
+  Vivavoce mette in coda ogni file col titolo del suo capitolo («Il Lupo e
+  la Volpe»), o col titolo del libro e il numero del file quando i capitoli
+  non coincidono coi file; quando il file parte, restano i suoi tag. La
+  musica non cambia: il titolo lo porta solo un audiolibro.
+
+- **Il riquadro «In riproduzione» mostra il libro.** Con un audiolibro
+  messo da Vivavoce, al posto del nome del file tagliato a metà compaiono
+  il titolo del libro, l'autore, una riga col capitolo che comincia dal
+  numero («Capitolo 3 di 9 · Il Castaldo, il Cane e la Volpe») e la
+  copertina di Audiobookshelf. Con la musica il riquadro è quello di
+  sempre. Material Skin mostra ancora il nome del file: legge dall'LMS, che
+  del libro sa solo quello. Dopo un riavvio di Vivavoce il libro va
+  rimesso a voce perché il riquadro lo riconosca di nuovo.
+
+- **Un audiolibro si attraversa per capitoli.** «capitolo successivo»,
+  «capitolo precedente» e «a che capitolo sono», nelle cinque lingue, su un
+  libro messo da Vivavoce. I capitoli sono quelli di Audiobookshelf, anche
+  dentro un unico file `.m4b`; un libro che non ne ha conta un capitolo per
+  file. La risposta dice il numero, e il titolo quando è più del numero
+  («capitolo 3 di 19, "Un incontro inatteso"»). Se sullo stesso lettore nel
+  frattempo è partito altro — un disco messo da Material Skin, per esempio —
+  la risposta dice che non sta suonando un audiolibro, e non tocca niente. Un
+  lettore che non sa saltare dentro un file non riceve un capitolo che
+  inizia a metà di uno: lo dice invece di mettere quello prima. «avanti» e
+  «indietro» da soli continuano a passare al file successivo e precedente.
+
+- **Un audiolibro già iniziato riparte da dove era rimasto.** «metti
+  l'audiolibro X», e ora anche «riprendi il libro X», leggono il punto
+  d'ascolto che Audiobookshelf tiene già per la sua app, e ripartono da lì:
+  mettono in coda solo i file da quel punto in avanti e saltano al secondo
+  giusto; la risposta dice da dove, in ore e minuti («da un'ora e 30
+  minuti»). Se il lettore non sa saltare dentro un file, o Audiobookshelf non
+  conosce la durata dei file, la risposta dice il punto da cui l'ascolto
+  riparte davvero, non quello salvato. Un libro finito o mai aperto
+  parte dall'inizio, come prima. «metti a velocità 1.2» ha una risposta che si può usare
+  invece di un errore, e non tocca il lettore. E se a non rispondere è
+  Audiobookshelf, la risposta dice Audiobookshelf invece di «l'impianto».
+
+- **La pagina si legge meglio, su più schermi e anche senza mouse.** Una
+  revisione dell'interfaccia contro le euristiche di Nielsen e WCAG AA. Il
+  suggerimento nella casella e il bordo dei campi arrivano al contrasto
+  minimo, e su iPhone i campi delle impostazioni non fanno più zoomare la
+  pagina. Con il telefono in orizzontale la conversazione ha di nuovo
+  spazio: da 30 a oltre 200 px. La libreria di Material Skin è un pulsante
+  sopra le impostazioni invece di un link grigio in fondo, e il suo pannello
+  si chiude con Esc e restituisce il fuoco. Le impostazioni sono divise in
+  Ascolto, Musica, Risposta e Pro, e nessun menu vi è più tagliato a metà.
+  Sotto un microfono bloccato la riga di stato dice di scrivere invece di
+  invitare a toccarlo. Il microfono e il pulsante play/pausa hanno un nome
+  che dice cosa fanno.
+
+- **La demo mette Vivavoce accanto a un assistente qualunque.** Ogni frase
+  che chiede musica ora mostra due colonne: che cosa avrebbe messo un
+  assistente che fa della frase parole chiave e suona il primo risultato, e
+  che cosa ha fatto Vivavoce. «metti Time di Hans Zimmer» lì diventa il
+  «Time» dei Pink Floyd, e «Wish You Were Here» diventa «Here Comes the Sun»,
+  segnati in rosso; dove i due fanno la stessa cosa la pagina lo dice. La
+  regola dell'altro assistente è scritta in pagina ed è onesta di proposito
+  (stesse frasi, stesso scaffale, parole corte ignorate: niente pagliaccio),
+  e quando Vivavoce non trova qualcosa che il primo risultato indovina —
+  «Bohemian Rapsody» — la pagina lo ammette invece di contarlo.
+  In cima c'è il conto dei brani sbagliati evitati, la risposta si sente
+  (la voce del browser, disattivabile con 🔊), e l'impianto finto ha una
+  copertina disegnata, la barra di avanzamento e la coda; i comandi mandati
+  all'impianto sono ancora lì, dentro un riquadro chiuso.
+
+### Internal
+
+- **La CI non fallisce più per aver trovato quello che cercava.** Il
+  controllo d'avvio dell'add-on faceva `docker logs addon | grep -q
+  "Pronto"`: sotto `pipefail`, quando `grep` trova la riga ed esce mentre
+  `docker` sta ancora scrivendo, la pipe finisce con 141 e il passo diventa
+  rosso. È successo sul push della 0.8.0. Ora il log si legge prima e si
+  cerca dopo, e la scelta del tag più recente usa `git for-each-ref
+  --count=1` invece di `| head -1`, che è la stessa gara. Un test in
+  `tests/test_packaging.py` rifiuta d'ora in poi ogni `| grep -q`, `| grep
+  -m` o `| head` nei passi dei workflow.
+
 ## 0.8.0 — September 2026
 
 ### New

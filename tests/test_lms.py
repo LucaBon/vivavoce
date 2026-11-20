@@ -237,6 +237,20 @@ def test_play_tracks_first_plays_rest_added(lms, transport):
     ]
 
 
+def test_a_track_with_a_title_is_queued_with_it(lms, transport):
+    # A remote file the LMS has not streamed yet has no tags read: the queue
+    # showed «Unknown» for every chapter still to come (the hi-fi,
+    # 2026-09-25). A title sent with the URL is what it shows until then.
+    lms.play_tracks([{"url": "http://abs/1.mp3", "queue_title": "01 - Il Leone"},
+                     {"url": "http://abs/2.mp3", "queue_title": "02 - Gli Dei"},
+                     {"url": "http://abs/3.mp3"}])
+    assert transport.commands() == [
+        ["playlist", "play", "http://abs/1.mp3", "01 - Il Leone"],
+        ["playlist", "add", "http://abs/2.mp3", "02 - Gli Dei"],
+        ["playlist", "add", "http://abs/3.mp3"],
+    ]
+
+
 def test_play_tracks_empty_is_noop(lms, transport):
     lms.play_tracks([])
     assert transport.calls == []

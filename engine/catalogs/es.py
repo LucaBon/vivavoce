@@ -17,6 +17,9 @@ MESSAGES = {
     "err_unreachable":
         "No consigo conectar con el equipo en este momento. "
         "Inténtalo de nuevo en un momento.",
+    "err_unreachable_service":
+        "No consigo conectar con {service} en este momento. "
+        "Inténtalo de nuevo en un momento.",
     "err_busy":
         "Todavía estoy respondiendo a la frase anterior. "
         "Inténtalo de nuevo en un momento.",
@@ -173,12 +176,36 @@ MESSAGES = {
     "span_one_minute": "un minuto",
     "ask_seek": "No he entendido cu\u00e1nto moverme. \u00bfPuedes repetirlo?",
     "no_seek": "Este equipo no sabe moverse dentro de una canci\u00f3n.",
+    "no_speed": "La velocidad de lectura se cambia desde la app: todav\u00eda no "
+                "puedo hacerlo desde aqu\u00ed.",
     "book_playing": "Pongo el audiolibro {title}.",
     "book_playing_by": "Pongo el audiolibro {title} de {author}.",
     "book_did_you_mean": "\u00bfTe refieres al audiolibro {title}?",
     "book_did_you_mean_by": "\u00bfTe refieres al audiolibro {title} de {author}?",
     "no_book_found": "No he encontrado ning\u00fan audiolibro para {title}.",
     "book_no_audio": "{title} no tiene nada que escuchar: quiz\u00e1 es solo un e-book.",
+    "book_resumed": "Reanudo \"{title}\" a partir de {position}.",
+    "book_from_start":
+        "No puedo reanudar \"{title}\" a partir de {position}: "
+        "este sistema lo pone desde el principio.",
+    # How far in a resumed book starts, as the phrase above says it.
+    "resume_one_minute": "un minuto",
+    "resume_minutes": "{n} minutos",
+    "resume_one_hour": "una hora",
+    "resume_hours": "{n} horas",
+    "resume_hours_minutes": "{hours} y {minutes}",
+    # Chapters (T5.6): where the book is, and moving through it.
+    "chapter_now": "Estás en el capítulo {n} de {total}.",
+    "chapter_now_titled": "Estás en el capítulo {n} de {total}, \"{title}\".",
+    "chapter_playing": "Capítulo {n} de {total}.",
+    "chapter_playing_titled": "Capítulo {n} de {total}, \"{title}\".",
+    "chapter_first": "Ya es el primer capítulo.",
+    "chapter_last": "Ya es el último capítulo.",
+    "chapter_file_start": "No pude llegar al capítulo {n}: vuelvo al principio del archivo.",
+    "no_seek_chapter":
+        "Este sistema no puede saltar a un capítulo que empieza a mitad de un archivo.",
+    "chapter_unplaceable": "No sé dónde empieza ese capítulo en los archivos del libro.",
+    "no_book_playing": "Ahora no suena ningún audiolibro que haya puesto yo.",
     "now_playing": "Está sonando {title}.",
     "now_playing_by": "Está sonando {title} de {artist}.",
     "paused_on": "Está en pausa en {title}.",
