@@ -226,9 +226,16 @@ def api_v1_routes(router_for, multiroom=None):
             # type — is "typed": the turn is run exactly as written, which is
             # what every client that predates this field expects.
             via = "voice" if payload.get("via") == "voice" else "typed"
+            # What a recogniser heard before the user corrected it in the
+            # text box: the page sends it with the corrected, typed sentence,
+            # which is then offered as a correction to remember. Strings
+            # only, and a handful — the same discipline as ``alternatives``.
+            heard_in = payload.get("heard")
+            heard = ([h for h in heard_in if isinstance(h, str) and h.strip()][:10]
+                     if isinstance(heard_in, list) and via == "typed" else None)
             try:
                 result = router_for(conversation_id, player_id).handle_many(
-                    alternatives, source, lang, via=via)
+                    alternatives, source, lang, via=via, heard=heard)
             except Exception as exc:  # never 500 the client
                 # Logged where an administrator can read it. Until this line
                 # the traceback was swallowed whole: the page said «Errore

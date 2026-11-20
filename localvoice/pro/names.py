@@ -25,8 +25,9 @@ import time
 from typing import Any, Callable, Iterable, List, Optional
 
 from matching import parse_song_query
+from pro.corrections import Corrections
 from pro.name_index import NameIndex
-from pro.phonetic import fold
+from pro.phonetic import fold, phonetic_score
 
 #: How long after a turn the player is asked what it is playing: long enough
 #: for a streaming track to have replaced the previous one in its status.
@@ -58,6 +59,14 @@ MARGIN = 0.1
 #: rebuilt here is read back as the title and the artist it names.
 BY = {"it": "di", "en": "by", "de": "von", "fr": "par", "es": "de"}
 
+#: How alike what was said and what was then written must be for the page to
+#: offer "remember this". Low on purpose, measured on real cases: «sfigati»
+#: for «Audioslave» — a mishearing this repository has on record — is 0.24,
+#: «coming di eminem e johnny» for «Kamin di EMIN & JONY» 0.83, while
+#: somebody changing their mind («vasco», then «i Queen») is 0.18. A chip
+#: offered in error is ignored at no cost; nothing is kept without a tap.
+SUGGEST = 0.2
+
 
 def _in_background(fn: Callable, *args: Any) -> None:
     threading.Thread(target=fn, args=args, daemon=True).start()
@@ -73,12 +82,14 @@ class Names:
     """
 
     def __init__(self, index: NameIndex, license_mgr, *, capabilities=None,
+                 corrections: Optional[Corrections] = None,
                  spawn: Callable[..., None] = _in_background,
                  sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.monotonic,
                  settle: float = SETTLE_SECONDS,
                  refresh_every: float = REFRESH_SECONDS) -> None:
         self.index = index
+        self.corrections = corrections
         self.license = license_mgr
         self.capabilities = capabilities
         self._spawn = spawn
@@ -142,6 +153,88 @@ class Names:
             return {"index": i, "text": text, "title": entry.get("title"),
                     "artist": entry.get("artist")}
         return None
+
+    # -- corrections the household confirmed (phase 2) ----------------------
+
+    def correct(self, queries: List[str], lang: str = "it") -> Optional[dict]:
+        """The first of ``queries`` somebody confirmed a correction for, as
+        ``{"index", "text"}`` — or None. Applied before the turn is routed:
+        a confirmed rule outranks whatever the search would make of the
+        words, including a search that would have played something."""
+        if not self.pro_ok() or self.corrections is None:
+            return None
+        for i, query in enumerate(queries):
+            hit = self.corrections.lookup(query, lang)
+            if hit:
+                return {"index": i, "text": hit["meant"]}
+        return None
+
+    def suggest(self, heard: List[str], meant: str,
+                lang: str = "it") -> Optional[dict]:
+        """``{"heard", "meant"}`` to offer as "remember this", or None.
+
+        ``heard`` is what a spoken turn asked to play (every alternative),
+        ``meant`` what was then written and played. Offered only when the two
+        are alike enough to be the same request (:data:`SUGGEST`), differ in
+        their letters, and are not already a rule.
+        """
+        if not self.pro_ok() or self.corrections is None:
+            return None
+        meant = (meant or "").strip()
+        best, best_score = None, 0.0
+        for h in heard:
+            h = (h or "").strip()
+            if not fold(h) or fold(h) == fold(meant):
+                continue
+            score = phonetic_score(h, meant, lang)
+            if score > best_score:
+                best, best_score = h, score
+        if best is None or best_score < SUGGEST:
+            return None
+        known = self.corrections.items()
+        if any(fold(c["heard"]) == fold(best) and fold(c["meant"]) == fold(meant)
+               for c in known):
+            return None
+        return {"heard": best, "meant": meant}
+
+    # -- the settings page ---------------------------------------------------
+
+    def state(self) -> dict:
+        """What the settings section shows (``GET /names``)."""
+        history = self.index.history()
+        return {"pro": self.pro_ok(),
+                "history_enabled": self.index.history_enabled,
+                "history_count": len(history),
+                "history": [{"title": e.get("title"), "artist": e.get("artist"),
+                             "plays": e.get("weight")} for e in history[:20]],
+                "corrections": [
+                    {"id": c["id"], "heard": c["heard"], "meant": c["meant"],
+                     "lang": c.get("lang", "it")}
+                    for c in (self.corrections.items() if self.corrections else [])]}
+
+    def act(self, payload: dict) -> dict:
+        """One change from the settings page or a "remember" tap
+        (``POST /names``). Always answers with the new state."""
+        if not self.pro_ok():
+            return {"ok": False, "error": "pro_required", **self.state()}
+        action = payload.get("action")
+        ok = True
+        if action == "history":
+            self.index.set_history_enabled(payload.get("enabled") is True)
+        elif action == "clear_history":
+            self.index.clear_history()
+        elif action == "forget" and self.corrections is not None:
+            ok = self.corrections.forget(str(payload.get("id") or ""))
+        elif action == "remember" and self.corrections is not None:
+            heard, meant = payload.get("heard"), payload.get("meant")
+            lang = payload.get("lang")
+            ok = (isinstance(heard, str) and isinstance(meant, str)
+                  and self.corrections.add(
+                      heard, meant, lang if isinstance(lang, str) else "it")
+                  is not None)
+        else:
+            return {"ok": False, "error": "unknown_action", **self.state()}
+        return {"ok": bool(ok), **self.state()}
 
     # -- names read from the music system ------------------------------------
 

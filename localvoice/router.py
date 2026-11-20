@@ -36,6 +36,7 @@ from conversation import (CANDIDATES_GRACE, CANDIDATES_TTL, MOOD_TTL,
 from alternatives import AlternativeSweep
 from intents import IntentTable
 from intents_spoken import SpokenIntents
+from names_turn import NamesTurn
 from lang import PACKS
 from messages import msg, set_lang
 from parsing import clean_command
@@ -66,7 +67,7 @@ MOOD_WORDS = {code: pack.MOOD_WORDS for code, pack in PACKS.items()}
 
 
 class Router(ConversationState, IntentTable, SpokenIntents, SourceChoice,
-             AlternativeSweep):
+             AlternativeSweep, NamesTurn):
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
                  kidsafe=None, client_id="default", multiroom=None,
                  now=time.monotonic, books=None, names=None):

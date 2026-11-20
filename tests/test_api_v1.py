@@ -555,9 +555,9 @@ def _spy_on_via(monkeypatch):
     seen = []
     real = alternatives.AlternativeSweep.handle_many
 
-    def spy(self, alts, source="tidal", lang="it", *, via="typed"):
+    def spy(self, alts, source="tidal", lang="it", *, via="typed", **kw):
         seen.append(via)
-        return real(self, alts, source, lang, via=via)
+        return real(self, alts, source, lang, via=via, **kw)
 
     monkeypatch.setattr(alternatives.AlternativeSweep, "handle_many", spy)
     return seen

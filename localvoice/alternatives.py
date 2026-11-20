@@ -17,13 +17,8 @@ from __future__ import annotations
 
 import actions
 from conversation import Busy, OFFER, busy
-from lang import PACKS
 from messages import msg, set_lang
-from parsing import _reportable, clean_command
-
-#: The ``kind`` of an answer that asks the user to choose from a numbered
-#: list (``candidates.py``, ``matching._did_you_mean``): a question, not a play.
-CHOICE_KINDS = ("list", "disambiguate")
+from parsing import _reportable
 
 
 class AlternativeSweep:
@@ -83,66 +78,6 @@ class AlternativeSweep:
                 return self._payload(speech, alt, ok=True), primary, unmatched
         return None, primary, unmatched
 
-    def _rename(self, payload, alts, source: str, lang: str):
-        """A spoken turn that played nothing, tried once more with a name
-        this household really has (Pro, docs/name-recognition-design.md §1.3).
-
-        The recogniser writes «camin» for «Kamin»; the search finds three
-        Occitan songs with «camin» in the title and asks which. The injected
-        ``names`` feature knows «Kamin di EMIN & JONY» has been played here,
-        and that it sounds exactly like what was heard: the sentence is
-        rebuilt with that name and run through the whole router again —
-        kid-safe, rooms, sources and all — and the answer says what was
-        heard, so a wrong guess is never a silent one.
-
-        Only where nothing was lost by trying: a spoken turn (a typed name is
-        spelt as meant), that played nothing — a miss, a list to choose from,
-        a "did you mean". Never over a play, a gate, or a system that is not
-        answering. And not over a list that already holds the known name:
-        that list asked a fair question, and the answer is the user's.
-        """
-        names = getattr(self, "names", None)
-        if names is None or self.turn_via != "voice":
-            return payload
-        speech = payload["speech"] if payload is not None else None
-        kind = getattr(speech, "kind", None)
-        if speech is not None and kind not in CHOICE_KINDS + (OFFER,) and (
-                getattr(speech, "ok", False) or kind is not None):
-            return payload
-        P = (PACKS.get(lang) or PACKS["it"]).PATTERNS
-        heard = []
-        for alt in alts:
-            t = clean_command(alt)
-            m = t and (P["generic_play"].search(t) or (
-                "generic_play_suffix" in P and P["generic_play_suffix"].match(t)))
-            if m:
-                heard.append((t, m))
-        if not heard:
-            return payload
-        try:
-            found = names.rename([m.group(1).strip() for _t, m in heard], lang)
-        except Exception:  # noqa: BLE001 — a guess is never worth the turn
-            found = None
-        if not found or _lists(speech, found):
-            return payload
-        t, m = heard[found["index"]]
-        text = t[:m.start(1)] + found["text"] + t[m.end(1):]
-        result = self.handle(text, source, lang)
-        r_kind = getattr(result, "kind", None)
-        ok = getattr(result, "ok", False)
-        if not ok and r_kind != actions.GATE:
-            return payload  # the known name did no better: keep the first answer
-        if ok and r_kind is None:
-            self._close_list()  # it played: the first answer's list is moot
-        return self._payload(renamed_speech(m.group(1).strip(), result),
-                             text, ok=ok)
-
-    def _close_list(self) -> None:
-        self.candidates = None
-        self.cand_source = None
-        self.cand_player = None
-        self.cand_mode = "play"
-
     def _note_played(self, speech) -> None:
         """Tell the play history (Pro) what this turn started, if anything.
 
@@ -172,7 +107,7 @@ class AlternativeSweep:
                 "unmatched": False}
 
     def handle_many(self, alternatives, source: str = "tidal", lang: str = "it",
-                    *, via: str = "typed") -> dict:
+                    *, via: str = "typed", heard=None) -> dict:
         """Try each speech-recognition alternative until one is a hit.
 
         Web Speech (it-IT) often mangles English names ('Audioslave' -> 'sfigati');
@@ -214,17 +149,24 @@ class AlternativeSweep:
                 # half-way through someone else's sentence.
                 self.turn_via = via
                 self._aim.last = None  # see ConversationState._aimed_at
-                payload, primary, unmatched = self._sweep(alts, source, lang,
-                                                          repair=False)
-                if payload is None and unmatched:
-                    payload, second, _ = self._sweep(unmatched, source, lang,
-                                                     repair=True)
-                    # La primaria resta quella del PRIMO giro: se anche il
-                    # secondo fallisce, la frase da riportare è quella che
-                    # l'utente ha detto, non una riscritta da noi.
-                    if payload is None and primary is None:
-                        primary = second
-                payload = self._rename(payload, alts, source, lang)
+                # Misheard names (names_turn.py): a confirmed correction is
+                # applied before anything else, and a known name is tried
+                # after a turn that played nothing. Both no-ops unless the
+                # turn was spoken and the Pro feature is there.
+                payload = self._corrected(alts, source, lang)
+                if payload is None:
+                    payload, primary, unmatched = self._sweep(
+                        alts, source, lang, repair=False)
+                    if payload is None and unmatched:
+                        payload, second, _ = self._sweep(unmatched, source,
+                                                         lang, repair=True)
+                        # La primaria resta quella del PRIMO giro: se anche
+                        # il secondo fallisce, la frase da riportare è quella
+                        # che l'utente ha detto, non una riscritta da noi.
+                        if payload is None and primary is None:
+                            primary = second
+                    payload = self._rename(payload, alts, source, lang)
+                self._offer_to_remember(payload, alts, lang, heard)
         except Busy:
             return {"speech": busy(), "used": "", "ok": False, "terms": [],
                     "choices": [], "needs_choice": False, "unmatched": False}
@@ -238,30 +180,3 @@ class AlternativeSweep:
                 "unmatched": primary[3]}
 
 
-def _lists(speech, found) -> bool:
-    """Whether the answer already being given lists the known name: same
-    title, and same artist when both say one."""
-    title = actions._normalize(found.get("title"))
-    artist = actions._normalize(found.get("artist"))
-    for cand in getattr(speech, "candidates", None) or []:
-        c_title = actions._normalize(cand.get("title"))
-        c_artist = actions._normalize(cand.get("artist"))
-        if title and c_title == title and (not artist or not c_artist
-                                           or c_artist == artist):
-            return True
-        if not title and artist and c_artist == artist:
-            return True
-    return False
-
-
-def renamed_speech(heard: str, result):
-    """``result``, said after what was heard: «Ho sentito «camin». Riproduco
-    Kamin di EMIN & JONY.» Everything else the result carries stays, so the
-    reply is read, tagged and offered exactly like the one it replaces."""
-    return actions.ActionResult(
-        msg("heard_as", heard=heard) + str(result),
-        ok=getattr(result, "ok", False),
-        candidates=getattr(result, "candidates", None),
-        kind=getattr(result, "kind", None),
-        terms=getattr(result, "terms", None),
-        label=getattr(result, "label", None))

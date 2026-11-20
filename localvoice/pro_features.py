@@ -51,12 +51,15 @@ def build_names(data_dir: str, license_mgr, capabilities):
     the other state files (see PRIVACY.md).
     """
     try:
+        from pro.corrections import Corrections
         from pro.name_index import NameIndex
         from pro.names import Names
     except ImportError:
         return None
     index = NameIndex(os.path.join(data_dir, "name_index.json"))
-    return Names(index, license_mgr, capabilities=capabilities)
+    corrections = Corrections(os.path.join(data_dir, "corrections.json"))
+    return Names(index, license_mgr, capabilities=capabilities,
+                 corrections=corrections)
 
 
 def build_multiroom(license_mgr, client):

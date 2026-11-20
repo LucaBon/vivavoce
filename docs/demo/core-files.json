@@ -62,6 +62,7 @@
   "localvoice/lang/words_es.py",
   "localvoice/lang/words_fr.py",
   "localvoice/lang/words_it.py",
+  "localvoice/names_turn.py",
   "localvoice/parsing.py",
   "localvoice/router.py",
   "localvoice/sources.py"
