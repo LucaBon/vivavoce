@@ -1,6 +1,6 @@
 # Nomi mal sentiti: indice fonetico, correzioni, varianti, Whisper
 
-> Piano di lavoro. Stato: **proposta**, niente ancora implementato.
+> Piano di lavoro. Stato: **deciso** (§5), implementazione in corso.
 > Branch: `feature/riconoscimento-nomi`, da `develop` (`1c75695`).
 > Ordine concordato: **1 + 2**, poi **4**, infine **3**.
 > Verifiche fatte per questo documento: **2026-11-19**.
@@ -27,6 +27,19 @@ Due difetti distinti:
    streaming confronta lettere, non suoni (fasi 1, 4).
 
 ## 1. Vincoli del progetto che il piano rispetta
+
+- **Solo voce, solo Pro** (decisione §5.1). Tutto questo piano serve a
+  rimediare agli errori del *riconoscimento vocale*, e il microfono è Pro.
+  Nella casella di testo si scrive già il nome come va scritto: un comando
+  scritto non viene mai riscritto, corretto o allargato da niente di quanto
+  segue. Il server deve quindi sapere se un turno è stato detto o scritto:
+  il campo `via` (§2) arriva al passo 0, non alla fase 2.
+- **Dove sta il codice.** Lo schema è quello di kid-safe e multi-room: il
+  core (AGPL) espone un aggancio che riceve un oggetto funzione iniettato,
+  `None` = funzione spenta; l'oggetto vive in `localvoice/pro/` (EULA Pro) e
+  lo costruisce `localvoice/pro_features.py`. Nel core finiscono solo il
+  campo `via`, l'aggancio e l'evento «ho riprodotto X» per lo storico; chiave
+  fonetica, indice, correzioni e varianti stanno in `localvoice/pro/`.
 
 - **Core stdlib-only** (`engine/`, `localvoice/`): l'algoritmo fonetico è
   scritto a mano, niente `jellyfish`/`metaphone`.
@@ -60,7 +73,9 @@ Due difetti distinti:
   l'indice è l'unica rete di sicurezza, finché non arriva la fase 3.
 - Il client distingue già i turni scritti (`opts.typed` in `chat.js`) ma
   **non lo dice al server**: `/api/v1/command` riceve `text`,
-  `alternatives`, `client`, `source`, `lang`, `player`.
+  `alternatives`, `client`, `source`, `lang`, `player`. Le `alternatives`
+  non bastano a riconoscere un turno vocale: la pagina le manda solo quando
+  sono più di una, e Whisper ne dà sempre una.
 - Fonti di nomi disponibili oggi: `favorites_items()` (LMS),
   `local_*_candidates(query)` (solo *per query*, non un elenco completo),
   `playlist_candidates(query)`. **Non esiste** un elenco completo di
@@ -68,7 +83,13 @@ Due difetti distinti:
 
 ## 3. Misurare prima di cambiare
 
-Prima riga di codice: un **corpus di regressione** in
+**Passo 0b — il campo `via`.** `/api/v1/command` accetta
+`via: "voice" | "typed"`, opzionale; mancante vale `typed`, cioè «non
+toccare niente», il default sicuro per i client che non lo conoscono (Home
+Assistant, script). La pagina lo manda da `mic.js`, `localasr.js`, dal
+wake word e dalla casella di testo. Documentato in `docs/api.md`.
+
+**Passo 0a.** Un **corpus di regressione** in
 `tests/data/misheard.json`, una voce per caso reale.
 
 ```json
@@ -87,7 +108,7 @@ su questo corpus prima e dopo. Il rischio vero di tutto il piano è
 
 ## Fase 1 — Indice dei nomi noti e risoluzione fonetica
 
-### 1.1 Chiave fonetica — `engine/phonetic.py` (nuovo)
+### 1.1 Chiave fonetica — `localvoice/pro/phonetic.py` (nuovo)
 
 `phonetic_key(text, lang) -> str`: riduce un nome alla sua «pronuncia» in
 lettere, in modo che grafie diverse dello stesso suono collidano.
@@ -107,7 +128,7 @@ lettere, in modo che grafie diverse dello stesso suono collidano.
   `Pink Floyd`, e coppie che **non** devono collidere (Metallica/Megadeth,
   Emin/Eminem sotto soglia).
 
-### 1.2 L'indice — `engine/name_index.py` (nuovo)
+### 1.2 L'indice — `localvoice/pro/name_index.py` (nuovo)
 
 Un elenco di `{title, artist, album?, kind, source, weight, last_seen}`,
 con chiavi fonetiche precalcolate, in `data_dir/name_index.json` (scrittura
@@ -115,11 +136,15 @@ atomica come `blocklist_store._write_json_durably`).
 
 Fonti, in ordine di valore:
 
-1. **Storico di Vivavoce**: ogni riproduzione andata a buon fine (titolo,
-   artista, servizio) entra nell'indice con `weight` crescente a ogni
-   ripetizione. Funziona per *tutti* i servizi, streaming compresi, senza
-   chiedere niente a nessuna API. Si aggancia dove l'engine sa già di aver
-   riprodotto (`_dispatch_play`, `_play_tidal_track`).
+1. **Storico di Vivavoce** (attivo di default, §5.4): ogni riproduzione
+   andata a buon fine (titolo, artista, servizio) entra nell'indice con
+   `weight` crescente a ogni ripetizione. Funziona per *tutti* i servizi,
+   streaming compresi, senza chiedere niente a nessuna API. Lo storico si
+   *registra* da tutti i turni, scritti compresi — un comando scritto è la
+   fonte migliore della grafia giusta — ma si *usa* solo sui turni vocali.
+   Nel core, l'engine emette un evento «ho riprodotto X» dove sa già di aver
+   riprodotto (`_dispatch_play`, `_play_tidal_track`); senza un ascoltatore
+   iniettato l'evento non va da nessuna parte.
 2. **Preferiti LMS**: `favorites_items()`, gated da `Capabilities.favorites`.
 3. **Libreria locale**: serve un metodo nuovo,
    `local_artists(count) -> List[Dict]` (e forse `local_albums`), nel
@@ -132,10 +157,10 @@ Fonti, in ordine di valore:
 Aggiornamento pigro con TTL (es. 6 h) e in un thread, mai nel percorso di un
 turno; tetto di dimensione (es. 5 000 voci, scarta per `weight`/`last_seen`).
 
-### 1.3 Dove interviene — `localvoice/resolve.py` (nuovo mixin)
+### 1.3 Dove interviene — aggancio in `localvoice/alternatives.py`
 
-Nel giro delle alternative, *dopo* che il giro normale non ha trovato un
-colpo sicuro:
+Solo con `via == "voice"` e licenza Pro, nel giro delle alternative, *dopo*
+che il giro normale non ha trovato un colpo sicuro:
 
 1. Per ogni alternativa: `parse_song_query` → titolo/artista; cerca
    nell'indice per chiave fonetica.
@@ -160,9 +185,7 @@ Un turno **vocale** che non ha riprodotto, o ha offerto una lista da cui non
 si è scelto niente, seguito entro ~90 s, dallo **stesso client**, da un
 turno **scritto** che riproduce. Il secondo è la correzione del primo.
 
-- Il client manda `via: "voice" | "typed"` a `/api/v1/command` (campo nuovo,
-  opzionale, documentato in `docs/api.md`; i client vecchi non lo mandano e
-  non imparano niente, che è il default sicuro).
+- Il segnale si legge dal campo `via` del passo 0b.
 - `ConversationState` (per client) ricorda l'ultimo turno vocale: testo,
   alternative, esito, ora.
 - Anche **toccare una scelta** dopo un turno vocale è una conferma, ed è il
@@ -174,12 +197,11 @@ Chi dice «metti Vasco» e poi, deluso, scrive «metti i Queen» non sta
 correggendo niente. Due difese:
 
 - un minimo di somiglianza tra detto e scritto (testo o chiave fonetica);
-- **conferma esplicita**: sotto la risposta compare un chip «Ricorda: quando
-  sento "coming di eminem e johnny" intendo questo». Un tocco, e la
-  correzione è salvata. **Decisione aperta** (§5): conferma sempre, oppure
-  automatica sopra una soglia di somiglianza.
+- **conferma esplicita, sempre** (§5.2): sotto la risposta compare un chip
+  «Ricorda: quando sento "coming di eminem e johnny" intendo questo». Un
+  tocco, e la correzione è salvata. Senza tocco non si salva niente.
 
-### 2.3 Applicarle — `engine/corrections.py` (nuovo)
+### 2.3 Applicarle — `localvoice/pro/corrections.py` (nuovo)
 
 - `data_dir/corrections.json`: `{lang, heard_norm, heard_key, meant, hits,
   last_used}`, tetto 500, LRU.
@@ -188,8 +210,10 @@ correggendo niente. Due difese:
   cambiano da una volta all'altra), poi fonetica sopra soglia alta. Riscrive
   il testo e prosegue: il guard kid-safe lo vede comunque.
 - Il nome «meant» entra anche nell'indice della fase 1, con peso alto.
-- Gestione: elenco e cancellazione nelle impostazioni della pagina; per
-  ora niente comandi vocali per cancellarle.
+- Gestione (§5.3): nelle impostazioni della pagina, accanto a kid-safe, una
+  sezione «Nomi e correzioni» con l'elenco delle correzioni (cancellabili una
+  per una), l'interruttore dello storico e un pulsante per svuotarlo. Per ora
+  niente comandi vocali per cancellarle.
 
 ---
 
@@ -197,6 +221,8 @@ correggendo niente. Due difese:
 
 Per i brani **mai incontrati**, che l'indice non conosce.
 
+- Solo sui turni vocali Pro: il router passa a `play_song` un espansore di
+  ricerca iniettato (stesso stile del `guard=`), `None` sui turni scritti.
 - In `play_song` (poi artista e album), solo quando i risultati non hanno un
   candidato sopra `CONFIDENT_SCORE`: genera varianti del titolo e
   dell'artista con le regole inverse della chiave fonetica (`c → k`,
@@ -237,27 +263,25 @@ tokenizzati e troncati a metà del contesto (~224 token): ci stanno circa
 
 | Passo | Cosa | File principali | Stima |
 |---|---|---|---|
-| 0 | Corpus di regressione | `tests/data/misheard.json`, `tests/test_misheard.py` | piccola |
-| 1a | Chiave fonetica | `engine/phonetic.py` + test | media |
-| 1b | Indice + fonti (storico, preferiti, `local_artists`) | `engine/name_index.py`, `engine/player/*`, protocollo | grande |
-| 1c | Risoluzione nel giro delle alternative + OFFER | `localvoice/resolve.py`, `alternatives.py` | media |
-| 2 | Correzioni: `via`, segnale, chip, store, gestione | `engine/corrections.py`, `chat.js`, `api_v1.py`, `docs/api.md` | grande |
-| 4 | Varianti di grafia | `engine/spelling.py`, `actions.py` | media |
+| 0a | Corpus di regressione | `tests/data/misheard.json`, `tests/test_misheard.py` | piccola |
+| 0b | Campo `via` | `api_v1.py`, `router.py`, `chat.js`, `mic.js`, `localasr.js`, `docs/api.md` | piccola |
+| 1a | Chiave fonetica | `localvoice/pro/phonetic.py` + test | media |
+| 1b | Indice + fonti (storico, preferiti, `local_artists`) | `localvoice/pro/name_index.py`, evento di riproduzione nell'engine, `engine/player/*`, protocollo | grande |
+| 1c | Risoluzione nel giro delle alternative + OFFER | `alternatives.py`, `pro_features.py` | media |
+| 2 | Correzioni: segnale, chip, store, sezione impostazioni | `localvoice/pro/corrections.py`, `chat.js`, `index.html` | grande |
+| 4 | Varianti di grafia | `localvoice/pro/spelling.py`, `actions.py` | media |
 | 3 | Hotwords Whisper | `localvoice/pro/asr.py`, `audio_api.py` | piccola |
 | — | `PRIVACY.md`, `CHANGELOG.md` a ogni fase | | piccola |
 
 Ogni passo è un commit (o più) con i suoi test; e2e dove tocca la pagina.
 
-## 5. Decisioni aperte
+## 5. Decisioni (prese il 2026-11-20)
 
-1. **Free o Pro?** Indice e correzioni migliorano anche i comandi scritti
-   ma servono soprattutto al microfono, che è Pro. Proposta: indice e
-   varianti free (aiutano anche la casella di testo), correzioni e hotwords
-   Pro.
-2. **Correzioni: chip di conferma sempre, o automatiche sopra soglia?**
-   Proposta: chip sempre nella prima versione; l'automatico si valuta coi
-   dati.
-3. **Dove gestirle nella pagina**: sezione nuova nelle impostazioni, accanto
-   a kid-safe?
-4. **Lo storico è un dato nuovo**: va bene tenerlo di default, o lo si
-   accende da un'opzione? `PRIVACY.md` va aggiornato in ogni caso.
+1. **Tutto Pro, tutto solo voce.** Il microfono è Pro, e questi rimedi
+   servono solo dove c'è il microfono: nella casella di testo il nome si
+   scrive già giusto. Nessun comando scritto viene toccato.
+2. **Correzioni: conferma sempre**, con il chip. Niente apprendimento
+   automatico.
+3. **Gestione nelle impostazioni, accanto a kid-safe.**
+4. **Storico delle riproduzioni attivo di default**, spegnibile e
+   svuotabile dalla stessa sezione. Da dichiarare in `PRIVACY.md`.
