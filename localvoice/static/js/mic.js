@@ -20,10 +20,12 @@ import { handleManualFinal, autosendFollowWakeMode,
 import { wakeWord } from "./settings.js";
 import { createWakeHandler } from "./wakeword.js";
 import { micUI, serverWakeOn, syncWakePhrase,
-         serverWakeRunning, serverWakeStartPending, startServerWake,
+         serverWakeRunning, serverWakeStartPending, startServerWake, serverWakeUsable,
          restartServerWake, stopServerWake,
          endCommandCapture } from "./miccapture.js";
-import { localAsrOn, startLocalRec, cancelLocalRec } from "./localasr.js";
+import { localAsrOn, localAsrUsable, startLocalRec, cancelLocalRec } from "./localasr.js";
+import { serviceDown, useLocalAsrInstead, useServerWakeInstead,
+         showChromeHint } from "./micfallback.js";
 
 export { refreshServerWake } from "./miccapture.js";
 export { refreshAsr } from "./localasr.js";
@@ -90,8 +92,9 @@ export function initMic() {
     // Server-side wake word also works here (it never needed Web Speech for
     // detection) — but without Web Speech, the post-trigger command capture
     // can only be local ASR, never the one-shot fallback the other branch has.
+    // Local ASR is the only engine there is here, so it needs no toggle.
     const captureCommandNoSR = () => {
-      if (localAsrOn()) startLocalRec();
+      if (localAsrUsable()) startLocalRec();
       else $("status").textContent = ui("say_command");
     };
     mic.onclick = () => {
@@ -103,7 +106,7 @@ export function initMic() {
         else startServerWake(captureCommandNoSR);
         return;
       }
-      if (localAsrOn()) startLocalRec(); else refreshStatus();
+      if (localAsrUsable()) startLocalRec(); else refreshStatus();
     };
     // No Web Speech here, so continuous listening only exists via the
     // server-side engine; without it selected, there is nothing to start.
@@ -139,6 +142,13 @@ export function initMic() {
     // wake mode stops and says what happened.
     const MAX_WAKE_FAILURES = 5;
     let wakeFailures = 0;
+    // True when the session that just ended reported a real error. The browser
+    // always fires `end` right after `error`, and endCommandCapture() rewrites
+    // the status line — so without this the error was wiped within a frame and
+    // the mic just seemed to switch itself off (Edge with online speech
+    // recognition unreachable: `network`, nothing on screen).
+    let errorShown = false;
+    let fallBackToLocal = false;  // service down: onend hands over (micfallback.js)
     // Set when a live session is torn down deliberately (see stopAll), cleared
     // when the next one actually starts. There is only ONE recogniser object,
     // reused for every mode, so a late onend/onerror carries nothing that says
@@ -241,6 +251,7 @@ export function initMic() {
     };
     rec.onstart = () => {
       active = true; tornDown = false; wakeFailures = 0;
+      errorShown = false; fallBackToLocal = false;
       wake.newSession();  // before micUI: it is micUI that starts the app talking
       micUI(true);
       if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
@@ -272,12 +283,15 @@ export function initMic() {
         }, 350);
       } else if (tornDown) {
         mode = "off";  // torn down on purpose: whoever did it owns the status
+      } else if (fallBackToLocal) {
+        mode = "off"; fallBackToLocal = false;
+        useLocalAsrInstead();
       } else {
         // A plain tap-to-talk shot goes idle; a shot captured after a
         // server-wake trigger (mode "manual" via captureCommand) instead
         // falls back to "still listening for <the phrase>" when that's true.
         mode = "off";
-        endCommandCapture(isAwaitingReview());
+        endCommandCapture(isAwaitingReview() || errorShown);
       }
     };
     function leaveWakeMode() {
@@ -313,14 +327,23 @@ export function initMic() {
       if (mode === "wake") {
         // The routine end-of-session errors say nothing; onend restarts.
         if (ROUTINE_ERRORS.has(e.error)) return;
+        // No service to come back: the server-side engine takes over.
+        if (serviceDown(e) && serverWakeUsable()) {
+          useServerWakeInstead(restartWakeListening);
+          return;
+        }
         // Anything else is a real fault. Give it a few restarts (a Wi-Fi
         // blip recovers), then stop and say so rather than loop in silence.
         if (++wakeFailures < MAX_WAKE_FAILURES) return;
         leaveWakeMode();
         statusEl.textContent = ui("wake_gave_up")(e.error);
+        if (serviceDown(e)) showChromeHint();
         return;
       }
-      statusEl.textContent = ui("mic_error")(e);
+      if (serviceDown(e) && localAsrUsable()) { fallBackToLocal = true; return; }
+      errorShown = !ROUTINE_ERRORS.has(e.error);
+      if (errorShown) statusEl.textContent = ui("mic_error")(e);
+      if (serviceDown(e)) showChromeHint();
     };
     rec.onresult = (e) => {
       if (mode === "wake") { wake.wakeResult(e); return; }

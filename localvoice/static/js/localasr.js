@@ -30,8 +30,11 @@ let localRecStarting = false;   // getUserMedia pending: one is already opening
 let localRecCancelled = false;  // torn down on purpose: throw the audio away
 
 export const canRecord = () => !!(navigator.mediaDevices && window.MediaRecorder);
-export const localAsrOn = () =>
-  ASR.available && !asrFailed && canRecord() && $("localasr").checked;
+// The engine could take a command right now, whatever the toggle says: what
+// mic.js falls back to when the browser has no recogniser of its own, or one
+// that cannot reach its cloud service.
+export const localAsrUsable = () => ASR.available && !asrFailed && canRecord();
+export const localAsrOn = () => localAsrUsable() && $("localasr").checked;
 
 function renderAsrRow() {
   $("localasrrow").style.display = (ASR.available && canRecord()) ? "" : "none";
@@ -64,6 +67,51 @@ export function cancelLocalRec() {
   localRecCancelled = true;
   stopLocalRec();
 }
+// End of speech. Web Speech decides it on its own; MediaRecorder never does,
+// so a capture used to run to LOCALREC_MAX_MS: thirty seconds between saying
+// "cosa sta suonando" after the wake word and hearing the answer, which is
+// exactly how the hands-free path on Edge ran once it fell back to this
+// engine. Watch the level instead: stop ~1 s after speech goes quiet, and
+// give up (without uploading anything) if nobody speaks at all. A room that
+// is never quiet — the hi-fi itself playing loud — still ends at the cap.
+const SILENCE_MS = 1200;
+// Not heard at all for this long after the start. After a wake trigger the
+// first things in the recording are the tail of the wake phrase (the server
+// fires mid-word) and the beep: counted as speech, they made the natural
+// pause before the command look like its end, and "vivavoce" was all that
+// got transcribed.
+const DEAF_MS = 800;
+const NO_SPEECH_MS = 8000;
+const SPEECH_RMS = 0.02;  // ~ -34 dBFS, after the browser's noise suppression
+
+/** Call `onDone(spoke)` once, when the speaker has finished or never began.
+ *  Returns the function that stops watching. */
+function watchForSilence(stream, onDone) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return () => {};
+  const ctx = new AC();
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  const buf = new Float32Array(analyser.fftSize);
+  const start = performance.now();
+  let spoke = false, quietSince = start, timer = null;
+  const stop = () => { clearInterval(timer); ctx.close().catch(() => {}); };
+  timer = setInterval(() => {
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (const v of buf) sum += v * v;
+    const now = performance.now();
+    if (now - start < DEAF_MS) return;
+    if (Math.sqrt(sum / buf.length) > SPEECH_RMS) { spoke = true; quietSince = now; return; }
+    if (spoke ? now - quietSince > SILENCE_MS : now - start > NO_SPEECH_MS) {
+      stop();
+      onDone(spoke);
+    }
+  }, 100);
+  return stop;
+}
+
 export async function startLocalRec() {
   if (localRec) { stopLocalRec(); return; }  // second tap stops, like Web Speech
   if (localRecStarting) return;              // one is opening; see the flags above
@@ -98,8 +146,10 @@ export async function startLocalRec() {
     .find(t => MediaRecorder.isTypeSupported(t)) || "";
   const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
   const chunks = [];
+  let unwatch = () => {};
   rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   rec.onstop = () => {
+    unwatch();
     stream.getTracks().forEach(t => t.stop());
     localRec = null;
     clearTimeout(localRecTimer);
@@ -116,6 +166,8 @@ export async function startLocalRec() {
   micUI(true);
   $("status").textContent = ui("listening");
   localRecTimer = setTimeout(stopLocalRec, LOCALREC_MAX_MS);
+  // Silence only: nothing said is thrown away, not sent to be transcribed.
+  unwatch = watchForSilence(stream, (spoke) => (spoke ? stopLocalRec() : cancelLocalRec()));
 }
 async function transcribeBlob(blob) {
   $("status").textContent = ui("asr_working");

@@ -31,6 +31,10 @@ asr = [
     # installa. Senza quel parametro il modello arriva da qualunque cosa ci
     # sia sul branch principale del repository Hugging Face quel giorno.
     "faster-whisper>=1.2.1",
+    # onnxruntime (via faster-whisper) ha tolto le wheel cp310 dalla 1.24, ma
+    # il lock la sceglieva lo stesso per Python 3.10: `uv sync --group asr`
+    # falliva su Ubuntu 22.04 / WSL, il cui Python di sistema è proprio 3.10.
+    "onnxruntime<1.24; python_version == '3.10'",
 ]
 # Parola chiave LIBERA lato server (/wakeword, Pro): Vosk (Kaldi) a
 # riconoscimento libero, l'unico dei motori misurati che sente la frase

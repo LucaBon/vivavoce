@@ -12,9 +12,23 @@ services:
   vivavoce:
     # Da sorgente, che è ciò che serve quando si ha il repo sotto mano.
     # Per usare invece l'immagine pubblicata a ogni release (amd64 + arm64,
-    # nessun build): commenta la riga qui sotto e decommenta `image:`.
-    # Producono lo stesso container.
-    build: .
+    # nessun build): commenta il blocco `build:` e decommenta `image:`.
+    #
+    # ASR=1 include il riconoscimento vocale locale (faster-whisper, ~600 MB
+    # in più; il modello si scarica al primo avvio nel volume). È il ripiego
+    # che la pagina usa da sola quando il riconoscimento del browser non
+    # raggiunge il suo servizio — Edge, spesso: il microfono si spegneva
+    # mezzo secondo dopo il tocco. L'immagine pubblicata non lo include:
+    # con `image:` quel ripiego non c'è, e su Edge serve Chrome.
+    #
+    # WAKEWORD_VOSK=1 è lo stesso ripiego per l'ascolto continuo: la parola
+    # chiave ascoltata sul server (Vosk; il modello, ~50 MB, si scarica al
+    # primo avvio nel volume). Senza, su Edge l'ascolto continuo si arrende.
+    build:
+      context: .
+      args:
+        ASR: "1"
+        WAKEWORD_VOSK: "1"
     # image: ghcr.io/lucabon/vivavoce:latest
     container_name: vivavoce
     network_mode: host

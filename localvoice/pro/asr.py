@@ -166,6 +166,28 @@ class WhisperTranscriber:
                     **({"revision": revision} if revision else {}))
             return self._model
 
+    def warm_up(self) -> threading.Thread:
+        """Download and load the model in the background, now.
+
+        The page falls back to this engine on its own when the browser's
+        recogniser cannot reach its cloud service (Edge, often): left lazy,
+        the first command anyone gives that way waits out a ~480 MB download
+        under "Transcribing…" and looks like another broken microphone.
+        A failure here is only printed — the first /transcribe will meet it
+        again and answer the page the way it already does.
+        """
+        def run():
+            try:
+                self._load()
+                print(f"Riconoscimento vocale locale pronto (modello "
+                      f"{self.model_name}).")
+            except Exception as e:  # reported, not fatal
+                print(f"Riconoscimento vocale locale: modello non caricato "
+                      f"({e}). Riprovo al primo comando.")
+        t = threading.Thread(target=run, name="asr-warm-up", daemon=True)
+        t.start()
+        return t
+
     def transcribe(self, audio: bytes, lang: str = "it",
                    hotwords: Optional[str] = None) -> dict:
         """``{"text": ..., "alternatives": [...]}`` for one recorded command.
