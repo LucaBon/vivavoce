@@ -80,8 +80,9 @@ let SERVERWAKE = { available: false, model: null };
 let serverWakeStream = null;  // the active startWakeStream() handle, or null
 
 const serverWakeCanUse = () => !!(navigator.mediaDevices && window.AudioContext);
-export const serverWakeOn = () =>
-  SERVERWAKE.available && serverWakeCanUse() && $("serverwake").checked;
+/** The server-side engine could listen right now, whatever the toggle says. */
+export const serverWakeUsable = () => SERVERWAKE.available && serverWakeCanUse();
+export const serverWakeOn = () => serverWakeUsable() && $("serverwake").checked;
 
 function renderServerWakeRow() {
   $("serverwakerow").style.display =

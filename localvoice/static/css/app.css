@@ -216,6 +216,9 @@ button.send:disabled { opacity: .55; cursor: default; }
             padding-left: .75rem; margin: .1rem 0 .3rem;
             display: flex; flex-direction: column; gap: .35rem; }
 .wakeopts .hint { max-width: 100%; }
+/* "Use Chrome" (micfallback.js): the address must be copyable as one piece. */
+#chromehint code { word-break: break-all; user-select: all; }
+#chromehint .chromeopen { display: inline-block; margin-top: .3rem; font-weight: 600; }
 .wakeopts #wakeword:disabled { opacity: .5; cursor: not-allowed; }
 .card { background: var(--surface); border: 1px solid var(--border);
         border-radius: var(--radius-m); box-shadow: var(--shadow);
