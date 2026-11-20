@@ -69,7 +69,7 @@ class Router(ConversationState, IntentTable, SpokenIntents, SourceChoice,
              AlternativeSweep):
     def __init__(self, lms, default_service="tidal", services=("tidal", "qobuz"),
                  kidsafe=None, client_id="default", multiroom=None,
-                 now=time.monotonic, books=None):
+                 now=time.monotonic, books=None, names=None):
         # ``lms`` is a property on ConversationState: a room turn aims it per
         # thread, because this Router is shared by every request on the
         # conversation. See _aimed_at there.
@@ -96,6 +96,10 @@ class Router(ConversationState, IntentTable, SpokenIntents, SourceChoice,
         # Audiobooks (--library, player/composite.py): None when the household
         # has none, and then no sentence ever looks for one.
         self.books = books
+        # Misheard names (Pro, pro/names.py): told what each turn played, so
+        # the names that really exist can be told apart from what the
+        # recogniser wrote. None disables it, like kid-safe and multi-room.
+        self.names = names
         # Streaming sources this router accepts as a ``source`` value; anything
         # else streams from ``default_service`` (also the "auto" fallback).
         self.default_service = default_service

@@ -39,6 +39,7 @@ CAPABILITY_METHODS = {
                "artist_tracks", "artist_top_tracks", "playlist_candidates",
                "find_playlist"),
     "local_library": ("local_album_candidates", "local_artist_candidates",
+                      "local_artists",
                       "local_track_candidates", "find_local_album",
                       "find_local_artist", "find_local_track",
                       "local_albums_by_artist", "blocking_service"),

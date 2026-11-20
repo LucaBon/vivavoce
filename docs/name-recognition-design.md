@@ -162,6 +162,22 @@ Fonti, in ordine di valore:
 Aggiornamento pigro con TTL (es. 6 h) e in un thread, mai nel percorso di un
 turno; tetto di dimensione (es. 5 000 voci, scarta per `weight`/`last_seen`).
 
+**Fatto (passo 1b, 2026-11-20).** Un solo aggancio nel router invece di uno
+per ogni punto che riproduce: dopo un turno che ha suonato (`ok`, senza
+`kind`, con `terms`), `Names.note_played` chiede *all'impianto* cosa sta
+suonando, dopo 2 s e in un thread, e lo tiene solo se coincide con i
+`terms` del turno (parole intere): un impianto ancora sul brano precedente
+non entra nello storico. La grafia è quella del catalogo, che è il punto.
+Con il multi-room si chiede al player su cui il turno ha suonato
+(`ConversationState._aimed_at` lo ricorda). Lo storico persiste in
+`name_index.json` (max 2 000); preferiti e artisti locali restano in memoria
+e si rileggono ogni 6 h. Lo storico si *registra* da tutti i turni, anche
+scritti; si *userà* solo su quelli vocali.
+
+> **Da non unire prima della fase 2.** Da qui lo storico raccoglie dati, e
+> l'interruttore per spegnerlo e svuotarlo arriva con la sezione delle
+> impostazioni (fase 2). `PRIVACY.md` lo descrive già com'è a lavoro finito.
+
 ### 1.3 Dove interviene — aggancio in `localvoice/alternatives.py`
 
 Solo con `via == "voice"` e licenza Pro, nel giro delle alternative, *dopo*

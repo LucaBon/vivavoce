@@ -292,7 +292,7 @@ class MusicLibrary(Protocol):
     # ``tests/test_player_protocol.py`` holds a backend to whichever ones it
     # declares:
     #
-    #   local_library  local_{album,artist,track}_candidates,
+    #   local_library  local_{album,artist,track}_candidates, local_artists,
     #                  find_local_{album,artist,track}, local_albums_by_artist,
     #                  blocking_service
     #   genres         local_genres, play_local_genre

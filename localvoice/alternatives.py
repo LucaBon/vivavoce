@@ -78,6 +78,27 @@ class AlternativeSweep:
                 return self._payload(speech, alt, ok=True), primary, unmatched
         return None, primary, unmatched
 
+    def _note_played(self, speech) -> None:
+        """Tell the play history (Pro) what this turn started, if anything.
+
+        A turn played something when it acted (``ok``), is not a list or a
+        question (no ``kind``) and named what it played (``terms``): «pausa»
+        names nothing, a numbered list has a kind. Typed turns count as much
+        as spoken ones — a name somebody wrote is spelt right, which is
+        exactly what the history is for. Never allowed to fail the turn: the
+        music is already playing, and the answer must still be given.
+        """
+        names = getattr(self, "names", None)
+        terms = list(getattr(speech, "terms", []))
+        if (names is None or not getattr(speech, "ok", False)
+                or getattr(speech, "kind", None) or not terms):
+            return
+        client = getattr(self._aim, "last", None) or self.lms
+        try:
+            names.note_played(client, terms)
+        except Exception:  # noqa: BLE001 — a history entry is never worth a turn
+            pass
+
     def _payload(self, speech, alt, *, ok: bool) -> dict:
         return {"speech": speech, "used": _reportable(alt), "ok": ok,
                 "terms": list(getattr(speech, "terms", [])),
@@ -127,6 +148,7 @@ class AlternativeSweep:
                 # and within one the turn lock keeps this from being read
                 # half-way through someone else's sentence.
                 self.turn_via = via
+                self._aim.last = None  # see ConversationState._aimed_at
                 payload, primary, unmatched = self._sweep(alts, source, lang,
                                                           repair=False)
                 if payload is None and unmatched:
@@ -141,6 +163,7 @@ class AlternativeSweep:
             return {"speech": busy(), "used": "", "ok": False, "terms": [],
                     "choices": [], "needs_choice": False, "unmatched": False}
         if payload is not None:
+            self._note_played(payload["speech"])
             return payload
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
                 "terms": list(getattr(primary[0], "terms", [])),

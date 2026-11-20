@@ -4,6 +4,18 @@
 
 ### New
 
+- **Vivavoce si ricorda cosa ha suonato (Pro).** Dopo ogni brano, album o
+  artista messo in riproduzione, chiede all'impianto cosa sta suonando
+  davvero e se ne tiene titolo e artista, scritti come li scrive il
+  catalogo: «Kamin» di «EMIN & JONY», anche se la richiesta era «camin».
+  È il primo pezzo del lavoro sui nomi che il riconoscimento vocale storpia
+  (`docs/name-recognition-design.md`): per ora raccoglie e basta, non cambia
+  nessuna risposta. Lo storico sta in `name_index.json` nella cartella dei
+  dati, al massimo 2.000 voci, e non esce mai dalla macchina; è attivo di
+  default, e si potrà spegnere e svuotare dalle impostazioni accanto a
+  kid-safe (vedi PRIVACY.md). Insieme, Vivavoce legge dall'impianto i
+  preferiti e gli artisti della libreria, e li tiene solo in memoria.
+
 - **Il punto d'ascolto torna su Audiobookshelf.** Mentre un audiolibro messo
   da Vivavoce suona, ogni mezzo minuto la posizione viene salvata su
   Audiobookshelf, la stessa che usa la sua app. Se in mezzo al libro metti

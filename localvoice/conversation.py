@@ -113,6 +113,9 @@ class ConversationState:
         """Aim ``self.lms`` at ``player_id`` for this thread, for one turn."""
         previous = getattr(self._aim, "lms", None)
         self._aim.lms = self._base_lms.for_player(player_id)
+        # Outlives the aim, on purpose: whoever asks after the turn what it
+        # played (the play history, alternatives.py) must ask THIS player.
+        self._aim.last = self._aim.lms
         try:
             yield
         finally:

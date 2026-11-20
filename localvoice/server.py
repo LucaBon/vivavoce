@@ -269,6 +269,8 @@ def main() -> int:
     if backend.capabilities.services:
         client.remember_silence_in(servicestate.SilenceFile(data_dir))
     multiroom = pro_features.build_multiroom(license_mgr, client)
+    names = pro_features.build_names(data_dir, license_mgr,
+                                     backend.capabilities)
 
     # Which streaming services the source selector offers. "auto" asks the
     # music system what it has; an explicit list is the escape hatch for when
@@ -331,7 +333,7 @@ def main() -> int:
                      wakeword_sessions=wakeword_sessions,
                      wake_phrase_store=wake_phrase_store,
                      allowed_hosts=webguard.parse_hosts(args.allowed_hosts),
-                     books=books),
+                     books=books, names=names),
     )
 
     if scheme == "https":
