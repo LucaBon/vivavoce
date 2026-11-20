@@ -23,7 +23,7 @@ import { micUI, serverWakeOn, syncWakePhrase,
          serverWakeRunning, serverWakeStartPending, startServerWake,
          restartServerWake, stopServerWake,
          endCommandCapture } from "./miccapture.js";
-import { localAsrOn, startLocalRec, cancelLocalRec } from "./localasr.js";
+import { localAsrOn, localAsrUsable, startLocalRec, cancelLocalRec } from "./localasr.js";
 
 export { refreshServerWake } from "./miccapture.js";
 export { refreshAsr } from "./localasr.js";
@@ -90,8 +90,9 @@ export function initMic() {
     // Server-side wake word also works here (it never needed Web Speech for
     // detection) — but without Web Speech, the post-trigger command capture
     // can only be local ASR, never the one-shot fallback the other branch has.
+    // Local ASR is the only engine there is here, so it needs no toggle.
     const captureCommandNoSR = () => {
-      if (localAsrOn()) startLocalRec();
+      if (localAsrUsable()) startLocalRec();
       else $("status").textContent = ui("say_command");
     };
     mic.onclick = () => {
@@ -103,7 +104,7 @@ export function initMic() {
         else startServerWake(captureCommandNoSR);
         return;
       }
-      if (localAsrOn()) startLocalRec(); else refreshStatus();
+      if (localAsrUsable()) startLocalRec(); else refreshStatus();
     };
     // No Web Speech here, so continuous listening only exists via the
     // server-side engine; without it selected, there is nothing to start.
@@ -145,6 +146,13 @@ export function initMic() {
     // the mic just seemed to switch itself off (Edge with online speech
     // recognition unreachable: `network`, nothing on screen).
     let errorShown = false;
+    // A recogniser that cannot reach its cloud service fails the same way on
+    // every tap: Edge answers `network` ~0.4 s after start() on machines where
+    // Chrome works fine. When the server can transcribe, that tap carries on
+    // with local recognition instead (in onend, once this session is over),
+    // and the toggle is ticked so the next taps go straight there.
+    const SERVICE_DOWN = new Set(["network", "language-not-supported"]);
+    let fallBackToLocal = false;
     // Set when a live session is torn down deliberately (see stopAll), cleared
     // when the next one actually starts. There is only ONE recogniser object,
     // reused for every mode, so a late onend/onerror carries nothing that says
@@ -246,7 +254,8 @@ export function initMic() {
       else startManual();
     };
     rec.onstart = () => {
-      active = true; tornDown = false; wakeFailures = 0; errorShown = false;
+      active = true; tornDown = false; wakeFailures = 0;
+      errorShown = false; fallBackToLocal = false;
       wake.newSession();  // before micUI: it is micUI that starts the app talking
       micUI(true);
       if (mode !== "wake") { statusEl.textContent = ui("listening"); return; }
@@ -278,6 +287,13 @@ export function initMic() {
         }, 350);
       } else if (tornDown) {
         mode = "off";  // torn down on purpose: whoever did it owns the status
+      } else if (fallBackToLocal) {
+        mode = "off"; fallBackToLocal = false;
+        $("localasr").checked = true;
+        localStorage.setItem("localasr", "1");
+        startLocalRec().then(() => {
+          if (mic.classList.contains("listening")) statusEl.textContent = ui("asr_fallback");
+        });
       } else {
         // A plain tap-to-talk shot goes idle; a shot captured after a
         // server-wake trigger (mode "manual" via captureCommand) instead
@@ -326,6 +342,7 @@ export function initMic() {
         statusEl.textContent = ui("wake_gave_up")(e.error);
         return;
       }
+      if (SERVICE_DOWN.has(e.error) && localAsrUsable()) { fallBackToLocal = true; return; }
       errorShown = !ROUTINE_ERRORS.has(e.error);
       if (errorShown) statusEl.textContent = ui("mic_error")(e);
     };

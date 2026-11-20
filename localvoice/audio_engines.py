@@ -59,6 +59,7 @@ def build(args, data_dir: str, unavailable_note: str = ""):
             asr_model, cache_dir=os.path.join(data_dir, "asr-models"))
         print(f"Riconoscimento vocale locale attivo (faster-whisper, modello "
               f"{asr_model}): l'audio del microfono resta in casa.")
+        transcriber.warm_up()
     else:
         print(f"Riconoscimento vocale locale spento: questa macchina ha "
               f"~{total_ram_gib():.1f} GiB di RAM — il modello 'small' vuole "

@@ -30,8 +30,11 @@ let localRecStarting = false;   // getUserMedia pending: one is already opening
 let localRecCancelled = false;  // torn down on purpose: throw the audio away
 
 export const canRecord = () => !!(navigator.mediaDevices && window.MediaRecorder);
-export const localAsrOn = () =>
-  ASR.available && !asrFailed && canRecord() && $("localasr").checked;
+// The engine could take a command right now, whatever the toggle says: what
+// mic.js falls back to when the browser has no recogniser of its own, or one
+// that cannot reach its cloud service.
+export const localAsrUsable = () => ASR.available && !asrFailed && canRecord();
+export const localAsrOn = () => localAsrUsable() && $("localasr").checked;
 
 function renderAsrRow() {
   $("localasrrow").style.display = (ASR.available && canRecord()) ? "" : "none";

@@ -125,7 +125,7 @@ automation. Setup:
 **Without Docker** (Python ≥ 3.9 + [uv](https://docs.astral.sh/uv/)):
 
 ```bash
-uv sync
+uv sync --group asr                         # asr: local speech recognition, see below
 uv run python localvoice/server.py          # auto-discovers LMS on the LAN
 # open http://<this-pc-ip>:8730 from a phone/tablet/PC on the same network
 ```
@@ -147,6 +147,10 @@ English page):
 > without Docker, start the server with a certificate (`--cert/--key`, auto-generated
 > by the helper scripts). Install the generated **local CA** once per phone (page
 > panel *"📱 Installa come app"*) for a green lock and a real **installable PWA**.
+> Where the browser's own recogniser cannot reach its cloud service — **Edge**,
+> often: the mic lights up and goes dark half a second later — the page carries
+> on by itself with **local recognition** on the server, which `docker compose`
+> builds in (`ASR=1`) and `uv sync --group asr` installs. Without it, use Chrome.
 > The **text box works everywhere**, even plain HTTP. Full setup — Docker, HTTPS,
 > autostart on Windows/Linux — is in **[DEPLOY.md](DEPLOY.md)**.
 

@@ -28,8 +28,11 @@ RUN pip install --no-cache-dir "cryptography==50.0.1"
 # il riconoscimento vocale locale (endpoint /transcribe, funzione Pro).
 # Aggiunge ~600 MB all'immagine; il modello Whisper viene scaricato al primo
 # uso dentro /data (il volume), quindi sopravvive agli aggiornamenti.
+# av fissato anche lui, alla versione del lock: faster-whisper 1.2.1 chiama
+# av.open(..., metadata_errors=...), argomento che PyAV 19 ha tolto. Lasciato
+# libero, pip prendeva la 19 e ogni /transcribe falliva con un TypeError.
 ARG ASR=0
-RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper==1.2.1"; fi
+RUN if [ "$ASR" = "1" ]; then pip install --no-cache-dir "faster-whisper==1.2.1" "av==18.0.0"; fi
 
 # Variante parola chiave lato server (opzionale, separata da ASR apposta):
 # --build-arg WAKEWORD_VOSK=1 preinstalla vosk, il motore che sente la frase
