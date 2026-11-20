@@ -168,8 +168,12 @@ export async function send(text, alternatives, opts) {
   $("send").disabled = true;
   // lang: the mic-language selector — the server parses the command and
   // replies in that language (it/en; others fall back to Italian).
+  // via: only a spoken turn can carry the recogniser's mistakes, and the
+  // server corrects nothing else (docs/name-recognition-design.md). A tap on
+  // a choice or an example chip is not speech either.
   const body = { text, client: clientId(), source: currentSource(),
-                 lang: recLang(), player: currentPlayer() };
+                 lang: recLang(), player: currentPlayer(),
+                 via: (opts && opts.via) || "typed" };
   if (alternatives && alternatives.length > 1) body.alternatives = alternatives;
   try {
     const r = await fetch("/api/v1/command", {
@@ -220,7 +224,7 @@ export async function send(text, alternatives, opts) {
 // the box and either send right away (hands-free) or wait for a check.
 export function runCommand(txt, alts) {
   $("text").value = txt;
-  send(txt, alts);
+  send(txt, alts, { via: "voice" });
   $("text").value = "";
 }
 // --- "send right after the mic" ---
@@ -244,13 +248,18 @@ export function autosendFollowWakeMode(wakeOn) {
 // waiting for Send as if nothing were waiting at all. The wake path has the
 // same rule, in its own handler (wakeword.js).
 let awaitingReview = false;
+// The transcript left in the box for a check (auto-send off), with the
+// recogniser's alternatives. Sent untouched it is still the spoken turn, and
+// keeps its alternatives; edited, it is a typed one — the user's correction.
+let reviewed = null;
 export const isAwaitingReview = () => awaitingReview;
 /** A capture has started: whatever is in the box is no longer the answer. */
-export function clearAwaitingReview() { awaitingReview = false; }
+export function clearAwaitingReview() { awaitingReview = false; reviewed = null; }
 
 export function handleManualFinal(txt, alts) {
   $("text").value = txt;
   awaitingReview = !$("autosend").checked;
+  reviewed = awaitingReview ? { txt, alts } : null;
   if ($("autosend").checked) { runCommand(txt, alts); }
   else { $("status").textContent = ui("check_text"); $("text").focus(); }
 }
@@ -272,7 +281,10 @@ export function initChat() {
     localStorage.setItem(AUTOSEND_KEY, $("autosend").checked ? "1" : "0");
 
   const sendTyped = () => {
-    send($("text").value, null, { typed: true });
+    const txt = $("text").value, r = reviewed;
+    reviewed = null;
+    if (r && txt.trim() === r.txt.trim()) send(txt, r.alts, { via: "voice" });
+    else send(txt, null, { typed: true });
     $("text").value = "";
   };
   $("send").onclick = sendTyped;

@@ -219,9 +219,16 @@ def api_v1_routes(router_for, multiroom=None):
             # answering "non ho sentito niente" to a caller who said something.
             if not alternatives and text:
                 alternatives = [text]
+            # How the sentence arrived: said into a microphone, or written.
+            # Only a spoken turn can carry a recogniser's mistakes, so only a
+            # spoken turn is ever corrected (docs/name-recognition-design.md).
+            # Anything but an explicit "voice" — missing, misspelt, the wrong
+            # type — is "typed": the turn is run exactly as written, which is
+            # what every client that predates this field expects.
+            via = "voice" if payload.get("via") == "voice" else "typed"
             try:
                 result = router_for(conversation_id, player_id).handle_many(
-                    alternatives, source, lang)
+                    alternatives, source, lang, via=via)
             except Exception as exc:  # never 500 the client
                 # Logged where an administrator can read it. Until this line
                 # the traceback was swallowed whole: the page said «Errore

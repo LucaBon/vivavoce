@@ -32,6 +32,14 @@
 
 ### Changed
 
+- **Una frase detta e controllata prima di inviarla resta una frase detta.**
+  Con l'invio automatico spento, la trascrizione aspetta nella casella che
+  tu prema Invio; fino a ieri, a quel punto, partiva come se l'avessi
+  scritta, e le alternative del riconoscitore andavano perse — le stesse
+  che servono a recuperare un nome storpiato («sfigati» per «Audioslave»).
+  Ora, se la mandi così com'è, le alternative partono con lei. Se invece la
+  correggi prima di inviarla, vale come scritta: è il nome come va scritto.
+
 - **Una ripresa non blocca più l'impianto.** Provato sull'impianto: un salto
   dato all'LMS nell'istante in cui un file remoto parte a volte viene
   ignorato e a volte lo pianta, e uno a pochi secondi dalla fine del file lo
@@ -110,6 +118,13 @@
   all'impianto sono ancora lì, dentro un riquadro chiuso.
 
 ### Internal
+
+- **`/api/v1/command` sa se una frase è stata detta o scritta.** Campo
+  nuovo `via`, `"voice"` o `"typed"`; qualunque altro valore, o nessuno, vale
+  `"typed"`, così un client che non lo conosce (Home Assistant, uno script)
+  continua a vedere la sua frase eseguita esattamente com'è. Per ora non
+  cambia nessuna risposta: è il primo passo del lavoro sui nomi mal sentiti
+  (`docs/name-recognition-design.md`), che corregge solo le frasi dette.
 
 - **La CI non fallisce più per aver trovato quello che cercava.** Il
   controllo d'avvio dell'add-on faceva `docker logs addon | grep -q

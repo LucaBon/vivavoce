@@ -24,6 +24,11 @@ from parsing import _reportable
 class AlternativeSweep:
     """I due giri sulle alternative, e il perché dell'ordine."""
 
+    #: Come è arrivato il turno in corso: ``"voice"`` (microfono) o
+    #: ``"typed"`` (casella di testo, API). Solo un turno detto può portarsi
+    #: dietro gli errori del riconoscitore, quindi solo quello si corregge.
+    turn_via = "typed"
+
     def _sweep(self, alts, source: str, lang: str, *, repair: bool):
         """Un giro sulle alternative. ``(risposta, primaria, incomprese)``.
 
@@ -80,7 +85,8 @@ class AlternativeSweep:
                 "needs_choice": self._needs_choice(),
                 "unmatched": False}
 
-    def handle_many(self, alternatives, source: str = "tidal", lang: str = "it") -> dict:
+    def handle_many(self, alternatives, source: str = "tidal", lang: str = "it",
+                    *, via: str = "typed") -> dict:
         """Try each speech-recognition alternative until one is a hit.
 
         Web Speech (it-IT) often mangles English names ('Audioslave' -> 'sfigati');
@@ -117,6 +123,10 @@ class AlternativeSweep:
         # alternative (see ConversationState._turn).
         try:
             with self._turn():
+                # Inside the turn: two conversations never share a Router,
+                # and within one the turn lock keeps this from being read
+                # half-way through someone else's sentence.
+                self.turn_via = via
                 payload, primary, unmatched = self._sweep(alts, source, lang,
                                                           repair=False)
                 if payload is None and unmatched:
