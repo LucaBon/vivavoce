@@ -36,6 +36,16 @@ class LMSLibrary:
         return [_with_extid({"id": a["id"], "title": a.get("artist")}, a)
                 for a in loop if a.get("id") is not None]
 
+    def local_artists(self, count: int = 500) -> List[Dict[str, Any]]:
+        """Every artist in the library, up to ``count``, with no query: the
+        names a misheard one can be checked against (pro/names.py). Same row
+        shape as :meth:`local_artist_candidates`."""
+        loop = self.server_command(
+            "artists", "0", str(count), "tags:E"
+        ).get("artists_loop") or []
+        return [_with_extid({"id": a["id"], "title": a.get("artist")}, a)
+                for a in loop if a.get("id") is not None]
+
     def find_local_artist(self, query: str, count: int = 10) -> Optional[Dict[str, Any]]:
         cands = self.local_artist_candidates(query, count)
         return cands[0] if cands else None

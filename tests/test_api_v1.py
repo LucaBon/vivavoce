@@ -542,3 +542,41 @@ def test_a_room_that_is_not_a_name_is_ignored(live_server, transport, room):
     reply = srv.json_post("/api/v1/command", {"text": "pausa", "room": room})
     assert reply["ok"] is True
     assert transport.commands()[-1] == ["pause", "1"]
+
+
+# -- via: spoken or typed --------------------------------------------------------
+# Only a spoken turn can carry a speech recogniser's mistakes, so only one is
+# ever corrected for them (docs/name-recognition-design.md). What matters most
+# is the default: every client that predates the field — Home Assistant, a
+# script — must keep having its sentence run exactly as written.
+
+def _spy_on_via(monkeypatch):
+    import alternatives
+    seen = []
+    real = alternatives.AlternativeSweep.handle_many
+
+    def spy(self, alts, source="tidal", lang="it", *, via="typed", **kw):
+        seen.append(via)
+        return real(self, alts, source, lang, via=via, **kw)
+
+    monkeypatch.setattr(alternatives.AlternativeSweep, "handle_many", spy)
+    return seen
+
+
+def test_a_spoken_turn_reaches_the_router_as_voice(live_server, monkeypatch):
+    seen = _spy_on_via(monkeypatch)
+    live_server().json_post("/api/v1/command", {"text": "pausa", "via": "voice"})
+    assert seen == ["voice"]
+
+
+@pytest.mark.parametrize("body", [
+    {"text": "pausa"},                    # a client that predates the field
+    {"text": "pausa", "via": "typed"},
+    {"text": "pausa", "via": "VOICE"},    # anything but exactly "voice"
+    {"text": "pausa", "via": ["voice"]},  # the wrong type
+    {"text": "pausa", "via": None},
+])
+def test_anything_but_voice_is_typed(live_server, monkeypatch, body):
+    seen = _spy_on_via(monkeypatch)
+    live_server().json_post("/api/v1/command", body)
+    assert seen == ["typed"]

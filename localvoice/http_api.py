@@ -36,6 +36,7 @@ from audio_api import audio_routes
 from http.server import BaseHTTPRequestHandler
 from lmsproxy import browse_path, proxy_routes
 from messages import CATALOGS
+from names_api import names_routes
 from player.protocols import service_label
 from router import Router
 from settings_api import settings_routes
@@ -62,7 +63,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
                  app_version: str = "", wakeword_sessions=None,
                  wake_phrase_store=None, api_token="",
                  allowed_hosts=None, proxy_open=None, lms_from_page=False,
-                 books=None):
+                 books=None, names=None):
     # One Router (and thus its "metti la N" list state) per browser/client id
     # AND per selected player, so two phones — or one phone switched between
     # rooms — don't clobber each other's numbered list. Clients send a stable
@@ -100,7 +101,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 r = Router(client_for(key[1]), default_service=default_service,
                            services=tuple(services),
                            kidsafe=kidsafe, client_id=client_id,
-                           multiroom=multiroom, books=books)
+                           multiroom=multiroom, books=books,
+                           names=names)
                 routers[key] = r
                 while len(routers) > MAX_ROUTERS:
                     routers.popitem(last=False)  # drop the least recently used
@@ -116,9 +118,9 @@ def make_handler(lms, material_url: str, services, default_service: str,
 
     class Handler(api_v1_routes(router_for, multiroom),
                   audio_routes(license_mgr, transcriber, wakeword_sessions,
-                               wake_phrase_store),
+                               wake_phrase_store, names),
                   proxy_routes(lms.base_url, browse, proxy_open),
-                  settings_routes(kidsafe, license_mgr),
+                  settings_routes(kidsafe, license_mgr), names_routes(names),
                   httpbase.RequestBase, BaseHTTPRequestHandler):
         host_policy = webguard.HostPolicy(allowed_hosts)
         api_token = token
@@ -177,6 +179,8 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 self._asr_status()
             elif self.path.startswith("/kidsafe"):
                 self._kidsafe_status()
+            elif self.path == "/names":
+                self._names_status()
             elif self.path.startswith("/wakeword/phrase"):
                 self._wake_phrase_get()
             elif self.path.startswith("/wakeword"):
@@ -326,6 +330,9 @@ def make_handler(lms, material_url: str, services, default_service: str,
                 return
             if self.path == "/kidsafe":
                 self._kidsafe_action()
+                return
+            if self.path == "/names":
+                self._names_action()
                 return
             if self.path == "/player":
                 self._player_action()

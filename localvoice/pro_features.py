@@ -26,6 +26,8 @@ halves to it.
 
 from __future__ import annotations
 
+import os
+
 
 def build_kidsafe(data_dir: str, license_mgr):
     """Kid-safe (Pro), or ``None`` when this build has no ``pro/``.
@@ -39,6 +41,25 @@ def build_kidsafe(data_dir: str, license_mgr):
     except ImportError:
         return None
     return KidSafe(data_dir, license_mgr)
+
+
+def build_names(data_dir: str, license_mgr, capabilities):
+    """Misheard names (Pro), or ``None`` when this build has no ``pro/``.
+
+    The router receives the object and one call, ``note_played(client,
+    terms)``; the play history it keeps lives in ``name_index.json`` beside
+    the other state files (see PRIVACY.md).
+    """
+    try:
+        from pro.corrections import Corrections
+        from pro.name_index import NameIndex
+        from pro.names import Names
+    except ImportError:
+        return None
+    index = NameIndex(os.path.join(data_dir, "name_index.json"))
+    corrections = Corrections(os.path.join(data_dir, "corrections.json"))
+    return Names(index, license_mgr, capabilities=capabilities,
+                 corrections=corrections)
 
 
 def build_multiroom(license_mgr, client):

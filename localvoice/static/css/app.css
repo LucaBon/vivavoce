@@ -102,8 +102,8 @@ a, a.hint { color: var(--accent-text); }
 /* A Pro control that is locked rather than disabled: it looks unavailable but
    still receives taps, so tapping it can explain itself (see settings.js). */
 select.locked { opacity: .55; }
-#probox, #kidsafebox, #voicepanel { width: 100%; }
-/* settings group headings: the knob's micro-label with a rule above */ #kidsafebox, .optgroup { border-top: 1px solid var(--border); margin: .4rem 0 0; padding-top: .55rem; }
+#probox, #kidsafebox, #namesbox, #voicepanel { width: 100%; }
+/* settings group headings: the knob's micro-label with a rule above */ #kidsafebox, #namesbox, .optgroup { border-top: 1px solid var(--border); margin: .4rem 0 0; padding-top: .55rem; }
 .optgroup { width: 100%; color: var(--text-muted); font: 600 .72rem/1.4 var(--font-label);
             text-transform: uppercase; letter-spacing: .08em; }
 .optgroup:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
@@ -119,6 +119,17 @@ select.locked { opacity: .55; }
           border: 1px solid var(--border); border-radius: var(--radius-s);
           padding: .45rem .7rem; cursor: pointer; min-height: 40px; }
 #ksbuttons button:hover { border-color: var(--brand-border); }
+/* Names and corrections (names.js): laid out like kid-safe above it. */
+#namesbox .hint { text-align: left; }
+#nmhistrow { display: flex; align-items: center; justify-content: space-between;
+          gap: .5rem; margin: .45rem 0; }
+#nmlist { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+#nmclear { background: var(--surface); color: var(--text-muted);
+          border: 1px solid var(--border); border-radius: var(--radius-s);
+          padding: .45rem .7rem; cursor: pointer; min-height: 40px; }
+#nmclear { white-space: nowrap; flex: none; }
+#nmclear:hover:not(:disabled) { border-color: var(--brand-border); }
+#nmclear:disabled { opacity: .5; cursor: default; }
 #kschip { font-family: var(--font-label); font-size: .68rem;
           text-transform: uppercase; letter-spacing: .08em;
           color: var(--amber-text); }

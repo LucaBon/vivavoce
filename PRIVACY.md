@@ -39,6 +39,19 @@ installs for separate parts of the pipeline.
   server (your machine) → your LMS. Nothing is proxied through any cloud.
 - The kid-safe blocklist and its PIN (hashed, PBKDF2-SHA256): a JSON file in
   the server's data directory.
+- The **play history** (Pro): the title and artist of what Vivavoce has
+  played, as the player reported them, with a play count and the time of the
+  last play — at most 2,000 entries, in `name_index.json` in the server's
+  data directory. It exists so a name the speech recogniser writes wrong
+  («camin») can be matched with a name this household really plays
+  («Kamin»). It is **on by default**; you can switch it off and empty it in
+  the settings, next to kid-safe. It never leaves the machine. Your LMS
+  favourites and library artists are read for the same purpose and kept in
+  memory only.
+- The **corrections you confirmed** (Pro): «when I hear X, I mean Y», each
+  kept only after you tapped "remember" under an answer, in
+  `corrections.json` in the same directory — at most 500. You can delete
+  them one by one in the same settings section.
 - No telemetry, no analytics, no accounts, no cookies beyond `localStorage`
   preferences on your own devices.
 - The **"report a misunderstood phrase"** button stores the report on your

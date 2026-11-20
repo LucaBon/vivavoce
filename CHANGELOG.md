@@ -4,6 +4,56 @@
 
 ### New
 
+- **Whisper sa già quali nomi aspettarsi (Pro).** Con il riconoscimento
+  locale attivo, a ogni comando Vivavoce passa a Whisper i nomi che a casa
+  tua si ascoltano di più e quelli delle correzioni che hai confermato,
+  così li scrive giusti fin dall'inizio invece di essere corretto dopo.
+  Preferiti e libreria intera restano fuori apposta: troppi nomi e Whisper
+  comincia a sentirli dove non ci sono. Per misurare se a casa tua aiuta,
+  e soprattutto se peggiora qualcosa: `tools/hotwords_bench.py`.
+
+- **Anche un nome mai ascoltato prima (Pro).** Se il microfono scrive
+  «camin» e a casa tua «Kamin» non è mai stato suonato, Vivavoce prova le
+  grafie che suonano identiche — «kamin», «jony» per «gioni», «philip» per
+  «filip» — chiedendo al catalogo senza far partire niente, e usa un
+  titolo solo se suona davvero come quello che hai detto. Al massimo due
+  ricerche in più, dentro i soliti dieci secondi; solo per le frasi dette,
+  e solo se la prima risposta non aveva suonato niente.
+
+- **Correggi una volta, e il microfono impara (Pro).** Se dici «metti Kamin
+  di EMIN e JONY» e il riconoscimento scrive «coming di eminem e johnny»,
+  parte Eminem. Scrivi il nome giusto nella casella entro un minuto e mezzo
+  — o correggi la trascrizione prima di inviarla — e sotto la risposta
+  compare «📌 Ricorda: quando sento «coming di eminem e johnny» intendo
+  «Kamin di EMIN & JONY»». Un tocco, e la prossima volta che lo dici parte
+  Kamin, con «Ho sentito «coming di eminem e johnny».» davanti. Senza tocco
+  non si ricorda niente. Le correzioni, lo storico dei nomi ascoltati e il
+  suo interruttore stanno nelle impostazioni, accanto a kid-safe; da lì le
+  cancelli una per una o svuoti lo storico.
+
+- **Un nome storpiato dal microfono trova quello giusto (Pro).** Chiedi
+  «metti Kamin», Edge scrive «metti camin», e la ricerca trovava tre canzoni
+  occitane con «camin» nel titolo, chiedendo quale. Se «Kamin» è un nome
+  che a casa tua è già stato suonato, Vivavoce ora se ne accorge — suona
+  uguale — e risponde «Ho sentito «camin». Riproduco Kamin…». Solo per le
+  frasi dette (quelle scritte restano come le scrivi), solo quando la prima
+  risposta non aveva suonato niente, e mai al posto di una lista che
+  contiene già quel nome: lì la domanda era giusta. Il nome noto passa per
+  tutto il resto, kid-safe compreso. Per ora vale per «metti X»; non ancora
+  per album, playlist o frasi con la stanza.
+
+- **Vivavoce si ricorda cosa ha suonato (Pro).** Dopo ogni brano, album o
+  artista messo in riproduzione, chiede all'impianto cosa sta suonando
+  davvero e se ne tiene titolo e artista, scritti come li scrive il
+  catalogo: «Kamin» di «EMIN & JONY», anche se la richiesta era «camin».
+  È il primo pezzo del lavoro sui nomi che il riconoscimento vocale storpia
+  (`docs/name-recognition-design.md`): per ora raccoglie e basta, non cambia
+  nessuna risposta. Lo storico sta in `name_index.json` nella cartella dei
+  dati, al massimo 2.000 voci, e non esce mai dalla macchina; è attivo di
+  default, e si potrà spegnere e svuotare dalle impostazioni accanto a
+  kid-safe (vedi PRIVACY.md). Insieme, Vivavoce legge dall'impianto i
+  preferiti e gli artisti della libreria, e li tiene solo in memoria.
+
 - **Il punto d'ascolto torna su Audiobookshelf.** Mentre un audiolibro messo
   da Vivavoce suona, ogni mezzo minuto la posizione viene salvata su
   Audiobookshelf, la stessa che usa la sua app. Se in mezzo al libro metti
@@ -31,6 +81,14 @@
   tutto.
 
 ### Changed
+
+- **Una frase detta e controllata prima di inviarla resta una frase detta.**
+  Con l'invio automatico spento, la trascrizione aspetta nella casella che
+  tu prema Invio; fino a ieri, a quel punto, partiva come se l'avessi
+  scritta, e le alternative del riconoscitore andavano perse — le stesse
+  che servono a recuperare un nome storpiato («sfigati» per «Audioslave»).
+  Ora, se la mandi così com'è, le alternative partono con lei. Se invece la
+  correggi prima di inviarla, vale come scritta: è il nome come va scritto.
 
 - **Una ripresa non blocca più l'impianto.** Provato sull'impianto: un salto
   dato all'LMS nell'istante in cui un file remoto parte a volte viene
@@ -110,6 +168,13 @@
   all'impianto sono ancora lì, dentro un riquadro chiuso.
 
 ### Internal
+
+- **`/api/v1/command` sa se una frase è stata detta o scritta.** Campo
+  nuovo `via`, `"voice"` o `"typed"`; qualunque altro valore, o nessuno, vale
+  `"typed"`, così un client che non lo conosce (Home Assistant, uno script)
+  continua a vedere la sua frase eseguita esattamente com'è. Per ora non
+  cambia nessuna risposta: è il primo passo del lavoro sui nomi mal sentiti
+  (`docs/name-recognition-design.md`), che corregge solo le frasi dette.
 
 - **La CI non fallisce più per aver trovato quello che cercava.** Il
   controllo d'avvio dell'add-on faceva `docker logs addon | grep -q

@@ -193,6 +193,11 @@ class MusicAssistantLibrary:
     def local_artist_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         return [_container(a) for a in self._library_items("artist", query, count)]
 
+    def local_artists(self, count: int = 500) -> List[Dict[str, Any]]:
+        """Every library artist, up to ``count``, with no query (see the LMS
+        backend's method of the same name)."""
+        return [_container(a) for a in self._library_items("artist", None, count)]
+
     def local_track_candidates(self, query: str, count: int = 10) -> List[Dict[str, Any]]:
         # ``id`` beside ``url``: a local candidate is played by id
         # (``play_local_track``), like an album or an artist, and a track row

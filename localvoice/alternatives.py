@@ -24,6 +24,11 @@ from parsing import _reportable
 class AlternativeSweep:
     """I due giri sulle alternative, e il perché dell'ordine."""
 
+    #: Come è arrivato il turno in corso: ``"voice"`` (microfono) o
+    #: ``"typed"`` (casella di testo, API). Solo un turno detto può portarsi
+    #: dietro gli errori del riconoscitore, quindi solo quello si corregge.
+    turn_via = "typed"
+
     def _sweep(self, alts, source: str, lang: str, *, repair: bool):
         """Un giro sulle alternative. ``(risposta, primaria, incomprese)``.
 
@@ -73,6 +78,27 @@ class AlternativeSweep:
                 return self._payload(speech, alt, ok=True), primary, unmatched
         return None, primary, unmatched
 
+    def _note_played(self, speech) -> None:
+        """Tell the play history (Pro) what this turn started, if anything.
+
+        A turn played something when it acted (``ok``), is not a list or a
+        question (no ``kind``) and named what it played (``terms``): «pausa»
+        names nothing, a numbered list has a kind. Typed turns count as much
+        as spoken ones — a name somebody wrote is spelt right, which is
+        exactly what the history is for. Never allowed to fail the turn: the
+        music is already playing, and the answer must still be given.
+        """
+        names = getattr(self, "names", None)
+        terms = list(getattr(speech, "terms", []))
+        if (names is None or not getattr(speech, "ok", False)
+                or getattr(speech, "kind", None) or not terms):
+            return
+        client = getattr(self._aim, "last", None) or self.lms
+        try:
+            names.note_played(client, terms)
+        except Exception:  # noqa: BLE001 — a history entry is never worth a turn
+            pass
+
     def _payload(self, speech, alt, *, ok: bool) -> dict:
         return {"speech": speech, "used": _reportable(alt), "ok": ok,
                 "terms": list(getattr(speech, "terms", [])),
@@ -80,7 +106,8 @@ class AlternativeSweep:
                 "needs_choice": self._needs_choice(),
                 "unmatched": False}
 
-    def handle_many(self, alternatives, source: str = "tidal", lang: str = "it") -> dict:
+    def handle_many(self, alternatives, source: str = "tidal", lang: str = "it",
+                    *, via: str = "typed", heard=None) -> dict:
         """Try each speech-recognition alternative until one is a hit.
 
         Web Speech (it-IT) often mangles English names ('Audioslave' -> 'sfigati');
@@ -117,23 +144,39 @@ class AlternativeSweep:
         # alternative (see ConversationState._turn).
         try:
             with self._turn():
-                payload, primary, unmatched = self._sweep(alts, source, lang,
-                                                          repair=False)
-                if payload is None and unmatched:
-                    payload, second, _ = self._sweep(unmatched, source, lang,
-                                                     repair=True)
-                    # La primaria resta quella del PRIMO giro: se anche il
-                    # secondo fallisce, la frase da riportare è quella che
-                    # l'utente ha detto, non una riscritta da noi.
-                    if payload is None and primary is None:
-                        primary = second
+                # Inside the turn: two conversations never share a Router,
+                # and within one the turn lock keeps this from being read
+                # half-way through someone else's sentence.
+                self.turn_via = via
+                self._aim.last = None  # see ConversationState._aimed_at
+                # Misheard names (names_turn.py): a confirmed correction is
+                # applied before anything else, and a known name is tried
+                # after a turn that played nothing. Both no-ops unless the
+                # turn was spoken and the Pro feature is there.
+                payload = self._corrected(alts, source, lang)
+                if payload is None:
+                    payload, primary, unmatched = self._sweep(
+                        alts, source, lang, repair=False)
+                    if payload is None and unmatched:
+                        payload, second, _ = self._sweep(unmatched, source,
+                                                         lang, repair=True)
+                        # La primaria resta quella del PRIMO giro: se anche
+                        # il secondo fallisce, la frase da riportare è quella
+                        # che l'utente ha detto, non una riscritta da noi.
+                        if payload is None and primary is None:
+                            primary = second
+                    payload = self._rename(payload, alts, source, lang)
+                self._offer_to_remember(payload, alts, lang, heard)
         except Busy:
             return {"speech": busy(), "used": "", "ok": False, "terms": [],
                     "choices": [], "needs_choice": False, "unmatched": False}
         if payload is not None:
+            self._note_played(payload["speech"])
             return payload
         return {"speech": primary[0], "used": primary[1], "ok": primary[2],
                 "terms": list(getattr(primary[0], "terms", [])),
                 "choices": self._choices(),
                 "needs_choice": self._needs_choice(),
                 "unmatched": primary[3]}
+
+

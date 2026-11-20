@@ -79,6 +79,15 @@ def test_multi_room_is_absent_rather_than_fatal(without_pro, lms):
     assert pro_features.build_multiroom(FakeLicense(), lms) is None
 
 
+def test_misheard_names_are_absent_rather_than_fatal(without_pro, tmp_path):
+    import pro_features
+    from player.protocols import Capabilities
+
+    importlib.reload(pro_features)
+    assert pro_features.build_names(str(tmp_path), FakeLicense(),
+                                    Capabilities()) is None
+
+
 def test_the_audio_engines_all_degrade(without_pro, tmp_path, capsys):
     import audio_engines
     importlib.reload(audio_engines)

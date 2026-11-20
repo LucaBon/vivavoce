@@ -256,6 +256,7 @@ MESSAGES = {
     # K\u00fcche\u00bb): {room} is the player\u2019s LMS name, spoken as-is.
     "in_room": " in {room}",
     # See the Italian catalog for why an overruled room still gets said.
+    "heard_as": "Ich habe „{heard}“ gehört. ",
     "read_as_title": " \u2014 ich habe das als Titel gelesen, es l\u00e4uft also hier",
     # See the Italian catalog for why this names the room and offers the way
     # out instead of reusing the shared ``pro_required``.

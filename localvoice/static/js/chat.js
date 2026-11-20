@@ -8,6 +8,7 @@ import { currentSource, currentPlayer } from "./settings.js";
 import { refreshNowPlaying } from "./nowplaying.js";
 import { readbackOn, speak } from "./tts.js";
 import { trialInfo, isLicensed, showProUpsell } from "./pro.js";
+import { renderRemember } from "./names.js";
 
 // The onboarding hints (the three example chips and the source note) used to
 // go away on the first message — including a message that failed. So the one
@@ -168,8 +169,15 @@ export async function send(text, alternatives, opts) {
   $("send").disabled = true;
   // lang: the mic-language selector — the server parses the command and
   // replies in that language (it/en; others fall back to Italian).
+  // via: only a spoken turn can carry the recogniser's mistakes, and the
+  // server corrects nothing else (docs/name-recognition-design.md). A tap on
+  // a choice or an example chip is not speech either.
   const body = { text, client: clientId(), source: currentSource(),
-                 lang: recLang(), player: currentPlayer() };
+                 lang: recLang(), player: currentPlayer(),
+                 via: (opts && opts.via) || "typed" };
+  // What the recogniser heard before the user corrected it in the box: never
+  // run, only what the server needs to offer "remember this" (names.js).
+  if (opts && Array.isArray(opts.heard) && opts.heard.length) body.heard = opts.heard;
   if (alternatives && alternatives.length > 1) body.alternatives = alternatives;
   try {
     const r = await fetch("/api/v1/command", {
@@ -190,6 +198,8 @@ export async function send(text, alternatives, opts) {
     if (data.ok === false) p.classList.add("warn");
     p.textContent = data.speech;
     if (Array.isArray(data.choices) && data.choices.length) renderChoices(p, data.choices);
+    // A typed answer that corrected a spoken one: offer to remember it.
+    if (data.remember) renderRemember(p, data.remember);
     // Parser gap (nothing matched): offer the local, user-initiated report.
     if (data.unmatched) renderReportButton(p, (data.used || text));
     // Only when it worked: an upgrade pitch stapled to a failure reads as
@@ -220,7 +230,7 @@ export async function send(text, alternatives, opts) {
 // the box and either send right away (hands-free) or wait for a check.
 export function runCommand(txt, alts) {
   $("text").value = txt;
-  send(txt, alts);
+  send(txt, alts, { via: "voice" });
   $("text").value = "";
 }
 // --- "send right after the mic" ---
@@ -244,13 +254,18 @@ export function autosendFollowWakeMode(wakeOn) {
 // waiting for Send as if nothing were waiting at all. The wake path has the
 // same rule, in its own handler (wakeword.js).
 let awaitingReview = false;
+// The transcript left in the box for a check (auto-send off), with the
+// recogniser's alternatives. Sent untouched it is still the spoken turn, and
+// keeps its alternatives; edited, it is a typed one — the user's correction.
+let reviewed = null;
 export const isAwaitingReview = () => awaitingReview;
 /** A capture has started: whatever is in the box is no longer the answer. */
-export function clearAwaitingReview() { awaitingReview = false; }
+export function clearAwaitingReview() { awaitingReview = false; reviewed = null; }
 
 export function handleManualFinal(txt, alts) {
   $("text").value = txt;
   awaitingReview = !$("autosend").checked;
+  reviewed = awaitingReview ? { txt, alts } : null;
   if ($("autosend").checked) { runCommand(txt, alts); }
   else { $("status").textContent = ui("check_text"); $("text").focus(); }
 }
@@ -272,7 +287,10 @@ export function initChat() {
     localStorage.setItem(AUTOSEND_KEY, $("autosend").checked ? "1" : "0");
 
   const sendTyped = () => {
-    send($("text").value, null, { typed: true });
+    const txt = $("text").value, r = reviewed;
+    reviewed = null;
+    if (r && txt.trim() === r.txt.trim()) send(txt, r.alts, { via: "voice" });
+    else send(txt, null, { typed: true, heard: r ? (r.alts || [r.txt]) : null });
     $("text").value = "";
   };
   $("send").onclick = sendTyped;
