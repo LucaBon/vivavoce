@@ -123,10 +123,15 @@ lettere, in modo che grafie diverse dello stesso suono collidano.
 - `phonetic_score(a, b, lang) -> float`: `difflib` sulle chiavi, combinato
   con `_score` sul testo (il massimo dei due, non la media: una grafia uguale
   resta un colpo pieno).
-- Test di unità puri: `camin`/`Kamin`, `coming`/`Kamin` (deve essere **basso**:
-  non è la fonetica a risolvere il primo caso, è la fase 2), `pink floid`/
-  `Pink Floyd`, e coppie che **non** devono collidere (Metallica/Megadeth,
-  Emin/Eminem sotto soglia).
+- Test di unità puri: `camin`/`Kamin`, `pink floid`/`Pink Floyd`, e coppie
+  che **non** devono collidere (Metallica/Megadeth, Vasco Rossi/The Beatles).
+- **Misurato** (passo 1a, 2026-11-20): `camin`/`Kamin` 1,00;
+  `coming`/`Kamin` 0,73; «eminem e johnny»/«EMIN & JONY» 0,82;
+  `emin`/`Eminem` **0,80**; Metallica/Megadeth 0,40; Vasco Rossi/The Beatles
+  0,20. Quindi la chiave *ordina* e non decide: due artisti diversi possono
+  stare a 0,80. La protezione dai dirottamenti (§3) sta nella fase 1c —
+  si interviene solo se il giro normale non ha un colpo sicuro, con soglia
+  **e** margine sul secondo — non nella chiave.
 
 ### 1.2 L'indice — `localvoice/pro/name_index.py` (nuovo)
 
