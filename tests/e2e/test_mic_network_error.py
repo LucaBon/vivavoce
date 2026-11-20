@@ -97,14 +97,100 @@ def test_a_speech_service_that_cannot_be_reached_hands_the_tap_to_local_asr(
     assert transcriber.calls == 1
 
 
-def test_without_local_asr_the_network_error_still_says_what_to_do(page, web):
+def test_without_local_asr_the_page_points_at_chrome(page, web):
     srv = web(license_mgr=_ProLicense())
     page.add_init_script(FAKE_NETWORK_FAILURE)
     page.goto(srv.url)
     page.wait_for_function("!!window.vivavoce")
+    assert page.is_hidden("#chromehint")
 
     page.click("#mic")
     page.wait_for_timeout(400)
 
     assert not page.is_checked("#localasr")
     assert "Chrome" in page.inner_text("#status")
+    # On a PC a page can neither start Chrome nor install it: the address to
+    # paste there, and where to get it.
+    assert page.is_visible("#chromehint")
+    assert page.inner_text("#chromehint code") == srv.url.rstrip("/") + "/"
+    assert page.get_attribute("#chromehint a", "href") == "https://www.google.com/chrome/"
+
+
+def test_on_android_the_hint_opens_this_page_in_chrome(browser, web):
+    srv = web(license_mgr=_ProLicense())
+    ctx = browser.new_context(user_agent=(
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36 EdgA/130.0"))
+    try:
+        page = ctx.new_page()
+        page.add_init_script(FAKE_NETWORK_FAILURE)
+        page.goto(srv.url)
+        page.wait_for_function("!!window.vivavoce")
+        page.click("#mic")
+        page.wait_for_timeout(400)
+
+        href = page.get_attribute("#chromehint a.chromeopen", "href")
+        host = srv.url.split("://", 1)[1].rstrip("/")
+        assert href == (f"intent://{host}/#Intent;scheme=http;"
+                        "package=com.android.chrome;end"), href
+    finally:
+        ctx.close()
+
+
+class _Detector:
+    def process(self, pcm_bytes):
+        return False
+
+    def reset(self):
+        pass
+
+
+class _FakeWakeSessions:
+    """Stands in for pro.vosk_wake.ServerVoskWakeSessions."""
+
+    model = "vosk-it"
+
+    def __init__(self):
+        self.chunk_calls = 0
+
+    def available(self):
+        return True
+
+    def get_or_create(self, client_id):
+        self.chunk_calls += 1
+        return _Detector()
+
+    def stop(self, client_id):
+        pass
+
+
+def test_continuous_listening_moves_to_the_server_when_the_service_is_down(
+        page_with_fake_mic, web):
+    # Continuous listening on Web Speech restarted into the same `network`
+    # error five times and gave up. With the server-side wake word installed,
+    # the first such error hands listening to it instead — and the command
+    # capture after the trigger to local recognition, not to the dead service.
+    page = page_with_fake_mic
+    sessions = _FakeWakeSessions()
+    srv = web(license_mgr=_ProLicense(), wakeword_sessions=sessions,
+              transcriber=_FakeTranscriber())
+    page.add_init_script(FAKE_NETWORK_FAILURE)
+    page.goto(srv.url)
+    page.wait_for_function("!!window.vivavoce")
+    page.eval_on_selector("#settings", "el => { el.open = true; }")
+    page.wait_for_function(
+        "document.getElementById('localasrrow').style.display !== 'none'")
+    assert not page.is_checked("#serverwake")
+
+    page.check("#wakemode")  # starts Web Speech's continuous session
+    for _ in range(30):
+        if sessions.chunk_calls >= 2:
+            break
+        page.wait_for_timeout(150)
+
+    assert sessions.chunk_calls >= 2, "the server-side engine never took over"
+    assert page.is_checked("#serverwake")
+    assert page.is_checked("#localasr")
+    assert page.is_checked("#wakemode")
+    assert page.eval_on_selector("#mic", "el => el.classList.contains('listening')")
+    assert page.is_hidden("#chromehint")

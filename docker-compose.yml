@@ -20,10 +20,15 @@ services:
     # raggiunge il suo servizio — Edge, spesso: il microfono si spegneva
     # mezzo secondo dopo il tocco. L'immagine pubblicata non lo include:
     # con `image:` quel ripiego non c'è, e su Edge serve Chrome.
+    #
+    # WAKEWORD_VOSK=1 è lo stesso ripiego per l'ascolto continuo: la parola
+    # chiave ascoltata sul server (Vosk; il modello, ~50 MB, si scarica al
+    # primo avvio nel volume). Senza, su Edge l'ascolto continuo si arrende.
     build:
       context: .
       args:
         ASR: "1"
+        WAKEWORD_VOSK: "1"
     # image: ghcr.io/lucabon/vivavoce:latest
     container_name: vivavoce
     network_mode: host

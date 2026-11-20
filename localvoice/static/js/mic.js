@@ -20,10 +20,12 @@ import { handleManualFinal, autosendFollowWakeMode,
 import { wakeWord } from "./settings.js";
 import { createWakeHandler } from "./wakeword.js";
 import { micUI, serverWakeOn, syncWakePhrase,
-         serverWakeRunning, serverWakeStartPending, startServerWake,
+         serverWakeRunning, serverWakeStartPending, startServerWake, serverWakeUsable,
          restartServerWake, stopServerWake,
          endCommandCapture } from "./miccapture.js";
 import { localAsrOn, localAsrUsable, startLocalRec, cancelLocalRec } from "./localasr.js";
+import { serviceDown, useLocalAsrInstead, useServerWakeInstead,
+         showChromeHint } from "./micfallback.js";
 
 export { refreshServerWake } from "./miccapture.js";
 export { refreshAsr } from "./localasr.js";
@@ -146,13 +148,7 @@ export function initMic() {
     // the mic just seemed to switch itself off (Edge with online speech
     // recognition unreachable: `network`, nothing on screen).
     let errorShown = false;
-    // A recogniser that cannot reach its cloud service fails the same way on
-    // every tap: Edge answers `network` ~0.4 s after start() on machines where
-    // Chrome works fine. When the server can transcribe, that tap carries on
-    // with local recognition instead (in onend, once this session is over),
-    // and the toggle is ticked so the next taps go straight there.
-    const SERVICE_DOWN = new Set(["network", "language-not-supported"]);
-    let fallBackToLocal = false;
+    let fallBackToLocal = false;  // service down: onend hands over (micfallback.js)
     // Set when a live session is torn down deliberately (see stopAll), cleared
     // when the next one actually starts. There is only ONE recogniser object,
     // reused for every mode, so a late onend/onerror carries nothing that says
@@ -289,11 +285,7 @@ export function initMic() {
         mode = "off";  // torn down on purpose: whoever did it owns the status
       } else if (fallBackToLocal) {
         mode = "off"; fallBackToLocal = false;
-        $("localasr").checked = true;
-        localStorage.setItem("localasr", "1");
-        startLocalRec().then(() => {
-          if (mic.classList.contains("listening")) statusEl.textContent = ui("asr_fallback");
-        });
+        useLocalAsrInstead();
       } else {
         // A plain tap-to-talk shot goes idle; a shot captured after a
         // server-wake trigger (mode "manual" via captureCommand) instead
@@ -335,16 +327,23 @@ export function initMic() {
       if (mode === "wake") {
         // The routine end-of-session errors say nothing; onend restarts.
         if (ROUTINE_ERRORS.has(e.error)) return;
+        // No service to come back: the server-side engine takes over.
+        if (serviceDown(e) && serverWakeUsable()) {
+          useServerWakeInstead(restartWakeListening);
+          return;
+        }
         // Anything else is a real fault. Give it a few restarts (a Wi-Fi
         // blip recovers), then stop and say so rather than loop in silence.
         if (++wakeFailures < MAX_WAKE_FAILURES) return;
         leaveWakeMode();
         statusEl.textContent = ui("wake_gave_up")(e.error);
+        if (serviceDown(e)) showChromeHint();
         return;
       }
-      if (SERVICE_DOWN.has(e.error) && localAsrUsable()) { fallBackToLocal = true; return; }
+      if (serviceDown(e) && localAsrUsable()) { fallBackToLocal = true; return; }
       errorShown = !ROUTINE_ERRORS.has(e.error);
       if (errorShown) statusEl.textContent = ui("mic_error")(e);
+      if (serviceDown(e)) showChromeHint();
     };
     rec.onresult = (e) => {
       if (mode === "wake") { wake.wakeResult(e); return; }
