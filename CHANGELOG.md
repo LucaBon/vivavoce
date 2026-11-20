@@ -4,6 +4,17 @@
 
 ### New
 
+- **Un nome storpiato dal microfono trova quello giusto (Pro).** Chiedi
+  «metti Kamin», Edge scrive «metti camin», e la ricerca trovava tre canzoni
+  occitane con «camin» nel titolo, chiedendo quale. Se «Kamin» è un nome
+  che a casa tua è già stato suonato, Vivavoce ora se ne accorge — suona
+  uguale — e risponde «Ho sentito «camin». Riproduco Kamin…». Solo per le
+  frasi dette (quelle scritte restano come le scrivi), solo quando la prima
+  risposta non aveva suonato niente, e mai al posto di una lista che
+  contiene già quel nome: lì la domanda era giusta. Il nome noto passa per
+  tutto il resto, kid-safe compreso. Per ora vale per «metti X»; non ancora
+  per album, playlist o frasi con la stanza.
+
 - **Vivavoce si ricorda cosa ha suonato (Pro).** Dopo ogni brano, album o
   artista messo in riproduzione, chiede all'impianto cosa sta suonando
   davvero e se ne tiene titolo e artista, scritti come li scrive il

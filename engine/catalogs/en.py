@@ -231,6 +231,7 @@ MESSAGES = {
     # kitchen"): {room} is the player's LMS name, spoken as-is.
     "in_room": " in {room}",
     # See the Italian catalog for why an overruled room still gets said.
+    "heard_as": "I heard “{heard}”. ",
     "read_as_title": " — I read that as a title, so it's playing here",
     # See the Italian catalog for why this names the room and offers the way
     # out instead of reusing the shared ``pro_required``.

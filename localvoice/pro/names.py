@@ -24,6 +24,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, List, Optional
 
+from matching import parse_song_query
 from pro.name_index import NameIndex
 from pro.phonetic import fold
 
@@ -41,6 +42,21 @@ REFRESH_SECONDS = 6 * 3600
 #: covers whatever is actually played.
 MAX_FAVORITES = 500
 MAX_LIBRARY_ARTISTS = 5000
+
+#: How close a known name has to sound to what was heard to replace it.
+#: «camin»/«Kamin» is 1.0; «emin»/«Eminem», two different artists, is 0.8 —
+#: which is why this is not lower. Measured in tests/test_phonetic.py.
+ACCEPT = 0.9
+
+#: How far ahead of the runner-up the best name has to be. Two known names
+#: that both sound like what was heard are a question, not an answer, and
+#: the turn is left as it was.
+MARGIN = 0.1
+
+#: The word that joins a title to its artist, per language — one that
+#: ``parse_song_query`` splits on (engine/connectors/), so the sentence
+#: rebuilt here is read back as the title and the artist it names.
+BY = {"it": "di", "en": "by", "de": "von", "fr": "par", "es": "de"}
 
 
 def _in_background(fn: Callable, *args: Any) -> None:
@@ -100,6 +116,33 @@ class Names:
         if _vouched_for(terms, title, artist):
             self.index.add_played(title, artist)
 
+    def rename(self, queries: List[str], lang: str = "it") -> Optional[dict]:
+        """The first of ``queries`` that sounds like a known name, rewritten
+        with that name — or None.
+
+        ``queries`` are what each recognition alternative asked to play
+        («camin», «coming di eminem e johnny»), in the recogniser's order.
+        The answer is ``{"index", "text", "title", "artist"}``: which query,
+        the words to put in its place («Kamin di EMIN & JONY»), and the name
+        they come from. The caller runs the rewritten sentence through the
+        whole router, kid-safe included; nothing is played from here.
+        """
+        if not self.pro_ok():
+            return None
+        for i, query in enumerate(queries):
+            parsed = parse_song_query(query, lang=lang)
+            title, artist = parsed.get("title"), parsed.get("artist")
+            entry = _decide(self.index.match(title, artist, lang=lang),
+                            heard_artist=bool(artist))
+            if entry is None:
+                continue
+            text = _phrase(entry, lang, with_artist=bool(artist))
+            if not text or fold(text) == fold(query):
+                continue  # it would ask for exactly what was already asked
+            return {"index": i, "text": text, "title": entry.get("title"),
+                    "artist": entry.get("artist")}
+        return None
+
     # -- names read from the music system ------------------------------------
 
     def refresh_if_stale(self, client) -> None:
@@ -157,3 +200,46 @@ def _vouched_for(terms: Iterable[str], title: Optional[str],
             if r and (t <= r or r <= t):
                 return True
     return False
+
+
+def _decide(ranked, *, heard_artist: bool) -> Optional[dict]:
+    """The known name to use, from :meth:`NameIndex.match`'s ranking, or None.
+
+    Over :data:`ACCEPT`, and :data:`MARGIN` ahead of the next *different*
+    name — the same song kept twice (played, and saved as a favourite) is one
+    name, not a rival. Two songs with the same title by different artists,
+    when no artist was heard, are still one answer about the title: the
+    search will ask which, as it would have for a title spelt right.
+    """
+    seen, distinct = set(), []
+    for score, entry in ranked:
+        key = (fold(entry.get("title")), fold(entry.get("artist")))
+        if key not in seen:
+            seen.add(key)
+            distinct.append((score, entry))
+    if not distinct or distinct[0][0] < ACCEPT:
+        return None
+    best_score, best = distinct[0]
+    rivals = [e for s, e in distinct[1:] if s > best_score - MARGIN]
+    if not rivals:
+        return best
+    title = fold(best.get("title"))
+    if (title and not heard_artist
+            and all(fold(e.get("title")) == title for e in rivals)):
+        return {"title": best.get("title"), "artist": None}
+    return None
+
+
+def _phrase(entry: dict, lang: str, *, with_artist: bool) -> str:
+    """A known name as words a request would say: «Kamin», «Kamin di EMIN &
+    JONY», or the artist alone for an artist.
+
+    The artist only when one was heard. Not every path splits it off: the
+    streaming search does (``parse_song_query``), the local library searches
+    the whole phrase — so «metti camin» becomes «metti Kamin», which both
+    understand, and only a request that named an artist gets one back.
+    """
+    title, artist = entry.get("title"), entry.get("artist")
+    if title and artist and with_artist:
+        return f"{title} {BY.get(lang, BY['it'])} {artist}"
+    return title or artist or ""

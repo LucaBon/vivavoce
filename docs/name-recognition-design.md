@@ -196,6 +196,37 @@ E il punto dell'OFFER (§2): un'offerta il cui primo candidato sta sotto
 `CONFIDENT_SCORE` non chiude più il giro *se l'indice ha un colpo sicuro*.
 Se l'indice non ha niente, il comportamento resta quello di oggi.
 
+**Fatto (passo 1c, 2026-11-20), con tre correzioni alla bozza qui sopra.**
+
+1. *Il criterio non è `CONFIDENT_SCORE`.* Nel caso vero la lista dei tre
+   brani occitani non è debole: «camin» è contenuto parola per parola nei
+   loro titoli, `_score` dà 0,95. Il criterio è **«il turno non ha
+   riprodotto»**: un mancato, una lista da scegliere (`kind` `list` o
+   `disambiguate`) o un'offerta. Mai sopra una riproduzione, un gate
+   (licenza, kid-safe), un impianto che non risponde, un «un attimo».
+   Il giro normale resta intatto: l'indice si consulta *dopo*, una volta
+   sola, sulla prima alternativa che suona come un nome noto.
+2. *Una lista che contiene già il nome noto non si tocca.* «metti Love» con
+   due «Love» in lista e uno nello storico: la domanda era giusta, e la
+   risposta è dell'utente.
+3. *L'artista nella frase riscritta solo se ne è stato detto uno.* La
+   ricerca streaming separa titolo e artista, la libreria locale cerca la
+   frase intera: «metti camin» diventa «metti Kamin», che capiscono entrambe.
+
+Decisione: soglia `ACCEPT = 0.9`, margine `MARGIN = 0.1` sul secondo nome
+*diverso* (lo stesso brano tenuto due volte è un nome solo; stesso titolo di
+due artisti senza artista sentito è ancora una risposta sul titolo). La
+frase riscritta rifà tutto il router — kid-safe, stanze, sorgenti — e se
+riproduce chiude la lista della prima risposta; se manca anche lei, resta la
+prima risposta, lista compresa. La risposta dice cosa ha sentito: «Ho sentito
+«camin». Riproduco Kamin…».
+
+Limiti noti, voluti per ora: solo il verbo generico («metti X», `generic_play`);
+non le frasi con album, playlist o «la musica di». E una frase con stanza o
+sorgente («metti camin in cucina», «metti camin da tidal») porta quelle
+parole dentro il nome cercato nell'indice, e di solito non supera la soglia:
+non sbaglia, semplicemente non aiuta.
+
 ---
 
 ## Fase 2 — Imparare dalle correzioni

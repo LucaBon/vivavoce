@@ -251,6 +251,7 @@ MESSAGES = {
     # be said out loud for the reason T2.7a exists: a room the listener spoke
     # cannot just disappear from the answer, or a wrong guess is invisible
     # exactly where it costs the most.
+    "heard_as": "Ho sentito «{heard}». ",
     "read_as_title": " — l'ho preso come titolo, quindi suona qui",
     # Same situation, no Pro. Its own key rather than the shared
     # ``pro_required`` — which also answers kid-safe — because this reply has
