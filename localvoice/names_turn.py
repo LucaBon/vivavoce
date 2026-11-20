@@ -31,6 +31,7 @@ from conversation import OFFER
 from lang import PACKS
 from messages import msg
 from parsing import clean_command
+from player.protocols import supports
 
 #: The ``kind`` of an answer that asks the user to choose from a numbered
 #: list (``candidates.py``, ``matching._did_you_mean``): a question, not a play.
@@ -100,14 +101,36 @@ class NamesTurn:
         heard = _play_requests(alts, lang)
         if not heard:
             return payload
+        queries = [m.group(1).strip() for _t, m in heard]
         try:
-            found = names.rename([m.group(1).strip() for _t, m in heard], lang)
+            found = names.rename(queries, lang)
+            if not found:  # phase 4: a name nobody here has played yet
+                found = names.respell(queries, lang,
+                                      search=self._probe_for(source))
         except Exception:  # noqa: BLE001 — a guess is never worth the turn
             found = None
         if not found or _lists(speech, found):
             return payload
         return self._try_instead(heard[found["index"]], found["text"],
                                  source, lang, keep=payload)
+
+    def _probe_for(self, source: str):
+        """A catalogue lookup for :meth:`Names.respell`: the tracks a query
+        finds where this request would look — the library for ``local``,
+        the streaming service for a service, both for ``auto`` — as
+        ``[{"title", "artist"}]``. It searches; it never plays. The turn's
+        deadline (``turn_deadline``) bounds it like every other call."""
+        def probe(query: str):
+            rows = []
+            if source in ("auto", "local") and supports(self.lms, "local_library"):
+                rows += self.lms.local_track_candidates(query, 10)
+            if source != "local" and supports(self.lms, "search"):
+                stream, _name, offline = self._streaming(source)
+                if not offline:
+                    rows += stream.search_tracks(query, 10)
+            return [{"title": r.get("title"), "artist": r.get("artist")}
+                    for r in rows if r.get("title")]
+        return probe
 
     def _try_instead(self, heard, name: str, source: str, lang: str, *, keep):
         """Route the sentence ``heard`` with ``name`` in place of what was

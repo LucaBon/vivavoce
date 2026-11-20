@@ -27,7 +27,9 @@ from typing import Any, Callable, Iterable, List, Optional
 from matching import parse_song_query
 from pro.corrections import Corrections
 from pro.name_index import NameIndex
+from pro.naming import ACCEPT, BY, MARGIN, _decide, _phrase  # noqa: F401
 from pro.phonetic import fold, phonetic_score
+from pro.spelling import respell
 
 #: How long after a turn the player is asked what it is playing: long enough
 #: for a streaming track to have replaced the previous one in its status.
@@ -43,21 +45,6 @@ REFRESH_SECONDS = 6 * 3600
 #: covers whatever is actually played.
 MAX_FAVORITES = 500
 MAX_LIBRARY_ARTISTS = 5000
-
-#: How close a known name has to sound to what was heard to replace it.
-#: «camin»/«Kamin» is 1.0; «emin»/«Eminem», two different artists, is 0.8 —
-#: which is why this is not lower. Measured in tests/test_phonetic.py.
-ACCEPT = 0.9
-
-#: How far ahead of the runner-up the best name has to be. Two known names
-#: that both sound like what was heard are a question, not an answer, and
-#: the turn is left as it was.
-MARGIN = 0.1
-
-#: The word that joins a title to its artist, per language — one that
-#: ``parse_song_query`` splits on (engine/connectors/), so the sentence
-#: rebuilt here is read back as the title and the artist it names.
-BY = {"it": "di", "en": "by", "de": "von", "fr": "par", "es": "de"}
 
 #: How alike what was said and what was then written must be for the page to
 #: offer "remember this". Low on purpose, measured on real cases: «sfigati»
@@ -153,6 +140,16 @@ class Names:
             return {"index": i, "text": text, "title": entry.get("title"),
                     "artist": entry.get("artist")}
         return None
+
+    def respell(self, queries: List[str], lang: str = "it", *,
+                search: Callable[[str], list]) -> Optional[dict]:
+        """For a name the household has never played: the first of
+        ``queries`` whose respelling the catalogue holds, answered like
+        :meth:`rename` — or None. Phase 4; see :func:`pro.spelling.respell`.
+        """
+        if not self.pro_ok():
+            return None
+        return respell(queries, lang, search)
 
     # -- corrections the household confirmed (phase 2) ----------------------
 
@@ -294,45 +291,3 @@ def _vouched_for(terms: Iterable[str], title: Optional[str],
                 return True
     return False
 
-
-def _decide(ranked, *, heard_artist: bool) -> Optional[dict]:
-    """The known name to use, from :meth:`NameIndex.match`'s ranking, or None.
-
-    Over :data:`ACCEPT`, and :data:`MARGIN` ahead of the next *different*
-    name — the same song kept twice (played, and saved as a favourite) is one
-    name, not a rival. Two songs with the same title by different artists,
-    when no artist was heard, are still one answer about the title: the
-    search will ask which, as it would have for a title spelt right.
-    """
-    seen, distinct = set(), []
-    for score, entry in ranked:
-        key = (fold(entry.get("title")), fold(entry.get("artist")))
-        if key not in seen:
-            seen.add(key)
-            distinct.append((score, entry))
-    if not distinct or distinct[0][0] < ACCEPT:
-        return None
-    best_score, best = distinct[0]
-    rivals = [e for s, e in distinct[1:] if s > best_score - MARGIN]
-    if not rivals:
-        return best
-    title = fold(best.get("title"))
-    if (title and not heard_artist
-            and all(fold(e.get("title")) == title for e in rivals)):
-        return {"title": best.get("title"), "artist": None}
-    return None
-
-
-def _phrase(entry: dict, lang: str, *, with_artist: bool) -> str:
-    """A known name as words a request would say: «Kamin», «Kamin di EMIN &
-    JONY», or the artist alone for an artist.
-
-    The artist only when one was heard. Not every path splits it off: the
-    streaming search does (``parse_song_query``), the local library searches
-    the whole phrase — so «metti camin» becomes «metti Kamin», which both
-    understand, and only a request that named an artist gets one back.
-    """
-    title, artist = entry.get("title"), entry.get("artist")
-    if title and artist and with_artist:
-        return f"{title} {BY.get(lang, BY['it'])} {artist}"
-    return title or artist or ""

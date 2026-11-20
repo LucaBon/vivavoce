@@ -311,6 +311,27 @@ Per i brani **mai incontrati**, che l'indice non conosce.
   `kamin` è nel catalogo finto; nessuna ricerca in più quando il primo
   giro è già sicuro (si conta quante ricerche partono).
 
+**Fatto (fase 4, 2026-11-20), con il disegno cambiato.** Non dentro
+`play_song`, e non provando le varianti come turni: una variante è
+un'ipotesi, e un turno *riproduce* — su Spotify, che risponde sempre,
+riprodurrebbe qualcosa prima che si possa giudicare. Quindi si **cerca senza
+riprodurre**: il core passa a `Names.respell` una sonda (`_probe_for`:
+libreria per `local`, servizio per un servizio, entrambi per `auto`), il Pro
+genera al massimo 2 varianti **con chiave fonetica identica**
+(`pro/spelling.py`: «camin» → «kamin», «gioni» → «jony»), le cerca, e decide
+sui risultati con la stessa soglia e lo stesso margine del passo 1c
+(`pro/naming.py`, ora condiviso). Se un titolo combacia, la frase si
+riscrive con quel titolo e rifà il router come nel passo 1c — kid-safe
+compreso, «Ho sentito…» davanti. Si prova solo dopo l'indice e solo dove
+interviene il passo 1c: turno vocale Pro che non ha riprodotto niente. Una
+ricerca che fallisce (sistema giù, o i 10 s del turno finiti: li impone già
+`turn_deadline`) chiude il tentativo.
+
+Scoperto lungo la strada: un test del passo 1c («una lista che contiene già
+il nome») passava senza mai arrivare al controllo — «camin» contro «Djal Bai
+Si Camin» vale 0,45 e l'indice non sceglieva niente. Sostituito con un test
+diretto del controllo e uno scenario vero («metti Love», due Love in lista).
+
 ---
 
 ## Fase 3 — Whisper guidato dai nomi noti

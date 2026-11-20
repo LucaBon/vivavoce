@@ -107,22 +107,42 @@ def test_without_the_feature_the_answer_is_the_ordinary_one(live_server, library
     assert reply["needs_choice"] is True
 
 
-def test_an_unknown_name_leaves_the_list(live_server, library, tmp_path):
+def test_an_unknown_name_leaves_the_list(live_server, transport, tmp_path):
+    """Not in the history, and no respelling in the catalogue either (phase
+    4 would find «kamin» if the catalogue had it — see test_spelling.py)."""
+    _catalog(transport, {"camin": OCCITAN})
     srv = live_server(names=_names(tmp_path, ("Time", "Pink Floyd")))
     reply = _say(srv, "metti camin")
     assert reply["needs_choice"] is True
     assert len(reply["choices"]) == 3
 
 
-def test_a_list_that_already_holds_the_name_is_a_fair_question(
-        live_server, library, tmp_path):
-    """Played before, and on the list: the list asked the right question, and
-    choosing is the user's — history is not a licence to answer for them."""
-    srv = live_server(names=_names(tmp_path, ("Djal Bai Si Camin",
-                                              "Antonio dos Santos")))
-    reply = _say(srv, "metti camin")
+def test_a_fair_question_stays_a_question(live_server, transport, tmp_path):
+    """«metti Love», two songs called Love, one of them played before: the
+    list asked the right question, and choosing is the user's — history is
+    not a licence to answer for them."""
+    _catalog(transport, {"love": [{"id": 11, "title": "Love", "artist": "X"},
+                                  {"id": 12, "title": "Love", "artist": "Y"}]})
+    srv = live_server(names=_names(tmp_path, ("Love", "Y")))
+    reply = _say(srv, "metti love")
     assert reply["needs_choice"] is True
-    assert _played_ids(library) == []
+    assert _played_ids(transport) == []
+
+
+def test_a_list_that_holds_the_known_name_is_recognised():
+    """The check behind it, directly. (An earlier version of this file tested
+    it through a list whose titles only *contained* «camin»: the index never
+    chose anything there, so the test passed without reaching the check.)"""
+    from matching import ActionResult
+    from names_turn import _lists
+
+    listed = ActionResult("Ne ho diversi", kind="disambiguate", candidates=[
+        {"title": "Kamin", "artist": "EMIN & JONY"},
+        {"title": "Camin", "artist": "Someone Else"}])
+    assert _lists(listed, {"title": "Kamin", "artist": "EMIN & JONY"})
+    assert _lists(listed, {"title": "Kamin", "artist": None})
+    assert not _lists(listed, {"title": "Kamin", "artist": "Another"})
+    assert not _lists(listed, {"title": "Time", "artist": "Pink Floyd"})
 
 
 def test_a_turn_that_played_is_never_overruled(live_server, transport, tmp_path):

@@ -4,6 +4,14 @@
 
 ### New
 
+- **Anche un nome mai ascoltato prima (Pro).** Se il microfono scrive
+  «camin» e a casa tua «Kamin» non è mai stato suonato, Vivavoce prova le
+  grafie che suonano identiche — «kamin», «jony» per «gioni», «philip» per
+  «filip» — chiedendo al catalogo senza far partire niente, e usa un
+  titolo solo se suona davvero come quello che hai detto. Al massimo due
+  ricerche in più, dentro i soliti dieci secondi; solo per le frasi dette,
+  e solo se la prima risposta non aveva suonato niente.
+
 - **Correggi una volta, e il microfono impara (Pro).** Se dici «metti Kamin
   di EMIN e JONY» e il riconoscimento scrive «coming di eminem e johnny»,
   parte Eminem. Scrivi il nome giusto nella casella entro un minuto e mezzo
