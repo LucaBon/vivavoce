@@ -4,6 +4,14 @@
 
 ### New
 
+- **Whisper sa già quali nomi aspettarsi (Pro).** Con il riconoscimento
+  locale attivo, a ogni comando Vivavoce passa a Whisper i nomi che a casa
+  tua si ascoltano di più e quelli delle correzioni che hai confermato,
+  così li scrive giusti fin dall'inizio invece di essere corretto dopo.
+  Preferiti e libreria intera restano fuori apposta: troppi nomi e Whisper
+  comincia a sentirli dove non ci sono. Per misurare se a casa tua aiuta,
+  e soprattutto se peggiora qualcosa: `tools/hotwords_bench.py`.
+
 - **Anche un nome mai ascoltato prima (Pro).** Se il microfono scrive
   «camin» e a casa tua «Kamin» non è mai stato suonato, Vivavoce prova le
   grafie che suonano identiche — «kamin», «jony» per «gioni», «philip» per

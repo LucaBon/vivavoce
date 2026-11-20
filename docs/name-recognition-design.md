@@ -353,6 +353,24 @@ tokenizzati e troncati a metà del contesto (~224 token): ci stanno circa
 - Rischio noto: hotwords troppo «forti» spingono Whisper a vedere nomi dove
   non ci sono. Va misurato sul corpus del §3 in negativo.
 
+**Fatto (fase 3, 2026-11-20).** `Names.hotwords(lang)` mette prima i
+«meant» delle correzioni confermate in quella lingua (titolo e artista
+separati), poi titoli e artisti più ascoltati, ogni nome una volta sola,
+fino a 600 caratteri — sotto la metà del contesto che faster-whisper
+riserva agli hotwords, così nessun nome viene tagliato a metà dal motore.
+**Preferiti e artisti della libreria restano fuori**: cinquemila artisti
+non sono un suggerimento ma rumore, e Whisper comincerebbe a sentirli
+dappertutto. `/transcribe` li passa al motore solo se ce ne sono (un motore
+che non conosce l'argomento continua a funzionare), e un errore nel
+costruirli costa il suggerimento, mai la trascrizione.
+
+**Da misurare, non qui.** In questo ambiente non c'è audio né modello.
+`tools/hotwords_bench.py` trascrive ogni clip del corpus di
+`tools/asr_titles_bench.py` due volte, senza e con gli hotwords, e mostra
+*prima* le clip peggiorate (il rischio qui sopra). Tre sorgenti: lo storico
+vero di una casa (`--data-dir`, la misura che conta), i nomi attesi dal
+corpus (`--from-manifest`, il tetto massimo), o una stringa a mano.
+
 ---
 
 ## 4. Ordine e dimensioni

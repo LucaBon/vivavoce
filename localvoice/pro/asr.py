@@ -166,7 +166,8 @@ class WhisperTranscriber:
                     **({"revision": revision} if revision else {}))
             return self._model
 
-    def transcribe(self, audio: bytes, lang: str = "it") -> dict:
+    def transcribe(self, audio: bytes, lang: str = "it",
+                   hotwords: Optional[str] = None) -> dict:
         """``{"text": ..., "alternatives": [...]}`` for one recorded command.
 
         Whisper decodes the container itself (PyAV), so webm/opus from
@@ -176,9 +177,14 @@ class WhisperTranscriber:
         """
         model = self._load()
         with _transcribe_lock:
+            # ``hotwords``: names this household plays, so Whisper writes
+            # «Kamin» rather than «camin» in the first place (phase 3 of
+            # docs/name-recognition-design.md). faster-whisper >= 1.2.1
+            # takes it as a plain string and trims it to half its context.
+            extra = {"hotwords": hotwords} if hotwords else {}
             segments, info = model.transcribe(
                 io.BytesIO(audio), language=(lang or None), beam_size=5,
-                vad_filter=True)
+                vad_filter=True, **extra)
             duration = getattr(info, "duration", 0.0) or 0.0
             if duration > MAX_AUDIO_SECONDS:
                 raise ValueError(

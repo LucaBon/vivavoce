@@ -118,7 +118,7 @@ def make_handler(lms, material_url: str, services, default_service: str,
 
     class Handler(api_v1_routes(router_for, multiroom),
                   audio_routes(license_mgr, transcriber, wakeword_sessions,
-                               wake_phrase_store),
+                               wake_phrase_store, names),
                   proxy_routes(lms.base_url, browse, proxy_open),
                   settings_routes(kidsafe, license_mgr), names_routes(names),
                   httpbase.RequestBase, BaseHTTPRequestHandler):

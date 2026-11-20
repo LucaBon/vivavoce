@@ -46,7 +46,7 @@ def _failed(exc: Exception, where: str) -> str:
 
 
 def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
-                 wake_phrase_store=None):
+                 wake_phrase_store=None, names=None):
     """The audio-engine half of the request handler, bound to its engines.
 
     A class rather than a module of functions for the same reason
@@ -129,8 +129,20 @@ def audio_routes(license_mgr=None, transcriber=None, wakeword_sessions=None,
                 return
             audio = self.rfile.read(length)
             lang = (self._query_params().get("lang") or ["it"])[0]
+            # The names this household plays, for Whisper to expect (Pro,
+            # pro/names.py). Only passed when there are some: an engine that
+            # predates the argument keeps working, and a failure to build the
+            # list costs the hint, never the transcription.
+            hint = {}
+            if names is not None:
+                try:
+                    words = names.hotwords(lang)
+                except Exception:  # noqa: BLE001
+                    words = None
+                if words:
+                    hint = {"hotwords": words}
             try:
-                result = transcriber.transcribe(audio, lang)
+                result = transcriber.transcribe(audio, lang, **hint)
             except Exception as exc:
                 self._send(200, json.dumps(
                     {"ok": False, "error": _failed(exc, "transcribe_failed")}))

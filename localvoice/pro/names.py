@@ -54,6 +54,12 @@ MAX_LIBRARY_ARTISTS = 5000
 #: offered in error is ignored at no cost; nothing is kept without a tap.
 SUGGEST = 0.2
 
+#: How much of the history is handed to Whisper as names to expect (phase 3).
+#: faster-whisper trims what it is given to half its 448-token context; at
+#: about three characters a token, 600 characters stays inside that with room
+#: to spare, so nothing is cut mid-name by the engine.
+MAX_HOTWORDS_CHARS = 600
+
 
 def _in_background(fn: Callable, *args: Any) -> None:
     threading.Thread(target=fn, args=args, daemon=True).start()
@@ -150,6 +156,37 @@ class Names:
         if not self.pro_ok():
             return None
         return respell(queries, lang, search)
+
+    def hotwords(self, lang: str = "it") -> Optional[str]:
+        """The names Whisper should expect, as one string — or None.
+
+        What the household confirmed it means first (the «meant» of its
+        corrections in ``lang``), then the most played titles and artists,
+        each name once, until :data:`MAX_HOTWORDS_CHARS`. Favourites and
+        library artists are left out: a library of five thousand artists is
+        not a hint, it is noise, and Whisper would start hearing them.
+        """
+        if not self.pro_ok():
+            return None
+        names: List[str] = []
+        if self.corrections is not None:
+            for c in self.corrections.items():
+                if c.get("lang", "it") == lang:
+                    parsed = parse_song_query(c["meant"], lang=lang)
+                    names += [parsed.get("title"), parsed.get("artist")]
+        for entry in self.index.history():
+            names += [entry.get("title"), entry.get("artist")]
+        seen, kept, size = set(), [], 0
+        for name in names:
+            key = fold(name)
+            if not key or key in seen:
+                continue
+            if size + len(name) + 2 > MAX_HOTWORDS_CHARS:
+                break
+            seen.add(key)
+            kept.append(name.strip())
+            size += len(name) + 2
+        return ", ".join(kept) or None
 
     # -- corrections the household confirmed (phase 2) ----------------------
 
