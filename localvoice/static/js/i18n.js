@@ -121,6 +121,7 @@ export function applyUI() {
   hooks.buildVoicePickers();  // re-localizes the "(no voice)" option
   hooks.applyPro();           // re-localizes the Pro panel strings
   hooks.renderKidsafe();      // re-localizes the kid-safe panel
+  hooks.renderNames();        // ...and the names section beside it
   hooks.renderCertSetup();    // re-localizes the certificate panel, keeping
                               // its live verdict (which no markup snapshot has)
   refreshStatus();

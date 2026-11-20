@@ -8,6 +8,7 @@ import { currentSource, currentPlayer } from "./settings.js";
 import { refreshNowPlaying } from "./nowplaying.js";
 import { readbackOn, speak } from "./tts.js";
 import { trialInfo, isLicensed, showProUpsell } from "./pro.js";
+import { renderRemember } from "./names.js";
 
 // The onboarding hints (the three example chips and the source note) used to
 // go away on the first message — including a message that failed. So the one
@@ -174,6 +175,9 @@ export async function send(text, alternatives, opts) {
   const body = { text, client: clientId(), source: currentSource(),
                  lang: recLang(), player: currentPlayer(),
                  via: (opts && opts.via) || "typed" };
+  // What the recogniser heard before the user corrected it in the box: never
+  // run, only what the server needs to offer "remember this" (names.js).
+  if (opts && Array.isArray(opts.heard) && opts.heard.length) body.heard = opts.heard;
   if (alternatives && alternatives.length > 1) body.alternatives = alternatives;
   try {
     const r = await fetch("/api/v1/command", {
@@ -194,6 +198,8 @@ export async function send(text, alternatives, opts) {
     if (data.ok === false) p.classList.add("warn");
     p.textContent = data.speech;
     if (Array.isArray(data.choices) && data.choices.length) renderChoices(p, data.choices);
+    // A typed answer that corrected a spoken one: offer to remember it.
+    if (data.remember) renderRemember(p, data.remember);
     // Parser gap (nothing matched): offer the local, user-initiated report.
     if (data.unmatched) renderReportButton(p, (data.used || text));
     // Only when it worked: an upgrade pitch stapled to a failure reads as
@@ -284,7 +290,7 @@ export function initChat() {
     const txt = $("text").value, r = reviewed;
     reviewed = null;
     if (r && txt.trim() === r.txt.trim()) send(txt, r.alts, { via: "voice" });
-    else send(txt, null, { typed: true });
+    else send(txt, null, { typed: true, heard: r ? (r.alts || [r.txt]) : null });
     $("text").value = "";
   };
   $("send").onclick = sendTyped;

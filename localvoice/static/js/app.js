@@ -13,12 +13,13 @@ import { initSettings, buildSourceOptions, renderPlayers, setPlayersData,
          syncWakeLabel } from "./settings.js";
 import { initNowPlaying, renderNowPlaying } from "./nowplaying.js";
 import { initBrowse } from "./browse.js";
+import { initNames, renderNames } from "./names.js";
 import { initMic, refreshAsr, refreshServerWake } from "./mic.js";
 import { initCertSetup, renderCertSetup, certState } from "./certsetup.js";
 
 initI18n();  // snapshot the Italian markup before anything rewrites it
 setUIHooks({ buildSourceOptions, buildVoicePickers, applyPro, renderKidsafe,
-             syncWakeLabel, renderCertSetup });
+             syncWakeLabel, renderCertSetup, renderNames });
 initChat();
 initTts();
 initPro();
@@ -26,6 +27,7 @@ initSettings();
 initNowPlaying();
 initBrowse();
 initMic();
+initNames();
 
 // Render the UI in the selected language (labels, source options, status line).
 applyUI();

@@ -48,6 +48,10 @@ installs for separate parts of the pipeline.
   the settings, next to kid-safe. It never leaves the machine. Your LMS
   favourites and library artists are read for the same purpose and kept in
   memory only.
+- The **corrections you confirmed** (Pro): «when I hear X, I mean Y», each
+  kept only after you tapped "remember" under an answer, in
+  `corrections.json` in the same directory — at most 500. You can delete
+  them one by one in the same settings section.
 - No telemetry, no analytics, no accounts, no cookies beyond `localStorage`
   preferences on your own devices.
 - The **"report a misunderstood phrase"** button stores the report on your

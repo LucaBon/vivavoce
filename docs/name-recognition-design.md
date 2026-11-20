@@ -174,9 +174,9 @@ Con il multi-room si chiede al player su cui il turno ha suonato
 e si rileggono ogni 6 h. Lo storico si *registra* da tutti i turni, anche
 scritti; si *userà* solo su quelli vocali.
 
-> **Da non unire prima della fase 2.** Da qui lo storico raccoglie dati, e
-> l'interruttore per spegnerlo e svuotarlo arriva con la sezione delle
-> impostazioni (fase 2). `PRIVACY.md` lo descrive già com'è a lavoro finito.
+> ~~Da non unire prima della fase 2.~~ Risolto: l'interruttore e lo
+> svuotamento dello storico sono arrivati con la sezione delle impostazioni
+> (fase 2, 2026-11-20).
 
 ### 1.3 Dove interviene — aggancio in `localvoice/alternatives.py`
 
@@ -266,6 +266,29 @@ correggendo niente. Due difese:
   sezione «Nomi e correzioni» con l'elenco delle correzioni (cancellabili una
   per una), l'interruttore dello storico e un pulsante per svuotarlo. Per ora
   niente comandi vocali per cancellarle.
+
+**Fatto (fase 2, 2026-11-20), con due correzioni alla bozza qui sopra.**
+
+1. *Il segnale vale anche dopo un turno vocale che ha riprodotto.* Il caso
+   vero è proprio quello: «coming di eminem e johnny» suona Eminem, e solo
+   chi ha chiesto può dire che era sbagliato. Ciò che rende sicuro un
+   segnale così largo è la conferma (sempre, §5.2) più una somiglianza
+   minima, `SUGGEST = 0.2`, misurata: «sfigati»/«Audioslave» — storpiatura
+   documentata nel repository — 0,24; «coming di eminem e johnny»/«Kamin di
+   EMIN & JONY» 0,83; «vasco» poi «i Queen» 0,18. Un chip offerto a torto si
+   ignora e non costa niente.
+2. *Le correzioni confermate si applicano **prima** del giro normale*, non
+   dopo come l'indice: altrimenti la frase che suona Eminem continuerebbe a
+   suonarlo. Corrispondenza esatta (lettere, o chiave fonetica identica): una
+   regola confermata è precisa. Se la frase corretta non trova niente, si
+   torna al giro normale.
+
+E un caso che la bozza non vedeva: con l'invio automatico spento, la
+trascrizione corretta nella casella non arriva mai al server come turno
+vocale. La pagina manda allora `heard` insieme alla frase scritta (solo per
+offrire il chip, mai eseguito). Codice: `localvoice/names_turn.py` (agganci
+del core, insieme al passo 1c), `localvoice/names_api.py` (`/names`),
+`localvoice/pro/corrections.py`, `localvoice/static/js/names.js`.
 
 ---
 

@@ -173,6 +173,18 @@
           <button id="ksdisable" type="button" data-i18n="ks_disable">Disattiva</button>
         </div>
       </div>
+      <div id="namesbox" style="display:none">
+        <div class="hint" data-i18n="nm_pitch"><b>🗣️ Nomi e correzioni</b> — Vivavoce ricorda i nomi che ascolti,
+          per capirli anche quando il microfono li storpia. Resta tutto su questo server.</div>
+        <div id="nmhistrow">
+          <label class="hint"><input type="checkbox" id="nmhistory">
+            <span data-i18n="nm_history_lbl">Ricorda cosa ascolto</span>
+            · <span id="nmcount"></span></label>
+          <button id="nmclear" type="button" data-i18n="nm_clear">Svuota lo storico</button>
+        </div>
+        <div class="hint" data-i18n="nm_list_lbl">Correzioni che hai confermato (tocca per cancellarne una):</div>
+        <div id="nmlist"></div>
+      </div>
     </div>
   </details>
   <details class="hint card">

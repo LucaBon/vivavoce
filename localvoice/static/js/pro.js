@@ -11,6 +11,7 @@ import { replyLang, setMicLocked, ui } from "./i18n.js";
 import { syncVoicePanel } from "./tts.js";
 import { syncWakePhrase } from "./miccapture.js";
 import { renderPlayers } from "./settings.js";
+import { refreshNames } from "./names.js";
 
 const PRO_STORE_URL = "https://vivavoce.lemonsqueezy.com";  // checkout link, set at launch
 let PRO = localStorage.getItem("pro_hint") === "1";
@@ -88,6 +89,7 @@ function setPro(info) {
   PRO_INFO = info || null;
   localStorage.setItem("pro_hint", PRO ? "1" : "0");
   applyPro();
+  refreshNames();  // its section shows only with Pro, and Pro just changed
 }
 
 export async function refreshLicense() {

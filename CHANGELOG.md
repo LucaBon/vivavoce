@@ -4,6 +4,17 @@
 
 ### New
 
+- **Correggi una volta, e il microfono impara (Pro).** Se dici «metti Kamin
+  di EMIN e JONY» e il riconoscimento scrive «coming di eminem e johnny»,
+  parte Eminem. Scrivi il nome giusto nella casella entro un minuto e mezzo
+  — o correggi la trascrizione prima di inviarla — e sotto la risposta
+  compare «📌 Ricorda: quando sento «coming di eminem e johnny» intendo
+  «Kamin di EMIN & JONY»». Un tocco, e la prossima volta che lo dici parte
+  Kamin, con «Ho sentito «coming di eminem e johnny».» davanti. Senza tocco
+  non si ricorda niente. Le correzioni, lo storico dei nomi ascoltati e il
+  suo interruttore stanno nelle impostazioni, accanto a kid-safe; da lì le
+  cancelli una per una o svuoti lo storico.
+
 - **Un nome storpiato dal microfono trova quello giusto (Pro).** Chiedi
   «metti Kamin», Edge scrive «metti camin», e la ricerca trovava tre canzoni
   occitane con «camin» nel titolo, chiedendo quale. Se «Kamin» è un nome
