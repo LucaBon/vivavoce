@@ -92,6 +92,88 @@ def test_a_192_168_local_range_adds_no_wide_phase(monkeypatch):
     assert "wide" not in dict(discovery._candidate_phases())
 
 
+# -- i router sul percorso -----------------------------------------------------
+
+# Misurati davvero (novembre 2026), dal container in WSL mirrored: il router di
+# casa, il modem del provider, un salto muto, poi la rete del provider.
+HOST_HOPS = {1: "192.168.2.1", 2: "192.168.1.1",
+             4: "172.16.20.114", 5: "93.186.128.82"}
+# Lo stesso, dietro il bridge di Docker: un salto in più davanti.
+BRIDGE_HOPS = {1: "172.17.0.1", 2: "192.168.2.1", 3: "192.168.1.1",
+               5: "172.16.20.116", 6: "93.186.128.82"}
+
+
+_REAL_PATH_HOPS = discovery._path_hops
+
+
+@pytest.fixture(autouse=True)
+def path(monkeypatch):
+    """What ``_path_hops`` sees, for every test here: no probe leaves the
+    machine, and by default no router answers."""
+    monkeypatch.delenv("VIVAVOCE_DISCOVERY_FULL", raising=False)
+    hops = {}
+    monkeypatch.setattr(discovery, "_path_hops", lambda *a, **k: dict(hops))
+    return hops
+
+
+def test_the_routers_are_read_off_the_path_and_the_provider_is_not():
+    # 172.16.20.x è privato, ma è dentro il provider: dopo il salto muto.
+    assert discovery._router_prefixes(HOST_HOPS) == ["192.168.2", "192.168.1"]
+    assert discovery._router_prefixes(BRIDGE_HOPS) == \
+        ["172.17.0", "192.168.2", "192.168.1"]
+
+
+def test_a_public_hop_ends_the_household_and_a_silent_first_one_does_not():
+    assert discovery._router_prefixes({1: "192.168.0.1", 2: "10.20.0.1",
+                                       3: "100.64.0.1", 4: "10.9.9.9"}) == \
+        ["192.168.0", "10.20.0"]
+    assert discovery._router_prefixes({2: "192.168.5.1"}) == ["192.168.5"]
+    assert discovery._router_prefixes({}) == []
+
+
+def test_known_routers_replace_the_full_sweep(path, monkeypatch):
+    # Docker bridge davanti alla LAN: niente 192.168/16 e niente 172.17/16.
+    path.update(BRIDGE_HOPS)
+    monkeypatch.setattr(discovery, "_local_prefixes", lambda: ["172.17.0"])
+    phases = dict(discovery._candidate_phases())
+    assert list(phases) == ["local", "routers", "common"]
+    assert phases["routers"] == ["192.168.2", "192.168.1"]   # 172.17.0 è local
+    assert sum(len(p) for p in phases.values()) < 20
+
+
+def test_a_flat_10_network_keeps_its_wide_sweep(path, monkeypatch):
+    # Il router sta in un'altra /24 della stessa /16: lì l'LMS può essere
+    # in una /24 vicina, che è il caso per cui "wide" esiste.
+    path.update({1: "10.0.0.1", 2: "192.168.1.1", 3: "93.186.128.82"})
+    monkeypatch.setattr(discovery, "_local_prefixes", lambda: ["10.0.7"])
+    phases = dict(discovery._candidate_phases())
+    assert "10.0.42" in phases["wide"]
+    assert "full" not in phases
+
+
+def test_unknown_routers_keep_the_old_phases(path, monkeypatch):
+    # Nessuna risposta ICMP (non Linux, firewall): come prima.
+    monkeypatch.setattr(discovery, "_local_prefixes", lambda: ["172.29.240"])
+    assert list(dict(discovery._candidate_phases())) == \
+        ["local", "common", "wide", "full"]
+
+
+def test_the_full_sweep_can_still_be_asked_for(path, monkeypatch):
+    path.update(HOST_HOPS)
+    monkeypatch.setenv("VIVAVOCE_DISCOVERY_FULL", "1")
+    monkeypatch.setattr(discovery, "_local_prefixes", lambda: ["192.168.2"])
+    assert "full" in dict(discovery._candidate_phases())
+
+
+def test_path_hops_never_raises_and_says_unknown(monkeypatch):
+    # Senza rete (o senza IP_RECVERR) la risposta è "non so", non un errore.
+    class Broken:
+        def __init__(self, *a, **k):
+            raise OSError("no network")
+    monkeypatch.setattr(discovery.socket, "socket", Broken)
+    assert _REAL_PATH_HOPS() == {}
+
+
 def test_local_prefixes_skips_loopback_and_link_local(monkeypatch):
     monkeypatch.setattr(discovery.socket, "gethostbyname_ex",
                         lambda _h: ("host", [], ["127.0.1.1", "169.254.3.4",

@@ -85,6 +85,10 @@ _DISCOVERY_PHASES = {
     "full": "Non ancora trovato: scansione completa di 192.168.*...",
 }
 
+#: Ogni riga una volta sola per avvio: la ricerca si ripete finché l'LMS
+#: manca, magari tutta la notte, e ripetere la stessa frase non aggiunge nulla.
+_said_phases: set = set()
+
 
 def optional_groups_unavailable_here() -> str:
     """Why the onnxruntime-backed optional group cannot be installed, or ``""``.
@@ -131,7 +135,8 @@ def _announce_setup(scheme: str, hosts: list, port: int, line: str) -> None:
 
 def _discovery_progress(phase: str) -> None:
     line = _DISCOVERY_PHASES.get(phase)
-    if line:
+    if line and phase not in _said_phases:
+        _said_phases.add(phase)
         print(line)
 
 

@@ -215,6 +215,64 @@ def test_the_network_is_not_re_searched_on_every_round(probe):
     assert len(rounds) == 2
 
 
+def test_each_failed_search_waits_longer_up_to_a_ceiling(probe):
+    # A search that found nothing will most likely find nothing again: the
+    # wait doubles each time (30, 60, 120...) and stops at the ceiling.
+    clock = Clock()
+    starts = []
+    r = setupserver._Resolution("", lambda: starts.append(clock()) or "",
+                                discover_interval=30.0,
+                                discover_max_interval=100.0, now=clock)
+    for _ in range(400):
+        r.sweep()
+        clock.advance(1)
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert gaps[:3] == [30.0, 60.0, 100.0]
+    assert set(gaps[2:]) == {100.0}
+
+
+def test_the_wait_starts_when_a_search_ends(probe):
+    # A sweep lasting as long as the interval used to start the next one the
+    # moment it finished: the network was searched back to back.
+    clock = Clock()
+    starts = []
+
+    def slow_search():
+        starts.append(clock())
+        clock.advance(30)
+        return ""
+
+    r = setupserver._Resolution("", slow_search, discover_interval=30.0,
+                                now=clock)
+    r.sweep()
+    clock.advance(1)
+    r.sweep()
+    assert len(starts) == 1   # 31 s since it started, 1 since it ended
+    clock.advance(30)
+    r.sweep()
+    assert len(starts) == 2
+
+
+def test_a_search_that_finds_something_resets_the_wait(probe):
+    clock = Clock()
+    answers = iter(["", "", "http://lms:9000", ""])
+    starts = []
+
+    def search():
+        starts.append(clock())
+        return next(answers)
+
+    # The LMS answers discovery but not the probe, so the loop goes on.
+    r = setupserver._Resolution("", search, discover_interval=10.0, now=clock)
+    for _ in range(200):
+        r.sweep()
+        if len(starts) == 4:
+            break
+        clock.advance(1)
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert gaps == [10.0, 20.0, 10.0]
+
+
 def test_a_configured_address_is_never_swapped_for_a_discovered_one(probe):
     # --lms is configuration. Searching the network for a server somebody has
     # already named is how you end up controlling the neighbour's hi-fi.

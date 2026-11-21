@@ -46,6 +46,10 @@ PROBE_INTERVAL = 3.0
 #: the noisiest thing on the LAN.
 DISCOVER_INTERVAL = 30.0
 
+#: Ceiling of the wait after failed searches: it doubles each time (30 s, 1,
+#: 2, 4, 8, then 10 min) and is counted from when a search ENDS.
+DISCOVER_MAX_INTERVAL = 600.0
+
 #: Failed probes on a remembered address before it is given up on and the
 #: network is searched again. Two, because one is a router still coming up
 #: after a power cut — the case the address was remembered for.
@@ -129,7 +133,8 @@ class _Resolution:
     def __init__(self, lms_url: str, discover, pinned: bool = False,
                  require_player: bool = True,
                  discover_interval: float = DISCOVER_INTERVAL,
-                 now=time.monotonic, probe=None, from_page: bool = False):
+                 now=time.monotonic, probe=None, from_page: bool = False,
+                 discover_max_interval: float = DISCOVER_MAX_INTERVAL):
         self.lock = threading.Lock()
         self.discover = discover
         # Which music system this is looking for. Defaults to the module
@@ -138,7 +143,9 @@ class _Resolution:
         self.probe = probe or globals()["probe"]
         self.discover_interval = discover_interval
         self.now = now
+        self.discover_max_interval = discover_max_interval
         self.discover_after = 0.0
+        self.discover_failures = 0
         # ``pinned`` is --lms / PREFIX_LMS: configuration, not a guess. A
         # remembered or discovered address is given up on when it stops
         # answering (the old cache did the same); a configured one never is,
@@ -260,8 +267,15 @@ class _Resolution:
             return  # keep trying the address we have rather than the network
         if not search or self.now() < self.discover_after:
             return  # searched recently; see DISCOVER_INTERVAL
-        self.discover_after = self.now() + self.discover_interval
-        found = self.discover()
+        found = ""
+        try:
+            found = self.discover()
+        finally:  # the wait starts when the search has ended
+            self.discover_failures = 0 if found else self.discover_failures + 1
+            wait = self.discover_interval * 2 ** min(
+                max(self.discover_failures - 1, 0), 16)
+            self.discover_after = self.now() + min(
+                wait, self.discover_max_interval)
         if found:
             self.offer(found)
 
@@ -328,6 +342,7 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
                 pinned: bool = False, require_player: bool = True,
                 allowed_hosts=None, wrap=None, interval: float = PROBE_INTERVAL,
                 discover_interval: float = DISCOVER_INTERVAL,
+                discover_max_interval: float = DISCOVER_MAX_INTERVAL,
                 sleep=time.sleep, announce=print, backend: str = "lms",
                 token: Optional[str] = None, from_page: bool = False):
     """Serve the setup page until the household is controllable.
@@ -352,6 +367,7 @@ def serve_setup(host: str, port: int, lms_url: str, discover, *,
                              probe=prober_for(backend, token),
                              require_player=require_player,
                              discover_interval=discover_interval,
+                             discover_max_interval=discover_max_interval,
                              from_page=from_page)
     # Look once before binding anything — but only the cheap half. A house
     # that is already fine (the usual restart: a remembered address, a player
