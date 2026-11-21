@@ -13,12 +13,24 @@ Two strategies, tried in order:
    private subnets host by host and stop at the first answer. Outbound unicast
    UDP crosses Docker's NAT fine, which keeps `docker compose up` zero-config
    on Docker Desktop too.
+
+Which subnets the sweep tries is the whole cost. The household's subnets are
+the ones its routers sit on, and those are on the path out: a few UDP probes
+with a growing TTL make each router on the way answer ICMP time-exceeded
+(``_path_hops``, tracepath-style, no root). That finds the real LAN from
+behind a Docker bridge or WSL2's NAT, where this machine's own address says
+nothing about it, and both networks of a router behind the ISP's modem. When
+it finds them, the 65k-packet "full" pass over 192.168/16 is skipped, and so
+is a "wide" pass over a /16 that is only a virtual network in front of them.
+``VIVAVOCE_DISCOVERY_FULL=1`` puts both back.
 """
 
 from __future__ import annotations
 
+import os
 import select
 import socket
+import sys
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -125,6 +137,99 @@ def _local_prefixes() -> List[str]:
     return prefixes
 
 
+#: Linux constants the socket module does not always export.
+_IP_RECVERR = getattr(socket, "IP_RECVERR", 11)
+_MSG_ERRQUEUE = getattr(socket, "MSG_ERRQUEUE", 0x2000)
+#: How far out to look. A home path is one or two routers (three behind a
+#: Docker bridge) before the ISP; past six it is all the provider's.
+_MAX_HOPS = 6
+#: Never reached — the probes die on the way — but it has to be routable.
+_HOP_TARGET = ("1.1.1.1", 33434)
+
+
+def _is_rfc1918(ip: str) -> bool:
+    o = ip.split(".")
+    if len(o) != 4 or not all(x.isdigit() for x in o):
+        return False
+    a, b = int(o[0]), int(o[1])
+    return a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
+
+
+def _path_hops(max_hops: int = _MAX_HOPS, timeout: float = 1.0) -> Dict[int, str]:
+    """``{ttl: router address}`` for the routers that answered on the path out.
+
+    One UDP socket per TTL, all sent at once; the router where a probe runs
+    out of TTL answers ICMP time-exceeded, which Linux queues on that socket
+    (IP_RECVERR) for an unprivileged reader. Linux only: anywhere else, and
+    on any error at all, ``{}`` — which is "unknown", never "no routers".
+    """
+    if not sys.platform.startswith("linux") or not hasattr(socket.socket, "recvmsg"):
+        return {}
+    socks: Dict[int, socket.socket] = {}
+    hops: Dict[int, str] = {}
+    try:
+        for ttl in range(1, max_hops + 1):
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            socks[ttl] = s
+            s.setblocking(False)
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, ttl)
+            s.setsockopt(socket.IPPROTO_IP, _IP_RECVERR, 1)
+            s.sendto(b"vivavoce-hop", (_HOP_TARGET[0], _HOP_TARGET[1] + ttl))
+        deadline = time.time() + timeout
+        while len(hops) < max_hops and time.time() < deadline:
+            for ttl, s in socks.items():
+                if ttl in hops:
+                    continue
+                try:
+                    _, anc, _, _ = s.recvmsg(
+                        64, 512, _MSG_ERRQUEUE | socket.MSG_DONTWAIT)
+                except (BlockingIOError, InterruptedError):
+                    continue
+                for level, kind, data in anc:
+                    # struct sock_extended_err (16 bytes), then the offender's
+                    # sockaddr_in: origin 2 is ICMP, type 11 time-exceeded.
+                    if (level == socket.IPPROTO_IP and kind == _IP_RECVERR
+                            and len(data) >= 24 and data[4] == 2 and data[5] == 11):
+                        hops[ttl] = socket.inet_ntoa(data[20:24])
+            time.sleep(0.02)
+    except OSError:
+        return {}  # offline, no route, a sandbox without the option
+    finally:
+        for s in socks.values():
+            s.close()
+    return hops
+
+
+def _router_prefixes(hops: Dict[int, str], limit: int = 4) -> List[str]:
+    """The /24s of the household's routers, read off ``_path_hops``.
+
+    Private hops count from the first one up to the first gap or the first
+    address that is not RFC1918: past that the path is the provider's, which
+    may well be private too (172.16.x inside an ISP is common) and is no place
+    to look for a hi-fi. A silent first hop is skipped rather than ending it.
+    """
+    out: List[str] = []
+    for ttl in range(1, max(hops, default=0) + 1):
+        ip = hops.get(ttl)
+        if not ip:
+            if out:
+                break
+            continue
+        if not _is_rfc1918(ip):
+            break
+        prefix = ip.rsplit(".", 1)[0]
+        if prefix not in out:
+            out.append(prefix)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _full_sweep_forced() -> bool:
+    return os.environ.get("VIVAVOCE_DISCOVERY_FULL", "").strip().lower() in (
+        "1", "true", "yes")
+
+
 def _sibling_prefixes(prefixes: List[str]) -> List[str]:
     """Every /24 inside the /16 each local prefix sits in.
 
@@ -149,17 +254,31 @@ def _sibling_prefixes(prefixes: List[str]) -> List[str]:
 
 def _candidate_phases() -> List[Tuple[str, List[str]]]:
     """Ordered sweep phases as ``(name, [/24 prefixes])``, no duplicates:
-    local interfaces first, then common home subnets, then the rest of a
-    wide local range (10.x/16, 172.16-31.x/16), then all of 192.168/16."""
+    local interfaces first, then the routers' subnets on the path out, then
+    common home subnets, then the rest of a wide local range (10.x/16,
+    172.16-31.x/16), then all of 192.168/16.
+
+    The last two only while the routers are unknown (see the module
+    docstring). Once they are known, "wide" survives only for a local /16
+    with a router in ANOTHER /24 of it — the flat 10.0/16 it was written
+    for; a Docker bridge or WSL's NAT has its gateway in our own /24."""
     seen: set = set()
     phases: List[Tuple[str, List[str]]] = []
     local = _local_prefixes()
-    for name, prefixes in [
-        ("local", local),
-        ("common", _COMMON_PREFIXES),
-        ("wide", _sibling_prefixes(local)),
-        ("full", [f"192.168.{i}" for i in range(256)]),
-    ]:
+    routers = _router_prefixes(_path_hops())
+    plan = [("local", local), ("routers", routers), ("common", _COMMON_PREFIXES)]
+    if not routers or _full_sweep_forced():
+        plan += [
+            ("wide", _sibling_prefixes(local)),
+            ("full", [f"192.168.{i}" for i in range(256)]),
+        ]
+    else:
+        def flat(p: str) -> bool:
+            slash16 = p.rsplit(".", 1)[0]
+            return any(r != p and r.rsplit(".", 1)[0] == slash16
+                       for r in routers)
+        plan.append(("wide", _sibling_prefixes([p for p in local if flat(p)])))
+    for name, prefixes in plan:
         fresh = [p for p in prefixes if p not in seen]
         seen.update(fresh)
         if fresh:
@@ -177,7 +296,7 @@ def discover_unicast(
     first LMS that answers (as a one-element list; empty if none). Never raises.
 
     ``on_progress`` (if given) is called with the phase name ("local",
-    "common", "full") as each begins. Replies are polled every few dozen
+    "routers", "common", "full"...) as each begins. Replies are polled every few dozen
     packets — early exit on the first valid answer, so on a typical network
     this returns in well under a second once the right subnet is reached.
 
@@ -187,6 +306,8 @@ def discover_unicast(
     once cost the one packet that mattered. This self-paces the sweep to
     whatever the network layer actually sustains.
     """
+    if phases is None:
+        phases = _candidate_phases()
     request = _request()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setblocking(False)
@@ -233,7 +354,7 @@ def discover_unicast(
 
     try:
         sent = 0
-        for name, prefixes in phases or _candidate_phases():
+        for name, prefixes in phases:
             if on_progress:
                 on_progress(name)
             for prefix in prefixes:
